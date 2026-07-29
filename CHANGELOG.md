@@ -3,6 +3,25 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.2.9] — 2026-07-29
+
+### Toegevoegd
+- **Rechtermuisknop-menu voor kopiëren en plakken.** Selecteer je tekst en klik
+  je met de rechtermuisknop, dan krijg je nu een menu met Kopiëren en "Zoek … op
+  Google". In een invulveld (bijvoorbeeld het opstelvenster of de zoekbalk van
+  Gmail) staan ook Ongedaan maken, Opnieuw, Knippen, Plakken en Plakken zonder
+  opmaak. Op een link kun je de koppeling kopiëren of in je browser openen, en op
+  een afbeelding kun je de afbeelding of de koppeling ervan kopiëren. Werkt in de
+  hele app: de zijbalk, Gmail, Agenda en losse venstertjes.
+
+### Added
+- **Right-click menu for copying and pasting.** Select text and right-click to
+  get a menu with Copy and "Search Google for …". In an editable field (Gmail's
+  compose window or search box, for instance) it also offers Undo, Redo, Cut,
+  Paste and Paste without formatting. On a link you can copy the address or open
+  it in your browser, and on an image you can copy the image or its address.
+  Works throughout the app: the sidebar, Gmail, Calendar and pop-out windows.
+
 ## [0.2.8] — 2026-07-15
 
 ### Toegevoegd
