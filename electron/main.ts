@@ -31,6 +31,7 @@ import { sortByOrder } from './account-order';
 import { notificationsAllowed, notificationSilent } from './notification-policy';
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
+import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
 
 // WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
 // and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
@@ -1002,6 +1003,12 @@ app.on('open-url', (event, url) => {
 app.whenReady().then(() => {
   if (!gotTheLock) return; // a primary instance is already running
   Menu.setApplicationMenu(null); // drop the default File/Edit/View… menu bar
+  // One hook covers every webContents the app ever creates — sidebar, Gmail and
+  // Calendar views, compose and pop-out windows — so right-click works the same
+  // everywhere. Registered before createWindow so the first ones are included.
+  app.on('web-contents-created', (_e, wc) => {
+    attachContextMenu(wc, () => (prefs?.getAll().reneMode ? LABELS_RENE : LABELS_NORMAL));
+  });
   registerAppProtocol();
   setupNotifications();
   registerIpc();
