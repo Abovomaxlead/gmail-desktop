@@ -11,6 +11,9 @@ const THREAD = 'https://mail.google.com/mail/u/0/#inbox/abc';
 // Gmail's "View entire message" link on a clipped email opens this standalone
 // full-message reader via target=_blank.
 const FULL_MSG = 'https://mail.google.com/mail/u/0/?ui=2&ik=abc&view=lg&permmsgid=msg-f:1&th=2';
+// "Open in a new window" on a PDF (or any other) attachment.
+const ATTACHMENT =
+  'https://mail.google.com/mail/u/0/?ui=2&ik=abc&attid=0.1&permmsgid=msg-f:1&th=2&view=att&disp=safe&realattid=f_x&zw';
 
 describe('windowOpenAction', () => {
   it('sends non-Google URLs to the external browser regardless of state', () => {
@@ -70,5 +73,27 @@ describe('windowOpenAction', () => {
     // in either mode (a standalone reader, like a pop-out).
     expect(windowOpenAction(FULL_MSG, 'app', false, false)).toBe('allow');
     expect(windowOpenAction(FULL_MSG, 'window', false, false)).toBe('allow');
+  });
+
+  it('always opens an attachment externally, never in a view', () => {
+    // The reported bug: "open in a new window" on a PDF loaded the attachment
+    // into the existing mail view (surfaceForUrl maps mail.google.com back to
+    // the mail surface), replacing the inbox. Attachments are files, so they go
+    // to the browser/OS in either mode.
+    expect(windowOpenAction(ATTACHMENT, 'app', false, false)).toBe('open-external');
+    expect(windowOpenAction(ATTACHMENT, 'window', false, false)).toBe('open-external');
+    // …and are never mistaken for Gmail's echo of a notification click.
+    expect(windowOpenAction(ATTACHMENT, 'app', true, false)).toBe('open-external');
+  });
+
+  it('opens a download of the attachment bytes externally too', () => {
+    expect(
+      windowOpenAction(
+        'https://mail-attachment.googleusercontent.com/attachment/u/0/?ui=2&ik=abc&view=att&disp=attd',
+        'app',
+        false,
+        false,
+      ),
+    ).toBe('open-external');
   });
 });

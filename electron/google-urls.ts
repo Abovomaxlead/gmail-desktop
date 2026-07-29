@@ -33,6 +33,26 @@ export function isFullMessageViewUrl(url: string): boolean {
   }
 }
 
+// Gmail serves attachment downloads and previews — a PDF, an image, a docx —
+// from ?view=att urls on its own host, and the bytes themselves from the
+// mail-attachment.googleusercontent.com host. Those are files, not app
+// surfaces, so opening one in a new window belongs to the browser/OS.
+//
+// Without this they fall into the open-in-app path, where surfaceForUrl() maps
+// mail.google.com straight back to the mail surface: the attachment loads into
+// the existing mail view, replacing the inbox with no way back to it.
+export function isAttachmentUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    if (host === 'mail-attachment.googleusercontent.com') return true;
+    if (host !== 'mail.google.com') return false;
+    return u.searchParams.get('view') === 'att';
+  } catch {
+    return false;
+  }
+}
+
 // A window.open / navigation with no real destination yet: about:blank (or an
 // empty target). Login and verification flows open such a blank popup first,
 // then navigate it to the identity provider themselves. It must open as a real

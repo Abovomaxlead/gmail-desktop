@@ -6,6 +6,7 @@ import {
   isPopoutUrl,
   isFullMessageViewUrl,
   isBlankUrl,
+  isAttachmentUrl,
 } from './google-urls';
 
 // Routes links that don't belong to the in-app Gmail/Calendar/auth surfaces to
@@ -38,6 +39,12 @@ export function windowOpenAction(
   // itself. Let it open as a real window so the page can drive it — never
   // externalise about:, which pops a "no app for this link" OS dialog.
   if (isBlankUrl(url)) return 'allow';
+  // An attachment is a file, not an app surface: hand it to the browser/OS.
+  // Tested before isInAppUrl because attachments live on mail.google.com, which
+  // would otherwise keep them in-app and clobber the inbox — and before the
+  // suppressed check, since an attachment is always a deliberate user action,
+  // never Gmail's own echo of a notification click.
+  if (isAttachmentUrl(url)) return 'open-external';
   if (!isInAppUrl(url)) return 'open-external';
   // The "View entire message" reader is a standalone reading page (like a
   // pop-out): always let it open as its own window, never load it into the

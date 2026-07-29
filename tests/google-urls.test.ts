@@ -8,6 +8,7 @@ import {
   isFederatedLoginUrl,
   isPopoutUrl,
   isFullMessageViewUrl,
+  isAttachmentUrl,
 } from '../electron/google-urls';
 
 describe('google urls', () => {
@@ -109,5 +110,40 @@ describe('isFederatedLoginUrl', () => {
   });
   it('returns false for malformed urls', () => {
     expect(isFederatedLoginUrl('nope')).toBe(false);
+  });
+});
+
+describe('isAttachmentUrl', () => {
+  it('detects an attachment preview or download on Gmail (view=att)', () => {
+    expect(
+      isAttachmentUrl(
+        'https://mail.google.com/mail/u/0/?ui=2&ik=abc&attid=0.1&permmsgid=msg-f:1&th=2&view=att&disp=safe&realattid=f_x&zw',
+      ),
+    ).toBe(true);
+    // Download disposition, and a different authuser slot.
+    expect(
+      isAttachmentUrl('https://mail.google.com/mail/u/3/?ui=2&ik=abc&view=att&disp=attd&th=2'),
+    ).toBe(true);
+    // Inline preview disposition.
+    expect(isAttachmentUrl('https://mail.google.com/mail/u/0/?view=att&disp=inline&th=2')).toBe(true);
+  });
+
+  it('detects the host serving the attachment bytes', () => {
+    expect(
+      isAttachmentUrl(
+        'https://mail-attachment.googleusercontent.com/attachment/u/0/?ui=2&ik=abc&view=att&disp=attd',
+      ),
+    ).toBe(true);
+  });
+
+  it('leaves other Gmail views and surfaces alone', () => {
+    expect(isAttachmentUrl('https://mail.google.com/mail/u/0/#inbox/abc')).toBe(false);
+    // The full-message reader and "show original" are pages, not attachments.
+    expect(isAttachmentUrl('https://mail.google.com/mail/u/0/?ui=2&view=lg&th=2')).toBe(false);
+    expect(isAttachmentUrl('https://mail.google.com/mail/u/0/?ui=2&view=om&th=2')).toBe(false);
+    // A Drive-hosted attachment stays a Drive surface url.
+    expect(isAttachmentUrl('https://drive.google.com/file/d/abc/view')).toBe(false);
+    expect(isAttachmentUrl('https://example.com/?view=att')).toBe(false);
+    expect(isAttachmentUrl('not a url')).toBe(false);
   });
 });

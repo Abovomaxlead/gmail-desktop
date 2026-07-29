@@ -14,6 +14,12 @@ to [Semantic Versioning](https://semver.org/).
   een afbeelding kun je de afbeelding of de koppeling ervan kopiëren. Werkt in de
   hele app: de zijbalk, Gmail, Agenda en losse venstertjes.
 
+### Opgelost
+- **Een bijlage in een nieuw venster openen verving je postvak.** Koos je bij een
+  pdf (of een ander bestand) "openen in een nieuw venster", dan werd de bijlage
+  in het bestaande postvak geladen: je inbox verdween en er was geen weg terug.
+  Bijlagen openen nu in je standaardbrowser, buiten de app.
+
 ### Added
 - **Right-click menu for copying and pasting.** Select text and right-click to
   get a menu with Copy and "Search Google for …". In an editable field (Gmail's
@@ -21,6 +27,12 @@ to [Semantic Versioning](https://semver.org/).
   Paste and Paste without formatting. On a link you can copy the address or open
   it in your browser, and on an image you can copy the image or its address.
   Works throughout the app: the sidebar, Gmail, Calendar and pop-out windows.
+
+### Fixed
+- **Opening an attachment in a new window replaced your mailbox.** Choosing
+  "open in a new window" for a PDF (or any other file) loaded the attachment into
+  the existing mail view: the inbox disappeared with no way back. Attachments now
+  open in your default browser, outside the app.
 
 ## [0.2.8] — 2026-07-15
 
