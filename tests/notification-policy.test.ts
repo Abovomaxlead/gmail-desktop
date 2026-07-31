@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { notificationsAllowed, notificationSilent, inQuietHours } from '../electron/notification-policy';
+import {
+  notificationsAllowed,
+  notificationSilent,
+  notificationPersist,
+  wantsCalendarView,
+  inQuietHours,
+} from '../electron/notification-policy';
+import type { AccountRef } from '../renderer/lib/account-ref';
 import { DEFAULT_PREFS, type Prefs } from '../electron/prefs-store';
 
 function prefs(overrides: Partial<Prefs>): Prefs {
@@ -137,5 +144,58 @@ describe('notificationSilent', () => {
       accounts: { 'a@x.com': { notifySound: false } },
     });
     expect(notificationSilent(p, 'a@x.com')).toBe(true);
+  });
+});
+
+// A hidden calendar view exists only to fire reminders, so it follows the
+// calendarNotify opt-in — but a delegated mailbox whose calendar URL was never
+// captured has no calendar to load. Trusting the pref alone crashed main with
+// loadURL(null) the moment such a delegate was restored at startup.
+describe('wantsCalendarView', () => {
+  const authuser: AccountRef = { kind: 'authuser', index: 0 };
+  const delegateNoCal: AccountRef = {
+    kind: 'delegated',
+    email: 'd@x.com',
+    mailUrl: 'https://m/',
+    calendarUrl: null,
+  };
+  const delegateWithCal: AccountRef = { ...delegateNoCal, calendarUrl: 'https://c/' };
+
+  it('is off when the account never opted in', () => {
+    expect(wantsCalendarView(prefs({}), 'a@x.com', authuser)).toBe(false);
+  });
+  it('is on for an opted-in authuser account', () => {
+    const p = prefs({ accounts: { 'a@x.com': { calendarNotify: true } } });
+    expect(wantsCalendarView(p, 'a@x.com', authuser)).toBe(true);
+  });
+  it('is off for an opted-in delegate with no captured calendar url', () => {
+    const p = prefs({ accounts: { 'd@x.com': { calendarNotify: true } } });
+    expect(wantsCalendarView(p, 'd@x.com', delegateNoCal)).toBe(false);
+  });
+  it('is on for an opted-in delegate that does have a calendar', () => {
+    const p = prefs({ accounts: { 'd@x.com': { calendarNotify: true } } });
+    expect(wantsCalendarView(p, 'd@x.com', delegateWithCal)).toBe(true);
+  });
+});
+
+describe('notificationPersist', () => {
+  it('does not persist by default (field absent)', () => {
+    expect(notificationPersist(prefs({}), 'a@x.com')).toBe(false);
+  });
+  it('persists when notifyPersist is true', () => {
+    const p = prefs({ accounts: { 'a@x.com': { notifyPersist: true } } });
+    expect(notificationPersist(p, 'a@x.com')).toBe(true);
+  });
+  it('does not persist when notifyPersist is false', () => {
+    const p = prefs({ accounts: { 'a@x.com': { notifyPersist: false } } });
+    expect(notificationPersist(p, 'a@x.com')).toBe(false);
+  });
+  it('is per account', () => {
+    const p = prefs({ accounts: { 'a@x.com': { notifyPersist: true }, 'b@x.com': {} } });
+    expect(notificationPersist(p, 'a@x.com')).toBe(true);
+    expect(notificationPersist(p, 'b@x.com')).toBe(false);
+  });
+  it('is unknown-account safe', () => {
+    expect(notificationPersist(prefs({}), 'nobody@x.com')).toBe(false);
   });
 });

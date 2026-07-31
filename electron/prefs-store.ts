@@ -9,6 +9,9 @@ export interface AccountPref {
   calendarNotify?: boolean;
   badgeCount?: boolean;
   notifySound?: boolean;
+  // Opt-in: keep this account's notifications on screen until dismissed
+  // (requireInteraction -> Electron timeoutType 'never').
+  notifyPersist?: boolean;
 }
 export interface QuietHours {
   enabled: boolean;
@@ -33,6 +36,12 @@ export type ThemeChoice = 'system' | 'light' | 'dark';
 // 'window' opens a separate window as before.
 export type NotificationOpen = 'app' | 'window';
 
+// Waar gesleepte mail wordt opgeslagen. Leeg = de standaardmap, die main
+// bepaalt (deze module kent `app` niet).
+export interface MailDropPrefs {
+  folder: string;
+}
+
 export interface Prefs {
   window: WindowPrefs;
   autoStart: boolean;
@@ -40,6 +49,7 @@ export interface Prefs {
   notificationOpen: NotificationOpen;
   notifications: NotificationPrefs;
   accounts: Record<string, AccountPref>;
+  mailDrop: MailDropPrefs;
   // Easter egg: everything at 200% and the UI in simple Dutch. Toggled only by
   // the secret key sequence on the settings page.
   reneMode: boolean;
@@ -52,6 +62,7 @@ export const DEFAULT_PREFS: Prefs = {
   notificationOpen: 'app',
   notifications: { dnd: false, quietHours: { enabled: false, start: '18:00', end: '08:00' } },
   accounts: {},
+  mailDrop: { folder: '' },
   reneMode: false,
 };
 
@@ -76,6 +87,9 @@ export class PrefsStore {
         accounts: raw.accounts && typeof raw.accounts === 'object' && !Array.isArray(raw.accounts)
           ? raw.accounts
           : {},
+        mailDrop: {
+          folder: typeof raw.mailDrop?.folder === 'string' ? raw.mailDrop.folder : '',
+        },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
       };
     } catch {
@@ -105,6 +119,9 @@ export class PrefsStore {
   }
   setReneMode(v: boolean): void {
     this.write({ ...this.getAll(), reneMode: v });
+  }
+  setMailDropFolder(folder: string): void {
+    this.write({ ...this.getAll(), mailDrop: { folder } });
   }
   getAccount(email: string): AccountPref {
     return this.getAll().accounts[email] ?? {};

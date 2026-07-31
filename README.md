@@ -19,10 +19,21 @@ npm run build      # builds the Next.js sidebar and the Electron bundles
 npm start          # launches the app
 ```
 
-The quickest way to run everything locally with hot reload is
-`./run-dev.sh` — it installs dependencies if needed, bundles the Electron
-main/preload, starts the Next.js dev server, and launches Electron against
-it, tearing the dev server down again on exit.
+For day-to-day work use `npm run dev` (cross-platform, no bash needed). It
+starts the Next.js dev server, keeps esbuild watching the Electron bundles,
+and launches Electron against the dev renderer. What happens on a change:
+
+| You edit | What happens | Restart needed |
+| --- | --- | --- |
+| `renderer/` (sidebar, modal) | Next hot-reloads the page | no |
+| `electron/preload.ts` | esbuild rebuilds; main reloads the Gmail views | no |
+| `electron/main.ts` | esbuild rebuilds; Electron restarts itself | no (automatic) |
+
+Close a running instance first — the app takes a single-instance lock, so a
+second one exits immediately.
+
+`./run-dev.sh` does the same thing on Linux/macOS and additionally starts a
+notification daemon under WSL.
 
 ## Tests
 

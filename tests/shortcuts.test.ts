@@ -29,3 +29,15 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ ...base, control: true, key: '0' })).toEqual({ type: 'zoom', dir: 'reset' });
   });
 });
+
+describe('devtools shortcut', () => {
+  it('resolves ctrl+shift+i to opening the devtools', () => {
+    expect(resolveShortcut({ ...base, control: true, shift: true, key: 'I' })).toEqual({ type: 'devtools' });
+  });
+  it('needs the shift key', () => {
+    expect(resolveShortcut({ ...base, control: true, key: 'i' })).toBeNull();
+  });
+  it('needs a modifier', () => {
+    expect(resolveShortcut({ ...base, shift: true, key: 'i' })).toBeNull();
+  });
+});

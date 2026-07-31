@@ -103,4 +103,27 @@ describe('PrefsStore', () => {
   });
 });
 
+describe('PrefsStore mailDrop', () => {
+  it('defaults to an empty folder (meaning: use the default location)', () => {
+    expect(new PrefsStore(file).getAll().mailDrop).toEqual({ folder: '' });
+  });
+
+  it('persists a chosen folder across instances', () => {
+    new PrefsStore(file).setMailDropFolder('D:\\Mail');
+    expect(new PrefsStore(file).getAll().mailDrop.folder).toBe('D:\\Mail');
+  });
+
+  it('keeps other prefs intact when the folder changes', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    store.setMailDropFolder('D:\\Mail');
+    expect(store.getAll().theme).toBe('dark');
+  });
+
+  it('ignores a non-string folder in a hand-edited file', () => {
+    require('node:fs').writeFileSync(file, JSON.stringify({ mailDrop: { folder: 42 } }), 'utf8');
+    expect(new PrefsStore(file).getAll().mailDrop.folder).toBe('');
+  });
+});
+
 afterEach(() => rmSync(dir, { recursive: true, force: true }));

@@ -14,6 +14,7 @@ interface Profile {
   avatarUrl: string;
   color: string;
   label?: string;
+  hasCalendar: boolean;
 }
 
 const SWATCHES = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#A142F4', '#00ACC1'];
@@ -72,6 +73,39 @@ function TrashIcon({ className = '' }: { className?: string }) {
     >
       <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6M10 11v6M14 11v6" />
     </svg>
+  );
+}
+
+// A per-account on/off pill. Replaces the row of labelled checkboxes that used
+// to share the account header — five of those made it unreadable. Filled means
+// on, outline means off; `role="switch"` keeps keyboard and screen-reader
+// behaviour that a styled div would lose.
+function ToggleChip({
+  label,
+  title,
+  checked,
+  onChange,
+}: {
+  label: string;
+  title: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      title={title}
+      onClick={() => onChange(!checked)}
+      className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
+        checked
+          ? 'bg-blue-600 text-white hover:bg-blue-500'
+          : 'border border-black/10 text-neutral-500 hover:border-black/20 hover:text-neutral-700 dark:border-white/15 dark:text-neutral-400 dark:hover:border-white/25 dark:hover:text-neutral-200'
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -169,6 +203,22 @@ export function SettingsPanel({
 }) {
   const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({});
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
+
+  // Waar gesleepte mail wordt opgeslagen. Het paneel wordt gemonteerd zodra het
+  // opengaat, dus dit haalt bij elke opening het actuele (opgeloste) pad op.
+  const [mailDropFolder, setMailDropFolder] = useState('');
+  useEffect(() => {
+    let alive = true;
+    window.desktop
+      ?.getMailDropFolder()
+      .then((f) => {
+        if (alive) setMailDropFolder(f);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const rene = prefs?.reneMode === true;
   const S = getStrings(rene);
@@ -328,6 +378,29 @@ export function SettingsPanel({
               <option value="app">{S.openInApp}</option>
               <option value="window">{S.openInWindow}</option>
             </select>
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-col">
+              <span className="text-sm">{S.mailDropFolder}</span>
+              <span className="truncate text-xs text-neutral-400" title={mailDropFolder}>
+                {mailDropFolder}
+              </span>
+              <span className="text-xs text-neutral-400">{S.mailDropHint}</span>
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <button
+                onClick={() => void window.desktop?.pickMailDropFolder().then(setMailDropFolder)}
+                className="rounded bg-neutral-200 px-3 py-1 text-sm hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+              >
+                {S.mailDropChoose}
+              </button>
+              <button
+                onClick={() => window.desktop?.openMailDropFolder()}
+                className="rounded bg-neutral-200 px-3 py-1 text-sm hover:bg-neutral-300 dark:bg-neutral-800 dark:hover:bg-neutral-700"
+              >
+                {S.mailDropOpen}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -523,44 +596,6 @@ export function SettingsPanel({
                         style={{ backgroundColor: c }}
                       />
                     ))}
-                    <div className="flex items-center gap-2">
-                      <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400" title={S.mailToggleTitle}>
-                        <input
-                          type="checkbox"
-                          checked={prefs?.accounts?.[p.email]?.notify !== false}
-                          onChange={(e) => window.desktop?.setAccountPref({ email: p.email, notify: e.target.checked })}
-                          className="h-3.5 w-3.5 accent-blue-600"
-                        />
-                        {S.mailToggle}
-                      </label>
-                      <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400" title={S.calendarToggleTitle}>
-                        <input
-                          type="checkbox"
-                          checked={prefs?.accounts?.[p.email]?.calendarNotify === true}
-                          onChange={(e) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: e.target.checked })}
-                          className="h-3.5 w-3.5 accent-blue-600"
-                        />
-                        {S.calendarToggle}
-                      </label>
-                      <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400" title={S.badgeToggleTitle}>
-                        <input
-                          type="checkbox"
-                          checked={prefs?.accounts?.[p.email]?.badgeCount !== false}
-                          onChange={(e) => window.desktop?.setAccountPref({ email: p.email, badgeCount: e.target.checked })}
-                          className="h-3.5 w-3.5 accent-blue-600"
-                        />
-                        {S.badgeToggle}
-                      </label>
-                      <label className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400" title={S.soundToggleTitle}>
-                        <input
-                          type="checkbox"
-                          checked={prefs?.accounts?.[p.email]?.notifySound !== false}
-                          onChange={(e) => window.desktop?.setAccountPref({ email: p.email, notifySound: e.target.checked })}
-                          className="h-3.5 w-3.5 accent-blue-600"
-                        />
-                        {S.soundToggle}
-                      </label>
-                    </div>
                     <button
                       onClick={() => setConfirmEmail(p.email)}
                       aria-label={S.removeAccount}
@@ -570,6 +605,46 @@ export function SettingsPanel({
                       <TrashIcon className="h-4 w-4" />
                     </button>
                   </div>
+                </div>
+
+                {/* Wraps rather than overflows — René mode renders everything at 200%. */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <ToggleChip
+                    label={S.mailToggle}
+                    title={S.mailToggleTitle}
+                    checked={prefs?.accounts?.[p.email]?.notify !== false}
+                    onChange={(v) => window.desktop?.setAccountPref({ email: p.email, notify: v })}
+                  />
+                  {/* A delegated mailbox without a captured calendar url has no
+                      calendar surface — offering the toggle only writes a pref
+                      that nothing can honour. Mirrors the sidebar, which hides
+                      the calendar button for the same profiles. */}
+                  {p.hasCalendar && (
+                    <ToggleChip
+                      label={S.calendarToggle}
+                      title={S.calendarToggleTitle}
+                      checked={prefs?.accounts?.[p.email]?.calendarNotify === true}
+                      onChange={(v) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: v })}
+                    />
+                  )}
+                  <ToggleChip
+                    label={S.badgeToggle}
+                    title={S.badgeToggleTitle}
+                    checked={prefs?.accounts?.[p.email]?.badgeCount !== false}
+                    onChange={(v) => window.desktop?.setAccountPref({ email: p.email, badgeCount: v })}
+                  />
+                  <ToggleChip
+                    label={S.soundToggle}
+                    title={S.soundToggleTitle}
+                    checked={prefs?.accounts?.[p.email]?.notifySound !== false}
+                    onChange={(v) => window.desktop?.setAccountPref({ email: p.email, notifySound: v })}
+                  />
+                  <ToggleChip
+                    label={S.persistToggle}
+                    title={S.persistToggleTitle}
+                    checked={prefs?.accounts?.[p.email]?.notifyPersist === true}
+                    onChange={(v) => window.desktop?.setAccountPref({ email: p.email, notifyPersist: v })}
+                  />
                 </div>
 
                 {confirmEmail === p.email && (

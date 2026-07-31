@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { SettingsPanel } from './SettingsPanel';
+import type { MailDropItem } from './MailDropModal';
 import { CALENDAR_ICON_DATA_URI } from './calendar-icon-data';
 import { getStrings } from './strings';
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../lib/surfaces';
@@ -53,6 +54,7 @@ export interface AccountPref {
   calendarNotify?: boolean;
   badgeCount?: boolean;
   notifySound?: boolean;
+  notifyPersist?: boolean;
 }
 export interface Prefs {
   window: { width: number; height: number; x?: number; y?: number; maximized: boolean };
@@ -61,6 +63,7 @@ export interface Prefs {
   notificationOpen: 'app' | 'window';
   notifications: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } };
   accounts: Record<string, AccountPref>;
+  mailDrop: { folder: string };
   reneMode: boolean;
 }
 
@@ -85,13 +88,20 @@ interface DesktopBridge {
   onUpdateStatus(cb: (status: UpdateStatus) => void): void;
   setAutoStart(v: boolean): void;
   onPrefsChanged(cb: (prefs: Prefs) => void): void;
-  setAccountPref(arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean }): void;
+  setAccountPref(arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }): void;
   setAccountOrder(emails: string[]): void;
   setNotifications(arg: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } }): void;
   setTheme(theme: 'system' | 'light' | 'dark'): void;
   setNotificationOpen(v: 'app' | 'window'): void;
   setReneMode(v: boolean): void;
   setDefaultMail(): void;
+  isOverlay: boolean;
+  onMailDropPreview(cb: (arg: { items: MailDropItem[] }) => void): void;
+  closeMailDropPreview(): void;
+  getMailDropPreview(): Promise<{ items: MailDropItem[] }>;
+  getMailDropFolder(): Promise<string>;
+  pickMailDropFolder(): Promise<string>;
+  openMailDropFolder(): void;
   onDefaultMailStatus(cb: (isDefault: boolean) => void): void;
   getChangelog(): Promise<ChangelogVersion[]>;
 }
@@ -169,6 +179,8 @@ export default function Sidebar() {
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Gevuld zodra een sleep is opgeslagen; null = geen modal.
+  const [dropItems, setDropItems] = useState<MailDropItem[] | null>(null);
   const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({});
   const [update, setUpdate] = useState<UpdateStatus>({ state: 'idle' });
   const [prefs, setPrefs] = useState<Prefs | null>(null);
@@ -201,6 +213,7 @@ export default function Sidebar() {
     });
     bridge.onSettingsForceClose(() => setSettingsOpen(false));
     bridge.onSettingsForceOpen(() => setSettingsOpen(true));
+    bridge.onMailDropPreview(({ items }) => setDropItems(items));
     bridge.onUpdateStatus(setUpdate);
     bridge.onPrefsChanged((p) => setPrefs(p as Prefs));
     bridge.onDefaultMailStatus(setIsDefaultMail);
@@ -316,7 +329,7 @@ export default function Sidebar() {
                   title={isDelegated ? `${displayName(p)} ${S.delegatedTooltipSuffix}` : displayName(p)}
                   className={`flex h-11 w-11 items-center justify-center overflow-hidden rounded-full text-sm font-semibold text-white transition-all duration-150 ${
                     mailActive
-                      ? 'ring-2 ring-white ring-offset-2 ring-offset-neutral-100 dark:ring-offset-neutral-950'
+                      ? 'ring-2 dark:ring-white ring-black ring-offset-2 ring-offset-neutral-100 dark:ring-offset-neutral-950'
                       : 'opacity-85 hover:opacity-100 hover:ring-2 hover:ring-white/40'
                   }`}
                   style={{ backgroundColor: p.color }}

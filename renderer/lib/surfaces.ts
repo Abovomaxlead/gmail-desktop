@@ -46,6 +46,17 @@ function ownedIndex(ref: AccountRef, surface: string): number {
   return ref.index;
 }
 
+// A delegated mailbox only has a calendar when Google's switcher exposed one.
+// Refuse loudly when it didn't: returning undefined here used to reach
+// webContents.loadURL(null), which kills the main process with an opaque
+// "conversion failure from null". surfacesForRef gates the honest callers.
+function delegatedCalendarUrl(ref: { email: string; calendarUrl: string | null }): string {
+  if (!ref.calendarUrl) {
+    throw new Error(`no calendar url captured for delegated mailbox ${ref.email}`);
+  }
+  return ref.calendarUrl;
+}
+
 export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
   mail: {
     label: 'Mail',
@@ -61,7 +72,7 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
     // Delegated calendar URL is the captured one (only present when reachable).
     url: (ref) =>
       ref.kind === 'delegated'
-        ? ref.calendarUrl!
+        ? delegatedCalendarUrl(ref)
         : `https://calendar.google.com/calendar/u/${ref.index}/r`,
     backgroundThrottling: false,
   },

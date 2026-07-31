@@ -1,6 +1,6 @@
 import { BrowserWindow, WebContentsView } from 'electron';
 import { contentBounds } from './layout';
-import { IPC, type NotifyState } from './ipc';
+import { IPC, type NotifyState, type MailDropPayload, type MailDropResult } from './ipc';
 import { attachExternalLinkHandling } from './external-links';
 import type { KeyInput } from './shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, type Surface } from '../renderer/lib/surfaces';
@@ -60,6 +60,8 @@ export class ProfileViewManager {
     // Zoom factor of the sidebar renderer (2 in Rene mode) — the content view
     // must sit past the visually wider sidebar.
     private readonly getUiScale: () => number = () => 1,
+    // Een mail is naar de dropzone in deze view gesleept.
+    private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
   ) {
     this.win.on('resize', () => this.relayout());
   }
@@ -90,6 +92,7 @@ export class ProfileViewManager {
       if (surface === 'mail') {
         if (channel === IPC.UNREAD_UPDATE) this.onUnread(acctKey, Number(args[0]) || 0);
         else if (channel === IPC.ACCOUNT_IDENTITY) this.onIdentity(acctKey, args[0]);
+        else if (channel === IPC.MAIL_DROP) this.onMailDrop(acctKey, args[0] as MailDropPayload);
       }
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
         this.onActivate(acctKey, surface, typeof args[0] === 'string' ? args[0] : undefined);
@@ -264,6 +267,61 @@ export class ProfileViewManager {
     // pref change takes effect without waiting for a reload. `silent` is only
     // ever true for the mail surface (see notificationSilent).
     if (surface === 'mail') wc.setAudioMuted(state.silent);
+  }
+
+  // Laadt een url in een tijdelijke view op dezelfde sessie, laat de aanroeper
+  // erin rondkijken, en ruimt hem daarna op. Gebruikt om een label uit te lezen
+  // zonder de zichtbare mailview weg te navigeren.
+  //
+  // De view staat buiten het venster in plaats van op `setVisible(false)`: een
+  // onzichtbare view geldt als bedekt, en Gmail bouwt zijn berichtenlijst dan
+  // niet op. Hij heeft ook een echt formaat nodig, anders past er geen lijst in.
+  async withHiddenView<T>(
+    url: string,
+    fn: (wc: WebContentsView['webContents']) => Promise<T>,
+  ): Promise<T> {
+    const view = new WebContentsView({
+      webPreferences: {
+        preload: this.preloadPath,
+        partition: SESSION_PARTITION,
+        contextIsolation: false,
+      },
+    });
+    this.win.contentView.addChildView(view);
+    view.setBounds({ x: -4000, y: 0, width: 1280, height: 900 });
+    try {
+      await view.webContents.loadURL(url);
+      return await fn(view.webContents);
+    } finally {
+      try {
+        this.win.contentView.removeChildView(view);
+      } catch {
+        // Venster al afgebroken tijdens het opruimen.
+      }
+      if (!view.webContents.isDestroyed()) view.webContents.close();
+    }
+  }
+
+  // Alleen voor de ontwikkelmodus: een herbouwde preload wordt pas opgepikt bij
+  // een nieuwe navigatie, dus herladen we elke view.
+  reloadAll(): void {
+    for (const v of this.views.values()) {
+      if (!v.webContents.isDestroyed()) v.webContents.reload();
+    }
+  }
+
+  toggleDevTools(): void {
+    if (!this.activeViewKey) return;
+    const wc = this.views.get(this.activeViewKey)?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    if (wc.isDevToolsOpened()) wc.closeDevTools();
+    else wc.openDevTools({ mode: 'detach' });
+  }
+
+  sendDropResult(accountKey: string, result: MailDropResult): void {
+    const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.send(IPC.MAIL_DROP_RESULT, result);
   }
 
   // Discover delegated mailboxes by opening the account's One-Google switcher

@@ -4,6 +4,7 @@ export const IPC = {
   UNREAD_UPDATE: 'unread:update', // send(count:number)
   NOTIFICATION_ACTIVATE: 'notification:activate', // send(threadId?: string) — clicked notification's thread when resolvable
   ACCOUNT_IDENTITY: 'account:identity', // send({email,name,avatarUrl})
+  MAIL_DROP: 'mail:drop', // send(MailDropPayload) — mail gesleept naar de dropzone
   // renderer (sidebar) -> main
   SWITCH_SURFACE: 'switch:surface', // send({key, surface:'mail'|'calendar'}) — key = accountKey
   REDETECT: 'accounts:redetect', // send()
@@ -26,6 +27,9 @@ export const IPC = {
   SET_NOTIFICATION_OPEN: 'prefs:notification-open', // send('app'|'window')
   SET_RENE_MODE: 'prefs:rene-mode', // send(boolean) — settings-page easter egg toggle
   SET_DEFAULT_MAIL: 'mail:set-default', // send() — (re)claim the OS mailto: default
+  MAIL_DROP_FOLDER_GET: 'maildrop:folder-get', // invoke() -> string (resolved save folder)
+  MAIL_DROP_FOLDER_PICK: 'maildrop:folder-pick', // invoke() -> string (new folder, or the old one on cancel)
+  MAIL_DROP_FOLDER_OPEN: 'maildrop:folder-open', // send() — reveal the folder in the file manager
   CHANGELOG_GET: 'changelog:get', // invoke() -> ChangelogVersion[] — parsed CHANGELOG.md
   // main -> renderer (sidebar)
   PROFILES_CHANGED: 'profiles:changed', // Profile[]
@@ -37,10 +41,52 @@ export const IPC = {
   PREFS_CHANGED: 'prefs:changed', // main -> renderer: full Prefs
   MAIL_DEFAULT_STATUS: 'mail:default-status', // main -> renderer: boolean (is default mailto client)
   NOTIFY_ALLOWED: 'notify:allowed', // main -> mail view: send(NotifyState)
+  MAIL_DROP_RESULT: 'mail:drop-result', // main -> mail view: send(MailDropResult)
+  MAIL_DROP_PREVIEW: 'maildrop:preview', // main -> renderer (sidebar): send({items}) — open the modal
+  MAIL_DROP_PREVIEW_CLOSE: 'maildrop:preview-close', // renderer -> main: send() — modal closed, drop the overlay
+  MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get', // invoke() -> {items} — de modal haalt zelf op, voor het geval de push hem nét miste
 } as const;
 
+// Eén gesleept gesprek. Het onderwerp komt uit de berichtenlijst en is er dus
+// meteen — de sidebar hoeft niet op het ophalen te wachten om te tonen wát je
+// versleept.
+export interface MailDropItem {
+  threadId: string;
+  subject: string;
+}
+
+// Payload van IPC.MAIL_DROP: wat de Gmail-pagina weet op het moment van de drop.
+// Meerdere items omdat Gmail een hele selectie tegelijk laat slepen.
+export interface MailDropPayload {
+  items: MailDropItem[];
+  authuser: string;
+  ik: string;
+  // Gezet als er een label uit de navigatie is gesleept in plaats van losse
+  // gesprekken. `items` is dan leeg: main zoekt zelf op wat er in het label zit.
+  label?: string;
+}
+
+// Payload van IPC.MAIL_DROP_PREVIEW: wat er is opgeslagen, per gesleept gesprek.
+// Verstuurd ná het opslaan, zodat de modal de werkelijke uitkomst toont.
+export interface MailDropPreviewItem {
+  threadId: string;
+  subject: string;
+  saved: number; // aantal weggeschreven berichten uit dit gesprek
+  error?: string;
+}
+
+// Payload van IPC.MAIL_DROP_RESULT. `total` is het aantal gevonden berichten in
+// de conversatie, `count` hoeveel daarvan zijn opgeslagen.
+export interface MailDropResult {
+  ok: boolean;
+  count: number;
+  total: number;
+  error?: string;
+}
+
 // Payload of IPC.NOTIFY_ALLOWED. `show` gates whether a notification is shown
-// at all; `silent` styles a shown notification (no sound) without suppressing it.
-export type NotifyState = { show: boolean; silent: boolean };
+// at all; `silent` and `persist` style a shown notification (no sound / stays
+// on screen until dismissed) without suppressing it.
+export type NotifyState = { show: boolean; silent: boolean; persist: boolean };
 
 export type { ChangelogVersion, ChangelogEntry } from './changelog';

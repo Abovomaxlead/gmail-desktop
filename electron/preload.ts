@@ -1,5 +1,23 @@
 import { parseUnreadCount } from './unread-parser';
-import { IPC, type NotifyState } from './ipc';
+import { IPC, type NotifyState, type MailDropPayload, type MailDropResult } from './ipc';
+import { labelFromDragTarget } from './label-drop';
+import {
+  DROPZONE_ID,
+  DROPZONE_CSS,
+  DROPZONE_LABEL,
+  threadIdFromDragTarget,
+  selectedThreadIds,
+  threadIdsForDrag,
+  threadSubjects,
+  itemsForDrag,
+  isOverZone,
+  movedEnough,
+  type Point,
+  authuserFromPath,
+  ikFromPage,
+  resultText,
+  type DragNode,
+} from './dropzone';
 
 export function computeAndReport(
   doc: { title: string },
@@ -82,6 +100,22 @@ export function rerouteServiceWorkerNotifications(
   };
 }
 
+// Apply the main-process gate's styling to the options the page passed.
+// `requireInteraction` is the web API's name for "don't auto-dismiss"; Electron
+// maps it to timeoutType 'never', which on Windows becomes a scenario="reminder"
+// toast that stays up until the user closes it.
+export function notificationOptionsFor(
+  state: NotifyState,
+  options?: NotificationOptions,
+): NotificationOptions | undefined {
+  if (!state.silent && !state.persist) return options;
+  return {
+    ...options,
+    ...(state.silent ? { silent: true } : {}),
+    ...(state.persist ? { requireInteraction: true } : {}),
+  };
+}
+
 export function isEditableTarget(
   el: { tagName?: string; isContentEditable?: boolean } | null | undefined,
 ): boolean {
@@ -109,12 +143,146 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
   };
 }
 
+// Hangt de dropzone in de Gmail-pagina en geeft terug hoe je het resultaat van
+// een drop toont. Alleen aanroepen als er een document is.
+function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult) => void {
+  const style = document.createElement('style');
+  style.textContent = DROPZONE_CSS;
+  const zone = document.createElement('div');
+  zone.id = DROPZONE_ID;
+  zone.textContent = DROPZONE_LABEL;
+  zone.setAttribute('data-state', 'idle');
+
+  // In <body>, niet in <html>: een element dat naast <body> hangt krijgt geen
+  // plek in de renderboom en blijft dus onzichtbaar, hoe hoog de z-index ook is.
+  const host = document.body ?? document.documentElement;
+  const attach = () => {
+    if (!host.contains(style)) host.appendChild(style);
+    if (!host.contains(zone)) host.appendChild(zone);
+  };
+  attach();
+  // Gmail's SPA vervangt soms hele takken van de DOM; dan hangen we 'm terug.
+  new MutationObserver(attach).observe(host, { childList: true });
+  // Zichtbaar in devtools (Ctrl+Shift+I) of de dropzone überhaupt geïnstalleerd is.
+  console.info('[gmail-desktop] dropzone geïnstalleerd in', host.tagName);
+
+  let clearTimer: ReturnType<typeof setTimeout> | null = null;
+  let saving = false;
+  const setState = (s: string) => zone.setAttribute('data-state', s);
+  const reset = () => {
+    saving = false;
+    zone.textContent = DROPZONE_LABEL;
+    setState('idle');
+  };
+
+  // Muisknop ingedrukt op een conversatierij: onthoud welke, maar toon nog
+  // niets — een gewone klik is geen sleep.
+  let pressThreadId: string | null = null;
+  let pressLabel: string | null = null;
+  let pressAt: Point | null = null;
+  let dragging = false;
+
+  const endGesture = () => {
+    pressThreadId = null;
+    pressLabel = null;
+    pressAt = null;
+    dragging = false;
+  };
+
+  document.addEventListener(
+    'mousedown',
+    (e) => {
+      if (e.button !== 0) return;
+      const target = e.target as unknown as DragNode | null;
+      pressThreadId = threadIdFromDragTarget(target);
+      // Een label uit de linkernavigatie: geen conversatierij, dus alleen kijken
+      // als er geen thread-id onder de cursor zat.
+      pressLabel = pressThreadId ? null : labelFromDragTarget(target);
+      pressAt = { x: e.clientX, y: e.clientY };
+      dragging = false;
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mousemove',
+    (e) => {
+      if ((!pressThreadId && !pressLabel) || !pressAt) return;
+      const at = { x: e.clientX, y: e.clientY };
+      if (!dragging && !movedEnough(pressAt, at)) return;
+      dragging = true;
+      if (clearTimer) clearTimeout(clearTimer);
+      zone.textContent = pressLabel
+        ? `Sleep hier om alle mail uit "${pressLabel}" op te slaan`
+        : DROPZONE_LABEL;
+      setState(isOverZone(at, zone.getBoundingClientRect()) ? 'over' : 'armed');
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'mouseup',
+    (e) => {
+      const threadId = pressThreadId;
+      const label = pressLabel;
+      const wasDragging = dragging;
+      const over = isOverZone({ x: e.clientX, y: e.clientY }, zone.getBoundingClientRect());
+      endGesture();
+      if (!wasDragging || !over) {
+        if (!saving) reset();
+        return;
+      }
+      if (label) {
+        saving = true;
+        zone.textContent = `Mail uit "${label}" ophalen…`;
+        setState('armed');
+        send({
+          items: [],
+          label,
+          authuser: authuserFromPath(location.pathname),
+          ik:
+            ikFromPage(window as unknown as { GLOBALS?: unknown }, document.documentElement.innerHTML) ??
+            '',
+        });
+        return;
+      }
+      if (!threadId) {
+        // Geen sleep, of niet boven de strip losgelaten. Een lopende opslag mag
+        // hier niet door weggepoetst worden.
+        if (!saving) reset();
+        return;
+      }
+      const threadIds = threadIdsForDrag(threadId, selectedThreadIds(document));
+      // Onderwerpen nú vastleggen: na het opslaan kan de lijst al ververst zijn.
+      const items = itemsForDrag(threadIds, threadSubjects(document));
+      saving = true;
+      zone.textContent = items.length > 1 ? `${items.length} gesprekken opslaan…` : 'Bezig met opslaan…';
+      setState('armed');
+      send({
+        items,
+        authuser: authuserFromPath(location.pathname),
+        ik:
+          ikFromPage(window as unknown as { GLOBALS?: unknown }, document.documentElement.innerHTML) ??
+          '',
+      });
+    },
+    true,
+  );
+
+  return (r: MailDropResult) => {
+    zone.textContent = resultText(r);
+    setState(r.ok ? 'done' : 'failed');
+    if (clearTimer) clearTimeout(clearTimer);
+    clearTimer = setTimeout(reset, 2000);
+  };
+}
+
 // Electron-only wiring. Guarded so the module is importable under plain Node (tests).
 if (typeof document !== 'undefined') {
   // Lazy require avoids bundling issues and keeps the top of the module Node-safe.
   const { ipcRenderer } = require('electron') as typeof import('electron');
 
-  let notifyState: NotifyState = { show: true, silent: false };
+  let notifyState: NotifyState = { show: true, silent: false, persist: false };
   ipcRenderer.on(IPC.NOTIFY_ALLOWED, (_e: unknown, state: NotifyState) => {
     notifyState = state;
   });
@@ -141,10 +309,7 @@ if (typeof document !== 'undefined') {
           // Return a harmless stub so Gmail's code doesn't throw; nothing is shown.
           return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
         }
-        const n = new Original(
-          title,
-          notifyState.silent ? { ...options, silent: true } : options,
-        );
+        const n = new Original(title, notificationOptionsFor(notifyState, options));
         n.addEventListener('click', () => {
           // Resolve the clicked thread at click time (the row exists by then).
           const threadId = findThreadIdBySubject(document, options?.body ?? '');
@@ -167,6 +332,12 @@ if (typeof document !== 'undefined') {
       typeof ServiceWorkerRegistration !== 'undefined' ? ServiceWorkerRegistration.prototype : undefined,
       () => window.Notification,
     );
+
+    // De agenda-view draait dezelfde preload maar heeft geen berichtenlijst.
+    if (location.hostname === 'mail.google.com') {
+      const showResult = installDropzone((p) => ipcRenderer.send(IPC.MAIL_DROP, p));
+      ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e: unknown, r: MailDropResult) => showResult(r));
+    }
 
     // Poll for the signed-in identity and report it once found.
     let identityTries = 0;

@@ -15,6 +15,13 @@ export interface UiStrings {
   setDefaultMailHint: string;
   isDefaultMail: string;
   notDefaultMail: string;
+  mailDropFolder: string;
+  mailDropHint: string;
+  mailDropChoose: string;
+  mailDropOpen: string;
+  dropTitle: (threads: number) => string;
+  dropSubtitle: (ok: number, messages: number) => string;
+  dropSavedCount: (messages: number) => string;
   theme: string;
   themeSystem: string;
   themeLight: string;
@@ -59,6 +66,8 @@ export interface UiStrings {
   badgeToggleTitle: string;
   soundToggle: string;
   soundToggleTitle: string;
+  persistToggle: string;
+  persistToggleTitle: string;
   removeAccount: string;
   removeConfirmBefore: string; // text before the styled "+" in the confirm box
   removeConfirmAfter: string;
@@ -135,6 +144,14 @@ export const STRINGS_NORMAL: UiStrings = {
   setDefaultMailHint: 'Windows may ask you to confirm the change.',
   isDefaultMail: 'This is your default mail app',
   notDefaultMail: 'Not your default mail app',
+  mailDropFolder: 'Saved mail folder',
+  mailDropHint:
+    'Mail you drag into the strip at the top of Gmail is saved here as .eml, with a log.jsonl next to it',
+  mailDropChoose: 'Choose…',
+  mailDropOpen: 'Open',
+  dropTitle: (t) => `${t} ${t === 1 ? 'conversation' : 'conversations'} moved`,
+  dropSubtitle: (ok, m) => `${ok} saved — ${m} ${m === 1 ? 'message' : 'messages'} written to disk`,
+  dropSavedCount: (m) => `${m} ${m === 1 ? 'message' : 'messages'} saved`,
   theme: 'Theme',
   themeSystem: 'System',
   themeLight: 'Light',
@@ -182,6 +199,8 @@ export const STRINGS_NORMAL: UiStrings = {
   badgeToggleTitle: 'Count this mailbox in the taskbar unread badge',
   soundToggle: 'Sound',
   soundToggleTitle: 'Play a sound with notifications for this account',
+  persistToggle: 'Persist',
+  persistToggleTitle: 'Keep notifications on screen until you dismiss them',
   removeAccount: 'Remove account',
   removeConfirmBefore:
     'Remove this account from the app? It stays signed in with Google — re-add it later with the ',
@@ -220,6 +239,13 @@ export const STRINGS_RENE: UiStrings = {
   setDefaultMailHint: 'Windows vraagt misschien of je het zeker weet.',
   isDefaultMail: 'Dit is je standaard-mailprogramma',
   notDefaultMail: 'Nog niet je standaard-mailprogramma',
+  mailDropFolder: 'Waar de mailtjes komen',
+  mailDropHint: 'Sleep een mailtje naar de balk boven Gmail. Dan komt hij hier te staan.',
+  mailDropChoose: 'Kies map',
+  mailDropOpen: 'Laat zien',
+  dropTitle: (t) => `${t} ${t === 1 ? 'mailtje' : 'mailtjes'} verplaatst`,
+  dropSubtitle: (ok, m) => `${ok} gelukt — ${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
+  dropSavedCount: (m) => `${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
   theme: 'Kleur',
   themeSystem: 'De computer kiest',
   themeLight: 'Licht',
@@ -267,6 +293,8 @@ export const STRINGS_RENE: UiStrings = {
   badgeToggleTitle: 'Tel de post van deze meneer of mevrouw mee in het getal op de knop',
   soundToggle: 'Geluid',
   soundToggleTitle: 'Speel een geluidje bij meldingen voor deze meneer of mevrouw',
+  persistToggle: 'Blijft staan',
+  persistToggleTitle: 'Meldingen blijven op het scherm staan tot u ze wegklikt',
   removeAccount: 'Weg ermee',
   removeConfirmBefore: 'Mag deze weg uit de app? Je kan hem later weer terug doen met de ',
   removeConfirmAfter: ' knop.',

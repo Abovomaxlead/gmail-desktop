@@ -3,6 +3,33 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Nog niet uitgebracht]
+
+### Toegevoegd
+- **Dropzone bovenaan Gmail om mail te bewaren.** Begin je een conversatie uit
+  je berichtenlijst te slepen, dan verschijnt er bovenin een balk. Laat je 'm
+  daar los, dan slaat de app elk bericht uit die conversatie op als `.eml` —
+  het echte origineel, met alle headers — in een eigen mapje per conversatie.
+  Heb je meerdere gesprekken aangevinkt, dan gaan ze allemaal mee.
+  Daarnaast komt er per bericht een regel in `log.jsonl`: tijdstip, account,
+  afzender, ontvangers, onderwerp, datum, bestandspad en de body als platte
+  tekst. De balk meldt daarna hoeveel berichten er zijn opgeslagen, of wat er
+  misging. De map kies je bij Instellingen → Algemeen; standaard is dat
+  `Documenten\Gmail Desktop\Mail`.
+- **Een heel label slepen.** Sleep een label uit de linkernavigatie naar de balk,
+  dan komt alle mail uit dat label in één map te staan. Het opzoeken gebeurt in
+  een verborgen venster, dus je postvak blijft staan waar het stond. Bij meer dan
+  200 gesprekken stopt hij, en dat staat dan in het overzicht en in het log —
+  niet stil afkappen.
+- **Na een sleep verschijnt een venster** met wat er is opgeslagen, over Gmail
+  heen zodat je postvak zichtbaar blijft.
+- **Ctrl+Shift+I** opent de devtools van het venster waar je in werkt.
+
+### Voor ontwikkelaars
+- `npm run dev` start alles met hot reload: wijzigingen in de zijbalk of de modal
+  zijn direct zichtbaar, een nieuwe preload herlaadt alleen de Gmail-views, en
+  alleen een wijziging in het main-proces herstart de app (automatisch).
+
 ## [0.2.9] — 2026-07-29
 
 ### Toegevoegd

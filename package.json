@@ -17,6 +17,7 @@
     "build:main": "esbuild electron/main.ts electron/preload.ts electron/sidebar-preload.ts --bundle --platform=node --target=node22 --external:electron --outdir=dist-electron --format=cjs",
     "build": "npm run build:renderer && npm run build:main",
     "start": "electron .",
+    "dev": "node scripts/dev.mjs",
     "dist": "npm run build && electron-builder",
     "release": "npm run build && electron-builder --publish always"
   },

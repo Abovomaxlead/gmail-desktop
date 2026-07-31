@@ -1,6 +1,6 @@
-import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, Notification } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, Notification } from 'electron';
 import { join } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, watch } from 'node:fs';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { Tray } from 'electron';
@@ -21,17 +21,35 @@ import { addAccountUrl } from './google-urls';
 import { applyBadge } from './badge-controller';
 import { UnreadStore } from './unread-store';
 import { shouldNotifyUpdate } from './update-notifier';
-import { IPC } from './ipc';
+import { IPC, type MailDropPayload, type MailDropPreviewItem } from './ipc';
+import { parseHeaders, extractPlainText, htmlToText } from './eml';
+import { writeThread, writeLabel, appendLog, type LogRecord, type SavedMessage } from './mail-archive';
+import {
+  labelListUrl,
+  mergeThreads,
+  LABEL_SCRAPE_JS,
+  MAX_PAGES,
+  MAX_THREADS,
+  PAGE_SIZE,
+  type LabelThread,
+} from './label-drop';
+import { fetchThreadEmls } from './mail-fetch';
 import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './tray-controller';
 import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './shortcuts';
 import { openCompose, openFullThreadWindow } from './compose-window';
 import { parseMailto, extractMailtoFromArgv } from './mailto';
 import { sortByOrder } from './account-order';
-import { notificationsAllowed, notificationSilent } from './notification-policy';
+import {
+  notificationsAllowed,
+  notificationSilent,
+  notificationPersist,
+  wantsCalendarView,
+} from './notification-policy';
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
+import { OverlayView } from './overlay-view';
 
 // WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
 // and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
@@ -70,6 +88,9 @@ let prefs: PrefsStore | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let settingsPanelOpen = false;
+let dropPreviewOpen = false; // modal na een drop staat open
+let dropOverlay: OverlayView | null = null; // eigen view waarin die modal leeft
+let lastDropPreview: MailDropPreviewItem[] = []; // laatste drop, zodat de modal het ook kan ophalen
 let updateRequested = false; // user pressed "Update now" → auto-install once downloaded
 let pendingTrayUpdateCheck = false; // a check started from the tray → announce the result in a popup
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
@@ -499,7 +520,9 @@ function scheduleSaveBounds(): void {
 function handleInput(input: KeyInput): void {
   const action = resolveShortcut(input);
   if (!action) return;
-  if (action.type === 'switch') {
+  if (action.type === 'devtools') {
+    manager?.toggleDevTools();
+  } else if (action.type === 'switch') {
     const ordered = [...profiles].sort((a, b) => (a.order ?? authIdx(a)) - (b.order ?? authIdx(b)));
     const target = ordered[action.n - 1];
     if (target) showAccount(target.ref, 'mail');
@@ -551,6 +574,7 @@ function refreshNotifyAllowed(): void {
       manager?.pushNotifyAllowed(keyOf(profile), surface, {
         show: notificationsAllowed(p, profile.email, now, surface),
         silent: notificationSilent(p, profile.email, surface),
+        persist: notificationPersist(p, profile.email),
       });
     }
   }
@@ -567,7 +591,7 @@ function startNotifyTimer(): void {
 function syncCalendarViews(): void {
   if (!prefs || !manager) return;
   for (const profile of profiles) {
-    const enabled = prefs.getAccount(profile.email).calendarNotify === true;
+    const enabled = wantsCalendarView(prefs.getAll(), profile.email, profile.ref);
     if (enabled) {
       manager.ensureView(profile.ref, 'calendar', false);
     } else if (!manager.isShowing(keyOf(profile), 'calendar')) {
@@ -575,6 +599,376 @@ function syncCalendarViews(): void {
     }
   }
   refreshNotifyAllowed(); // push flags to any newly created calendar views
+}
+
+// Lege pref = de standaardmap. PrefsStore kent `app` niet, dus dat wordt hier
+// opgelost.
+function mailDropFolder(): string {
+  return prefs?.getAll().mailDrop.folder || join(app.getPath('documents'), 'Gmail Desktop', 'Mail');
+}
+
+// Een mail is naar de dropzone gesleept: haal via Gmail's eigen
+// "origineel weergeven"-pagina de RFC822-bron van elk bericht in de
+// conversatie op, schrijf die weg als .eml en log er een regel bij.
+// Slaat één conversatie op. Geeft terug hoeveel berichten er gevonden zijn
+// (`total`) en hoeveel er daadwerkelijk zijn weggeschreven (`count`), plus een
+// reden als er niets van terechtkwam. Logregels schrijft hij zelf.
+async function saveOneThread(
+  ts: string,
+  account: string,
+  root: string,
+  threadId: string,
+  authuser: string,
+  ik: string,
+): Promise<{ count: number; total: number; error?: string }> {
+  const failed = (error: string, total = 0) => {
+    // Het log is best-effort: is de map onschrijfbaar, dan blijft alleen de
+    // melding in de strip over.
+    try {
+      appendLog(root, [{ ts, account, threadId, error }]);
+    } catch {
+      /* map niet schrijfbaar */
+    }
+    return { count: 0, total, error };
+  };
+
+  let result;
+  try {
+    result = await fetchThreadEmls(session.fromPartition('persist:google'), { threadId, authuser, ik });
+  } catch (e) {
+    return failed(`Ophalen mislukt (${(e as Error).message})`);
+  }
+  const fetched = result.messages;
+  if (fetched.length === 0) {
+    // Geen enkele download-link in Gmail's origineel-weergeven-pagina. Meestal
+    // omdat Gmail het bericht daar niet kent (een concept bijvoorbeeld) en de
+    // pagina in plaats daarvan een uitleg toont — die uitleg is een betere
+    // foutmelding dan wat wij zelf kunnen verzinnen, en staat al in de taal van
+    // de gebruiker.
+    const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
+    // Een échte om-pagina zonder herkende link is een heel ander geval: dan is
+    // de tekst lang en zegt hij niets. Bewaar die pagina om te onderzoeken.
+    const kortEnDuidelijk = uitleg.length > 0 && uitleg.length <= 300;
+    if (!kortEnDuidelijk) {
+      const dump = join(root, `diagnose-om-${threadId}.html`);
+      try {
+        mkdirSync(root, { recursive: true });
+        writeFileSync(dump, result.page.html, 'utf8');
+      } catch {
+        /* map niet schrijfbaar */
+      }
+      return failed(
+        `Geen origineel gevonden (HTTP ${result.page.status}, ${result.page.html.length} tekens — pagina bewaard als ${dump})`,
+      );
+    }
+    return failed(`Gmail: ${uitleg}`);
+  }
+
+  const ok: SavedMessage[] = [];
+  const failedRecords: LogRecord[] = [];
+  for (const f of fetched) {
+    if (f.raw) ok.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
+    else failedRecords.push({ ts, account, threadId, error: f.error ?? 'onbekende fout' });
+  }
+  if (ok.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald', fetched.length);
+
+  let files: string[];
+  try {
+    files = writeThread(root, ts, ok);
+  } catch {
+    return failed(`Kan niet schrijven naar ${root}`, fetched.length);
+  }
+
+  const records: LogRecord[] = ok.map((m, i) => ({
+    ts,
+    account,
+    threadId,
+    messageId: m.headers.messageId,
+    from: m.headers.from,
+    to: m.headers.to,
+    cc: m.headers.cc,
+    subject: m.headers.subject,
+    date: m.headers.date,
+    file: files[i],
+    bytes: m.raw.length,
+    body: extractPlainText(m.raw.toString('utf8')),
+  }));
+  try {
+    appendLog(root, [...records, ...failedRecords]);
+  } catch {
+    /* map niet schrijfbaar; de bestanden staan er wel */
+  }
+  return { count: ok.length, total: fetched.length };
+}
+
+// Toont de modal in een eigen view bovenóp Gmail. Die view is precies zo groot
+// als het modalvenster, dus Gmail blijft eromheen zichtbaar en de Gmail-views
+// worden nooit verborgen. Zie overlay-view.ts.
+function openDropPreview(items: MailDropPreviewItem[]): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (!dropOverlay) {
+    dropOverlay = new OverlayView(
+      mainWindow,
+      SIDEBAR_PRELOAD_PATH,
+      DEV_URL ? `${DEV_URL}/maildrop` : 'app://bundle/maildrop.html',
+      IPC.MAIL_DROP_PREVIEW,
+    );
+  }
+  dropPreviewOpen = true;
+  lastDropPreview = items;
+  dropOverlay.open({ items });
+}
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Somt de conversaties in een label op door Gmail's eigen lijstweergave te
+// bladeren in een verborgen view. Er is geen API voor: dit leest dezelfde
+// onderwerp-spans als de losse sleep. Stopt zodra een pagina niets nieuws meer
+// oplevert (Gmail toont bij een te hoog paginanummer de laatste pagina opnieuw)
+// of bij MAX_THREADS.
+async function collectLabelThreads(
+  ref: AccountRef,
+  authuser: string,
+  label: string,
+): Promise<{ threads: LabelThread[]; capped: boolean }> {
+  const threads: LabelThread[] = [];
+  let capped = false;
+  if (!manager) return { threads, capped };
+
+  await manager.withHiddenView(labelListUrl(authuser, label, 1), async (wc) => {
+    let firstOfPrevious = '';
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      if (page > 1) {
+        const hash = new URL(labelListUrl(authuser, label, page)).hash;
+        await wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => null);
+      }
+      // Wachten tot de lijst er staat — en bij het bladeren tot hij écht is
+      // verwisseld, anders lezen we de vorige pagina nog een keer.
+      let pageThreads: LabelThread[] = [];
+      for (let tries = 0; tries < 25; tries++) {
+        await delay(400);
+        pageThreads = (await wc.executeJavaScript(LABEL_SCRAPE_JS).catch(() => [])) as LabelThread[];
+        if (pageThreads.length > 0 && pageThreads[0].threadId !== firstOfPrevious) break;
+      }
+      if (pageThreads.length === 0) break;
+      firstOfPrevious = pageThreads[0].threadId;
+
+      const { added, total } = mergeThreads(threads, pageThreads);
+      if (total >= MAX_THREADS) {
+        capped = pageThreads.length >= PAGE_SIZE;
+        break;
+      }
+      if (added === 0) break;
+    }
+  });
+  return { threads, capped };
+}
+
+// Een hele labelsleep: alle gesprekken ophalen en in één map wegschrijven.
+async function saveLabel(
+  ts: string,
+  account: string,
+  root: string,
+  ref: AccountRef,
+  label: string,
+  authuser: string,
+  ik: string,
+): Promise<MailDropPreviewItem[]> {
+  const { threads, capped } = await collectLabelThreads(ref, authuser, label);
+  if (threads.length === 0) {
+    const error = `Geen mail gevonden in label "${label}"`;
+    try {
+      appendLog(root, [{ ts, account, threadId: '', label, error }]);
+    } catch {
+      /* map niet schrijfbaar */
+    }
+    return [{ threadId: '', subject: label, saved: 0, error }];
+  }
+
+  // Alles eerst ophalen, dan in één keer wegschrijven: writeLabel maakt één map
+  // en nummert de bestanden over de gesprekken heen door.
+  const collected: Array<{ thread: LabelThread; messages: SavedMessage[]; error?: string }> = [];
+  for (const thread of threads) {
+    try {
+      const result = await fetchThreadEmls(session.fromPartition(SESSION_PARTITION), {
+        threadId: thread.threadId,
+        authuser,
+        ik,
+      });
+      const messages: SavedMessage[] = [];
+      for (const f of result.messages) {
+        if (f.raw) messages.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
+      }
+      if (messages.length === 0) {
+        const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
+        collected.push({
+          thread,
+          messages: [],
+          error: uitleg && uitleg.length <= 300 ? `Gmail: ${uitleg}` : 'Geen origineel gevonden',
+        });
+      } else {
+        collected.push({ thread, messages });
+      }
+    } catch (e) {
+      collected.push({ thread, messages: [], error: `Ophalen mislukt (${(e as Error).message})` });
+    }
+  }
+
+  const flat = collected.flatMap((c) => c.messages);
+  let files: string[] = [];
+  try {
+    files = writeLabel(root, ts, label, flat);
+  } catch {
+    const error = `Kan niet schrijven naar ${root}`;
+    return collected.map((c) => ({
+      threadId: c.thread.threadId,
+      subject: c.thread.subject,
+      saved: 0,
+      error,
+    }));
+  }
+
+  // Logregels in dezelfde volgorde als de weggeschreven bestanden.
+  const records: LogRecord[] = [];
+  let fileIndex = 0;
+  for (const c of collected) {
+    if (c.messages.length === 0) {
+      records.push({ ts, account, threadId: c.thread.threadId, label, error: c.error });
+      continue;
+    }
+    for (const m of c.messages) {
+      records.push({
+        ts,
+        account,
+        threadId: c.thread.threadId,
+        label,
+        messageId: m.headers.messageId,
+        from: m.headers.from,
+        to: m.headers.to,
+        cc: m.headers.cc,
+        subject: m.headers.subject,
+        date: m.headers.date,
+        file: files[fileIndex++],
+        bytes: m.raw.length,
+        body: extractPlainText(m.raw.toString('utf8')),
+      });
+    }
+  }
+  if (capped) {
+    records.push({
+      ts,
+      account,
+      threadId: '',
+      label,
+      error: `Afgekapt op ${MAX_THREADS} gesprekken; het label bevat er meer`,
+    });
+  }
+  try {
+    appendLog(root, records);
+  } catch {
+    /* map niet schrijfbaar; de bestanden staan er wel */
+  }
+
+  const items = collected.map((c) => ({
+    threadId: c.thread.threadId,
+    subject: c.thread.subject,
+    saved: c.messages.length,
+    error: c.error,
+  }));
+  if (capped) {
+    items.push({
+      threadId: '',
+      subject: `Afgekapt op ${MAX_THREADS} gesprekken`,
+      saved: 0,
+      error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
+    });
+  }
+  return items;
+}
+
+async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promise<void> {
+  const ts = new Date().toISOString();
+  const account = profiles.find((p) => keyOf(p) === acctKey)?.email ?? '';
+  const root = mailDropFolder();
+  const items = payload?.items ?? [];
+  if (items.length === 0 && !payload?.label) return;
+  if (!payload.ik) {
+    const error = 'Kon Gmail-token niet lezen';
+    try {
+      appendLog(root, items.map(({ threadId }) => ({ ts, account, threadId, error })));
+    } catch {
+      /* map niet schrijfbaar */
+    }
+    manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error });
+    openDropPreview(
+      items.length > 0
+        ? items.map((i) => ({ ...i, saved: 0, error }))
+        : [{ threadId: '', subject: payload.label ?? '', saved: 0, error }],
+    );
+    return;
+  }
+
+  // Een gesleept label: main zoekt zelf op wat erin zit en zet alles in één map.
+  if (payload.label) {
+    const profile = profiles.find((p) => keyOf(p) === acctKey);
+    if (!profile) return;
+    const done = await saveLabel(
+      ts,
+      account,
+      root,
+      profile.ref,
+      payload.label,
+      payload.authuser,
+      payload.ik,
+    );
+    const saved = done.reduce((n, i) => n + i.saved, 0);
+    manager?.sendDropResult(
+      acctKey,
+      saved === 0
+        ? { ok: false, count: 0, total: done.length, error: done[0]?.error ?? 'Niets opgeslagen' }
+        : { ok: true, count: saved, total: saved },
+    );
+    openDropPreview(done);
+    return;
+  }
+
+  // Eén voor één: Gmail's origineel-weergeven-pagina is geen API, dus liever
+  // netjes achter elkaar dan een handvol gelijktijdige requests.
+  const done: MailDropPreviewItem[] = [];
+  let count = 0;
+  let total = 0;
+  let lastError: string | undefined;
+  for (const item of items) {
+    const r = await saveOneThread(ts, account, root, item.threadId, payload.authuser, payload.ik);
+    count += r.count;
+    total += r.total;
+    if (r.error) lastError = r.error;
+    done.push({ ...item, saved: r.count, error: r.error });
+  }
+  manager?.sendDropResult(
+    acctKey,
+    count === 0
+      ? { ok: false, count: 0, total, error: lastError ?? 'Niets opgeslagen' }
+      : { ok: true, count, total },
+  );
+  // Pas nu de modal: hij toont wat er daadwerkelijk is opgeslagen, niet wat we
+  // van plan waren.
+  openDropPreview(done);
+}
+
+// Let op dist-electron/preload.js en herlaadt de views bij een nieuwe versie.
+// esbuild schrijft het bestand soms in meerdere gebeurtenissen, dus even wachten
+// tot het stil is voordat we herladen.
+function watchPreloadForReload(): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    watch(PRELOAD_PATH, () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => manager?.reloadAll(), 250);
+    });
+  } catch {
+    // Bestand bestaat nog niet of het platform kan niet kijken — dan gewoon niet.
+  }
 }
 
 function createWindow(): void {
@@ -666,10 +1060,16 @@ function createWindow(): void {
     },
     () => prefs?.getAll().notificationOpen ?? 'app',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
+    (acctKey, payload) => void handleMailDrop(acctKey, payload),
   );
 
   if (DEV_URL) void mainWindow.loadURL(DEV_URL);
   else void mainWindow.loadURL('app://bundle/');
+
+  // Ontwikkelmodus: `npm run dev` bouwt de preload bij elke wijziging opnieuw.
+  // Een preload wordt alleen bij een navigatie ingelezen, dus herladen we de
+  // views zodra het bestand verandert. Scheelt een herstart van de hele app.
+  if (DEV_URL) watchPreloadForReload();
 
   mainWindow.webContents.on('did-finish-load', () => {
     loadDelegatedProfiles(); // surface persisted delegated mailboxes immediately
@@ -925,21 +1325,52 @@ function registerIpc(): void {
   // while the popup is open (same trick as the settings panel) and restore after.
   ipcMain.on(IPC.OVERLAY_TOGGLE, (_e, arg: { open: boolean }) => {
     if (arg.open) manager?.hideAll();
-    else if (!settingsPanelOpen) manager?.showActive();
+    else if (!settingsPanelOpen && !dropPreviewOpen) manager?.showActive();
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_DEFAULT_MAIL, () => {
     app.setAsDefaultProtocolClient('mailto');
     pushDefaultMailStatus();
   });
+  // De modal-pagina kan geladen zijn nádat het main-proces de items al stuurde;
+  // daarom haalt ze het bij het opstarten ook zelf op.
+  ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => ({ items: lastDropPreview }));
+  ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => {
+    dropPreviewOpen = false;
+    dropOverlay?.close();
+  });
+  ipcMain.handle(IPC.MAIL_DROP_FOLDER_GET, () => mailDropFolder());
+  ipcMain.handle(IPC.MAIL_DROP_FOLDER_PICK, async () => {
+    const current = mailDropFolder();
+    if (!mainWindow || mainWindow.isDestroyed()) return current;
+    const res = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: current,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || res.filePaths.length === 0) return current;
+    prefs?.setMailDropFolder(res.filePaths[0]);
+    return res.filePaths[0];
+  });
+  ipcMain.on(IPC.MAIL_DROP_FOLDER_OPEN, () => {
+    const dir = mailDropFolder();
+    // De map bestaat pas na de eerste drop; maak hem aan zodat Verkenner iets
+    // te openen heeft.
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch {
+      /* niet aan te maken; openPath meldt het zelf */
+    }
+    void shell.openPath(dir);
+  });
   ipcMain.on(IPC.SET_SNOOZE, (_e, minutes: number | null) => setSnooze(minutes));
-  ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean }) => {
+  ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }) => {
     const patch: Record<string, unknown> = {};
     if ('label' in arg) patch.label = arg.label;
     if ('notify' in arg) patch.notify = arg.notify;
     if ('calendarNotify' in arg) patch.calendarNotify = arg.calendarNotify;
     if ('badgeCount' in arg) patch.badgeCount = arg.badgeCount;
     if ('notifySound' in arg) patch.notifySound = arg.notifySound;
+    if ('notifyPersist' in arg) patch.notifyPersist = arg.notifyPersist;
     prefs!.setAccount(arg.email, patch);
     pushProfiles();
     pushPrefs(); // keep the settings UI's per-account toggles in sync with what was stored

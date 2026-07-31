@@ -78,6 +78,13 @@ describe('surface urls by ref', () => {
       SURFACE_CONFIG.drive.url({ kind: 'delegated', email: 't@x.com', mailUrl: 'https://m/', calendarUrl: null }),
     ).toThrow();
   });
+  // Returning undefined here reached webContents.loadURL(null), which crashes
+  // the main process with an opaque "conversion failure from null".
+  it('throws rather than yielding nothing for a delegate with no captured calendar', () => {
+    expect(() =>
+      SURFACE_CONFIG.calendar.url({ kind: 'delegated', email: 't@x.com', mailUrl: 'https://m/', calendarUrl: null }),
+    ).toThrow(/calendar/i);
+  });
 });
 
 describe('surfacesForRef', () => {

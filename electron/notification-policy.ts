@@ -1,5 +1,6 @@
 import type { Prefs } from './prefs-store';
-import type { Surface } from '../renderer/lib/surfaces';
+import { surfacesForRef, type Surface } from '../renderer/lib/surfaces';
+import type { AccountRef } from '../renderer/lib/account-ref';
 
 function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
@@ -42,4 +43,20 @@ export function notificationSilent(
 ): boolean {
   if (surface !== 'mail') return false; // v1: only mail honours the sound toggle
   return prefs.accounts[email]?.notifySound === false;
+}
+
+// Opt-in per account, and — unlike the sound toggle — it covers every surface
+// that may notify: a calendar reminder is exactly the kind you don't want to
+// miss. Surfaces that never notify are already gated by notificationsAllowed.
+export function notificationPersist(prefs: Prefs, email: string): boolean {
+  return prefs.accounts[email]?.notifyPersist === true;
+}
+
+// Should a hidden calendar view be kept alive for this account? It exists only
+// to fire reminders, so it follows the calendarNotify opt-in — but the pref
+// alone is not enough: a delegated mailbox whose calendar URL was never
+// captured has no calendar to load, and asking for one throws.
+export function wantsCalendarView(prefs: Prefs, email: string, ref: AccountRef): boolean {
+  if (prefs.accounts[email]?.calendarNotify !== true) return false;
+  return surfacesForRef(ref).includes('calendar');
 }

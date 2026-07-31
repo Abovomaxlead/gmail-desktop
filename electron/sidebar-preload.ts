@@ -14,7 +14,12 @@ interface Profile {
   label?: string;
 }
 
+// Dezelfde pagina draait in twee views: de zijbalk en de modal-overlay. Het
+// main-proces zet dit argument alleen op die tweede.
+const isOverlay = process.argv.includes('--gmd-overlay');
+
 contextBridge.exposeInMainWorld('desktop', {
+  isOverlay,
   onProfilesChanged: (cb: (profiles: Profile[]) => void): void => {
     ipcRenderer.on(IPC.PROFILES_CHANGED, (_e, profiles) => cb(profiles));
   },
@@ -52,7 +57,7 @@ contextBridge.exposeInMainWorld('desktop', {
   onPrefsChanged: (cb: (prefs: unknown) => void): void => {
     ipcRenderer.on(IPC.PREFS_CHANGED, (_e, p) => cb(p));
   },
-  setAccountPref: (arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean }): void =>
+  setAccountPref: (arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }): void =>
     ipcRenderer.send(IPC.SET_ACCOUNT_PREF, arg),
   setAccountOrder: (emails: string[]): void =>
     ipcRenderer.send(IPC.SET_ACCOUNT_ORDER, { emails }),
@@ -62,6 +67,15 @@ contextBridge.exposeInMainWorld('desktop', {
   setNotificationOpen: (v: 'app' | 'window'): void => ipcRenderer.send(IPC.SET_NOTIFICATION_OPEN, v),
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
   setDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
+  onMailDropPreview: (cb: (arg: { items: unknown[] }) => void): void => {
+    ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
+  },
+  closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
+  getMailDropPreview: (): Promise<{ items: unknown[] }> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
+  getMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_GET),
+  pickMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_PICK),
+  openMailDropFolder: (): void => ipcRenderer.send(IPC.MAIL_DROP_FOLDER_OPEN),
   onDefaultMailStatus: (cb: (isDefault: boolean) => void): void => {
     ipcRenderer.on(IPC.MAIL_DEFAULT_STATUS, (_e, v) => cb(Boolean(v)));
   },
