@@ -550,6 +550,10 @@ function removeAccount(email: string): void {
   pushProfiles();
   pushUnread();
   refreshBadge();
+  // Nu het token weg is en het account uit de lijst: de verbinding voor dit adres
+  // moet dicht, anders blijft de relay pushen voor een account dat de gebruiker
+  // net verwijderd heeft. Hierna, want refresh() leest de lijst opnieuw.
+  startPush();
   if (wasActive && profiles[0]) showAccount(profiles[0].ref, 'mail');
 }
 
@@ -2170,6 +2174,10 @@ function registerIpc(): void {
     // Opnieuw langs de hele lijst: misschien was dit de laatste en kan de melding
     // helemaal weg.
     void checkOAuthHealth();
+    // Het nieuwe token heeft de e-mailscope, dus dit account is nu pushbaar. Zonder
+    // deze aanroep vraagt niemand daar opnieuw om en lijkt push pas na een herstart
+    // te werken.
+    startPush();
     return { ok: true };
   });
   ipcMain.handle(IPC.MAIL_DROP_FOLDER_GET, () => mailDropFolder());
