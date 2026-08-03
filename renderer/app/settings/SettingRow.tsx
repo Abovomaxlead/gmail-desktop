@@ -25,7 +25,12 @@ export function SettingRow({
   htmlFor,
 }: {
   label: string;
-  description?: string;
+  // Een `ReactNode` en niet een `string`: de bijtekst is soms gegevens waar een
+  // klasse op moet. De statusregel van een update bevat een percentage dat per
+  // tiende verspringt, en dat hoort in `tabular-nums` te staan; een mislukking
+  // hoort rood te zijn. Met een `string` kon dat alleen door de rij open te
+  // breken. Gewone tekst blijft gewoon werken.
+  description?: ReactNode;
   children: ReactNode;
   htmlFor?: string;
 }) {

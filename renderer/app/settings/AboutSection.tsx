@@ -5,25 +5,20 @@ import type { UpdateStatus } from '../page';
 import type { ChangelogEntry, ChangelogVersion } from '../changelog-types';
 import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
+import {
+  ACCENT_BUTTON,
+  BUTTON,
+  CARD,
+  DANGER_TEXT,
+  FOCUS_RING,
+  HAIRLINE,
+  PANEL,
+  SECTION_TITLE,
+} from './tokens';
 
 // De naam van de app is een eigennaam en wordt niet vertaald, dus hij staat niet
 // in strings.ts.
 const APP_NAME = 'Gmail Desktop';
-
-// Haarlijn met haakjes: `divide-black/8` bestaat niet in Tailwind 3 en zou stil
-// wegvallen.
-const CARD =
-  'divide-y divide-black/[0.08] rounded-xl border border-black/[0.08] bg-white px-4 dark:divide-white/[0.08] dark:border-white/[0.08] dark:bg-neutral-900';
-
-const FOCUS_RING =
-  'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
-
-const BUTTON = `shrink-0 rounded-lg bg-neutral-200 px-3 py-1.5 text-[13px] font-medium text-neutral-900 transition hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 motion-reduce:transition-none ${FOCUS_RING}`;
-
-// De enige accentkleur in het hele paneel, op de enige knop die de update
-// daadwerkelijk uitvoert. Er staat er altijd hoogstens één van op het scherm:
-// "nu bijwerken" hoort bij `available`, "herstarten" bij `downloaded`.
-const PRIMARY = `shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-blue-500 motion-reduce:transition-none ${FOCUS_RING}`;
 
 function updateStatusText(u: UpdateStatus, S: UiStrings): string {
   switch (u.state) {
@@ -44,6 +39,25 @@ function updateStatusText(u: UpdateStatus, S: UiStrings): string {
     default:
       return '';
   }
+}
+
+// De statusregel als bijtekst bij de updaterij. Twee dingen die de kale string
+// niet kan dragen:
+//
+//   - `tabular-nums` als er een getal in staat. Bij het binnenhalen loopt een
+//     percentage tot drie tekens op en weer terug; zonder tabelcijfers schuift de
+//     hele regel bij elke tik heen en weer.
+//   - rood als het mislukt is. Dat is een toestand die je van een meter afstand
+//     moet kunnen zien, en de tekst ernaast is niet genoeg.
+//
+// Kan pas sinds `description` op `SettingRow` een `ReactNode` is; met een `string`
+// moest de rij ervoor open.
+function updateStatusNode(u: UpdateStatus, S: UiStrings): ReactNode {
+  const text = updateStatusText(u, S);
+  if (!text) return undefined;
+  const numeric = u.state === 'available' || u.state === 'downloading';
+  const classes = `${numeric ? 'tabular-nums' : ''} ${u.state === 'error' ? DANGER_TEXT : ''}`.trim();
+  return classes ? <span className={classes}>{text}</span> : text;
 }
 
 // Toon de changelog-regels in de taal van de interface. Het bestand mengt
@@ -140,11 +154,11 @@ export function AboutSection({
   }, []);
 
   const busy = update.state === 'checking' || update.state === 'downloading';
-  const statusText = updateStatusText(update, S);
+  const status = updateStatusNode(update, S);
 
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-[20px] font-semibold tracking-tight">{S.sectionAbout}</h2>
+      <h2 className={SECTION_TITLE}>{S.sectionAbout}</h2>
 
       <div className={CARD}>
         <SettingRow label={APP_NAME}>
@@ -155,17 +169,16 @@ export function AboutSection({
         </SettingRow>
 
         {/* De stand van de update staat als bijtekst onder de naam van de rij, en
-            de knoppen die bij die stand horen ernaast. Ook een fout staat in
-            `neutral-500`: rood is een tint, en de richting laat er maar één toe.
-            De tekst zelf zegt wat er mis is ("Couldn't check for updates: …"). */}
-        <SettingRow label={S.updates} description={statusText || undefined}>
+            de knoppen die bij die stand horen ernaast. Zie `updateStatusNode`
+            voor waarom die bijtekst een node is en geen string. */}
+        <SettingRow label={S.updates} description={status}>
           {update.state === 'available' && (
-            <button type="button" onClick={onDownloadUpdate} className={PRIMARY}>
+            <button type="button" onClick={onDownloadUpdate} className={ACCENT_BUTTON}>
               {S.updateNow}
             </button>
           )}
           {update.state === 'downloaded' && (
-            <button type="button" onClick={onInstallUpdate} className={PRIMARY}>
+            <button type="button" onClick={onInstallUpdate} className={ACCENT_BUTTON}>
               {S.restartInstall}
             </button>
           )}
@@ -177,7 +190,7 @@ export function AboutSection({
 
       <h3 className="mt-2 text-[13.5px] font-semibold">{S.sectionWhatsNew}</h3>
 
-      <div className="rounded-xl border border-black/[0.08] bg-white p-4 dark:border-white/[0.08] dark:bg-neutral-900">
+      <div className={`${PANEL} p-4`}>
         {changelog.length === 0 ? (
           <p className="text-[13px] text-neutral-500">{S.changelogEmpty}</p>
         ) : (
@@ -186,7 +199,7 @@ export function AboutSection({
             {changelog.length > 1 && (
               <>
                 {showOlder && (
-                  <div className="mt-4 flex flex-col gap-4 border-t border-black/[0.08] pt-4 dark:border-white/[0.08]">
+                  <div className={`mt-4 flex flex-col gap-4 border-t ${HAIRLINE} pt-4`}>
                     {changelog.slice(1).map((v) => (
                       <ChangelogVersionBlock key={v.version} version={v} uiLang={uiLang} S={S} />
                     ))}

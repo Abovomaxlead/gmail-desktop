@@ -4,22 +4,21 @@ import { useState } from 'react';
 import type { Prefs, Profile } from '../page';
 import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
+import {
+  BUTTON,
+  CARD,
+  CHECKBOX,
+  DANGER_BUTTON,
+  DANGER_PANEL,
+  FOCUS_RING,
+  HAIRLINE,
+  PANEL,
+  SECTION_TITLE,
+} from './tokens';
 
 // De zes tinten die een account kan hebben. Dezelfde lijst als in het oude
-// paneel; dit is de enige kleur in het hele paneel die iets betekent.
+// paneel; dit is de kleur die in dit paneel zegt van wie iets is.
 const SWATCHES = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#A142F4', '#00ACC1'];
-
-// Haarlijn met haakjes: `border-black/8` bestaat niet in Tailwind 3 en zou stil
-// wegvallen.
-const CARD =
-  'divide-y divide-black/[0.08] rounded-xl border border-black/[0.08] bg-white px-4 dark:divide-white/[0.08] dark:border-white/[0.08] dark:bg-neutral-900';
-
-const FOCUS_RING =
-  'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
-
-const BUTTON = `shrink-0 rounded-lg bg-neutral-200 px-3 py-1.5 text-[13px] font-medium text-neutral-900 transition hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 motion-reduce:transition-none ${FOCUS_RING}`;
-
-const CHECKBOX = `h-4 w-4 shrink-0 accent-neutral-900 dark:accent-neutral-100 ${FOCUS_RING}`;
 
 function initial(p: Profile): string {
   return (p.name || p.email || '?').trim().charAt(0).toUpperCase() || '?';
@@ -72,12 +71,10 @@ export function AccountsSection({
 
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-[20px] font-semibold tracking-tight">{S.sectionAccounts}</h2>
+      <h2 className={SECTION_TITLE}>{S.sectionAccounts}</h2>
 
       {profiles.length === 0 && (
-        <p className="rounded-xl border border-black/[0.08] bg-white px-4 py-3.5 text-[13.5px] text-neutral-500 dark:border-white/[0.08] dark:bg-neutral-900">
-          {S.noAccounts}
-        </p>
+        <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
       )}
 
       {profiles.map((p) => {
@@ -136,7 +133,7 @@ export function AccountsSection({
         return (
           <div
             key={p.email}
-            className="relative overflow-hidden rounded-xl border border-black/[0.08] bg-white py-3.5 pl-4 pr-3.5 dark:border-white/[0.08] dark:bg-neutral-900"
+            className={`${PANEL} relative overflow-hidden py-3.5 pl-4 pr-3.5`}
           >
             {/* De rug: 3px accountkleur over de volle hoogte van de kaart. De
                 kaart klipt hem (`overflow-hidden`), dus de uiteinden lopen mee
@@ -237,7 +234,7 @@ export function AccountsSection({
             {/* Eén haarlijn tussen wie dit account is en wat het mag. Het rooster
                 zakt naar twee kolommen als er minder ruimte is — René mode zet
                 alles op 200% en dan is dat precies wat er moet gebeuren. */}
-            <div className="mt-3 grid grid-cols-2 gap-x-4 border-t border-black/[0.08] pt-2 dark:border-white/[0.08] sm:grid-cols-3">
+            <div className={`mt-3 grid grid-cols-2 gap-x-4 border-t ${HAIRLINE} pt-2 sm:grid-cols-3`}>
               {toggles.map((t) => (
                 <label
                   key={t.key}
@@ -257,16 +254,19 @@ export function AccountsSection({
               ))}
             </div>
 
+            {/* Rood, en dit is een van de twee plekken in het paneel waar dat mag:
+                een account weghalen is niet terug te draaien met dezelfde knop.
+                Het vlak is getint zodat de vraag zich losmaakt van de kaart
+                eromheen, de tekstkleur komt uit `DANGER_PANEL` mee, en de knop die
+                het doet is vol rood. Annuleren blijft grijs: dat is de veilige
+                uitgang, en die hoort niet mee te schreeuwen. */}
             {confirmEmail === p.email && (
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-neutral-100 px-3 py-2 dark:bg-neutral-800">
-                <span className="text-xs text-neutral-500">
+              <div className={`${DANGER_PANEL} mt-3 flex items-center justify-between gap-3 px-3 py-2`}>
+                <span className="text-xs">
                   {S.removeConfirmBefore}
-                  <span className="font-semibold text-neutral-900 dark:text-neutral-100">+</span>
+                  <span className="font-semibold">+</span>
                   {S.removeConfirmAfter}
                 </span>
-                {/* Verwijderen is de zwaarste knop van het paneel en dus de
-                    donkerste, niet de rood-ste: in dit paneel betekent kleur één
-                    ding, en dat is van welk account iets is. */}
                 <div className="flex shrink-0 gap-2">
                   <button
                     type="button"
@@ -274,7 +274,7 @@ export function AccountsSection({
                       window.desktop?.removeAccount(p.email);
                       setConfirmEmail(null);
                     }}
-                    className={`rounded-lg bg-neutral-900 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-white motion-reduce:transition-none ${FOCUS_RING}`}
+                    className={DANGER_BUTTON}
                   >
                     {S.remove}
                   </button>

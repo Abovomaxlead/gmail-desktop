@@ -4,20 +4,12 @@ import type { Prefs } from '../page';
 import { isCompleteTime } from '../settings-utils';
 import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
-
-// Haarlijn met haakjes: `divide-black/8` bestaat niet in Tailwind 3 en zou stil
-// wegvallen.
-const CARD =
-  'divide-y divide-black/[0.08] rounded-xl border border-black/[0.08] bg-white px-4 dark:divide-white/[0.08] dark:border-white/[0.08] dark:bg-neutral-900';
-
-const FOCUS_RING =
-  'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
-
-const CHECKBOX = `h-4 w-4 accent-neutral-900 dark:accent-neutral-100 ${FOCUS_RING}`;
+import { CARD, CHECKBOX, FIELD, SECTION_TITLE } from './tokens';
 
 // De tijdvelden dragen `tabular-nums`: een tijd is een getal, en een getal dat
 // van 09:59 naar 10:00 springt hoort niet ook nog van breedte te veranderen.
-const TIME = `rounded-md border border-black/[0.08] bg-neutral-100 px-2 py-1 text-[13px] tabular-nums text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/[0.08] dark:bg-neutral-800 dark:text-neutral-100 ${FOCUS_RING}`;
+// `disabled:` erbij, want ze blijven staan als de stille uren uit staan.
+const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity-50`;
 
 // Meldingen: niet storen, en stille uren met twee tijden.
 export function NotificationsSection({
@@ -37,7 +29,7 @@ export function NotificationsSection({
 
   return (
     <section className="flex flex-col gap-4">
-      <h2 className="text-[20px] font-semibold tracking-tight">{S.sectionNotifications}</h2>
+      <h2 className={SECTION_TITLE}>{S.sectionNotifications}</h2>
 
       <div className={CARD}>
         <SettingRow label={S.dnd} description={S.dndDescription} htmlFor="setting-dnd">
