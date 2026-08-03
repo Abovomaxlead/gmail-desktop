@@ -5,6 +5,7 @@ import {
   DROPZONE_ID,
   DROPZONE_CSS,
   DROPZONE_LABEL,
+  DRAG_CHROME_Z,
   threadIdFromDragTarget,
   selectedThreadIds,
   threadIdsForDrag,
@@ -182,11 +183,47 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
   let pressAt: Point | null = null;
   let dragging = false;
 
+  // Gmail tekent tijdens het slepen een eigen kaartje dat de cursor volgt ("Een
+  // gesprek verplaatsen"). Dat verschijnt als nieuw element in de pagina zodra
+  // de sleep begint. Onze strip zit één laag onder het maximum, dus wat Gmail
+  // erbij zet kan die laatste laag krijgen en blijft zichtbaar boven de strip.
+  //
+  // Alleen tijdens de sleep en alleen voor wat er in díe tijd bijkomt; de oude
+  // waarde gaat er achteraf weer op. Op "er komt een zwevend element bij" en
+  // niet op een klassenaam: Gmail's klassenamen zijn vervormd en veranderen.
+  const lifted: Array<{ el: HTMLElement; previous: string }> = [];
+  let liftObserver: MutationObserver | null = null;
+
+  const liftDragChrome = () => {
+    if (liftObserver) return;
+    liftObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (let i = 0; i < record.addedNodes.length; i++) {
+          const node = record.addedNodes[i] as HTMLElement;
+          if (node.nodeType !== 1 || node === zone || node === style) continue;
+          const position = window.getComputedStyle(node).position;
+          if (position !== 'fixed' && position !== 'absolute') continue;
+          lifted.push({ el: node, previous: node.style.zIndex });
+          node.style.zIndex = String(DRAG_CHROME_Z);
+        }
+      }
+    });
+    liftObserver.observe(host, { childList: true });
+  };
+
+  const dropDragChrome = () => {
+    liftObserver?.disconnect();
+    liftObserver = null;
+    for (const { el, previous } of lifted) el.style.zIndex = previous;
+    lifted.length = 0;
+  };
+
   const endGesture = () => {
     pressThreadId = null;
     pressLabel = null;
     pressAt = null;
     dragging = false;
+    dropDragChrome();
   };
 
   document.addEventListener(
@@ -200,6 +237,30 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
       pressLabel = pressThreadId ? null : labelFromDragTarget(target);
       pressAt = { x: e.clientX, y: e.clientY };
       dragging = false;
+      // Slepen over tekst selecteert die tekst, en die selectie blijft na het
+      // loslaten staan. Druk je daarna nóg eens op diezelfde, nu geselecteerde
+      // tekst en beweeg je, dan begint Chromium zijn eigen sleep van de
+      // selectie — en zodra dat gebeurt houden de mousemove-events op en
+      // verschijnt onze strip nooit meer. Dat treft precies het label dat je
+      // net versleepte, en niet de labels ernaast. Selectie weg bij het
+      // indrukken, dus elke sleep begint weer schoon.
+      if (pressThreadId || pressLabel) {
+        window.getSelection()?.removeAllRanges();
+        // Nu al kijken, niet pas als de sleep de drempel haalt: Gmail zet zijn
+        // kaartje neer op zijn eigen moment en dat kan eerder zijn.
+        liftDragChrome();
+      }
+    },
+    true,
+  );
+
+  // Vangnet voor hetzelfde: begint Chromium tóch een eigen sleep (een <a> in de
+  // navigatie is vanzelf sleepbaar), dan hier afbreken. Zonder dit stopt de
+  // gebeurtenissenstroom waar de strip op draait.
+  document.addEventListener(
+    'dragstart',
+    (e) => {
+      if (pressThreadId || pressLabel) e.preventDefault();
     },
     true,
   );

@@ -21,7 +21,25 @@ import { addAccountUrl } from './google-urls';
 import { applyBadge } from './badge-controller';
 import { UnreadStore } from './unread-store';
 import { shouldNotifyUpdate } from './update-notifier';
-import { IPC, type MailDropPayload, type MailDropPreviewItem } from './ipc';
+import {
+  IPC,
+  type MailDropPayload,
+  type MailDropPreviewItem,
+  type MailDropCopyTarget,
+  type MailDropCopyAccountResult,
+  type MailDropCopyResult,
+  type MailDropCopyDuplicate,
+} from './ipc';
+import {
+  normalizeTargets,
+  copyTotal,
+  groupDuplicates,
+  duplicateIndex,
+  labelsStillNeeded,
+  newMessageCount,
+  type DuplicateHit,
+  type CopyMode,
+} from './mail-copy';
 import { parseHeaders, extractPlainText, htmlToText } from './eml';
 import { writeThread, writeLabel, appendLog, type LogRecord, type SavedMessage } from './mail-archive';
 import {
@@ -34,6 +52,7 @@ import {
   type LabelThread,
 } from './label-drop';
 import { fetchThreadEmls } from './mail-fetch';
+import { NO_SUBJECT } from './dropzone';
 import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './tray-controller';
 import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './shortcuts';
@@ -50,6 +69,21 @@ import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
 import { OverlayView } from './overlay-view';
+import { accountsNeedingReconnect, bannerBounds } from './oauth-health';
+import {
+  fetchLabels,
+  fetchLabelId,
+  listLabelThreadIds,
+  fetchThreadRaw,
+  insertMessage,
+  messageExistsInLabel,
+  GmailHttpError,
+  type AccountLabels,
+} from './gmail-api';
+import { mapLimit } from './concurrency';
+import { OAuthStore } from './oauth-store';
+import { connectAccount, accessTokenFor, forceRefresh } from './oauth-flow';
+import type { OAuthConfig } from './google-oauth';
 
 // WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
 // and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
@@ -77,6 +111,7 @@ const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
 // app.asar/assets/icon.png when packaged (assets/** is in electron-builder files).
 const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
+const OAUTH_CONFIG_PATH = join(app.getPath('userData'), 'google-oauth.json');
 const PROBE_TIMEOUT_MS = 16000; // > preload identity poll window (~15s) so slow accounts aren't missed
 
 let mainWindow: BrowserWindow | null = null;
@@ -91,6 +126,23 @@ let settingsPanelOpen = false;
 let dropPreviewOpen = false; // modal na een drop staat open
 let dropOverlay: OverlayView | null = null; // eigen view waarin die modal leeft
 let lastDropPreview: MailDropPreviewItem[] = []; // laatste drop, zodat de modal het ook kan ophalen
+// Eén weggeschreven bericht uit de laatste sleep. Het pad, want het kopiëren
+// leest de bytes daarvandaan terug in plaats van ze in het geheugen te houden:
+// een labelsleep van tweehonderd gesprekken met bijlagen is zo honderden
+// megabytes. De Message-ID om te herkennen of hij aan de andere kant al staat,
+// het onderwerp om dat te kunnen melden.
+interface SavedRef {
+  file: string;
+  messageId: string;
+  subject: string;
+}
+let lastDropSaved: SavedRef[] = [];
+// Het account waaruit gesleept is. Dat account als kopieerdoel aanbieden zou
+// alleen maar een duplicaat in hetzelfde postvak opleveren.
+let lastDropSource = '';
+let oauthTokens: OAuthStore | null = null;
+let reconnectBanner: OverlayView | null = null; // blijvende melding voor accounts zonder werkende koppeling
+let reconnectEmails: string[] = [];
 let updateRequested = false; // user pressed "Update now" → auto-install once downloaded
 let pendingTrayUpdateCheck = false; // a check started from the tray → announce the result in a popup
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
@@ -272,6 +324,10 @@ function decorate(list: Profile[]) {
 }
 function pushProfiles(): void {
   mainWindow?.webContents.send(IPC.PROFILES_CHANGED, decorate([...profiles]));
+  // De lijst is veranderd: opnieuw kijken of elk eigen account nog gekoppeld is.
+  // Dit is ook de eerste controle na het opstarten — er valt niets te controleren
+  // zolang er nog geen account bekend is.
+  scheduleOAuthHealthCheck();
 }
 function pushUnread(): void {
   mainWindow?.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
@@ -353,41 +409,24 @@ function onIdentity(index: number, identity: { email: string; name: string; avat
   clearProbeTimer();
   probingIndex = null;
   if (decision.register && identity.email) {
-    seenEmails.add(identity.email);
-    // If this same mailbox was showing as a delegated entry, the owned authuser
-    // account supersedes it (same inbox) — drop the delegated duplicate.
-    const dup = profiles.findIndex(
-      (p) => p.kind === 'delegated' && p.email.toLowerCase() === identity.email.toLowerCase(),
-    );
-    if (dup !== -1) {
-      for (const surface of SURFACES) manager?.discardView(keyOf(profiles[dup]), surface);
-      profiles.splice(dup, 1);
-    }
-    const color = colors!.get(identity.email) ?? colorForIndex(index);
-    profiles.push({
-      ref: authRef(index),
-      kind: 'authuser',
-      email: identity.email,
-      name: identity.name,
-      avatarUrl: identity.avatarUrl,
-      color,
-    });
-    profiles.sort((a, b) => authIdx(a) - authIdx(b));
-    pushProfiles();
-    refreshNotifyAllowed();
-    syncCalendarViews();
-    if (visibleProbe === index) {
-      // A freshly added account (via the "+" flow): keep it on screen.
-      switchSurface(index, 'mail');
+    // Toevoegen via de "+" gaat alleen door als de Gmail-koppeling lukt, dus
+    // vóór het registreren — anders zou het account er al staan en weer
+    // weggehaald moeten worden. Delegated mailboxen komen hier niet langs; die
+    // worden apart geregistreerd en hebben geen koppeling nodig.
+    if (isVisibleAdd) {
       visibleProbe = null;
-    } else if (manager?.activeKey() == null) {
+      void addAccountAfterConsent(index, identity, decision.stop);
+      return;
+    }
+    registerAccount(index, identity);
+    if (manager?.activeKey() == null) {
       // Nothing visible yet (e.g. the primary account was removed/skipped):
       // surface the first account we successfully register.
       switchSurface(index, 'mail');
     }
   } else if (index > 0) {
     manager?.discardView(keyOfIndex(index), 'mail'); // duplicate/empty probe view
-    if (visibleProbe === index) {
+    if (isVisibleAdd) {
       // Add cancelled or a duplicate account: fall back to a real view so the
       // user isn't left staring at a torn-down blank surface.
       visibleProbe = null;
@@ -397,8 +436,80 @@ function onIdentity(index: number, identity: { email: string; name: string; avat
   if (!decision.stop) probe(index + 1);
 }
 
+// Zet een gedetecteerd authuser-account in de zijbalk.
+function registerAccount(
+  index: number,
+  identity: { email: string; name: string; avatarUrl: string },
+): void {
+  seenEmails.add(identity.email);
+  // If this same mailbox was showing as a delegated entry, the owned authuser
+  // account supersedes it (same inbox) — drop the delegated duplicate.
+  const dup = profiles.findIndex(
+    (p) => p.kind === 'delegated' && p.email.toLowerCase() === identity.email.toLowerCase(),
+  );
+  if (dup !== -1) {
+    for (const surface of SURFACES) manager?.discardView(keyOf(profiles[dup]), surface);
+    profiles.splice(dup, 1);
+  }
+  const color = colors!.get(identity.email) ?? colorForIndex(index);
+  profiles.push({
+    ref: authRef(index),
+    kind: 'authuser',
+    email: identity.email,
+    name: identity.name,
+    avatarUrl: identity.avatarUrl,
+    color,
+  });
+  profiles.sort((a, b) => authIdx(a) - authIdx(b));
+  pushProfiles();
+  refreshNotifyAllowed();
+  syncCalendarViews();
+}
+
+// Een account dat met de "+" is toegevoegd komt er alleen in als de koppeling
+// met de Gmail API lukt: zonder token kan het straks geen mail ontvangen uit een
+// ander postvak, en dan is het account in deze app niets waard.
+//
+// Uitzondering: staat er geen client-id/secret in userData, dan is de koppeling
+// helemaal niet ingesteld en zou blokkeren betekenen dat je geen enkel account
+// meer kunt toevoegen. Dan gaat het toevoegen gewoon door.
+async function addAccountAfterConsent(
+  index: number,
+  identity: { email: string; name: string; avatarUrl: string },
+  stopProbing: boolean,
+): Promise<void> {
+  const email = identity.email;
+  const cfg = oauthConfig();
+  const needsConsent =
+    cfg !== null && oauthTokens !== null && !oauthTokens.get(email) && !!mainWindow && !mainWindow.isDestroyed();
+
+  if (needsConsent) {
+    const result = await connectAccount(mainWindow!, SESSION_PARTITION, cfg!, oauthTokens!, email);
+    if (!result.ok) {
+      // Niet toevoegen: view weg, terug naar een bestaand account.
+      manager?.discardView(keyOfIndex(index), 'mail');
+      if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
+      if (Notification.isSupported()) {
+        new Notification({
+          title: 'Account niet toegevoegd',
+          body: `${email} is niet gekoppeld aan Gmail, dus het account is niet toegevoegd. ${result.error}`,
+        }).show();
+      }
+      if (!stopProbing) probe(index + 1);
+      return;
+    }
+  }
+
+  registerAccount(index, identity);
+  switchSurface(index, 'mail');
+  if (!stopProbing) probe(index + 1);
+}
+
 function removeAccount(email: string): void {
   removed!.add(email); // persist so detection skips it from now on
+  // Het account gaat eruit, dus de API-toegang ook: een token laten staan voor
+  // een postvak dat je niet meer in de app hebt is een geheim zonder doel.
+  oauthTokens?.remove(email);
   const profile = profiles.find((p) => p.email === email);
   if (!profile) return;
   if (profile.kind === 'delegated') delegated?.remove(email); // stop persisting it
@@ -611,8 +722,9 @@ function mailDropFolder(): string {
 // "origineel weergeven"-pagina de RFC822-bron van elk bericht in de
 // conversatie op, schrijf die weg als .eml en log er een regel bij.
 // Slaat één conversatie op. Geeft terug hoeveel berichten er gevonden zijn
-// (`total`) en hoeveel er daadwerkelijk zijn weggeschreven (`count`), plus een
-// reden als er niets van terechtkwam. Logregels schrijft hij zelf.
+// (`total`), hoeveel er daadwerkelijk zijn weggeschreven (`count`) en wat er
+// terechtkwam (`saved` — daar leest het kopiëren uit terug), plus een reden als
+// er niets van terechtkwam. Logregels schrijft hij zelf.
 async function saveOneThread(
   ts: string,
   account: string,
@@ -620,7 +732,7 @@ async function saveOneThread(
   threadId: string,
   authuser: string,
   ik: string,
-): Promise<{ count: number; total: number; error?: string }> {
+): Promise<{ count: number; total: number; error?: string; saved: SavedRef[] }> {
   const failed = (error: string, total = 0) => {
     // Het log is best-effort: is de map onschrijfbaar, dan blijft alleen de
     // melding in de strip over.
@@ -629,7 +741,7 @@ async function saveOneThread(
     } catch {
       /* map niet schrijfbaar */
     }
-    return { count: 0, total, error };
+    return { count: 0, total, error, saved: [] };
   };
 
   let result;
@@ -698,7 +810,89 @@ async function saveOneThread(
   } catch {
     /* map niet schrijfbaar; de bestanden staan er wel */
   }
-  return { count: ok.length, total: fetched.length };
+  return {
+    count: ok.length,
+    total: fetched.length,
+    saved: savedRefs(root, files, ok),
+  };
+}
+
+// writeThread/writeLabel geven de paden in dezelfde volgorde terug als de
+// berichten die ze kregen, dus die twee zijn per index aan elkaar te knopen.
+function savedRefs(root: string, files: string[], messages: SavedMessage[]): SavedRef[] {
+  return messages.map((m, i) => ({
+    file: join(root, files[i]),
+    messageId: m.headers.messageId,
+    subject: m.headers.subject || NO_SUBJECT,
+  }));
+}
+
+// Hoeveel duplicaatcontroles tegelijk. Zoeken kost Gmail vijf eenheden per
+// verzoek; bij een labelsleep zijn dit er honderden en achter elkaar duurt dat
+// te lang om voor een ja-of-nee-vraag op te wachten.
+const DUPLICATE_CHECK_LIMIT = 8;
+
+// Welke berichten al in een doellabel staan. Herkenning op de Message-ID uit de
+// header: dezelfde mail heeft in elk postvak een ander Gmail-id, maar dezelfde
+// Message-ID.
+//
+// Een mislukte controle telt als "geen duplicaat": de vraag stellen op grond van
+// een verzoek dat niet doorkwam is erger dan hem niet stellen, en het kopiëren
+// erna meldt een echte storing alsnog.
+async function findDuplicates(
+  cfg: OAuthConfig,
+  targets: MailDropCopyTarget[],
+  saved: SavedRef[],
+  // Het eigen totaal, niet dat van het kopiëren: controleren is één verzoek per
+  // label, kopiëren één per account. Die twee tellingen lopen uiteen zodra er
+  // meer dan één label per account is aangevinkt.
+  onProgress: (done: number, total: number, email: string) => void,
+): Promise<DuplicateHit[]> {
+  if (!oauthTokens) return [];
+  const tokens = new Map<string, string>();
+  for (const t of targets) {
+    const token = await accessTokenFor(cfg, oauthTokens, t.email);
+    if (token) tokens.set(t.email, token);
+  }
+
+  const checks: Array<{ email: string; labelId: string; ref: SavedRef }> = [];
+  for (const t of targets) {
+    if (!tokens.has(t.email)) continue; // geen token: het kopiëren meldt dat zo meteen
+    for (const labelId of t.labelIds) {
+      // Alleen berichten met een Message-ID; zonder valt niets te vergelijken.
+      for (const ref of saved) if (ref.messageId.trim()) checks.push({ email: t.email, labelId, ref });
+    }
+  }
+
+  let done = 0;
+  const hits = await mapLimit(checks, DUPLICATE_CHECK_LIMIT, async (c) => {
+    let exists = false;
+    try {
+      exists = await messageExistsInLabel(tokens.get(c.email)!, c.ref.messageId, c.labelId);
+    } catch {
+      // Zie boven: bij twijfel niet vragen.
+    }
+    onProgress((done += 1), checks.length, c.email);
+    return exists
+      ? {
+          email: c.email,
+          labelId: c.labelId,
+          messageId: c.ref.messageId,
+          subject: c.ref.subject,
+        }
+      : null;
+  });
+  return hits.filter((h) => h !== null);
+}
+
+// De uitslag van de laatste controle, zodat "Alleen nieuwe kopiëren" niet
+// dezelfde honderden zoekopdrachten nog eens doet. Hoort bij één sleep en één
+// set doelen; verandert er iets, dan is de sleutel anders en zoeken we opnieuw.
+let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
+let dropSerial = 0;
+
+function scanKey(targets: MailDropCopyTarget[]): string {
+  return `${dropSerial}|${JSON.stringify(targets)}`;
 }
 
 // Toont de modal in een eigen view bovenóp Gmail. Die view is precies zo groot
@@ -717,6 +911,86 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
   dropPreviewOpen = true;
   lastDropPreview = items;
   dropOverlay.open({ items });
+}
+
+// Client-id en -secret staan in userData, niet in de repo: de repo is publiek en
+// dit hoort daar niet in te belanden. Bij elke aanroep opnieuw gelezen, zodat je
+// het bestand kunt neerzetten zonder de app te herstarten.
+function oauthConfig(): OAuthConfig | null {
+  try {
+    const raw = JSON.parse(readFileSync(OAUTH_CONFIG_PATH, 'utf8'));
+    if (typeof raw?.clientId === 'string' && typeof raw?.clientSecret === 'string') {
+      return { clientId: raw.clientId, clientSecret: raw.clientSecret };
+    }
+  } catch {
+    // Bestand ontbreekt of is onleesbaar: dan is de koppeling simpelweg niet
+    // ingesteld, en dan blokkeert het toevoegen van een account niet.
+  }
+  return null;
+}
+
+// De controle hangt aan wijzigingen in de accountlijst: zo loopt hij zodra het
+// eerste account bekend is, in plaats van na een vaste wachttijd. Tijdens de
+// detectie registreren accounts één voor één, dus even wachten tot het stil is —
+// anders gaat hij vier keer achter elkaar langs dezelfde lijst.
+let healthTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleOAuthHealthCheck(): void {
+  if (healthTimer) clearTimeout(healthTimer);
+  healthTimer = setTimeout(() => void checkOAuthHealth(), 1500);
+}
+
+// Accounts waarvan het verversen van het token is mislukt. Alleen zo weten we of
+// een koppeling echt weg is: dat blijkt pas als Google het refresh token weigert
+// (in testmodus na zeven dagen).
+const refreshFailures = new Set<string>();
+
+// Kijkt van elk eigen account of de koppeling nog werkt, en toont of verbergt de
+// melding. Draait bij het opstarten en daarna periodiek; een geldig token wordt
+// alleen aangeraakt als het bijna verlopen is.
+async function checkOAuthHealth(): Promise<void> {
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
+
+  const ownEmails = profiles.filter((p) => p.kind === 'authuser').map((p) => p.email);
+  for (const email of ownEmails) {
+    const token = oauthTokens.get(email);
+    if (!token) continue; // heeft geen token: telt hieronder al mee
+    // Alleen echt verversen als het nodig is; accessTokenFor doet dat zelf en
+    // geeft null terug als het mislukt.
+    const fresh = await accessTokenFor(cfg, oauthTokens, email);
+    if (fresh) refreshFailures.delete(email);
+    else refreshFailures.add(email);
+  }
+
+  const needing = accountsNeedingReconnect({
+    ownEmails,
+    hasToken: (e) => oauthTokens!.get(e) !== undefined,
+    refreshFailed: (e) => refreshFailures.has(e),
+  });
+  showReconnectBanner(needing);
+}
+
+// De melding blijft staan tot elk account weer verbonden is: er zit geen
+// sluitknop op. Verdwijnt van zelf zodra de lijst leeg is.
+function showReconnectBanner(emails: string[]): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (emails.length === 0) {
+    reconnectBanner?.close();
+    reconnectEmails = [];
+    return;
+  }
+  reconnectEmails = emails;
+  if (!reconnectBanner) {
+    reconnectBanner = new OverlayView(
+      mainWindow,
+      SIDEBAR_PRELOAD_PATH,
+      DEV_URL ? `${DEV_URL}/reconnect` : 'app://bundle/reconnect.html',
+      IPC.OAUTH_RECONNECT_LIST,
+      bannerBounds,
+    );
+  }
+  if (reconnectBanner.isOpen()) reconnectBanner.update({ emails }, emails.length);
+  else reconnectBanner.open({ emails }, emails.length);
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -764,6 +1038,95 @@ async function collectLabelThreads(
   return { threads, capped };
 }
 
+// Eén gesprek uit een labelsleep, met wat eruit kwam of waarom niet.
+interface CollectedThread {
+  thread: LabelThread;
+  messages: SavedMessage[];
+  error?: string;
+}
+
+// Hoeveel gesprekken tegelijk bij de API. Gmail rekent threads.get als tien
+// eenheden en staat er 250 per seconde toe, dus vijf tegelijk zit daar ruim
+// onder terwijl het wel het verschil maakt tussen tien seconden en een minuut.
+const THREAD_FETCH_LIMIT = 5;
+
+// De gesprekken van een label via de Gmail API. Null betekent: hier niet te
+// doen — geen koppeling, token afgekeurd, of dit label bestaat niet onder deze
+// naam. Dan blijft het bladeren door Gmail's eigen lijstweergave over.
+async function collectLabelViaApi(
+  account: string,
+  label: string,
+): Promise<{ collected: CollectedThread[]; capped: boolean } | null> {
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens || !account) return null;
+  const first = await accessTokenFor(cfg, oauthTokens, account);
+  if (!first) return null;
+  let token: string = first;
+
+  // Eén keer verversen als Google het token alsnog afkeurt; daarna is opnieuw
+  // toestemming geven het enige dat rest en gaan we terug naar de oude weg.
+  let mayRefresh = true;
+  const refreshed = async (e: unknown): Promise<boolean> => {
+    if (!mayRefresh || !(e instanceof GmailHttpError) || e.status !== 401) return false;
+    mayRefresh = false;
+    const fresh = await forceRefresh(cfg, oauthTokens!, account);
+    if (!fresh) {
+      refreshFailures.add(account);
+      scheduleOAuthHealthCheck();
+      return false;
+    }
+    token = fresh;
+    refreshFailures.delete(account);
+    return true;
+  };
+
+  let list: { threadIds: string[]; capped: boolean };
+  try {
+    let labelId = await fetchLabelId(token, label).catch(async (e) => {
+      if (!(await refreshed(e))) throw e;
+      return fetchLabelId(token, label);
+    });
+    if (!labelId) return null;
+    list = await listLabelThreadIds(token, labelId, MAX_THREADS);
+  } catch {
+    return null;
+  }
+
+  const collected = await mapLimit(list.threadIds, THREAD_FETCH_LIMIT, async (threadId) => {
+    const read = async (): Promise<CollectedThread> => {
+      const raws = await fetchThreadRaw(token, threadId);
+      const messages: SavedMessage[] = raws.map((raw) => ({
+        raw,
+        headers: parseHeaders(raw.toString('utf8')),
+      }));
+      return {
+        // Het onderwerp komt uit het bericht zelf en niet uit de lijst, dus het
+        // klopt ook als Gmail de rij inmiddels anders toont.
+        thread: { threadId, subject: messages[0]?.headers.subject || NO_SUBJECT },
+        messages,
+        error: messages.length === 0 ? 'Geen bericht in dit gesprek' : undefined,
+      };
+    };
+    try {
+      return await read();
+    } catch (e) {
+      if (await refreshed(e)) {
+        try {
+          return await read();
+        } catch (e2) {
+          e = e2;
+        }
+      }
+      return {
+        thread: { threadId, subject: '' },
+        messages: [],
+        error: `Ophalen mislukt (${(e as Error).message})`,
+      };
+    }
+  });
+  return { collected, capped: list.capped };
+}
+
 // Een hele labelsleep: alle gesprekken ophalen en in één map wegschrijven.
 async function saveLabel(
   ts: string,
@@ -773,44 +1136,60 @@ async function saveLabel(
   label: string,
   authuser: string,
   ik: string,
-): Promise<MailDropPreviewItem[]> {
-  const { threads, capped } = await collectLabelThreads(ref, authuser, label);
-  if (threads.length === 0) {
+): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[] }> {
+  const empty = () => {
     const error = `Geen mail gevonden in label "${label}"`;
     try {
       appendLog(root, [{ ts, account, threadId: '', label, error }]);
     } catch {
       /* map niet schrijfbaar */
     }
-    return [{ threadId: '', subject: label, saved: 0, error }];
-  }
+    return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [] };
+  };
 
-  // Alles eerst ophalen, dan in één keer wegschrijven: writeLabel maakt één map
-  // en nummert de bestanden over de gesprekken heen door.
-  const collected: Array<{ thread: LabelThread; messages: SavedMessage[]; error?: string }> = [];
-  for (const thread of threads) {
-    try {
-      const result = await fetchThreadEmls(session.fromPartition(SESSION_PARTITION), {
-        threadId: thread.threadId,
-        authuser,
-        ik,
-      });
-      const messages: SavedMessage[] = [];
-      for (const f of result.messages) {
-        if (f.raw) messages.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
-      }
-      if (messages.length === 0) {
-        const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
-        collected.push({
-          thread,
-          messages: [],
-          error: uitleg && uitleg.length <= 300 ? `Gmail: ${uitleg}` : 'Geen origineel gevonden',
+  // Liefst via de API: dat is één verzoek per gesprek in plaats van seconden
+  // wachten per pagina tot Gmail's lijstweergave is omgeklapt. Lukt dat niet
+  // (geen koppeling, gedelegeerd postvak), dan de oude weg.
+  const viaApi = await collectLabelViaApi(account, label);
+  let collected: CollectedThread[];
+  let capped: boolean;
+
+  if (viaApi) {
+    if (viaApi.collected.length === 0) return empty();
+    collected = viaApi.collected;
+    capped = viaApi.capped;
+  } else {
+    const scraped = await collectLabelThreads(ref, authuser, label);
+    if (scraped.threads.length === 0) return empty();
+    capped = scraped.capped;
+
+    // Alles eerst ophalen, dan in één keer wegschrijven: writeLabel maakt één map
+    // en nummert de bestanden over de gesprekken heen door.
+    collected = [];
+    for (const thread of scraped.threads) {
+      try {
+        const result = await fetchThreadEmls(session.fromPartition(SESSION_PARTITION), {
+          threadId: thread.threadId,
+          authuser,
+          ik,
         });
-      } else {
-        collected.push({ thread, messages });
+        const messages: SavedMessage[] = [];
+        for (const f of result.messages) {
+          if (f.raw) messages.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
+        }
+        if (messages.length === 0) {
+          const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
+          collected.push({
+            thread,
+            messages: [],
+            error: uitleg && uitleg.length <= 300 ? `Gmail: ${uitleg}` : 'Geen origineel gevonden',
+          });
+        } else {
+          collected.push({ thread, messages });
+        }
+      } catch (e) {
+        collected.push({ thread, messages: [], error: `Ophalen mislukt (${(e as Error).message})` });
       }
-    } catch (e) {
-      collected.push({ thread, messages: [], error: `Ophalen mislukt (${(e as Error).message})` });
     }
   }
 
@@ -820,12 +1199,15 @@ async function saveLabel(
     files = writeLabel(root, ts, label, flat);
   } catch {
     const error = `Kan niet schrijven naar ${root}`;
-    return collected.map((c) => ({
-      threadId: c.thread.threadId,
-      subject: c.thread.subject,
-      saved: 0,
-      error,
-    }));
+    return {
+      items: collected.map((c) => ({
+        threadId: c.thread.threadId,
+        subject: c.thread.subject,
+        saved: 0,
+        error,
+      })),
+      saved: [],
+    };
   }
 
   // Logregels in dezelfde volgorde als de weggeschreven bestanden.
@@ -883,7 +1265,7 @@ async function saveLabel(
       error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
     });
   }
-  return items;
+  return { items, saved: savedRefs(root, files, flat) };
 }
 
 async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promise<void> {
@@ -892,6 +1274,12 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
   const root = mailDropFolder();
   const items = payload?.items ?? [];
   if (items.length === 0 && !payload?.label) return;
+  // Een nieuwe sleep vervangt de vorige: de modal die zo opengaat hoort bij
+  // déze mail, niet bij wat er de vorige keer is opgeslagen.
+  lastDropSaved = [];
+  // Andere mail, dus de uitslag van de vorige duplicaatcontrole zegt niets meer.
+  dropSerial += 1;
+  lastDropSource = account;
   if (!payload.ik) {
     const error = 'Kon Gmail-token niet lezen';
     try {
@@ -912,7 +1300,7 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
   if (payload.label) {
     const profile = profiles.find((p) => keyOf(p) === acctKey);
     if (!profile) return;
-    const done = await saveLabel(
+    const { items: done, saved: refs } = await saveLabel(
       ts,
       account,
       root,
@@ -921,6 +1309,7 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
       payload.authuser,
       payload.ik,
     );
+    lastDropSaved = refs;
     const saved = done.reduce((n, i) => n + i.saved, 0);
     manager?.sendDropResult(
       acctKey,
@@ -943,6 +1332,7 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
     count += r.count;
     total += r.total;
     if (r.error) lastError = r.error;
+    lastDropSaved.push(...r.saved);
     done.push({ ...item, saved: r.count, error: r.error });
   }
   manager?.sendDropResult(
@@ -994,6 +1384,7 @@ function createWindow(): void {
   mainWindow.on('show', refreshBadge);
   mainWindow.on('restore', refreshBadge);
   colors = new ColorStore(join(app.getPath('userData'), 'colors.json'));
+  oauthTokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
   removed = new RemovedStore(join(app.getPath('userData'), 'removed.json'));
   delegated = new DelegatedStore(join(app.getPath('userData'), 'delegated.json'));
   manager = new ProfileViewManager(
@@ -1070,6 +1461,11 @@ function createWindow(): void {
   // Een preload wordt alleen bij een navigatie ingelezen, dus herladen we de
   // views zodra het bestand verandert. Scheelt een herstart van de hele app.
   if (DEV_URL) watchPreloadForReload();
+
+  // De controle hangt aan de accountlijst (zie scheduleOAuthHealthCheck), dus hij
+  // loopt zodra het eerste account bekend is. Daarnaast periodiek, want een
+  // refresh token kan verlopen terwijl de app gewoon open staat.
+  setInterval(() => void checkOAuthHealth(), 5 * 60 * 1000);
 
   mainWindow.webContents.on('did-finish-load', () => {
     loadDelegatedProfiles(); // surface persisted delegated mailboxes immediately
@@ -1339,6 +1735,246 @@ function registerIpc(): void {
     dropPreviewOpen = false;
     dropOverlay?.close();
   });
+  // Labels van elk gekoppeld account, voor de kopieermodal. Per account apart
+  // gemeld: ontbreekt er één token, dan blijven de andere kolommen bruikbaar.
+  ipcMain.handle(IPC.LABELS_GET, async () => {
+    const cfg = oauthConfig();
+    // Het bronaccount niet aanbieden: een kopie in hetzelfde postvak is een
+    // duplicaat, en verplaatsen binnen één account doet Gmail zelf al.
+    const own = profiles.filter(
+      (p) => p.kind === 'authuser' && (!lastDropSource || p.email !== lastDropSource),
+    );
+    if (!cfg || !oauthTokens) {
+      return { accounts: own.map((p) => ({ email: p.email, labels: [], error: 'Niet gekoppeld' })) };
+    }
+    const accounts: AccountLabels[] = [];
+    for (const p of own) {
+      const token = await accessTokenFor(cfg, oauthTokens, p.email);
+      if (!token) {
+        accounts.push({ email: p.email, labels: [], error: 'Verbinding verlopen' });
+        continue;
+      }
+      try {
+        accounts.push({ email: p.email, labels: await fetchLabels(token) });
+      } catch (e) {
+        // 401 betekent dat Google het token afkeurt, ook als het volgens onze
+        // klok nog geldig is (bijvoorbeeld ingetrokken via een andere app met
+        // dezelfde client-id). Eerst verversen en het nog eens proberen; lukt dat
+        // niet, dan is opnieuw toestemming geven het enige dat rest en zetten we
+        // dit account in de herverbind-melding.
+        const unauthorized = e instanceof GmailHttpError && e.status === 401;
+        const fresh = unauthorized ? await forceRefresh(cfg, oauthTokens, p.email) : null;
+        if (fresh) {
+          try {
+            accounts.push({ email: p.email, labels: await fetchLabels(fresh) });
+            refreshFailures.delete(p.email);
+            continue;
+          } catch (e2) {
+            accounts.push({ email: p.email, labels: [], error: (e2 as Error).message });
+            continue;
+          }
+        }
+        if (unauthorized) {
+          refreshFailures.add(p.email);
+          scheduleOAuthHealthCheck();
+          accounts.push({ email: p.email, labels: [], error: 'Verbinding verlopen' });
+        } else {
+          accounts.push({ email: p.email, labels: [], error: (e as Error).message });
+        }
+      }
+    }
+    return { accounts };
+  });
+  // Het eigenlijke kopiëren: elk .eml van de laatste sleep in het postvak van
+  // elk gekozen account zetten, onder de daar aangevinkte labels. Eén insert per
+  // bericht per account — de labels gaan mee in datzelfde verzoek, anders zou
+  // elk label een eigen kopie opleveren.
+  ipcMain.handle(
+    IPC.MAIL_DROP_COPY,
+    async (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) => {
+    const cfg = oauthConfig();
+    const targets = normalizeTargets(arg?.targets ?? []);
+    const mode: CopyMode = arg?.mode ?? 'check';
+    const fail = (error: string): MailDropCopyResult => ({
+      ok: false,
+      copied: 0,
+      skipped: 0,
+      total: 0,
+      accounts: [],
+      error,
+    });
+    if (!cfg || !oauthTokens) return fail('Koppeling niet ingesteld');
+    if (targets.length === 0) return fail('Geen label gekozen');
+    const files = lastDropSaved;
+    if (files.length === 0) return fail('Geen opgeslagen berichten om te kopiëren');
+
+    const total = copyTotal(targets, files.length);
+    const ts = new Date().toISOString();
+    const root = mailDropFolder();
+    const records: LogRecord[] = [];
+    const accounts: MailDropCopyAccountResult[] = [];
+    let done = 0;
+    let copied = 0;
+    let skipped = 0;
+    const progress = (phase: 'check' | 'copy', email: string, of = total) =>
+      dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, { phase, done, total: of, email });
+
+    // Bij 'all' gaat alles erbij en hoeft er niets opgezocht te worden. Anders
+    // eerst kijken wat er al staat: bij 'check' om het te kunnen vragen, bij
+    // 'new' om precies die berichten over te slaan.
+    let index = new Set<string>();
+    if (mode !== 'all') {
+      const key = scanKey(targets);
+      const hits =
+        lastScan?.key === key
+          ? lastScan.hits
+          : await findDuplicates(cfg, targets, files, (n, of, email) => {
+              done = n;
+              progress('check', email, of);
+            });
+      lastScan = { key, hits };
+      done = 0;
+      index = duplicateIndex(hits);
+      if (mode === 'check' && hits.length > 0) {
+        return {
+          ok: false,
+          copied: 0,
+          skipped: 0,
+          total,
+          accounts: [],
+          needsConfirm: true,
+          duplicates: groupDuplicates(hits),
+          newCount: newMessageCount(index, targets, files.map((f) => f.messageId)),
+        };
+      }
+    }
+
+    for (const target of targets) {
+      progress('copy', target.email);
+      let token = await accessTokenFor(cfg, oauthTokens, target.email);
+      if (!token) {
+        refreshFailures.add(target.email);
+        scheduleOAuthHealthCheck();
+        done += files.length;
+        progress('copy', target.email);
+        accounts.push({
+          email: target.email,
+          copied: 0,
+          skipped: 0,
+          total: files.length,
+          error: 'Verbinding verlopen',
+        });
+        continue;
+      }
+
+      let ok = 0;
+      let over = 0;
+      let lastError: string | undefined;
+      for (const { file, messageId } of files) {
+        // Alleen de labels waar hij nog niet staat. Bij 'all' is de index leeg,
+        // dus dan blijven het gewoon alle gekozen labels.
+        const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
+        if (labelIds.length === 0) {
+          over += 1;
+          done += 1;
+          progress('copy', target.email);
+          continue;
+        }
+        let raw: Buffer;
+        try {
+          raw = readFileSync(file);
+        } catch {
+          lastError = `Kan ${file} niet lezen`;
+          records.push({ ts, account: target.email, threadId: '', file, error: lastError });
+          done += 1;
+          progress('copy', target.email);
+          continue;
+        }
+        try {
+          // Een 401 betekent dat Google het token afkeurt, ook als onze klok
+          // zegt dat het nog geldig is. Eén keer verversen en opnieuw; blijft
+          // het mislukken, dan is opnieuw toestemming geven het enige dat rest.
+          let id: string | null;
+          try {
+            id = await insertMessage(token, raw, labelIds);
+          } catch (e) {
+            if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
+            const fresh = await forceRefresh(cfg, oauthTokens, target.email);
+            if (!fresh) {
+              refreshFailures.add(target.email);
+              scheduleOAuthHealthCheck();
+              throw new Error('Verbinding verlopen');
+            }
+            token = fresh;
+            refreshFailures.delete(target.email);
+            id = await insertMessage(token, raw, labelIds);
+          }
+          ok += 1;
+          records.push({
+            ts,
+            account: target.email,
+            threadId: id ?? '',
+            file,
+            bytes: raw.length,
+            copy: { to: target.email, labels: labelIds, ok: true },
+          });
+        } catch (e) {
+          lastError = (e as Error).message;
+          records.push({
+            ts,
+            account: target.email,
+            threadId: '',
+            file,
+            error: lastError,
+            copy: { to: target.email, labels: labelIds, ok: false, error: lastError },
+          });
+        }
+        done += 1;
+        progress('copy', target.email);
+      }
+      copied += ok;
+      skipped += over;
+      accounts.push({
+        email: target.email,
+        copied: ok,
+        skipped: over,
+        total: files.length,
+        // Overgeslagen berichten zijn geen fout: de rest is af zodra alles
+        // wat nog niet bestond geschreven is.
+        error: ok + over < files.length ? (lastError ?? 'Niet alles gekopieerd') : undefined,
+      });
+    }
+
+    try {
+      appendLog(root, records);
+    } catch {
+      /* map niet schrijfbaar; de kopieën staan er wel */
+    }
+    return {
+      ok: copied > 0 || skipped > 0,
+      copied,
+      skipped,
+      total,
+      accounts,
+    } satisfies MailDropCopyResult;
+    },
+  );
+  ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ emails: reconnectEmails }));
+  ipcMain.handle(IPC.OAUTH_RECONNECT, async (_e, arg: { email: string }) => {
+    const cfg = oauthConfig();
+    if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) {
+      return { ok: false, error: 'Koppeling niet ingesteld' };
+    }
+    // Opnieuw toestemming vragen; het oude, geweigerde token staat de nieuwe
+    // uitwisseling niet in de weg.
+    const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
+    if (!result.ok) return result;
+    refreshFailures.delete(arg.email);
+    // Opnieuw langs de hele lijst: misschien was dit de laatste en kan de melding
+    // helemaal weg.
+    void checkOAuthHealth();
+    return { ok: true };
+  });
   ipcMain.handle(IPC.MAIL_DROP_FOLDER_GET, () => mailDropFolder());
   ipcMain.handle(IPC.MAIL_DROP_FOLDER_PICK, async () => {
     const current = mailDropFolder();
@@ -1467,3 +2103,4 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   isQuitting = true;
 });
+

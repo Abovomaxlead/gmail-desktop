@@ -27,6 +27,9 @@ export const IPC = {
   SET_NOTIFICATION_OPEN: 'prefs:notification-open', // send('app'|'window')
   SET_RENE_MODE: 'prefs:rene-mode', // send(boolean) — settings-page easter egg toggle
   SET_DEFAULT_MAIL: 'mail:set-default', // send() — (re)claim the OS mailto: default
+  LABELS_GET: 'gmail:labels-get', // invoke() -> {accounts: AccountLabels[]} — labels van elk gekoppeld account
+  OAUTH_RECONNECT_GET: 'oauth:reconnect-get', // invoke() -> {emails} — de melding haalt zelf op
+  OAUTH_RECONNECT: 'oauth:reconnect', // invoke({email}) -> {ok, error?} — opnieuw toestemming vragen
   MAIL_DROP_FOLDER_GET: 'maildrop:folder-get', // invoke() -> string (resolved save folder)
   MAIL_DROP_FOLDER_PICK: 'maildrop:folder-pick', // invoke() -> string (new folder, or the old one on cancel)
   MAIL_DROP_FOLDER_OPEN: 'maildrop:folder-open', // send() — reveal the folder in the file manager
@@ -45,6 +48,9 @@ export const IPC = {
   MAIL_DROP_PREVIEW: 'maildrop:preview', // main -> renderer (sidebar): send({items}) — open the modal
   MAIL_DROP_PREVIEW_CLOSE: 'maildrop:preview-close', // renderer -> main: send() — modal closed, drop the overlay
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get', // invoke() -> {items} — de modal haalt zelf op, voor het geval de push hem nét miste
+  MAIL_DROP_COPY: 'maildrop:copy', // invoke({targets, force?}) -> MailDropCopyResult — de sleep naar de gekozen labels kopiëren; zonder `force` eerst op duplicaten controleren
+  MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress', // main -> modal: send(MailDropCopyProgress)
+  OAUTH_RECONNECT_LIST: 'oauth:reconnect-list', // main -> melding: send({emails}) — wie opnieuw verbonden moet worden
 } as const;
 
 // Eén gesleept gesprek. Het onderwerp komt uit de berichtenlijst en is er dus
@@ -74,6 +80,25 @@ export interface MailDropPreviewItem {
   saved: number; // aantal weggeschreven berichten uit dit gesprek
   error?: string;
 }
+
+// Payload van IPC.MAIL_DROP_COPY_PROGRESS: het kopiëren kan bij een labelsleep
+// honderden verzoeken zijn, dus de modal telt mee in plaats van stil te wachten.
+// `phase` scheidt het zoeken naar duplicaten van het kopiëren zelf: dat zijn
+// twee rondes langs dezelfde berichten en zonder onderscheid lijkt de teller
+// terug te springen.
+export interface MailDropCopyProgress {
+  phase: 'check' | 'copy';
+  done: number;
+  total: number;
+  email: string; // account waar op dit moment naartoe gekeken of geschreven wordt
+}
+
+export type {
+  CopyTarget as MailDropCopyTarget,
+  CopyAccountResult as MailDropCopyAccountResult,
+  CopyResult as MailDropCopyResult,
+  CopyDuplicate as MailDropCopyDuplicate,
+} from './mail-copy';
 
 // Payload van IPC.MAIL_DROP_RESULT. `total` is het aantal gevonden berichten in
 // de conversatie, `count` hoeveel daarvan zijn opgeslagen.

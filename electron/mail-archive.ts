@@ -24,6 +24,9 @@ export interface LogRecord {
   body?: string;
   error?: string;
   label?: string; // gezet als deze mail via een labelsleep is binnengekomen
+  // Gezet als deze regel over het kopiëren naar een ánder account gaat, niet
+  // over het opslaan zelf. `account` is dan het doelaccount.
+  copy?: { to: string; labels: string[]; ok: boolean; error?: string };
 }
 
 const MAX_NAME = 60;

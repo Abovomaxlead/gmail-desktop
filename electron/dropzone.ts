@@ -15,6 +15,14 @@ export const DROPZONE_ID = 'gmd-dropzone';
 // te controleren of de injectie werkt; normaal verschijnt hij pas bij een sleep.
 export const ALWAYS_VISIBLE = false;
 
+// De strip staat één laag ónder het maximum. Die ene laag is gereserveerd voor
+// wat Gmail tijdens het slepen zelf bijtekent — het kaartje "Een gesprek
+// verplaatsen" dat de cursor volgt. Stond de strip op het maximum, dan schoof
+// dat kaartje eronder zodra je erboven kwam en zag je niet meer wát je
+// versleept. Zie liftDragChrome in preload.ts.
+export const DROPZONE_Z = 2147483646;
+export const DRAG_CHROME_Z = 2147483647;
+
 // Alle regels zijn op #gmd-dropzone gescoped zodat Gmail's eigen stylesheet er
 // niet bij kan en wij niets van Gmail raken.
 export const DROPZONE_CSS = `
@@ -25,7 +33,7 @@ export const DROPZONE_CSS = `
   font: 500 14px/1.2 Roboto, Arial, sans-serif; color: #1a73e8;
   background: rgba(232, 240, 254, 0.97);
   border: 2px dashed #1a73e8; border-radius: 12px;
-  z-index: 2147483647; pointer-events: none;
+  z-index: ${DROPZONE_Z}; pointer-events: none;
 }
 #${DROPZONE_ID}[data-state="armed"] { display: flex; }
 #${DROPZONE_ID}[data-state="over"] { display: flex; background: #d2e3fc; border-style: solid; }

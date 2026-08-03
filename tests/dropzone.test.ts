@@ -6,6 +6,8 @@ import {
   resultText,
   DROPZONE_ID,
   DROPZONE_CSS,
+  DROPZONE_Z,
+  DRAG_CHROME_Z,
   ALWAYS_VISIBLE,
   selectedThreadIds,
   threadIdsForDrag,
@@ -238,5 +240,22 @@ describe('movedEnough', () => {
   });
   it('honours a custom threshold', () => {
     expect(movedEnough({ x: 0, y: 0 }, { x: 5, y: 0 }, 4)).toBe(true);
+  });
+});
+
+describe('stacking', () => {
+  // Gmail's eigen sleepkaartje wordt tijdens een sleep naar DRAG_CHROME_Z
+  // getild (zie liftDragChrome in preload.ts). Staat de strip daar niet ónder,
+  // dan verdwijnt dat kaartje er weer achter en zie je niet wát je versleept.
+  it('leaves a layer above the strip for Gmail to draw its drag card in', () => {
+    expect(DRAG_CHROME_Z).toBeGreaterThan(DROPZONE_Z);
+  });
+
+  it('keeps the strip on the layer the stylesheet actually uses', () => {
+    expect(DROPZONE_CSS).toContain(`z-index: ${DROPZONE_Z};`);
+  });
+
+  it('stays at the top of what a page can stack', () => {
+    expect(DRAG_CHROME_Z).toBe(2147483647);
   });
 });

@@ -73,6 +73,21 @@ contextBridge.exposeInMainWorld('desktop', {
   closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
   getMailDropPreview: (): Promise<{ items: unknown[] }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
+  getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
+  copyMailDrop: (
+    targets: Array<{ email: string; labelIds: string[] }>,
+    mode?: 'check' | 'new' | 'all',
+  ): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_COPY, { targets, mode }),
+  onMailDropCopyProgress: (cb: (arg: unknown) => void): void => {
+    ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
+  },
+  onReconnectList: (cb: (arg: { emails: string[] }) => void): void => {
+    ipcRenderer.on(IPC.OAUTH_RECONNECT_LIST, (_e, arg) => cb(arg));
+  },
+  getReconnectList: (): Promise<{ emails: string[] }> =>
+    ipcRenderer.invoke(IPC.OAUTH_RECONNECT_GET),
+  reconnectOAuth: (email: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke(IPC.OAUTH_RECONNECT, { email }),
   getMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_GET),
   pickMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_PICK),
   openMailDropFolder: (): void => ipcRenderer.send(IPC.MAIL_DROP_FOLDER_OPEN),

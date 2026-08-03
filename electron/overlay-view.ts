@@ -9,26 +9,44 @@ import { BrowserWindow, WebContentsView } from 'electron';
 // een doorzichtige achtergrondkleur hebben, én de geladen pagina moet zelf geen
 // achtergrond tekenen. Ontbreekt één van beide, dan schildert Chromium er een
 // dichte laag overheen en is Gmail onzichtbaar.
+export interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export class OverlayView {
   private view: WebContentsView | null = null;
   private pending: unknown = null;
   private ready = false;
+  private rows = 1;
+  private visible = false;
 
   constructor(
     private readonly win: BrowserWindow,
     private readonly preloadPath: string,
     private readonly url: string,
     private readonly channel: string,
+    // Waar de view komt. Standaard het hele venster (een modal met backdrop).
+    // Een melding die Gmail bruikbaar moet laten geeft hier een eigen rechthoek:
+    // een view over het hele venster vangt namelijk álle klikken op.
+    private readonly boundsFor: (
+      win: { width: number; height: number },
+      rows: number,
+    ) => Rect = (w) => ({ x: 0, y: 0, width: w.width, height: w.height }),
   ) {
     this.win.on('resize', () => this.applyBounds());
   }
 
-  open(payload: unknown): void {
+  open(payload: unknown, rows = 1): void {
     if (this.win.isDestroyed()) return;
     this.pending = payload;
+    this.rows = rows;
     if (!this.view) this.create();
     else this.win.contentView.addChildView(this.view); // opnieuw bovenop leggen
     this.view!.setVisible(true);
+    this.visible = true;
     this.applyBounds();
     this.flush();
   }
@@ -36,6 +54,7 @@ export class OverlayView {
   close(): void {
     if (!this.view || this.win.isDestroyed()) return;
     this.view.setVisible(false);
+    this.visible = false;
     try {
       this.win.contentView.removeChildView(this.view);
     } catch {
@@ -64,9 +83,30 @@ export class OverlayView {
     this.pending = null;
   }
 
+  // Stuurt een nieuwe lading naar een al open view, zonder hem opnieuw bovenop te
+  // leggen. Gebruikt om een melding bij te werken terwijl hij blijft staan.
+  update(payload: unknown, rows = this.rows): void {
+    if (!this.view || this.win.isDestroyed()) return;
+    this.pending = payload;
+    this.rows = rows;
+    this.applyBounds();
+    this.flush();
+  }
+
+  isOpen(): boolean {
+    return this.visible;
+  }
+
+  // Een los bericht op een ander kanaal, zonder de openings-payload te
+  // vervangen. Voor dingen die tijdens het openstaan gebeuren, zoals voortgang.
+  send(channel: string, payload: unknown): void {
+    if (!this.view || this.win.isDestroyed() || this.view.webContents.isDestroyed()) return;
+    this.view.webContents.send(channel, payload);
+  }
+
   private applyBounds(): void {
     if (!this.view || this.win.isDestroyed()) return;
     const [width, height] = this.win.getContentSize();
-    this.view.setBounds({ x: 0, y: 0, width, height });
+    this.view.setBounds(this.boundsFor({ width, height }, this.rows));
   }
 }

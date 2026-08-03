@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { SettingsPanel } from './SettingsPanel';
-import type { MailDropItem } from './MailDropModal';
+import type {
+  MailDropItem,
+  MailDropCopyProgress,
+  MailDropCopyResult,
+  MailDropCopyMode,
+} from './MailDropModal';
 import { CALENDAR_ICON_DATA_URI } from './calendar-icon-data';
 import { getStrings } from './strings';
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../lib/surfaces';
@@ -99,6 +104,15 @@ interface DesktopBridge {
   onMailDropPreview(cb: (arg: { items: MailDropItem[] }) => void): void;
   closeMailDropPreview(): void;
   getMailDropPreview(): Promise<{ items: MailDropItem[] }>;
+  getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
+  copyMailDrop(
+    targets: { email: string; labelIds: string[] }[],
+    mode?: MailDropCopyMode,
+  ): Promise<MailDropCopyResult>;
+  onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;
+  onReconnectList(cb: (arg: { emails: string[] }) => void): void;
+  getReconnectList(): Promise<{ emails: string[] }>;
+  reconnectOAuth(email: string): Promise<{ ok: boolean; error?: string }>;
   getMailDropFolder(): Promise<string>;
   pickMailDropFolder(): Promise<string>;
   openMailDropFolder(): void;

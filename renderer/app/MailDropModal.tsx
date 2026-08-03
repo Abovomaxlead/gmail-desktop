@@ -9,6 +9,56 @@ export interface MailDropItem {
   error?: string;
 }
 
+// Waar de sleep naartoe gekopieerd wordt: per account de aangevinkte labels.
+export interface MailDropCopyTarget {
+  email: string;
+  labelIds: string[];
+}
+
+export interface MailDropCopyAccountResult {
+  email: string;
+  copied: number;
+  // Berichten die overgeslagen zijn omdat ze al onder elk gekozen label stonden.
+  skipped: number;
+  total: number;
+  error?: string;
+}
+
+// Wat er met de duplicaten moet gebeuren. 'check' is de eerste ronde: kijken en
+// vragen. De andere twee zijn het antwoord van de gebruiker.
+export type MailDropCopyMode = 'check' | 'new' | 'all';
+
+// Mail die in een doellabel al blijkt te staan, per account-en-label. `subjects`
+// is een steekproef, `count` het echte aantal.
+export interface MailDropCopyDuplicate {
+  email: string;
+  labelId: string;
+  count: number;
+  subjects: string[];
+}
+
+export interface MailDropCopyResult {
+  ok: boolean;
+  copied: number;
+  skipped: number;
+  total: number;
+  accounts: MailDropCopyAccountResult[];
+  error?: string;
+  // Er is niets gekopieerd: er staat al mail in een doellabel en de gebruiker
+  // moet eerst zeggen wat daarmee moet.
+  needsConfirm?: boolean;
+  duplicates?: MailDropCopyDuplicate[];
+  newCount?: number; // hoeveel er overblijven als de duplicaten wegvallen
+}
+
+// Bij een labelsleep zijn dit honderden verzoeken, dus de modal telt mee.
+export interface MailDropCopyProgress {
+  phase: 'check' | 'copy';
+  done: number;
+  total: number;
+  email: string;
+}
+
 // Vult zijn eigen view helemaal: het main-proces maakt die view precies zo groot
 // als dit venster hoort te zijn.
 export function MailDropModal({ onClose }: { onClose: () => void }) {
