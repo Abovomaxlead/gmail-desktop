@@ -258,6 +258,7 @@ export default function AppShell() {
       <Topbar
         profiles={profiles}
         unread={unread}
+        prefs={prefs}
         active={active}
         labelFor={displayName}
         settingsOpen={settingsOpen}

@@ -6,7 +6,8 @@ import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { planPlusMenu, suggestionEmail, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
-import type { Profile, Surface, DelegatedSuggestion, UpdateStatus } from './page';
+import { accountCountVisible } from '../lib/badge-visibility';
+import type { Profile, Surface, DelegatedSuggestion, UpdateStatus, Prefs } from './page';
 
 // De balk ís de titelbalk van het venster. Twee regels beheersen dit bestand:
 //
@@ -65,6 +66,7 @@ function GearIcon({ className = '' }: { className?: string }) {
 export function Topbar({
   profiles,
   unread,
+  prefs,
   active,
   labelFor,
   settingsOpen,
@@ -84,6 +86,10 @@ export function Topbar({
 }: {
   profiles: Profile[];
   unread: Record<string, number>;
+  // Voor accountCountVisible: het per-account "Badge"-vinkje leeft hier, niet
+  // in een los prop per tabblad — anders vergeet een volgende aanroep hem mee
+  // te geven en loopt de balk stilletjes uit de pas met de taakbalk.
+  prefs: Prefs | null;
   active: { key: string; surface: Surface } | null;
   labelFor(p: Profile): string;
   settingsOpen: boolean;
@@ -163,6 +169,7 @@ export function Topbar({
               profile={p}
               label={labelFor(p)}
               unread={unread[p.key] ?? 0}
+              showUnread={accountCountVisible(prefs?.accounts[p.email]?.badgeCount)}
               active={active?.key === p.key}
               activeSurface={active?.key === p.key ? active.surface : null}
               dragging={dragEmail === p.email}

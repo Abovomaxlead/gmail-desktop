@@ -7,6 +7,7 @@ import type { Tray } from 'electron';
 import { parseChangelog, type ChangelogVersion } from './changelog';
 import { ProfileViewManager, type Profile, type Surface } from './profile-view-manager';
 import { SURFACES, surfacesForRef } from '../renderer/lib/surfaces';
+import { accountCountVisible } from '../renderer/lib/badge-visibility';
 import { accountKey, parseAccountKey, type AccountRef } from './account-ref';
 import { DelegatedStore, type StoredDelegate } from './delegated-store';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
@@ -353,11 +354,13 @@ function pushUnread(): void {
   mainWindow?.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
 }
 // Accounts the user has opted out of the taskbar badge — any account (owned or
-// delegated) whose badgeCount pref is off. Absent/true means it still counts.
+// delegated) whose badgeCount pref is off. accountCountVisible is the same
+// predicate the account tab reads (renderer/lib/badge-visibility.ts), so the
+// tab and the taskbar total can never disagree about which accounts count.
 function excludedBadgeKeys(): Set<string> {
   const keys = new Set<string>();
   for (const p of profiles) {
-    if (prefs?.getAccount(p.email).badgeCount === false) {
+    if (!accountCountVisible(prefs?.getAccount(p.email).badgeCount)) {
       keys.add(keyOf(p));
     }
   }

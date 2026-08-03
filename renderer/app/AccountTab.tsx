@@ -39,6 +39,7 @@ export function AccountTab({
   profile,
   label,
   unread,
+  showUnread,
   active,
   activeSurface,
   dragging,
@@ -52,6 +53,11 @@ export function AccountTab({
   profile: Profile;
   label: string;
   unread: number;
+  // Het per-account "Badge"-vinkje: staat het uit, dan toont dit tabblad geen
+  // getal — geen 0, geen leeg bolletje, gewoon niets. Dezelfde vraag als de
+  // taakbalk-teller stelt aan accountCountVisible, zodat ze nooit uit elkaar
+  // kunnen lopen.
+  showUnread: boolean;
   active: boolean;
   // De surface waar dít account op staat, of null als het niet het actieve
   // account is. `mail` toont geen icoontje: dat is de gewone stand.
@@ -92,7 +98,7 @@ export function AccountTab({
       {delegated && <DelegatedIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />}
       {surface && <SurfaceIcon surface={surface} className="h-3.5 w-3.5 shrink-0" />}
       <span className="max-w-[160px] truncate">{label}</span>
-      {unread > 0 && (
+      {showUnread && unread > 0 && (
         <span className="shrink-0 rounded-full bg-blue-500 px-1.5 text-[10px] font-bold leading-[15px] text-white">
           {unreadLabel(unread, strings.numberLocale)}
         </span>
