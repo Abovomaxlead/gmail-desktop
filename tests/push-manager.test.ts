@@ -16,7 +16,13 @@ class FakeSocket implements PushSocket {
     this.sent.push(data);
   }
   close(): void {
+    // Echte ws vuurt ook een close-event als je zelf close() aanroept — dat
+    // is precies wat Critical 1 blootlegde: de manager moet zo'n zelf
+    // veroorzaakte sluiting net zo goed herkennen als een sluiting door de
+    // server. Eenmalig, zoals een echte socket ook maar één keer sluit.
+    if (this.closed) return;
     this.closed = true;
+    this.close_?.(1000);
   }
   onOpen(cb: () => void): void {
     this.open = cb;
@@ -193,6 +199,11 @@ describe('startPushManager', () => {
     h.sockets[1].fireOpen();
     await settle();
     expect(h.events).not.toContain('cover:a@x.nl:false');
+    // Niet alleen geen omschakeling: de nog lopende afvaltimer moet ook echt
+    // afgezegd zijn. Zonder die annulering zou deze test ook slagen als de
+    // `state.grace?.clear()`-regel werd weggehaald — pas deze assertie merkt
+    // dat de timer nog steeds klaarstaat om dekking alsnog terug te trekken.
+    expect(h.timers.live()).not.toContain(120_000);
     h.manager.stop();
   });
 
@@ -265,6 +276,71 @@ describe('startPushManager', () => {
     h.manager.refresh();
     expect(h.sockets[0].closed).toBe(true);
     expect(h.events).toContain('cover:a@x.nl:false');
+    // Het lokaal sluiten van de socket vuurt zelf een close-event (zoals een
+    // echte ws-verbinding ook doet). Dat mag het verwijderde account niet via
+    // de normale herverbindingslogica laten herleven: geen nieuwe socket, geen
+    // reconnect-timer.
+    expect(h.sockets).toHaveLength(2);
+    expect(h.timers.live()).toEqual([]);
     h.manager.stop();
+  });
+
+  it('ignores a stale handshake once stop() has already run', async () => {
+    // Simuleert de race uit Critical 2: de open-handler hangt nog op een
+    // token terwijl de manager al gestopt is. Zonder de leefbaarheidscheck zou
+    // hij na het alsnog binnenkomen van het token nog een auth-frame sturen.
+    let resolveToken: (t: string | null) => void = () => {};
+    const tokenPromise = new Promise<string | null>((res) => {
+      resolveToken = res;
+    });
+    const h = harness({ accessToken: async () => tokenPromise });
+    h.sockets[0].fireOpen();
+    h.manager.stop();
+    resolveToken('token-1');
+    await settle();
+    expect(h.sockets[0].sent).toEqual([]);
+    expect(h.events).toEqual([]);
+  });
+
+  it('ignores a stale handshake once a fatal refusal already handled the close', async () => {
+    // Zelfde race, maar dan met een 4403 die tussentijds binnenkomt terwijl de
+    // watch-aanroep nog hangt. Zonder de leefbaarheidscheck zou de trage watch
+    // de permanente afwijzing ongedaan maken: dekking weer aan en een catch-up
+    // melden voor een account dat net geweigerd is.
+    const sockets: FakeSocket[] = [];
+    const events: string[] = [];
+    let resolveWatch: (ok: boolean) => void = () => {};
+    const watchPromise = new Promise<boolean>((res) => {
+      resolveWatch = res;
+    });
+    const manager = startPushManager({
+      config: { relayUrl: 'ws://localhost:8099', pushTopic: 'projects/p/topics/gmail-push' },
+      accounts: () => ['a@x.nl'],
+      accessToken: async () => 'token-1',
+      armWatch: async (email) => {
+        events.push(`watch:${email}`);
+        return watchPromise; // blijft hangen tot de test hem lost
+      },
+      onSync: (email) => events.push(`sync:${email}`),
+      onCoverage: (email, covered) => events.push(`cover:${email}:${covered}`),
+      onFatal: (email, code) => events.push(`fatal:${email}:${code}`),
+      transport: {
+        connect: () => {
+          const s = new FakeSocket();
+          sockets.push(s);
+          return s;
+        },
+      },
+      setTimer: fakeTimers().setTimer,
+    });
+    sockets[0].fireOpen();
+    await settle();
+    sockets[0].fireClose(4403); // adres niet in ALLOWED_EMAILS van de relay
+    expect(events).toContain('fatal:a@x.nl:4403');
+    resolveWatch(true); // de trage aanroep komt alsnog terug, te laat om nog te tellen
+    await settle();
+    expect(events).not.toContain('cover:a@x.nl:true');
+    expect(events.filter((e) => e === 'sync:a@x.nl')).toHaveLength(0);
+    manager.stop();
   });
 });

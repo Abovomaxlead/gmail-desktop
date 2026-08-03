@@ -49,6 +49,12 @@ interface ConnState {
   stale?: Timer;
   grace?: Timer;
   dead: boolean; // definitief geweigerd: niet meer proberen
+  // Nummer van de lopende poging. Traag werk (token ophalen, watch zetten,
+  // vernieuwen) neemt dit nummer mee en checkt het na elke await: als het niet
+  // meer overeenkomt is deze poging overtroffen door een nieuwe verbinding,
+  // is het account verwijderd, of is de manager gestopt — en mag hij niets
+  // meer aan de gedeelde toestand doen.
+  generation: number;
 }
 
 export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh(): void } {
@@ -84,40 +90,56 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
     state.grace = undefined;
   };
 
+  // De ene vraag die "mag deze poging nog iets veranderen?" beantwoordt: niet
+  // gestopt, niet definitief afgewezen, en dit account verwijst nog naar
+  // precies déze toestand onder precies dit pogingnummer. Elke asynchrone
+  // vervolgstap (na een await, of in een losse timer-callback) checkt dit
+  // vóórdat hij de socket aanraakt of dekking meldt.
+  const isLive = (email: string, state: ConnState, gen: number): boolean =>
+    !stopped && !state.dead && conns.get(email) === state && state.generation === gen;
+
   // Elke vernieuwing plant de volgende zelf in, en hangt aan het account en niet
   // aan één socket: de watch is een gewone HTTPS-aanroep en kan dus ook slagen
   // terwijl de verbinding even weg is.
-  const scheduleRenew = (email: string, state: ConnState): void => {
+  const scheduleRenew = (email: string, state: ConnState, gen: number): void => {
     state.renew?.clear();
     state.renew = setTimer(() => {
-      if (stopped) return;
+      if (!isLive(email, state, gen)) return;
       void deps
         .armWatch(email)
         .then((ok) => {
+          if (!isLive(email, state, gen)) return;
           if (!ok) setCovered(email, state, false);
         })
-        .catch(() => setCovered(email, state, false))
+        .catch(() => {
+          if (isLive(email, state, gen)) setCovered(email, state, false);
+        })
         .finally(() => {
-          if (!stopped) scheduleRenew(email, state);
+          if (isLive(email, state, gen)) scheduleRenew(email, state, gen);
         });
     }, renewMs);
   };
 
   // Een socket die stilvalt zonder close-event zou de manager voor altijd laten
   // denken dat hij verbonden is. Elke frame — ook een ping — schuift dit op.
-  const armStale = (email: string, state: ConnState): void => {
+  const armStale = (email: string, state: ConnState, gen: number): void => {
     state.stale?.clear();
     state.stale = setTimer(() => {
-      if (stopped) return;
+      if (!isLive(email, state, gen)) return;
       state.sock?.close(); // het close-event hierna regelt de herverbinding
     }, staleMs);
   };
 
   const connect = (email: string): void => {
     if (stopped) return;
-    const state = conns.get(email) ?? { attempt: 0, covered: false, dead: false };
+    const state = conns.get(email) ?? { attempt: 0, covered: false, dead: false, generation: 0 };
     conns.set(email, state);
     if (state.dead) return;
+
+    // Nieuw nummer voor deze poging. Zolang niemand anders het account opnieuw
+    // verbindt, blijft dit hét geldende nummer voor alle timers en callbacks
+    // die deze socket hieronder opzet.
+    const myGen = ++state.generation;
 
     let sock: PushSocket;
     try {
@@ -133,35 +155,42 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       void (async () => {
         try {
           const token = await deps.accessToken(email);
+          if (!isLive(email, state, myGen)) return;
           if (!token) {
-            // Geen token: de relay zou ons toch weigeren. Wachten tot een
-            // volgende poging; misschien is het account dan wel gekoppeld.
+            // Geen token: de relay zou ons toch weigeren. Socket dicht en de
+            // gewone sluitpad regelt de herverbinding met backoff — geen tweede
+            // "dood spoor" naast de bestaande reconnectlogica.
             console.warn(`[push] geen token voor ${email}`);
+            sock.close();
             return;
           }
           sock.send(JSON.stringify({ type: 'auth', accessToken: token }));
           const armed = await deps.armWatch(email);
+          if (!isLive(email, state, myGen)) return;
           if (!armed) {
             console.warn(`[push] watch mislukte voor ${email}; webview blijft melden`);
+            sock.close(); // idem: laat de gewone sluitpad opnieuw proberen
             return;
           }
           state.attempt = 0;
           state.grace?.clear();
           state.grace = undefined;
-          armStale(email, state);
-          scheduleRenew(email, state);
+          armStale(email, state, myGen);
+          scheduleRenew(email, state, myGen);
           // Dekking vóór de catch-up: de meldingsregel meet vanaf dit moment, en
           // mail die daarvoor kwam heeft de webview al gemeld.
           setCovered(email, state, true);
           deps.onSync(email);
         } catch (e) {
           console.warn(`[push] handdruk mislukte voor ${email}:`, e);
+          if (isLive(email, state, myGen)) sock.close();
         }
       })();
     });
 
     sock.onMessage((data) => {
-      armStale(email, state);
+      if (!isLive(email, state, myGen)) return;
+      armStale(email, state, myGen);
       let msg: { type?: string };
       try {
         msg = JSON.parse(data) as { type?: string };
@@ -178,7 +207,10 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       state.stale = undefined;
       state.renew?.clear();
       state.renew = undefined;
-      if (stopped) return;
+      // Niet meer de geldende poging — overtroffen, verwijderd door refresh(),
+      // of de manager is gestopt. Dan is dit sluitgebeuren oud nieuws en mag
+      // het geen dekking of herverbinding meer in beweging zetten.
+      if (!isLive(email, state, myGen)) return;
 
       if (FATAL_CLOSE_CODES.includes(code)) {
         // Hier lost opnieuw proberen niets op. Dekking terug naar de webview en
@@ -203,10 +235,15 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
     const wanted = new Set(deps.accounts());
     for (const [email, state] of conns) {
       if (wanted.has(email)) continue;
+      // Eerst uit de kaart, dán pas sluiten: het sluiten vuurt zelf een
+      // close-event (net als een echte ws-verbinding), en dat event moet dit
+      // account niet meer "in leven" aantreffen — anders herrijst een
+      // verwijderd account via de gewone herverbindingslogica (isLive() kijkt
+      // immers of conns.get(email) nog naar déze state verwijst).
+      conns.delete(email);
       clearTimers(state);
       setCovered(email, state, false);
       state.sock?.close();
-      conns.delete(email);
     }
     for (const email of wanted) if (!conns.has(email)) connect(email);
   };
