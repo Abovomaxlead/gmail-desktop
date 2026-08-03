@@ -10,6 +10,12 @@ import { SURFACES, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountCountVisible } from '../renderer/lib/badge-visibility';
 import { accountKey, parseAccountKey, type AccountRef } from './account-ref';
 import { DelegatedStore, type StoredDelegate } from './delegated-store';
+import {
+  AccountCacheStore,
+  seedable,
+  seedsAllowed,
+  type CachedAccount,
+} from './account-cache';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
 import { planDelegated } from './delegation-planner';
 import { ColorStore } from './color-store';
@@ -183,6 +189,19 @@ let probingIndex: number | null = null;
 // and restore a real view if the add is cancelled/duplicate.
 let visibleProbe: number | null = null;
 let detectionStarted = false;
+// De laatst bekende eigen accounts (accounts.json). Alleen om de balk meteen te
+// kunnen tekenen: zolang een adres hierin staat en detectie het niet heeft
+// teruggevonden, is het een herinnering en geen account. Een adres verdwijnt uit
+// deze lijst zodra het bevestigd is (dan staat er een echt tabblad) of zodra
+// detectie is uitgelopen (dan bestaat het niet meer).
+let cachedAccounts: CachedAccount[] = [];
+let accountCache: AccountCacheStore | null = null;
+let accountCacheLoaded = false;
+// Voorvoegsel voor de sleutel van een voorlopige tab. Bewust anders dan `u<n>` en
+// `d:<adres>`: zo kan een verborgen detectieprobe (die wél op `u<n>` meldt) nooit
+// zijn ongelezen-teller of melding op een onthouden tab afleveren.
+const SEED_KEY_PREFIX = 'seed:';
+const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
@@ -324,27 +343,79 @@ function addDelegatedMailbox(email: string, mailUrl: string): void {
   showAccount({ kind: 'delegated', email: e, mailUrl, calendarUrl: null }, 'mail');
 }
 
-// Decorate for the sidebar renderer: the stable `key` (accountKey) it routes by,
-// the `kind`, whether a calendar surface is offered, per-account prefs, and a
-// derived `index` (authuser slot, -1 for delegated) still used by index-based
-// helpers like the compose window and sortByOrder's fallback.
-function decorate(list: Profile[]) {
-  const withPrefs = list.map((p) => {
+// Eén rij in de tabbalk. Dit is wat er over IPC.PROFILES_CHANGED gaat: de stabiele
+// `key` waarop de zijbalk routeert, de `kind`, of er een agenda-surface is, de
+// voorkeuren per account, en een afgeleide `index` (authuser-slot, -1 als er geen
+// is) die index-gebaseerde helpers als het opstelvenster nog gebruiken.
+interface TabRow {
+  key: string;
+  kind: AccountRef['kind'];
+  index: number;
+  email: string;
+  name: string;
+  avatarUrl: string;
+  color: string;
+  hasCalendar: boolean;
+  order?: number;
+  label?: string;
+  // Gezet op een tab die uit accounts.json komt en door detectie nog niet is
+  // bevestigd. Main opent er niets mee en rekent er niets aan toe; het staat mee
+  // in de payload zodat de zijbalk hem desgewenst apart kan tonen.
+  provisional?: boolean;
+}
+
+function decorate(list: Profile[]): TabRow[] {
+  const confirmed: TabRow[] = list.map((p) => {
     const ap = prefs?.getAccount(p.email) ?? {};
     return {
-      ...p,
       key: keyOf(p),
       kind: p.ref.kind,
       index: authIdx(p),
+      email: p.email,
+      name: p.name,
+      avatarUrl: p.avatarUrl,
+      color: p.color,
       hasCalendar: surfacesForRef(p.ref).includes('calendar'),
       order: ap.order,
       label: ap.label,
     };
   });
-  return sortByOrder(withPrefs);
+  // Plek in het cachebestand als terugval voor de volgorde: dat is de volgorde
+  // waarin de tabs stonden bij het afsluiten, en dus dezelfde plek die het
+  // bevestigde account straks krijgt. Zonder dit springen de tabs zodra detectie
+  // landt — precies wat we wilden voorkomen.
+  const cachePos = new Map(cachedAccounts.map((c, i) => [c.email, i]));
+  const seeds: TabRow[] = seedable(cachedAccounts, {
+    confirmed: profiles.map((p) => p.email),
+    removed: removed?.list() ?? [],
+  }).map((c) => {
+    const ap = prefs?.getAccount(c.email) ?? {};
+    return {
+      // Een sleutel die nergens anders kan voorkomen: geen view, teller, melding
+      // of kopieerdoel kan er per ongeluk op uitkomen, want al die paden lopen
+      // langs `profiles` en daar staat een voorlopig account niet in.
+      key: seedKey(c.email),
+      kind: 'authuser',
+      index: -1, // geen sessieslot: dat is niet bewaard en wordt niet gegokt
+      email: c.email,
+      name: c.name,
+      avatarUrl: c.avatarUrl,
+      color: colors?.get(c.email) ?? c.color,
+      hasCalendar: false, // zonder bevestigde identiteit is er geen surface om te openen
+      order: ap.order ?? cachePos.get(c.email),
+      label: ap.label,
+      provisional: true,
+    };
+  });
+  return sortByOrder([...confirmed, ...seeds]);
 }
 function pushProfiles(): void {
-  mainWindow?.webContents.send(IPC.PROFILES_CHANGED, decorate([...profiles]));
+  const rows = decorate([...profiles]);
+  // De volledige rij-lijst gaat naar de cache, de zichtbare naar de zijbalk: die
+  // twee lopen uiteen zolang er nog geen bevestigd tabblad vooraan staat, en dan
+  // mag het bestand niet verliezen wat we alleen nog even niet tónen.
+  mainWindow?.webContents.send(IPC.PROFILES_CHANGED, seedsAllowed(rows) ? rows : rows.filter((r) => !r.provisional));
+  saveAccountCache(rows);
   // De lijst is veranderd: opnieuw kijken of elk eigen account nog gekoppeld is.
   // Dit is ook de eerste controle na het opstarten — er valt niets te controleren
   // zolang er nog geen account bekend is.
@@ -352,6 +423,31 @@ function pushProfiles(): void {
 }
 function pushUnread(): void {
   mainWindow?.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
+}
+// De cache is precies wat de balk aan eigen accounts laat zien, in die volgorde:
+// dan staat de balk bij de volgende start meteen goed. Gedelegeerde postbussen
+// gaan niet mee — die hebben hun eigen bestand, met een echte URL erin.
+function saveAccountCache(rows: TabRow[]): void {
+  if (!accountCache) return;
+  const own = rows.filter((r) => r.kind === 'authuser');
+  // Nooit een lege lijst wegschrijven. Leeg betekent hier bijna altijd "detectie
+  // heeft nog niets bevestigd" (opstarten, of uitgelogd bij Google), en dan zou dit
+  // precies het bestand wissen dat de balk de volgende keer moet vullen. Het enige
+  // geval waarin de lijst écht leeg hoort te zijn — de gebruiker haalt zijn laatste
+  // account weg — gaat via removeAccount, dat het adres gericht verwijdert.
+  if (own.length === 0) return;
+  accountCache.save(
+    own.map((r) => ({ email: r.email, name: r.name, avatarUrl: r.avatarUrl, color: r.color })),
+  );
+}
+// Detectie is uitgelopen: verder zoeken levert niets meer op. Alles wat we uit de
+// cache tekenden en niet is bevestigd, bestaat in deze sessie niet — weghalen, en
+// het bestand gelijktrekken met wat er werkelijk staat. Zonder dit zou een account
+// dat de gebruiker elders heeft uitgelogd bij elke start terugkomen.
+function settleDetection(): void {
+  probingIndex = null;
+  cachedAccounts = [];
+  pushProfiles();
 }
 // Accounts the user has opted out of the taskbar badge — any account (owned or
 // delegated) whose badgeCount pref is off. accountCountVisible is the same
@@ -400,7 +496,7 @@ function probe(index: number): void {
       // No identity within the timeout: no account at this index. Discard and stop.
       manager?.discardView(keyOfIndex(index), 'mail');
       probeTimer = null;
-      probingIndex = null;
+      settleDetection(); // hier eindigt de reeks: wat nog voorlopig is, bestaat niet
     }, PROBE_TIMEOUT_MS);
   }
 }
@@ -457,6 +553,11 @@ function onIdentity(index: number, identity: { email: string; name: string; avat
     }
   }
   if (!decision.stop) probe(index + 1);
+  // Stoppen ná een leesbaar adres betekent: de reeks is uit (dubbel account of de
+  // bovengrens), en dan heeft detectie alles gezien. Stoppen zonder adres betekent
+  // alleen dat we déze pagina niet konden lezen; dat zegt niets over wat er verder
+  // staat en mag dus niet gelden als "detectie is langsgeweest".
+  else if (identity?.email) settleDetection();
 }
 
 // Zet een gedetecteerd authuser-account in de zijbalk.
@@ -520,6 +621,7 @@ async function addAccountAfterConsent(
         }).show();
       }
       if (!stopProbing) probe(index + 1);
+      else settleDetection();
       return;
     }
   }
@@ -527,10 +629,14 @@ async function addAccountAfterConsent(
   registerAccount(index, identity);
   switchSurface(index, 'mail');
   if (!stopProbing) probe(index + 1);
+  else settleDetection();
 }
 
 function removeAccount(email: string): void {
   removed!.add(email); // persist so detection skips it from now on
+  // Ook uit de onthouden balk, anders staat de tab bij de volgende start weer even
+  // op het scherm voordat `removed` hem eruit filtert.
+  accountCache?.remove(email);
   // Netjes afmelden, anders blijft Gmail nog tot een week publiceren voor een
   // client die er niet meer is. Bewust het opgeslagen access token en géén
   // accessTokenFor: die zou een verlopen token verlengen, en verlengen is precies
@@ -546,7 +652,12 @@ function removeAccount(email: string): void {
   // een postvak dat je niet meer in de app hebt is een geheim zonder doel.
   oauthTokens?.remove(email);
   const profile = profiles.find((p) => p.email === email);
-  if (!profile) return;
+  if (!profile) {
+    // Geen profiel betekent: de gebruiker sloot een voorlopige tab. Er is niets af
+    // te breken, maar de balk moet wel opnieuw — `removed` filtert hem nu weg.
+    pushProfiles();
+    return;
+  }
   if (profile.kind === 'delegated') delegated?.remove(email); // stop persisting it
   const wasActive = manager?.activeKey() === keyOf(profile);
   profiles.splice(profiles.indexOf(profile), 1);
@@ -1490,6 +1601,11 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
     createWindow();
     return;
   }
+  // Een melding uit een view die bij geen enkel tabblad hoort — een verborgen
+  // detectieprobe — mag geen account activeren: welk postvak op dat slot staat is
+  // nog niet vastgesteld, dus zou de app een onbevestigd postvak openen onder de
+  // naam die de balk daar toont.
+  if (!profiles.some((p) => keyOf(p) === accountKey)) return;
   // The app opens the clicked thread itself; Gmail's own click handler may
   // fire window.open with the same thread right after — suppress that
   // (genuine pop-out windows are exempted in windowOpenAction).
@@ -1722,6 +1838,14 @@ function createWindow(): void {
   history = new HistoryStore(join(app.getPath('userData'), 'gmail-history.json'));
   removed = new RemovedStore(join(app.getPath('userData'), 'removed.json'));
   delegated = new DelegatedStore(join(app.getPath('userData'), 'delegated.json'));
+  accountCache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
+  // Eén keer per proces inlezen. Wordt het venster later opnieuw opgebouwd (een
+  // aangeklikte melding kan dat doen), dan is detectie al langs geweest en zou
+  // opnieuw inlezen accounts terugzetten die toen juist zijn afgevallen.
+  if (!accountCacheLoaded) {
+    accountCacheLoaded = true;
+    cachedAccounts = accountCache.list();
+  }
   manager = new ProfileViewManager(
     mainWindow,
     PRELOAD_PATH,
@@ -1983,6 +2107,11 @@ function setupNotifications(): void {
 function registerIpc(): void {
   ipcMain.on(IPC.SWITCH_SURFACE, (_e, arg: { key: string; surface: Surface }) => {
     const p = profiles.find((x) => keyOf(x) === arg.key);
+    // Alleen een bevestigd account heeft een `ref` en dus een postvak om te openen.
+    // Een voorlopige tab bewust niet: de sessie-index is niet bewaard, dus er is
+    // geen URL die we mogen bouwen, en gokken zou het verkeerde postvak onder de
+    // verkeerde naam openen. Detectie is al onderweg; zodra dit adres bevestigd is
+    // staat er een echt tabblad dat wél opengaat.
     if (p) showAccount(p.ref, arg.surface);
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
@@ -2012,10 +2141,10 @@ function registerIpc(): void {
   ipcMain.on(IPC.SET_COLOR, (_e, arg: { email: string; color: string }) => {
     colors!.set(arg.email, arg.color);
     const p = profiles.find((x) => x.email === arg.email);
-    if (p) {
-      p.color = arg.color;
-      pushProfiles();
-    }
+    if (p) p.color = arg.color;
+    // Ook zonder profiel pushen: een voorlopige tab leest zijn kleur uit
+    // colors.json en moet de nieuwe kleur meteen laten zien.
+    pushProfiles();
   });
   ipcMain.on(IPC.REMOVE_ACCOUNT, (_e, arg: { email: string }) => removeAccount(arg.email));
   ipcMain.on(IPC.UPDATE_CHECK, () => checkForUpdate());
