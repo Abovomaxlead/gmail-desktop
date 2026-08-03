@@ -68,7 +68,7 @@ import {
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
-import { overlayOptions, supportsOverlay } from './titlebar';
+import { overlayOptions, supportsOverlay, supportsOverlayUpdate } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
@@ -696,10 +696,11 @@ function handleInput(input: KeyInput): void {
 
 // De overlay met de echte vensterknoppen moet meelopen met het thema en met de
 // zoom van Rene-modus. Anders staan de knoppen donker-op-donker na een
-// themawissel, of 40px hoog in een balk van 80px.
+// themawissel, of 40px hoog in een balk van 80px. Een andere guard dan bij het
+// aanmaken van het venster: bijwerken kan alleen op Windows.
 function applyTitleBarOverlay(): void {
   if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
-  if (!supportsOverlay(process.platform)) return;
+  if (!supportsOverlayUpdate(process.platform)) return;
   const p = prefs.getAll();
   mainWindow.setTitleBarOverlay(
     overlayOptions(p.theme, nativeTheme.shouldUseDarkColors, p.reneMode),
@@ -1665,7 +1666,8 @@ function createWindow(): void {
   );
   // De topbar ís de titelbalk: Electron tekent de echte vensterknoppen als
   // overlay bovenop onze balk. Alleen op Windows en macOS — op Linux houden we
-  // het native frame, want daar bestaat de overlay niet.
+  // het native frame omdat er onder WSL ontwikkeld wordt en de app daar niet mag
+  // omvallen, niet omdat de overlay er zou ontbreken.
   const frameless = supportsOverlay(process.platform)
     ? {
         titleBarStyle: 'hidden' as const,

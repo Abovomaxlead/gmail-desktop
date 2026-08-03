@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { isDarkTheme, overlayOptions, supportsOverlay } from '../electron/titlebar';
+import {
+  isDarkTheme,
+  overlayOptions,
+  supportsOverlay,
+  supportsOverlayUpdate,
+} from '../electron/titlebar';
 import { TOPBAR_HEIGHT } from '../electron/layout';
 
 describe('isDarkTheme', () => {
@@ -47,9 +52,27 @@ describe('supportsOverlay', () => {
     expect(supportsOverlay('darwin')).toBe(true);
   });
 
-  // Er wordt onder WSL ontwikkeld. Daar bestaat de overlay niet en zou een
-  // blinde setTitleBarOverlay-aanroep de app laten omvallen.
+  // Er wordt onder WSL ontwikkeld. Daar houden we het native frame, en een
+  // blinde setTitleBarOverlay-aanroep zou de app laten omvallen.
   it('is not available on Linux', () => {
     expect(supportsOverlay('linux')).toBe(false);
+  });
+});
+
+describe('supportsOverlayUpdate', () => {
+  it('allows updating the overlay on Windows', () => {
+    expect(supportsOverlayUpdate('win32')).toBe(true);
+  });
+
+  // Het verschil met supportsOverlay: macOS neemt de constructor-optie wél aan,
+  // maar kent win.setTitleBarOverlay niet. Eén gedeelde guard zou daar bij elke
+  // themawissel een TypeError geven.
+  it('accepts the option on macOS but refuses the update', () => {
+    expect(supportsOverlay('darwin')).toBe(true);
+    expect(supportsOverlayUpdate('darwin')).toBe(false);
+  });
+
+  it('refuses the update on Linux, where we never enable the overlay', () => {
+    expect(supportsOverlayUpdate('linux')).toBe(false);
   });
 });

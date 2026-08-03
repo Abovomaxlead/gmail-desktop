@@ -35,9 +35,27 @@ export function overlayOptions(
   return { ...colors, height: reneMode ? TOPBAR_HEIGHT * 2 : TOPBAR_HEIGHT };
 }
 
-// titleBarStyle: 'hidden' en titleBarOverlay bestaan alleen op Windows en macOS.
-// Op Linux houden we het native frame: het is geen doelplatform, maar er wordt
-// wel onder WSL ontwikkeld en de app mag daar niet omvallen.
+// Mag het venster frameloos, met titleBarStyle: 'hidden' en de titleBarOverlay-
+// optie? Op Windows tekent Electron dan de knoppen in onze balk, op macOS zet
+// het de stoplichten op de juiste plek. Op Linux houden we het native frame: het
+// is geen doelplatform, maar er wordt wel onder WSL ontwikkeld en de app mag
+// daar niet omvallen.
 export function supportsOverlay(platform: string): boolean {
   return platform === 'win32' || platform === 'darwin';
+}
+
+// Mag de overlay ná het aanmaken nog bijgewerkt worden? Dat is een ander
+// antwoord dan hierboven, en dat is verrassend genoeg een zin waard: de
+// constructor-optie en de setter hebben niet dezelfde platformdekking.
+// win.setTitleBarOverlay staat in Electron als win32,linux — op macOS bestaat de
+// methode niet en zou elke aanroep een TypeError geven. Linux valt hier af omdat
+// we daar de overlay helemaal niet aanzetten (zie supportsOverlay), dus Windows
+// is de enige plek waar we hem zowel zetten als kunnen bijwerken.
+//
+// Gevolg op macOS: de kleuren van de overlay lopen na het opstarten niet mee met
+// een themawissel. Dat is bewust — niet throwen is meer waard dan meelopen, en
+// macOS kleurt zijn stoplichten toch zelf (symbolColor is daar niet eens
+// ondersteund).
+export function supportsOverlayUpdate(platform: string): boolean {
+  return platform === 'win32';
 }
