@@ -150,3 +150,35 @@ describe('isExpired / hasScopes', () => {
     expect(hasScopes({ ...token, scopes: [SCOPES[0]] })).toBe(false);
   });
 });
+
+// De relay koppelt een verbinding aan een account via het e-mailadres uit
+// tokeninfo. Met alleen Gmail-scopes geeft tokeninfo dat adres niet.
+describe('SCOPES', () => {
+  it('includes the email scope the relay needs to identify the account', () => {
+    expect(SCOPES).toContain('https://www.googleapis.com/auth/userinfo.email');
+  });
+
+  it('still includes what the app itself needs', () => {
+    expect(SCOPES).toContain('https://www.googleapis.com/auth/gmail.readonly');
+    expect(SCOPES).toContain('https://www.googleapis.com/auth/gmail.insert');
+  });
+
+  it('sees a token minted before the email scope as incomplete', () => {
+    const old = {
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      expiresAt: 0,
+      scopes: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/gmail.insert',
+      ],
+    };
+    expect(hasScopes(old)).toBe(false);
+  });
+
+  it('sees a token with everything as complete', () => {
+    expect(hasScopes({ accessToken: 'AT', refreshToken: 'RT', expiresAt: 0, scopes: SCOPES })).toBe(
+      true,
+    );
+  });
+});

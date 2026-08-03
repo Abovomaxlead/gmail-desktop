@@ -83,7 +83,7 @@ import {
 import { mapLimit } from './concurrency';
 import { OAuthStore } from './oauth-store';
 import { connectAccount, accessTokenFor, forceRefresh } from './oauth-flow';
-import type { OAuthConfig } from './google-oauth';
+import { hasScopes, type OAuthConfig } from './google-oauth';
 
 // WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
 // and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
@@ -966,6 +966,10 @@ async function checkOAuthHealth(): Promise<void> {
     ownEmails,
     hasToken: (e) => oauthTokens!.get(e) !== undefined,
     refreshFailed: (e) => refreshFailures.has(e),
+    missingScopes: (e) => {
+      const token = oauthTokens!.get(e);
+      return token !== undefined && !hasScopes(token);
+    },
   });
   showReconnectBanner(needing);
 }

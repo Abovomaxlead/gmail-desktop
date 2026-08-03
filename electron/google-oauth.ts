@@ -15,13 +15,19 @@ export interface OAuthConfig {
   clientSecret: string;
 }
 
-// Lezen om de originele berichten op te halen (format=raw) en labels te kunnen
-// opsommen; insert om een bericht in een ánder postvak te zetten. Allebei
-// "restricted" scopes: zonder Google-verificatie werkt dit alleen voor accounts
-// die als testgebruiker staan aangemerkt.
+// Lezen om de originele berichten op te halen (format=raw), labels te kunnen
+// opsommen en de history te volgen; insert om een bericht in een ánder postvak te
+// zetten. Allebei "restricted" scopes: zonder Google-verificatie werkt dit alleen
+// voor accounts die als testgebruiker staan aangemerkt.
+//
+// userinfo.email hoort niet bij Gmail maar bij de push-relay: die koppelt een
+// verbinding aan een account via het e-mailadres uit tokeninfo, en met alleen
+// Gmail-scopes geeft tokeninfo dat adres niet terug. Zonder deze scope sluit de
+// relay elke verbinding met 4401.
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.insert',
+  'https://www.googleapis.com/auth/userinfo.email',
 ];
 
 export const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';

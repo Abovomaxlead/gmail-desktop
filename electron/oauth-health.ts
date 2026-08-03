@@ -8,13 +8,19 @@ export interface HealthInput {
   ownEmails: string[];
   hasToken: (email: string) => boolean;
   refreshFailed: (email: string) => boolean;
+  // Het token bestaat en werkt, maar is gemaakt voordat er een scope bijkwam.
+  // Een verversing levert die scope niet op — daarvoor moet de gebruiker
+  // opnieuw toestemming geven.
+  missingScopes: (email: string) => boolean;
 }
 
-// Een account moet opnieuw verbonden worden als het geen token heeft, of als het
+// Een account moet opnieuw verbonden worden als het geen token heeft, als het
 // verversen ervan is mislukt (in testmodus vervalt een refresh token na zeven
-// dagen).
+// dagen), of als het token een scope mist die we sindsdien nodig hebben.
 export function accountsNeedingReconnect(input: HealthInput): string[] {
-  return input.ownEmails.filter((e) => !input.hasToken(e) || input.refreshFailed(e));
+  return input.ownEmails.filter(
+    (e) => !input.hasToken(e) || input.refreshFailed(e) || input.missingScopes(e),
+  );
 }
 
 export interface Rect {

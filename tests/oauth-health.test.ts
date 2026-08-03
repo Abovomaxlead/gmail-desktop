@@ -5,6 +5,7 @@ const input = (over: Partial<Parameters<typeof accountsNeedingReconnect>[0]> = {
   ownEmails: ['a@x.nl', 'b@x.nl'],
   hasToken: () => true,
   refreshFailed: () => false,
+  missingScopes: () => false,
   ...over,
 });
 
@@ -29,6 +30,31 @@ describe('accountsNeedingReconnect', () => {
 
   it('ignores accounts that are not listed as own (delegated mailboxes)', () => {
     expect(accountsNeedingReconnect(input({ ownEmails: [], hasToken: () => false }))).toEqual([]);
+  });
+});
+
+describe('accountsNeedingReconnect — scopes', () => {
+  const base = {
+    ownEmails: ['a@x.nl'],
+    hasToken: () => true,
+    refreshFailed: () => false,
+    missingScopes: () => false,
+  };
+
+  it('leaves a healthy account alone', () => {
+    expect(accountsNeedingReconnect(base)).toEqual([]);
+  });
+
+  // Zonder dit werkt push na de scope-uitbreiding bij niemand: de relay sluit
+  // elke verbinding met 4401 en er is niets dat het vertelt.
+  it('asks to reconnect an account whose token predates a new scope', () => {
+    expect(accountsNeedingReconnect({ ...base, missingScopes: () => true })).toEqual(['a@x.nl']);
+  });
+
+  it('reports an account once even when more than one reason applies', () => {
+    expect(
+      accountsNeedingReconnect({ ...base, hasToken: () => false, missingScopes: () => true }),
+    ).toEqual(['a@x.nl']);
   });
 });
 
