@@ -73,14 +73,16 @@ export function seedable(
 }
 
 /**
- * Mag de onthouden balk mee naar de zijbalk? Alleen als er een bevestigd tabblad
- * vooraan staat. De zijbalk kiest bij een lege selectie het eerste tabblad als
- * het actieve, en dat mag nooit een voorlopige tab zijn: dan staat er een naam
- * die we alleen maar vermoeden boven het postvak dat main werkelijk toont. Zolang
- * er niets bevestigd is vooraan, blijft de onthouden balk dus achter.
+ * De plek die elk onthouden adres in de balk had, als terugval voor de volgorde.
+ * Geldt de hele sessie, ook nadat de voorlopige tabs zijn afgevallen: zo staat een
+ * bevestigd account op dezelfde plek als de tab die het vervangt, en verschuift de
+ * balk geen enkele keer — niet als de eerste bevestiging landt en niet als
+ * detectie uitloopt. Een eigen voorkeur uit prefs.json gaat hier altijd voor; een
+ * adres dat hier niet in staat (een gedelegeerd postvak, of een account dat er
+ * vorige keer nog niet was) valt terug op zijn eigen index, zoals altijd.
  */
-export function seedsAllowed(rows: Array<{ provisional?: boolean }>): boolean {
-  return rows.length > 0 && rows[0].provisional !== true;
+export function rememberedOrder(cached: CachedAccount[]): Map<string, number> {
+  return new Map(cached.map((c, i) => [c.email.trim().toLowerCase(), i]));
 }
 
 export class AccountCacheStore {

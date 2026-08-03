@@ -34,6 +34,14 @@ describe('tabMenuSurfaces', () => {
   it('puts the calendar first, where the sidebar had it', () => {
     expect(tabMenuSurfaces({ kind: 'authuser', hasCalendar: true })[0]).toBe('calendar');
   });
+
+  // Een tab uit de onthouden balk heeft nog geen sessieslot, dus is er geen url om
+  // heen te gaan — ook niet naar Drive. Geen keuzes betekent geen menu.
+  it('offers a provisional tab nothing, so no menu opens on it', () => {
+    expect(tabMenuSurfaces({ kind: 'authuser', hasCalendar: true, provisional: true })).toEqual([]);
+    expect(tabMenuChoices({ kind: 'authuser', hasCalendar: true, provisional: true })).toEqual([]);
+    expect(hasClickableItem(planTabMenu('a@x.nl', tabMenuChoices({ kind: 'authuser', hasCalendar: true, provisional: true })))).toBe(false);
+  });
 });
 
 describe('tabMenuChoices', () => {

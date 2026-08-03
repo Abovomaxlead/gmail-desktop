@@ -15,11 +15,18 @@ import type { NativeMenuItem } from '../lib/native-menu';
 export interface TabMenuAccount {
   kind: 'authuser' | 'delegated';
   hasCalendar: boolean;
+  // Een tab uit de onthouden balk, waarvan de identiteit nog niet vaststaat.
+  provisional?: boolean;
 }
 
 // Waar dit account nog naartoe kan, buiten de post om.
 export function tabMenuSurfaces(p: TabMenuAccount): Surface[] {
   const out: Surface[] = [];
+  // Een voorlopige tab heeft nergens een url voor: main kent het sessieslot niet en
+  // opent dus niets — ook niet zijn post. Een menu vol keuzes die allemaal niets
+  // doen is erger dan geen menu, dus valt het hier weg (de aanroeper laat een leeg
+  // menu al dicht).
+  if (p.provisional) return out;
   // Agenda alleen als er een is: bij een gedelegeerd postvak hangt dat af van
   // wat Google's accountwisselaar heeft prijsgegeven.
   if (p.hasCalendar) out.push('calendar');

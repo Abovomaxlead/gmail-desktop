@@ -26,6 +26,12 @@ export interface Profile {
   hasCalendar: boolean;
   order?: number;
   label?: string;
+  // Een tab uit de onthouden balk (accounts.json): main tekent hem al voordat de
+  // detectie het adres heeft teruggevonden, zodat de balk niet leeg begint. Zo'n
+  // rij heeft nog geen postvak — main kent het sessieslot niet en weigert hem te
+  // openen — dus wijst de balk hem niet als actief aan en klikt hij niet weg.
+  // Verder is het een gewoon tabblad: hij hoort er te staan zoals hij er stond.
+  provisional?: boolean;
 }
 export type { Surface };
 
@@ -158,6 +164,10 @@ export default function AppShell() {
   const [scanDone, setScanDone] = useState(false);
   const S = getStrings(prefs?.reneMode === true);
   const [isDefaultMail, setIsDefaultMail] = useState(false);
+  // Het account dat de gebruiker aanklikte toen het nog een voorlopige tab was.
+  // Onthouden op het adres — het enige dat stabiel is, want de sleutel van een
+  // voorlopige tab verdwijnt zodra het echte tabblad hem vervangt.
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -165,9 +175,15 @@ export default function AppShell() {
     bridge.onProfilesChanged((list) => {
       setProfiles(list);
       // Keep the active selection valid: re-derive if the active profile vanished.
+      // Alleen een bevestigd tabblad kan het actieve zijn: main toont het postvak
+      // van het slot waar hij zelf mee begon, en een voorlopige tab aanwijzen zou
+      // een naam boven dat postvak zetten die we alleen maar vermoeden. Zolang er
+      // niets bevestigd is licht er dus niets op — en zodra de eerste bevestiging
+      // landt, wordt die alsnog gekozen.
       setActive((cur) => {
-        if (cur && list.some((p) => p.key === cur.key)) return cur;
-        return list[0] ? { key: list[0].key, surface: 'mail' } : null;
+        if (cur && list.some((p) => p.key === cur.key && !p.provisional)) return cur;
+        const first = list.find((p) => !p.provisional);
+        return first ? { key: first.key, surface: 'mail' } : null;
       });
     });
     bridge.onUnreadChanged(setUnread);
@@ -191,6 +207,23 @@ export default function AppShell() {
     [],
   );
 
+  // De onthouden klik afhandelen. Zodra het account bevestigd is gaat hij open, en
+  // is het adres uit de balk verdwenen (detectie vond het niet terug, dus bestaat
+  // het niet meer) dan vergeten we hem — anders zou hij blijven wachten op een
+  // account dat nooit komt.
+  useEffect(() => {
+    if (!pendingEmail) return;
+    const row = profiles.find((p) => p.email.toLowerCase() === pendingEmail);
+    if (!row) {
+      setPendingEmail(null);
+      return;
+    }
+    if (row.provisional) return; // nog niet bevestigd: blijven wachten
+    setPendingEmail(null);
+    setActive({ key: row.key, surface: 'mail' });
+    window.desktop?.switchSurface(row.key, 'mail');
+  }, [profiles, pendingEmail]);
+
   useEffect(() => {
     const choice = prefs?.theme ?? 'system';
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -206,8 +239,24 @@ export default function AppShell() {
     }
   }, [prefs?.theme]);
 
+  // Een klik op een voorlopige tab wordt onthouden en uitgevoerd zodra detectie dat
+  // account bevestigt — meestal een halve seconde later. Bewust niet alvast
+  // oplichten: dan zou de balk een account aanwijzen dat niet op het scherm staat,
+  // en dat is precies de verwarring die we vermijden. De sprong komt dus iets later
+  // dan bij een gewoon tabblad, maar de klik gaat niet verloren. Altijd naar de
+  // post: een voorlopige tab heeft geen andere surface om naartoe te gaan
+  // (`hasCalendar` staat uit tot de identiteit vaststaat).
   function open(key: string, surface: Surface) {
     if (settingsOpen) setSettingsOpen(false);
+    const row = profiles.find((p) => p.key === key);
+    if (row?.provisional) {
+      // Kleinletters aan beide kanten: het onthouden adres komt uit accounts.json en
+      // het bevestigde uit de Gmail-pagina, en die hoeven niet dezelfde hoofdletters
+      // te gebruiken. Zonder dit zou de onthouden klik stilletjes wegvallen.
+      setPendingEmail(row.email.toLowerCase());
+      return;
+    }
+    setPendingEmail(null); // een gewone klik overstemt een onthouden klik
     setActive({ key, surface });
     window.desktop?.switchSurface(key, surface);
   }

@@ -13,7 +13,7 @@ import { DelegatedStore, type StoredDelegate } from './delegated-store';
 import {
   AccountCacheStore,
   seedable,
-  seedsAllowed,
+  rememberedOrder,
   type CachedAccount,
 } from './account-cache';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
@@ -197,6 +197,11 @@ let detectionStarted = false;
 let cachedAccounts: CachedAccount[] = [];
 let accountCache: AccountCacheStore | null = null;
 let accountCacheLoaded = false;
+// De plek die elk onthouden adres in de balk had. Anders dan `cachedAccounts`
+// blijft dit de hele sessie staan, ook na het uitlopen van detectie: het bevestigde
+// account erft de plek van de tab die het vervangt, dus staat de balk vanaf het
+// eerste beeld goed en verschuift er niets meer.
+let seedOrder = new Map<string, number>();
 // Voorvoegsel voor de sleutel van een voorlopige tab. Bewust anders dan `u<n>` en
 // `d:<adres>`: zo kan een verborgen detectieprobe (die wél op `u<n>` meldt) nooit
 // zijn ongelezen-teller of melding op een onthouden tab afleveren.
@@ -376,15 +381,14 @@ function decorate(list: Profile[]): TabRow[] {
       avatarUrl: p.avatarUrl,
       color: p.color,
       hasCalendar: surfacesForRef(p.ref).includes('calendar'),
-      order: ap.order,
+      // Een bevestigd account erft de plek die zijn voorlopige tab had, zodat de
+      // balk niet verschuift op het moment dat detectie landt. Staat het adres niet
+      // in de onthouden balk (een gedelegeerd postvak, of een nieuw account), dan
+      // valt sortByOrder terug op de index zoals altijd.
+      order: ap.order ?? seedOrder.get(p.email.toLowerCase()),
       label: ap.label,
     };
   });
-  // Plek in het cachebestand als terugval voor de volgorde: dat is de volgorde
-  // waarin de tabs stonden bij het afsluiten, en dus dezelfde plek die het
-  // bevestigde account straks krijgt. Zonder dit springen de tabs zodra detectie
-  // landt — precies wat we wilden voorkomen.
-  const cachePos = new Map(cachedAccounts.map((c, i) => [c.email, i]));
   const seeds: TabRow[] = seedable(cachedAccounts, {
     confirmed: profiles.map((p) => p.email),
     removed: removed?.list() ?? [],
@@ -402,7 +406,7 @@ function decorate(list: Profile[]): TabRow[] {
       avatarUrl: c.avatarUrl,
       color: colors?.get(c.email) ?? c.color,
       hasCalendar: false, // zonder bevestigde identiteit is er geen surface om te openen
-      order: ap.order ?? cachePos.get(c.email),
+      order: ap.order ?? seedOrder.get(c.email),
       label: ap.label,
       provisional: true,
     };
@@ -411,10 +415,9 @@ function decorate(list: Profile[]): TabRow[] {
 }
 function pushProfiles(): void {
   const rows = decorate([...profiles]);
-  // De volledige rij-lijst gaat naar de cache, de zichtbare naar de zijbalk: die
-  // twee lopen uiteen zolang er nog geen bevestigd tabblad vooraan staat, en dan
-  // mag het bestand niet verliezen wat we alleen nog even niet tónen.
-  mainWindow?.webContents.send(IPC.PROFILES_CHANGED, seedsAllowed(rows) ? rows : rows.filter((r) => !r.provisional));
+  // Voorlopige tabs gaan mee: de balk staat daardoor vanaf het eerste beeld
+  // compleet. De zijbalk mag er niets mee opstarten — zie `provisional` daar.
+  mainWindow?.webContents.send(IPC.PROFILES_CHANGED, rows);
   saveAccountCache(rows);
   // De lijst is veranderd: opnieuw kijken of elk eigen account nog gekoppeld is.
   // Dit is ook de eerste controle na het opstarten — er valt niets te controleren
@@ -1845,6 +1848,7 @@ function createWindow(): void {
   if (!accountCacheLoaded) {
     accountCacheLoaded = true;
     cachedAccounts = accountCache.list();
+    seedOrder = rememberedOrder(cachedAccounts);
   }
   manager = new ProfileViewManager(
     mainWindow,

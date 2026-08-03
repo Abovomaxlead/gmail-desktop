@@ -6,7 +6,7 @@ import {
   AccountCacheStore,
   parseCachedAccounts,
   seedable,
-  seedsAllowed,
+  rememberedOrder,
   type CachedAccount,
 } from '../electron/account-cache';
 
@@ -99,20 +99,29 @@ describe('seedable', () => {
   });
 });
 
-describe('seedsAllowed', () => {
-  // De zijbalk kiest bij een lege selectie het eerste tabblad als het actieve. Dat
-  // mag nooit een gok zijn: dan staat er een naam boven een postvak dat van iemand
-  // anders kan zijn.
-  it('holds the remembered bar back while a provisional tab would be first', () => {
-    expect(seedsAllowed([{ provisional: true }, {}])).toBe(false);
+describe('rememberedOrder', () => {
+  it('numbers the addresses by their place in the stored bar', () => {
+    const map = rememberedOrder([a('c@x.nl'), a('a@x.nl'), a('b@x.nl')]);
+    expect([...map.entries()]).toEqual([
+      ['c@x.nl', 0],
+      ['a@x.nl', 1],
+      ['b@x.nl', 2],
+    ]);
   });
 
-  it('lets them through once a confirmed tab is first', () => {
-    expect(seedsAllowed([{}, { provisional: true }, { provisional: true }])).toBe(true);
+  // Een bevestigd account erft de plek van de voorlopige tab die het vervangt. Het
+  // adres komt dan uit de Gmail-pagina, dus mag de hoofdletter niet uitmaken —
+  // anders valt het terug op zijn index en verschuift de balk juist wél.
+  it('matches an address whatever its casing', () => {
+    expect(rememberedOrder([a('A@X.nl')]).get('a@x.nl')).toBe(0);
   });
 
-  it('holds them back when there is nothing at all', () => {
-    expect(seedsAllowed([])).toBe(false);
+  it('knows nothing about an address that was not in the bar', () => {
+    expect(rememberedOrder([a('a@x.nl')]).get('nieuw@x.nl')).toBeUndefined();
+  });
+
+  it('has nothing to say when nothing was stored', () => {
+    expect(rememberedOrder([]).size).toBe(0);
   });
 });
 
