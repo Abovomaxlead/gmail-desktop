@@ -526,13 +526,13 @@ async function addAccountAfterConsent(
 function removeAccount(email: string): void {
   removed!.add(email); // persist so detection skips it from now on
   // Netjes afmelden, anders blijft Gmail nog tot een week publiceren voor een
-  // client die er niet meer is. Best-effort: het token is hierna weg.
-  void (async () => {
-    const cfg = oauthConfig();
-    if (!cfg || !oauthTokens) return;
-    const token = await accessTokenFor(cfg, oauthTokens, email);
-    if (token) await stopWatch(token).catch(() => undefined);
-  })();
+  // client die er niet meer is. Bewust het opgeslagen access token en géén
+  // accessTokenFor: die zou een verlopen token verlengen, en verlengen is precies
+  // wat je niet wil voor een postvak dat de gebruiker net weggooide. Is het token
+  // verlopen, dan mislukt dit en verloopt de watch binnen een week zelf — dat is
+  // goedkoper dan een nieuwe token voor een verwijderd account.
+  const stopToken = oauthTokens?.get(email)?.accessToken;
+  if (stopToken) void stopWatch(stopToken).catch(() => undefined);
   history?.remove(email);
   coverage.forget(email);
   syncRunners.delete(email);
@@ -729,6 +729,10 @@ function refreshNotifyAllowed(): void {
 // staan wat er stond.
 function reportApiUnread(email: string, count: number | null): void {
   if (count === null) return;
+  // Spiegelbeeld van de guard in de webview-callback: viel de dekking weg tussen het
+  // opvragen en het terugkomen van dit getal, dan is de paginatitel weer eigenaar en
+  // zou dit een seconden oud getal over een verser zetten.
+  if (!coverage.has(email)) return;
   const profile = profiles.find((p) => p.email === email);
   if (!profile) return;
   unread.report(keyOf(profile), count);

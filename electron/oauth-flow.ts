@@ -47,6 +47,19 @@ async function postForm(url: string, body: string): Promise<Record<string, unkno
   });
 }
 
+// Een verlenging kost een netwerkronde, en in die tijd kan het account verwijderd
+// zijn: removeAccount haalt het token uit de store terwijl het verzoek nog loopt.
+// Het verlengde token daarna alsnog wegschrijven zet een wérkende refresh token
+// terug voor een postvak dat de gebruiker net heeft weggegooid — precies wat hij
+// niet vroeg. Dus vlak voor het opslaan nog één keer kijken of het account er nog
+// is. False betekent: niet opgeslagen, en de aanroeper krijgt null alsof het
+// account niet gekoppeld is, want dat is het inmiddels ook niet meer.
+function storeIfStillLinked(store: OAuthStore, email: string, next: StoredToken): boolean {
+  if (!store.get(email)) return false;
+  store.set(email, next);
+  return true;
+}
+
 // Toont de consent-pagina in een view op de partitie waarin de Gmail-views ook
 // leven. Daardoor is de gebruiker daar al ingelogd: geen wachtwoord, alleen
 // toestemming geven. Dat is de enige zinvolle koppeling tussen deze flow en de
@@ -143,7 +156,7 @@ export async function forceRefresh(
     const json = await postForm(TOKEN_ENDPOINT, refreshBody(cfg, token.refreshToken));
     const next = applyTokenResponse(token, json, now);
     if ('error' in next) return null;
-    store.set(email, next);
+    if (!storeIfStillLinked(store, email, next)) return null;
     return next.accessToken;
   } catch {
     return null;
@@ -167,7 +180,7 @@ export async function accessTokenFor(
     const json = await postForm(TOKEN_ENDPOINT, refreshBody(cfg, token.refreshToken));
     const next = applyTokenResponse(token, json, now);
     if ('error' in next) return null;
-    store.set(email, next);
+    if (!storeIfStillLinked(store, email, next)) return null;
     return next.accessToken;
   } catch {
     // Verlopen refresh token (in testmodus na zeven dagen) of geen netwerk.
