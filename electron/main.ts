@@ -1686,8 +1686,6 @@ function createWindow(): void {
     ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
-  // Bij thema "system" verandert de kleur zonder dat de gebruiker iets doet.
-  nativeTheme.on('updated', () => applyTitleBarOverlay());
   if (stored.maximized) mainWindow.maximize();
   // Re-assert the badge when the window returns to the taskbar: an overlay clear
   // issued while hidden to the tray doesn't stick, so Windows would otherwise show
@@ -2369,6 +2367,12 @@ app.whenReady().then(() => {
   setupNotifications();
   registerIpc();
   app.setAsDefaultProtocolClient('mailto');
+  // Bij thema "system" verandert de kleur zonder dat de gebruiker iets doet.
+  // Hier, niet in createWindow: dat venster wordt soms opnieuw opgebouwd (na een
+  // notificatieklik op een gesloten venster, of via 'activate'), en elke keer een
+  // extra listener op de globale nativeTheme is een lek. Draait vóór het eerste
+  // venster bestaat, wat mag: applyTitleBarOverlay doet niets zonder venster.
+  nativeTheme.on('updated', () => applyTitleBarOverlay());
   createWindow();
   const initialMailto = extractMailtoFromArgv(process.argv);
   if (initialMailto) pendingMailto = initialMailto; // flushed once an inbox is live
