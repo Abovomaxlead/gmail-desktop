@@ -106,12 +106,28 @@ export function createSyncRunner(deps: SyncDeps): { run(): Promise<void> } {
   // Komt er een sync binnen terwijl er één loopt, dan wordt die niet parallel
   // gestart maar onthouden: twee doorlopen op dezelfde cursor melden alles
   // dubbel. Meerdere die tegelijk aankloppen leveren samen één extra doorloop op.
+  //
+  // De buitenste try/catch is het opvangnet voor alles wat once() zelf niet al
+  // afvangt — een profielaanvraag die faalt, een cursor.set die gooit, een
+  // onOutcome die zelf een fout opwerpt. Zonder dat net verlaat de fout pump(),
+  // bereikt `running = null` nooit, en blijft `running` voorgoed een verworpen
+  // belofte: elke latere run() krijgt die dezelfde oude fout terug en er wordt
+  // nooit meer gesynchroniseerd. De finally garandeert dat de vlag altijd
+  // vrijkomt, en de catch binnen de lus zorgt dat een intussen binnengekomen
+  // run()-aanvraag (again) toch nog zijn doorloop krijgt.
   const pump = async (): Promise<void> => {
-    do {
-      again = false;
-      await once();
-    } while (again);
-    running = null;
+    try {
+      do {
+        again = false;
+        try {
+          await once();
+        } catch (e) {
+          deps.onError?.(e);
+        }
+      } while (again);
+    } finally {
+      running = null;
+    }
   };
 
   return {

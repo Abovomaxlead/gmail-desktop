@@ -17,6 +17,7 @@ interface FakeOptions {
   unread?: number | null;
   historyThrows?: unknown;
   metaThrows?: Set<string>;
+  unreadThrows?: boolean;
 }
 
 function fake(options: FakeOptions = {}) {
@@ -41,6 +42,7 @@ function fake(options: FakeOptions = {}) {
     },
     async inboxUnread() {
       calls.unread += 1;
+      if (options.unreadThrows) throw new Error('teller onbereikbaar');
       return options.unread ?? 3;
     },
   };
@@ -162,6 +164,18 @@ describe('createSyncRunner — delta', () => {
     expect(t.outcomes[0].unread).toBe(3);
     expect(t.cursor()).toBe('5000');
   });
+
+  it('still notifies when the unread count fetch itself fails', async () => {
+    const t = runner({
+      stored: '4900',
+      pages: { '4900': { added: [{ id: 'm1', labelIds: ['INBOX'] }], historyId: '5000' } },
+      unreadThrows: true,
+    });
+    await t.r.run();
+    expect(t.outcomes[0].notify.map((m) => m.id)).toEqual(['m1']);
+    expect(t.outcomes[0].unread).toBeNull();
+    expect(t.cursor()).toBe('5000');
+  });
 });
 
 describe('createSyncRunner — recovery', () => {
@@ -209,6 +223,85 @@ describe('createSyncRunner — recovery', () => {
     await r.run();
     expect(stored).toBe('4900');
     expect(outcomes).toEqual([]);
+  });
+});
+
+describe('createSyncRunner — resilience', () => {
+  // Zonder opvangnet rond de doorloop blijft `running` een verworpen belofte
+  // vasthouden: elke latere run() krijgt dan voorgoed dezelfde oude fout terug
+  // en dit account synct nooit meer. Dit is de belangrijkste test van het stel.
+  it('does not wedge after a baseline failure: the next run performs a fresh pass', async () => {
+    let profileCalls = 0;
+    const outcomes: SyncOutcome[] = [];
+    const errors: unknown[] = [];
+    let stored: string | undefined;
+    const r = createSyncRunner({
+      client: {
+        profileHistoryId: async () => {
+          profileCalls += 1;
+          if (profileCalls === 1) throw new Error('profiel onbereikbaar');
+          return '5000';
+        },
+        historyPage: async (start) => ({ added: [], historyId: start }),
+        messageMeta: async (id) => meta(id, 2000),
+        inboxUnread: async () => 3,
+      },
+      cursor: { get: () => stored, set: (v) => (stored = v) },
+      coveredSince: () => 1000,
+      isExpiredCursor: () => false,
+      onOutcome: (o) => outcomes.push(o),
+      onError: (e) => errors.push(e),
+    });
+
+    // Eerste run: de profielaanvraag faalt. run() moet zelf resolven, niet
+    // rejecten — anders wordt de aanroeper (`void runner.run()`) een
+    // onafgehandelde afwijzing.
+    await expect(r.run()).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect(stored).toBeUndefined();
+
+    // Tweede run: geen oude fout, maar een echte nieuwe doorloop die de
+    // client daadwerkelijk weer raakt.
+    await r.run();
+    expect(profileCalls).toBe(2);
+    expect(stored).toBe('5000');
+    expect(outcomes).toHaveLength(1);
+    expect(outcomes[0].rebaselined).toBe(true);
+  });
+
+  it('recovers after a failing pass: a later run succeeds normally', async () => {
+    let call = 0;
+    // De gedeelde fake() kent geen "eerste keer mislukt, daarna niet meer";
+    // dat vraagt om een client die per aanroep anders reageert, dus los opgezet.
+    const outcomes: SyncOutcome[] = [];
+    const errors: unknown[] = [];
+    let stored: string | undefined = '4900';
+    const r = createSyncRunner({
+      client: {
+        profileHistoryId: async () => '5000',
+        historyPage: async (start) => {
+          call += 1;
+          if (call === 1) throw { status: 500 };
+          return { added: [], historyId: '5000' };
+        },
+        messageMeta: async (id) => meta(id, 2000),
+        inboxUnread: async () => 3,
+      },
+      cursor: { get: () => stored, set: (v) => (stored = v) },
+      coveredSince: () => 1000,
+      isExpiredCursor: () => false,
+      onOutcome: (o) => outcomes.push(o),
+      onError: (e) => errors.push(e),
+    });
+
+    await r.run();
+    expect(errors).toHaveLength(1);
+    expect(stored).toBe('4900');
+    expect(outcomes).toEqual([]);
+
+    await r.run();
+    expect(stored).toBe('5000');
+    expect(outcomes).toHaveLength(1);
   });
 });
 
