@@ -2,7 +2,7 @@
 
 import type { Surface } from '../lib/surfaces';
 import { APP_ICONS } from './app-icons';
-import { CALENDAR_ICON_DATA_URI } from './calendar-icon-data';
+import { CALENDAR_ICON_DATA_URI } from '../lib/calendar-icon-data';
 import { unreadLabel } from './unread-label';
 import type { Profile } from './page';
 

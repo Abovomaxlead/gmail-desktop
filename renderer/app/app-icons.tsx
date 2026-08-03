@@ -1,10 +1,10 @@
 // Icons for the Google app surfaces in the sidebar's waffle flyout: the
-// official product icons (embedded PNGs, see app-icon-data.ts), rendered the
-// same way as the calendar icon. Only the waffle trigger itself is a local
+// official product icons (embedded PNGs, see lib/app-icon-data.ts), rendered
+// the same way as the calendar icon. Only the waffle trigger itself is a local
 // glyph so it inherits the sidebar's theme colors.
 import type { FC } from 'react';
 import type { Surface } from '../lib/surfaces';
-import { APP_ICON_DATA_URIS } from './app-icon-data';
+import { APP_ICON_DATA_URIS } from '../lib/app-icon-data';
 
 interface IconProps {
   className?: string;

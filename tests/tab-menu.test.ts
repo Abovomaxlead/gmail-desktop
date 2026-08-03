@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { tabMenuSurfaces, planTabMenu } from '../renderer/app/tab-menu';
+import { tabMenuSurfaces, tabMenuChoices, planTabMenu } from '../renderer/app/tab-menu';
 import { hasClickableItem } from '../renderer/lib/native-menu';
-import { APP_SURFACES, SURFACE_CONFIG } from '../renderer/lib/surfaces';
+import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../renderer/lib/surfaces';
+import { SURFACE_ICON_DATA_URIS } from '../renderer/lib/surface-icon-data';
 
 describe('tabMenuSurfaces', () => {
   it('offers your own account the calendar and every Google app', () => {
@@ -10,8 +11,9 @@ describe('tabMenuSurfaces', () => {
     for (const s of APP_SURFACES) expect(out).toContain(s);
   });
 
-  // Mail is het tabblad zelf; dat hoort niet ook nog in zijn eigen menu.
-  it('never offers mail, because clicking the tab already does that', () => {
+  // Deze lijst is "waar kan dit account nog naartoe", dus zonder post. Of de post
+  // in het menu komt, beslist tabMenuChoices — en dat doet hij.
+  it('never includes mail itself, because this is the list of other places', () => {
     expect(tabMenuSurfaces({ kind: 'authuser', hasCalendar: true })).not.toContain('mail');
   });
 
@@ -34,51 +36,95 @@ describe('tabMenuSurfaces', () => {
   });
 });
 
+describe('tabMenuChoices', () => {
+  // De klacht: via het menu naar de agenda, en dan is de weg terug niet te vinden —
+  // een tabblad dat al opgelicht staat ziet er niet aanklikbaar uit. Heen en terug
+  // horen dezelfde weg te zijn, dus staat de post nu ook in het menu.
+  it('offers mail first, so the way back is the way you came', () => {
+    expect(tabMenuChoices({ kind: 'authuser', hasCalendar: true })[0]).toBe('mail');
+    expect(tabMenuChoices({ kind: 'delegated', hasCalendar: true })).toEqual(['mail', 'calendar']);
+  });
+
+  it('keeps every other surface, in the same order as before', () => {
+    const p = { kind: 'authuser', hasCalendar: true } as const;
+    expect(tabMenuChoices(p)).toEqual(['mail', ...tabMenuSurfaces(p)]);
+  });
+
+  // Alleen post en niets anders: dan valt er niets te kiezen. "Mail" aanbieden waar
+  // je al bent is een menu dat niets doet, en dat menu ging eerder juist niet open.
+  it('offers nothing when mail is all the account has', () => {
+    expect(tabMenuChoices({ kind: 'delegated', hasCalendar: false })).toEqual([]);
+  });
+});
+
 describe('planTabMenu', () => {
-  const own = tabMenuSurfaces({ kind: 'authuser', hasCalendar: true });
+  const own = tabMenuChoices({ kind: 'authuser', hasCalendar: true });
 
   it('puts the account name on top and every surface under it', () => {
-    const items = planTabMenu('Work', own, null);
+    const items = planTabMenu('Work', own);
     expect(items[0]).toEqual({ kind: 'text', label: 'Work' });
     expect(items.slice(1).map((i) => (i.kind === 'item' ? i.id : i.kind))).toEqual(own);
   });
 
   // Het id ís de surface, zodat de balk de keuze niet hoeft te vertalen; het
-  // label komt uit dezelfde bron als het uitklapmenu gebruikte.
-  it('labels each surface as the app names it', () => {
-    const items = planTabMenu('Work', ['drive'], null);
-    expect(items).toContainEqual({ kind: 'item', id: 'drive', label: SURFACE_CONFIG.drive.label });
+  // label komt uit dezelfde bron als het uitklapmenu gebruikte, en het icoon is
+  // een naam die main opzoekt (niet de bitmap zelf).
+  it('labels each surface as the app names it, with its icon', () => {
+    const items = planTabMenu('Work', ['drive']);
+    expect(items).toContainEqual({
+      kind: 'item',
+      id: 'drive',
+      label: SURFACE_CONFIG.drive.label,
+      icon: 'drive',
+    });
   });
 
-  // Waar het account nu staat: in het uitklapmenu een gevulde achtergrond, in een
-  // OS-menu een vinkje. Alleen op dat ene item, anders krijgt elke regel een hokje.
-  it('ticks only the surface the account is currently on', () => {
-    const items = planTabMenu('Work', own, 'drive');
-    const ticked = items.filter((i) => i.kind === 'item' && i.checked);
-    expect(ticked).toEqual([{ kind: 'item', id: 'drive', label: SURFACE_CONFIG.drive.label, checked: true }]);
-  });
-
-  it('ticks nothing when the account is showing a surface that is not in the menu', () => {
-    const items = planTabMenu('Work', own, 'mail');
-    expect(items.some((i) => i.kind === 'item' && i.checked)).toBe(false);
+  // Het icoon is een naam die main opzoekt, niet de bitmap: die hoeft niet bij elke
+  // rechtsklik door de IPC. Elke regel hoort er een te hebben, anders staat er één
+  // kale tussen de andere.
+  it('names an icon for every surface it offers', () => {
+    for (const item of planTabMenu('Work', own)) {
+      if (item.kind !== 'item') continue;
+      expect(item.icon).toBe(item.id);
+      expect(SURFACE_ICON_DATA_URIS[item.id as Surface]).toBeTruthy();
+    }
   });
 
   // Critical 1 in een nieuwe jas: een gedelegeerd postvak zonder agenda-URL heeft
   // niets te kiezen. Zonder deze regel bleef de kop over en opende er een leeg
   // menu — precies het geval dat eerder een leeg venster achterliet.
   it('plans nothing at all for an account with no surfaces', () => {
-    const items = planTabMenu('Shared inbox', tabMenuSurfaces({ kind: 'delegated', hasCalendar: false }), null);
+    const items = planTabMenu('Shared inbox', tabMenuChoices({ kind: 'delegated', hasCalendar: false }));
     expect(items).toEqual([]);
     expect(hasClickableItem(items)).toBe(false);
   });
 
-  it('is openable for every account that does have a surface', () => {
+  it('is openable for every account that has somewhere to go', () => {
     for (const account of [
       { kind: 'authuser', hasCalendar: true },
       { kind: 'authuser', hasCalendar: false },
       { kind: 'delegated', hasCalendar: true },
     ] as const) {
-      expect(hasClickableItem(planTabMenu('x', tabMenuSurfaces(account), null))).toBe(true);
+      expect(hasClickableItem(planTabMenu('x', tabMenuChoices(account)))).toBe(true);
+    }
+  });
+});
+
+describe('SURFACE_ICON_DATA_URIS', () => {
+  // Electrons nativeImage leest alleen PNG en JPEG. Een icoon in een ander formaat
+  // (het agenda-icoon was een WebP) geeft geen fout maar een leeg plaatje, en dus
+  // een menu-item zonder icoontje. Daarom vragen we het hier hardop.
+  it('holds nothing but PNG, because a native menu icon cannot be anything else', () => {
+    for (const [surface, uri] of Object.entries(SURFACE_ICON_DATA_URIS)) {
+      expect(uri, surface).toMatch(/^data:image\/png;base64,/);
+    }
+  });
+
+  // Inclusief mail, sinds de weg terug in het menu staat: één regel zonder icoontje
+  // tussen acht met is precies het rommeltje dat dit voorkomt.
+  it('covers every surface a tab menu can offer', () => {
+    for (const surface of tabMenuChoices({ kind: 'authuser', hasCalendar: true })) {
+      expect(SURFACE_ICON_DATA_URIS[surface], surface).toBeTruthy();
     }
   });
 });

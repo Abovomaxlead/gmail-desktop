@@ -1,5 +1,6 @@
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron';
 import { hasClickableItem, type NativeMenuItem } from '../renderer/lib/native-menu';
+import { menuIcon } from './menu-icons';
 
 // Het openen van een OS-menu voor de balk. De keuzelogica en de teksten zitten in
 // de renderer (plus-menu.ts, tab-menu.ts); hier staat alleen het native werk, net
@@ -33,9 +34,7 @@ export function popupNativeMenu(
       if (item.kind === 'text') return { label: item.label, enabled: false };
       return {
         label: item.label,
-        // Alleen het actieve item wordt een vinkje: gaf elk item `type: 'checkbox'`,
-        // dan stond er voor alle regels een leeg hokje.
-        ...(item.checked ? { type: 'checkbox' as const, checked: true } : {}),
+        icon: menuIcon(item.icon),
         click: () => settle(item.id),
       };
     });

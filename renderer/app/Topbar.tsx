@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { AccountTab } from './AccountTab';
-import { planTabMenu, tabMenuSurfaces } from './tab-menu';
+import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { planPlusMenu, suggestionEmail, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
@@ -125,19 +125,16 @@ export function Topbar({
   }
 
   async function openTabMenu(p: Profile): Promise<void> {
-    const surfaces = tabMenuSurfaces(p);
-    const items = planTabMenu(
-      labelFor(p),
-      surfaces,
-      active?.key === p.key ? active.surface : null,
-    );
+    const choices = tabMenuChoices(p);
+    const items = planTabMenu(labelFor(p), choices);
     // Heeft dit account niets te kiezen — een gedelegeerd postvak waarvan Google
     // nooit een agenda-URL prijsgaf — dan gaat er geen menu open. Een menu met
     // alleen een kop is een lege bak waar niets in te klikken valt.
     if (!hasClickableItem(items)) return;
     const picked = await onPopupMenu(items);
-    // Het id ís de surface; zoek hem op in plaats van de string te vertrouwen.
-    const surface = surfaces.find((s) => s === picked);
+    // Het id ís de surface; zoek hem op in dezelfde lijst die het menu vulde, in
+    // plaats van de string te vertrouwen die terugkomt.
+    const surface = choices.find((s) => s === picked);
     if (surface) onOpen(p.key, surface);
   }
 

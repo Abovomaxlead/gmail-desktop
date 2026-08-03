@@ -15,10 +15,18 @@
 // - `text`: een regel die alleen iets vertelt — de kop van een menu, "even
 //   kijken…", "niets gevonden". Uitgeschakeld, want er is niets te kiezen.
 //
-// `checked` alleen op het item waar je nu staat: het React-menu zette daar een
-// gevulde achtergrond, een OS-menu doet dat met een vinkje.
+// `icon` is de náám van een plaatje, niet het plaatje zelf: main houdt de bitmaps
+// (menu-icons.ts) en kent ze onder dezelfde naam. Anders zou er bij elke rechtsklik
+// tienduizenden tekens aan base64 door de IPC gaan, en main moet ze toch al één
+// keer omzetten en bewaren. Een naam die main niet kent levert simpelweg geen
+// icoontje op.
+//
+// Er is geen "hier sta je nu"-vinkje. In een OS-menu delen een vinkje en een icoon
+// dezelfde plek links van het label, en van die twee zegt het product-icoon meer;
+// waar het account op staat is bovendien aan het tabblad zelf te zien, dat het
+// icoon van zijn actieve surface draagt.
 export type NativeMenuItem =
-  | { kind: 'item'; id: string; label: string; checked?: boolean }
+  | { kind: 'item'; id: string; label: string; icon?: string }
   | { kind: 'separator' }
   | { kind: 'text'; label: string };
 

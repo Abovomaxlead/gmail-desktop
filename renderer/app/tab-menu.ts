@@ -17,6 +17,7 @@ export interface TabMenuAccount {
   hasCalendar: boolean;
 }
 
+// Waar dit account nog naartoe kan, buiten de post om.
 export function tabMenuSurfaces(p: TabMenuAccount): Surface[] {
   const out: Surface[] = [];
   // Agenda alleen als er een is: bij een gedelegeerd postvak hangt dat af van
@@ -25,23 +26,34 @@ export function tabMenuSurfaces(p: TabMenuAccount): Surface[] {
   // Drive, Docs en de rest bestaan alleen voor je eigen accounts; voor een
   // gedelegeerd postvak gooit het bouwen van die url's een fout.
   if (p.kind === 'authuser') out.push(...APP_SURFACES);
-  // `mail` staat er bewust niet in: daarvoor klik je het tabblad zelf aan.
   return out;
 }
 
-// Het menu zelf: de naam van het account als kop, daarna zijn surfaces. Het id
-// van een item ís de surface, dus hoeft er niets vertaald te worden als de keuze
-// terugkomt.
+// Wat er werkelijk in het menu komt, in volgorde. Eén lijst voor het menu én voor
+// het nakijken van de keuze die terugkomt, zodat die twee niet uiteen kunnen lopen.
 //
-// Geen items betekent geen menu: een gedelegeerd postvak waarvan Google nooit een
+// De post staat vooraan. Dat was eerst niet zo — "daarvoor klik je het tabblad zelf
+// aan" — maar wie via dit menu naar de agenda gaat, zoekt de weg terug ook hier, en
+// aan een tabblad dat al opgelicht staat is niet te zien dat je erop moet klikken.
+// De weg heen en de weg terug horen dezelfde te zijn.
+//
+// Heeft een account niets anders dan post, dan blijft het menu dicht: er is dan
+// nergens naartoe te gaan, en "Mail" aanbieden terwijl je er al bent is een menu
+// dat niets doet.
+export function tabMenuChoices(p: TabMenuAccount): Surface[] {
+  const others = tabMenuSurfaces(p);
+  return others.length === 0 ? [] : ['mail', ...others];
+}
+
+// Het menu zelf: de naam van het account als kop, daarna de keuzes met hun
+// product-icoon. Het id van een item ís de surface, dus hoeft er niets vertaald te
+// worden als de keuze terugkomt.
+//
+// Geen keuzes betekent geen menu: een gedelegeerd postvak waarvan Google nooit een
 // agenda-URL prijsgaf heeft niets te kiezen, en een menu met alleen een kop is
 // een lege bak. Daarom valt hier ook de kop weg — de aanroeper hoeft maar één
 // ding te controleren.
-export function planTabMenu(
-  label: string,
-  surfaces: readonly Surface[],
-  activeSurface: Surface | null,
-): NativeMenuItem[] {
+export function planTabMenu(label: string, surfaces: readonly Surface[]): NativeMenuItem[] {
   if (surfaces.length === 0) return [];
   return [
     { kind: 'text', label },
@@ -49,9 +61,9 @@ export function planTabMenu(
       kind: 'item',
       id: s,
       label: SURFACE_CONFIG[s].label,
-      // Waar dit account nu staat. In het uitklapmenu was dat een gevulde
-      // achtergrond; een OS-menu zet er een vinkje bij.
-      ...(s === activeSurface ? { checked: true } : {}),
+      // Het product-icoon, net als in het uitklapmenu. Alleen de naam: main heeft
+      // de bitmaps. Die naam is de surface zelf, dus valt er niets te vertalen.
+      icon: s,
     })),
   ];
 }
