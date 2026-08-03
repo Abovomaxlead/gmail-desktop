@@ -22,8 +22,11 @@ const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
 
 function isLoopback(url: string): boolean {
   try {
-    // URL geeft een IPv6-host terug zonder de blokhaken uit de url.
-    return LOOPBACK.has(new URL(url).hostname.toLowerCase());
+    // URL geeft een IPv6-host terug MET de blokhaken uit de url ('[::1]', niet
+    // '::1'); die strippen we hier, in plaats van de blokhaken ook in de
+    // LOOPBACK-set te zetten, zodat die set gewoon de kale hostnamen blijft.
+    const hostname = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return LOOPBACK.has(hostname);
   } catch {
     return false; // onleesbare url: dan is dit zeker geen bewust lokale test
   }
