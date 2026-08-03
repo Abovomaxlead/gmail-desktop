@@ -1,24 +1,114 @@
 'use client';
 
-import type { Prefs } from '../page';
+import type { AccountPref, Prefs, Profile } from '../page';
 import { isCompleteTime } from '../settings-utils';
 import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
-import { CARD, CHECKBOX, FIELD, SECTION_TITLE } from './tokens';
+import { BLOCK_TITLE, CARD, CHECKBOX, FIELD, HAIRLINE, PANEL, SECTION_TITLE } from './tokens';
 
 // De tijdvelden dragen `tabular-nums`: een tijd is een getal, en een getal dat
 // van 09:59 naar 10:00 springt hoort niet ook nog van breedte te veranderen.
 // `disabled:` erbij, want ze blijven staan als de stille uren uit staan.
 const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity-50`;
 
-// Meldingen: niet storen, en stille uren met twee tijden.
+// Het id waarmee het rooster naar zijn eigen kop wijst. Vast en niet gegenereerd:
+// er staat er precies één in het paneel, want er is één sectie tegelijk open.
+const MATRIX_TITLE_ID = 'per-account-notifications-title';
+
+// Eén kolom van het rooster: dezelfde instelling voor elk account.
+interface ToggleColumn {
+  key: string;
+  // De kolomkop in beeld. Kort, want de kolom is 64px breed.
+  header: string;
+  // De volledige tekst. Dit is de toegankelijke naam van elk vakje in de kolom
+  // (de bestaande `*Title`-teksten eindigen al op "voor dit account", dus samen
+  // met de rijkop van de tabel klopt de zin) en de tooltip van de kop.
+  name: string;
+  // `null` betekent: deze instelling bestaat voor dit account niet. Dan komt er
+  // geen vakje in de cel, want een vakje dat je niet kan omzetten liegt over
+  // waar je zeggenschap over hebt.
+  cell: (p: Profile, a: AccountPref | undefined) => { checked: boolean; set: (v: boolean) => void } | null;
+}
+
+// De vijf instellingen per account, in de volgorde waarin ze in de accountkaart
+// stonden. De polariteit per instelling is letterlijk overgenomen: `!== false`
+// waar de instelling aan staat tenzij je hem uitzet (post, getal, geluid), en
+// `=== true` waar hij uit staat tenzij je hem aanzet (agenda, blijven staan). De
+// standaarden verschillen per instelling en het verschil is dus geen slordigheid.
+function toggleColumns(S: UiStrings): ToggleColumn[] {
+  return [
+    {
+      key: 'notify',
+      header: S.mailToggle,
+      name: S.mailToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.notify !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, notify: v }),
+      }),
+    },
+    {
+      key: 'calendar',
+      header: S.calendarToggle,
+      name: S.calendarToggleTitle,
+      // Een gedeeld postvak zonder agenda heeft geen agenda om meldingen van te
+      // geven; de kolom blijft staan (anders verspringt het rooster per rij),
+      // maar de cel is leeg.
+      cell: (p, a) =>
+        p.hasCalendar
+          ? {
+              checked: a?.calendarNotify === true,
+              set: (v) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: v }),
+            }
+          : null,
+    },
+    {
+      key: 'badge',
+      header: S.badgeToggle,
+      name: S.badgeToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.badgeCount !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, badgeCount: v }),
+      }),
+    },
+    {
+      key: 'sound',
+      header: S.soundToggle,
+      name: S.soundToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.notifySound !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, notifySound: v }),
+      }),
+    },
+    {
+      key: 'persist',
+      header: S.persistToggle,
+      name: S.persistToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.notifyPersist === true,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, notifyPersist: v }),
+      }),
+    },
+  ];
+}
+
+// Waaraan je een account in de rij herkent: het label dat de gebruiker zelf gaf,
+// anders de naam die Google eraan hangt, anders het adres. Nooit leeg, want een
+// naamloze rij in een rooster is een rij zonder eigenaar.
+function displayName(p: Profile): string {
+  return p.label?.trim() || p.name?.trim() || p.email;
+}
+
+// Meldingen: eerst wat voor alles geldt (niet storen, stille uren), daarna wat
+// per account geldt.
 export function NotificationsSection({
   S,
   prefs,
+  profiles,
   onSetNotifications,
 }: {
   S: UiStrings;
   prefs: Prefs | null;
+  profiles: Profile[];
   onSetNotifications: (arg: {
     dnd: boolean;
     quietHours: { enabled: boolean; start: string; end: string };
@@ -26,6 +116,7 @@ export function NotificationsSection({
 }) {
   const quiet = prefs?.notifications.quietHours;
   const quietOn = quiet?.enabled === true;
+  const columns = toggleColumns(S);
 
   return (
     <section className="flex flex-col gap-4">
@@ -112,6 +203,115 @@ export function NotificationsSection({
             className={TIME}
           />
         </SettingRow>
+      </div>
+
+      {/* Het rooster: één rij per account, één kolom per instelling. Vijf keer
+          dezelfde vijf schakelaars onder elkaar met een naam per stuk is een muur;
+          zo staat elke instelling onder elkaar en zie je in één blik welk account
+          de luidruchtige is. Een echte tabel en geen rooster van divs: de kop van
+          de kolom en de naam van de rij zijn dan voor een schermlezer de context
+          van het vakje, zonder dat er per cel een zin in elkaar gezet wordt. */}
+      <div className="flex flex-col gap-2">
+        <h3 id={MATRIX_TITLE_ID} className={BLOCK_TITLE}>
+          {S.perAccountNotifications}
+        </h3>
+
+        {profiles.length === 0 ? (
+          <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
+        ) : (
+          // `overflow-x-auto` op de kaart: een tabel kan niet herschikken, en in
+          // de Rene-stand staat alles op 200%. Dan schuift het rooster liever
+          // zijwaarts dan dat de kolommen tot onleesbaar worden geknepen —
+          // `min-w-[420px]` is de bodem waaronder hij niet meer krimpt.
+          <div className={`${PANEL} overflow-x-auto`}>
+            <table
+              aria-labelledby={MATRIX_TITLE_ID}
+              className="w-full min-w-[420px] table-fixed text-[13px]"
+            >
+              <thead>
+                <tr className={`border-b ${HAIRLINE}`}>
+                  <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-neutral-500">
+                    {S.accountLabelField}
+                  </th>
+                  {/* 64px per kolom: dat is wat er over is naast een naamkolom
+                      die mag meegroeien, en het past op de langste kop van beide
+                      talen. De kop mag afbreken (`whitespace-normal`) in plaats
+                      van afgekapt te worden: "Blijft staan" op twee regels is te
+                      lezen, "Blijft st…" niet. Daarom ook `align-bottom` — een
+                      kop van twee regels blijft dan op dezelfde lijn staan als
+                      een kop van één. De volledige tekst zit in `title` en in de
+                      naam van elk vakje in de kolom, dus er gaat niets verloren. */}
+                  {columns.map((c) => (
+                    <th
+                      key={c.key}
+                      scope="col"
+                      title={c.name}
+                      className="w-16 px-1 py-2 align-bottom text-center text-xs font-medium leading-tight text-neutral-500"
+                    >
+                      <span className="block whitespace-normal break-words">{c.header}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-black/[0.08] dark:divide-white/[0.08]">
+                {profiles.map((p) => {
+                  const account = prefs?.accounts?.[p.email];
+                  return (
+                    <tr key={p.email}>
+                      {/* De rijkop draagt de kleur van het account, als stip van
+                          8px. Dat is dezelfde taal als de rug van 3px op de
+                          accountkaart en het streepje onder het tabblad: kleur
+                          zegt in dit paneel één ding, en dat is van wie iets is.
+                          Het adres staat in `title` en niet in beeld — wie dit
+                          account is hoort bij Accounts, hier hoort alleen wie het
+                          is. */}
+                      <th scope="row" title={p.email} className="px-4 py-2 text-left font-normal">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            aria-hidden
+                            className="h-2 w-2 shrink-0 rounded-full"
+                            style={{ backgroundColor: p.color }}
+                          />
+                          <span className="min-w-0 truncate font-medium leading-tight">
+                            {displayName(p)}
+                          </span>
+                        </span>
+                      </th>
+                      {columns.map((c) => {
+                        const cell = c.cell(p, account);
+                        return (
+                          <td key={c.key} className="px-1 py-2 text-center">
+                            {cell ? (
+                              <input
+                                type="checkbox"
+                                checked={cell.checked}
+                                onChange={(e) => cell.set(e.target.checked)}
+                                aria-label={c.name}
+                                title={c.name}
+                                className={CHECKBOX}
+                              />
+                            ) : (
+                              // Een streepje in plaats van een dood vakje. Het
+                              // streepje is een teken en geen tekst, dus de
+                              // betekenis staat er in woorden naast voor wie het
+                              // niet ziet.
+                              <>
+                                <span aria-hidden className="text-neutral-400 dark:text-neutral-600">
+                                  —
+                                </span>
+                                <span className="sr-only">{S.toggleNotApplicable}</span>
+                              </>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </section>
   );

@@ -54,6 +54,24 @@ export interface UiStrings {
   quietHoursDescription: string;
   from: string;
   to: string;
+  // De schakelaars per account staan in Meldingen en niet bij Accounts: Accounts
+  // gaat over wie er meedoet, Meldingen over wat je bereikt. De korte sleutel is
+  // de kolomkop in het rooster, de `*Title` de volledige tekst — die is de
+  // toegankelijke naam van het vakje en de tooltip van de kolom.
+  perAccountNotifications: string; // de kop van het blok met het rooster
+  mailToggle: string;
+  mailToggleTitle: string;
+  calendarToggle: string;
+  calendarToggleTitle: string;
+  badgeToggle: string;
+  badgeToggleTitle: string;
+  soundToggle: string;
+  soundToggleTitle: string;
+  persistToggle: string;
+  persistToggleTitle: string;
+  // Wat er in een cel staat die voor dat account niet bestaat — een account
+  // zonder agenda. Alleen voor een schermlezer; in beeld staat er een streepje.
+  toggleNotApplicable: string;
 
   sectionAbout: string;
   updates: string; // de naam van de rij met de updatestatus en zijn knoppen
@@ -82,16 +100,6 @@ export interface UiStrings {
   accountLabelField: string; // de naam van het naamveld in een accountkaart
   accountColor: string; // de naam van de groep kleurstaaltjes
   colorName: (hex: string) => string; // de naam van één staaltje, voor een schermlezer
-  mailToggle: string;
-  mailToggleTitle: string;
-  calendarToggle: string;
-  calendarToggleTitle: string;
-  badgeToggle: string;
-  badgeToggleTitle: string;
-  soundToggle: string;
-  soundToggleTitle: string;
-  persistToggle: string;
-  persistToggleTitle: string;
   removeAccount: string;
   removeConfirmBefore: string; // text before the styled "+" in the confirm box
   removeConfirmAfter: string;
@@ -239,6 +247,18 @@ export const STRINGS_NORMAL: UiStrings = {
   quietHoursDescription: 'Notifications are held back between the times below.',
   from: 'From',
   to: 'to',
+  perAccountNotifications: 'Per account',
+  mailToggle: 'Mail',
+  mailToggleTitle: 'Mail notifications for this account',
+  calendarToggle: 'Calendar',
+  calendarToggleTitle: 'Calendar reminders for this account',
+  badgeToggle: 'Badge',
+  badgeToggleTitle: 'Count this mailbox in the taskbar unread badge',
+  soundToggle: 'Sound',
+  soundToggleTitle: 'Play a sound with notifications for this account',
+  persistToggle: 'Persist',
+  persistToggleTitle: 'Keep notifications on screen until you dismiss them',
+  toggleNotApplicable: 'Not available for this account',
 
   sectionAbout: 'About & updates',
   updates: 'Updates',
@@ -273,16 +293,6 @@ export const STRINGS_NORMAL: UiStrings = {
     const key = colorKey(hex);
     return key ? COLOR_NORMAL[key] : hex;
   },
-  mailToggle: 'Mail',
-  mailToggleTitle: 'Mail notifications for this account',
-  calendarToggle: 'Calendar',
-  calendarToggleTitle: 'Calendar reminders for this account',
-  badgeToggle: 'Badge',
-  badgeToggleTitle: 'Count this mailbox in the taskbar unread badge',
-  soundToggle: 'Sound',
-  soundToggleTitle: 'Play a sound with notifications for this account',
-  persistToggle: 'Persist',
-  persistToggleTitle: 'Keep notifications on screen until you dismiss them',
   removeAccount: 'Remove account',
   removeConfirmBefore:
     'Remove this account from the app? It stays signed in with Google — re-add it later with the ',
@@ -353,6 +363,18 @@ export const STRINGS_RENE: UiStrings = {
   quietHoursDescription: 'Tussen deze tijden krijg je geen meldingen.',
   from: 'Van',
   to: 'tot',
+  perAccountNotifications: 'Wie krijgt wat?',
+  mailToggle: 'Post',
+  mailToggleTitle: 'Meldingen voor de post van deze meneer of mevrouw',
+  calendarToggle: 'Agenda',
+  calendarToggleTitle: 'Meldingen voor de agenda van deze meneer of mevrouw',
+  badgeToggle: 'Getal',
+  badgeToggleTitle: 'Tel de post van deze meneer of mevrouw mee in het getal op de knop',
+  soundToggle: 'Geluid',
+  soundToggleTitle: 'Speel een geluidje bij meldingen voor deze meneer of mevrouw',
+  persistToggle: 'Blijft staan',
+  persistToggleTitle: 'Meldingen blijven op het scherm staan tot u ze wegklikt',
+  toggleNotApplicable: 'Kan niet bij deze meneer of mevrouw',
 
   sectionAbout: 'Over de app',
   updates: 'Nieuwe versie',
@@ -387,16 +409,6 @@ export const STRINGS_RENE: UiStrings = {
     const key = colorKey(hex);
     return key ? COLOR_RENE[key] : hex;
   },
-  mailToggle: 'Post',
-  mailToggleTitle: 'Meldingen voor de post van deze meneer of mevrouw',
-  calendarToggle: 'Agenda',
-  calendarToggleTitle: 'Meldingen voor de agenda van deze meneer of mevrouw',
-  badgeToggle: 'Getal',
-  badgeToggleTitle: 'Tel de post van deze meneer of mevrouw mee in het getal op de knop',
-  soundToggle: 'Geluid',
-  soundToggleTitle: 'Speel een geluidje bij meldingen voor deze meneer of mevrouw',
-  persistToggle: 'Blijft staan',
-  persistToggleTitle: 'Meldingen blijven op het scherm staan tot u ze wegklikt',
   removeAccount: 'Weg ermee',
   removeConfirmBefore: 'Mag deze weg uit de app? Je kan hem later weer terug doen met de ',
   removeConfirmAfter: ' knop.',

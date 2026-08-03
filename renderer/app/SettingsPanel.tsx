@@ -174,11 +174,20 @@ export function SettingsPanel({
           onSetDefaultMail={onSetDefaultMail}
         />
       )}
+      {/* Meldingen krijgt de accounts erbij: de schakelaars per account staan
+          daar, want daar ga je kijken als je je afvraagt wat je bereikt. Accounts
+          houdt wie een account is, en heeft `prefs` daarom niet meer nodig — het
+          label, de kleur en de avatar staan al in het profiel. */}
       {section === 'notifications' && (
-        <NotificationsSection S={S} prefs={prefs} onSetNotifications={onSetNotifications} />
+        <NotificationsSection
+          S={S}
+          prefs={prefs}
+          profiles={profiles}
+          onSetNotifications={onSetNotifications}
+        />
       )}
       {section === 'accounts' && (
-        <AccountsSection S={S} prefs={prefs} profiles={profiles} onRedetect={onRedetect} />
+        <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />
       )}
       {section === 'about' && (
         <AboutSection

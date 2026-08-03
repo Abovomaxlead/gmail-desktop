@@ -39,6 +39,13 @@ export const CARD = `${PANEL} divide-y divide-black/[0.08] px-4 dark:divide-whit
 // De kop van een sectie: 20px/600, zoals de titel van het paneel.
 export const SECTION_TITLE = 'text-[20px] font-semibold tracking-tight';
 
+// De kop van een blok bínnen een sectie — nu alleen het rooster met de
+// instellingen per account, onder de meldingen die voor alles gelden. 15px/600
+// zit tussen de sectietitel (20/600) en een rijlabel (13.5/500), zodat de
+// rangorde te zien is zonder dat er een maat bij komt die niet in de schaal
+// staat. Een sectie met één blok gebruikt dit niet: dan is de sectietitel de kop.
+export const BLOCK_TITLE = 'text-[15px] font-semibold tracking-tight';
+
 // De gewone knop. Grijs, want de meeste knoppen doen iets dat je terug kan
 // draaien.
 export const BUTTON = `shrink-0 rounded-lg bg-neutral-200 px-3 py-1.5 text-[13px] font-medium text-neutral-900 transition hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 motion-reduce:transition-none ${FOCUS_RING}`;

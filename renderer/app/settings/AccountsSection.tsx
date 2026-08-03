@@ -1,17 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import type { Prefs, Profile } from '../page';
+import type { Profile } from '../page';
 import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
 import {
   BUTTON,
   CARD,
-  CHECKBOX,
   DANGER_BUTTON,
   DANGER_PANEL,
   FOCUS_RING,
-  HAIRLINE,
   PANEL,
   SECTION_TITLE,
 } from './tokens';
@@ -55,14 +53,18 @@ function DelegatedIcon({ className = '' }: { className?: string }) {
 // Accounts: één kaart per account, met een rug van 3px in de accountkleur langs
 // de linkerrand — dezelfde taal als het streepje onder het actieve tabblad in de
 // balk.
+//
+// Deze sectie gaat over wíe een account is: de naam, de kleur, en hem weghalen.
+// Wat een account aan meldingen mag geven staat in `NotificationsSection`, want
+// daar ga je kijken als je je afvraagt wat je bereikt. Daarom heeft deze sectie
+// de voorkeuren (`prefs`) niet meer nodig: alles wat de kaart toont — label,
+// kleur, avatar — komt uit het profiel zelf.
 export function AccountsSection({
   S,
-  prefs,
   profiles,
   onRedetect,
 }: {
   S: UiStrings;
-  prefs: Prefs | null;
   profiles: Profile[];
   onRedetect: () => void;
 }) {
@@ -79,56 +81,7 @@ export function AccountsSection({
 
       {profiles.map((p) => {
         const showImg = p.avatarUrl && !brokenAvatars[p.avatarUrl];
-        const account = prefs?.accounts?.[p.email];
         const delegated = p.kind === 'delegated';
-        const id = (suffix: string) => `account-${p.email}-${suffix}`;
-
-        // De vijf schakelaars als rooster met een naam per stuk, in plaats van
-        // een rij naamloze knopjes. De agenda staat er alleen als het account
-        // een agenda heeft: een gedelegeerd postvak zonder agenda-url heeft geen
-        // agenda om meldingen van te geven, en dan schrijft de schakelaar alleen
-        // een voorkeur weg die niets kan waarmaken.
-        const toggles: { key: string; label: string; title: string; checked: boolean; set: (v: boolean) => void }[] = [
-          {
-            key: 'notify',
-            label: S.mailToggle,
-            title: S.mailToggleTitle,
-            checked: account?.notify !== false,
-            set: (v) => window.desktop?.setAccountPref({ email: p.email, notify: v }),
-          },
-          ...(p.hasCalendar
-            ? [
-                {
-                  key: 'calendar',
-                  label: S.calendarToggle,
-                  title: S.calendarToggleTitle,
-                  checked: account?.calendarNotify === true,
-                  set: (v: boolean) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: v }),
-                },
-              ]
-            : []),
-          {
-            key: 'badge',
-            label: S.badgeToggle,
-            title: S.badgeToggleTitle,
-            checked: account?.badgeCount !== false,
-            set: (v) => window.desktop?.setAccountPref({ email: p.email, badgeCount: v }),
-          },
-          {
-            key: 'sound',
-            label: S.soundToggle,
-            title: S.soundToggleTitle,
-            checked: account?.notifySound !== false,
-            set: (v) => window.desktop?.setAccountPref({ email: p.email, notifySound: v }),
-          },
-          {
-            key: 'persist',
-            label: S.persistToggle,
-            title: S.persistToggleTitle,
-            checked: account?.notifyPersist === true,
-            set: (v) => window.desktop?.setAccountPref({ email: p.email, notifyPersist: v }),
-          },
-        ];
 
         return (
           <div
@@ -229,29 +182,6 @@ export function AccountsSection({
               >
                 <TrashIcon className="h-4 w-4" />
               </button>
-            </div>
-
-            {/* Eén haarlijn tussen wie dit account is en wat het mag. Het rooster
-                zakt naar twee kolommen als er minder ruimte is — René mode zet
-                alles op 200% en dan is dat precies wat er moet gebeuren. */}
-            <div className={`mt-3 grid grid-cols-2 gap-x-4 border-t ${HAIRLINE} pt-2 sm:grid-cols-3`}>
-              {toggles.map((t) => (
-                <label
-                  key={t.key}
-                  htmlFor={id(t.key)}
-                  title={t.title}
-                  className="flex min-h-[32px] cursor-pointer items-center gap-2 py-1 text-[13px]"
-                >
-                  <input
-                    id={id(t.key)}
-                    type="checkbox"
-                    checked={t.checked}
-                    onChange={(e) => t.set(e.target.checked)}
-                    className={CHECKBOX}
-                  />
-                  <span className="min-w-0 truncate">{t.label}</span>
-                </label>
-              ))}
             </div>
 
             {/* Rood, en dit is een van de twee plekken in het paneel waar dat mag:
