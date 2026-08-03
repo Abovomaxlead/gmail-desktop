@@ -1685,6 +1685,12 @@ function createWindow(): void {
     y: bounds.y,
     backgroundColor: '#0a0a0a',
     icon: ICON_PATH,
+    // Een bodem voor de vensterbreedte. Zonder dit is het venster smaller te
+    // slepen dan de balk aankan: onder ongeveer 236px klapt de reservering van de
+    // tabstrook naar nul en schuift het tandwiel onder de vensterknoppen-overlay,
+    // waar niets meer aan te klikken is. 800px is ruim boven die grens en is ook
+    // wat Gmail zelf nodig heeft voor een bruikbare inbox.
+    minWidth: 800,
     ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });

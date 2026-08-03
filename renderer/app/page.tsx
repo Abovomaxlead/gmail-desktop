@@ -130,7 +130,10 @@ function displayName(p: Profile): string {
   return (p.label && p.label.trim()) || p.name || p.email;
 }
 
-export default function Sidebar() {
+// De pagina die de balk en het instellingenpaneel draagt: hier zit alle staat en
+// alle IPC, het tekenwerk zit in Topbar en SettingsPanel. Heette Sidebar toen de
+// navigatie nog een kolom links was.
+export default function AppShell() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);

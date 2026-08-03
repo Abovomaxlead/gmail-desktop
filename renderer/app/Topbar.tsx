@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AccountTab } from './AccountTab';
 import { AccountMenu } from './AccountMenu';
+import { tabMenuSurfaces } from './tab-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import type { Profile, Surface, DelegatedSuggestion, UpdateStatus } from './page';
 
@@ -88,7 +89,7 @@ export function Topbar({
   labelFor(p: Profile): string;
   settingsOpen: boolean;
   update: UpdateStatus;
-  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; addDelegatedSuggestionTooltip: string; settingsTooltip: string };
+  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; addDelegatedSuggestionTooltip: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; numberLocale: string };
   plusOpen: boolean;
   suggestions: DelegatedSuggestion[];
   scanning: boolean;
@@ -106,13 +107,19 @@ export function Topbar({
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
   const menuProfile = profiles.find((p) => p.key === menu?.key) ?? null;
+  const menuSurfaces = menuProfile ? tabMenuSurfaces(menuProfile) : [];
+  // Eén waarheid voor "er staat een menu open": zowel wat er getekend wordt als
+  // of main de Gmail-views moet wegduwen hangt hieraan. Liepen die twee uiteen,
+  // dan kon er een stand bestaan waarin de views weg zijn en er niets getekend
+  // is — geen menu, geen wegklik-vlak, alleen een leeg venster onder de balk.
+  const menuOpen = menu !== null && menuProfile !== null && menuSurfaces.length > 0;
   const updateReady = update.state === 'downloaded';
 
   // Elk uitklapmenu in de balk moet de Gmail-view wegduwen: die is een native
   // laag bóven deze pagina, dus een dropdown valt er anders achter.
   useEffect(() => {
-    onMenuOverlay(menu !== null);
-  }, [menu, onMenuOverlay]);
+    onMenuOverlay(menuOpen);
+  }, [menuOpen, onMenuOverlay]);
 
   return (
     <div
@@ -140,12 +147,22 @@ export function Topbar({
               label={labelFor(p)}
               unread={unread[p.key] ?? 0}
               active={active?.key === p.key}
+              activeSurface={active?.key === p.key ? active.surface : null}
               dragging={dragEmail === p.email}
+              strings={strings}
               onOpen={() => {
                 setMenu(null);
                 onOpen(p.key, 'mail');
               }}
-              onMenu={(x, y) => setMenu({ key: p.key, x, y })}
+              // Heeft dit account niets te kiezen — een gedelegeerd postvak
+              // waarvan Google nooit een agenda-URL prijsgaf — dan gaat er geen
+              // menu open. Niet openen is beter dan een menu openen dat niets
+              // tekent: dat laatste duwt de Gmail-views weg en laat een leeg
+              // venster achter.
+              onMenu={(x, y) => {
+                if (tabMenuSurfaces(p).length === 0) return;
+                setMenu({ key: p.key, x, y });
+              }}
               onDragStart={() => setDragEmail(p.email)}
               onDrop={() => {
                 if (dragEmail) onReorder(dragEmail, p.email);
@@ -213,14 +230,14 @@ export function Topbar({
         {updateReady && (
           <button
             onClick={onInstallUpdate}
-            title="Update klaar"
+            title={strings.updateReady}
             // maxWidth maakt de reservering hierboven een garantie in plaats van
             // een schatting: een bredere systeemletter kapt de tekst af, in
             // plaats van het tandwiel onder de vensterknoppen te duwen.
             style={{ maxWidth: UPDATE_BUTTON, ...NO_DRAG }}
             className="flex shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:bg-blue-700"
           >
-            <span className="min-w-0 truncate">Update klaar</span>
+            <span className="min-w-0 truncate">{strings.updateReady}</span>
           </button>
         )}
         <button
@@ -237,10 +254,10 @@ export function Topbar({
         </button>
       </div>
 
-      {menu && menuProfile && (
+      {menuOpen && menu && menuProfile && (
         <AccountMenu
-          profile={menuProfile}
           label={labelFor(menuProfile)}
+          surfaces={menuSurfaces}
           x={menu.x}
           y={menu.y}
           activeSurface={active?.key === menuProfile.key ? active.surface : null}

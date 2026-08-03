@@ -3,8 +3,7 @@
 import { SURFACE_CONFIG, type Surface } from '../lib/surfaces';
 import { APP_ICONS } from './app-icons';
 import { CALENDAR_ICON_DATA_URI } from './calendar-icon-data';
-import { tabMenuSurfaces } from './tab-menu';
-import type { Profile } from './page';
+import { TAB_MENU_WIDTH, tabMenuLeft } from './tab-menu';
 
 // Het menu dat bij een rechtsklik op een tabblad opengaat: de agenda en de
 // Google-apps van dát account. In de zijbalk stonden die knoppen zichtbaar;
@@ -12,25 +11,33 @@ import type { Profile } from './page';
 //
 // Vast gepositioneerd op de cursor, niet in het tabblad, zodat het menu niet
 // door de horizontaal schuivende tabstrook wordt afgekapt.
+//
+// De lijst surfaces komt van buiten en is nooit leeg. Dat is geen detail: de
+// balk vraagt main om de Gmail-views weg te duwen zodra dit menu opengaat, dus
+// een component die zelf besluit niets te tekenen laat een leeg venster achter
+// zonder iets om weg te klikken. Wie hier niets te kiezen heeft, opent het menu
+// niet — zie Topbar.
 export function AccountMenu({
-  profile,
   label,
+  surfaces,
   x,
   y,
   activeSurface,
   onPick,
   onClose,
 }: {
-  profile: Profile;
   label: string;
+  surfaces: Surface[];
   x: number;
   y: number;
   activeSurface: Surface | null;
   onPick(surface: Surface): void;
   onClose(): void;
 }) {
-  const surfaces = tabMenuSurfaces(profile);
-  if (surfaces.length === 0) return null;
+  // Een tabblad bij de rechterrand zou een menu naar rechts half buiten het
+  // venster duwen; dan klapt het naar links open. innerWidth is CSS-pixels,
+  // net als de cursorpositie, dus ook in Rene-modus (200% zoom) klopt de som.
+  const left = tabMenuLeft(x, typeof window === 'undefined' ? Infinity : window.innerWidth);
 
   return (
     <>
@@ -46,8 +53,16 @@ export function AccountMenu({
         }}
       />
       <div
-        className="fixed z-20 w-52 rounded-lg border border-black/10 bg-white p-1 shadow-xl dark:border-white/10 dark:bg-neutral-800"
-        style={{ left: x, top: y, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        className="fixed z-20 rounded-lg border border-black/10 bg-white p-1 shadow-xl dark:border-white/10 dark:bg-neutral-800"
+        // De breedte staat in tab-menu.ts naast de plaatsing die ermee rekent.
+        style={
+          {
+            left,
+            top: y,
+            width: TAB_MENU_WIDTH,
+            WebkitAppRegion: 'no-drag',
+          } as React.CSSProperties
+        }
       >
         <div className="truncate px-3 pb-1 pt-1.5 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
           {label}

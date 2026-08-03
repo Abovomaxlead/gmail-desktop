@@ -3,6 +3,10 @@
 // four-year-old can read. Gmail's own page content is Google's and stays as-is.
 
 export interface UiStrings {
+  // Not text on screen but a formatting choice that belongs to the language:
+  // which separator groups the thousands in an unread count (1.324 vs 1,324).
+  numberLocale: string;
+
   settingsTitle: string;
   save: string;
   saved: string;
@@ -39,6 +43,7 @@ export interface UiStrings {
   sectionAbout: string;
   versionPrefix: string;
   updateNow: string;
+  updateReady: string; // the topbar button that appears once an update is downloaded
   restartInstall: string;
   checkForUpdates: string;
   checking: string;
@@ -81,6 +86,7 @@ export interface UiStrings {
   addAccountTooltip: string;
   addAccountLabel: string;
   addDelegatedLabel: string;
+  delegatedTooltipSuffix: string; // appended to a delegated tab's tooltip, explaining its marker
   delegatedSuggestionsHeading: string;
   addDelegatedSuggestionTooltip: string;
   delegatedScanning: string;
@@ -130,6 +136,8 @@ const CATEGORY_RENE: Record<string, string> = {
 };
 
 export const STRINGS_NORMAL: UiStrings = {
+  numberLocale: 'en-US',
+
   settingsTitle: 'Settings',
   save: 'Save',
   saved: 'Saved ✓',
@@ -167,6 +175,7 @@ export const STRINGS_NORMAL: UiStrings = {
   sectionAbout: 'About & updates',
   versionPrefix: 'Version',
   updateNow: 'Update now',
+  updateReady: 'Update ready',
   restartInstall: 'Restart & install',
   checkForUpdates: 'Check for updates',
   checking: 'Checking…',
@@ -215,6 +224,7 @@ export const STRINGS_NORMAL: UiStrings = {
   addAccountTooltip: 'Add account',
   addAccountLabel: 'Add account',
   addDelegatedLabel: 'Add delegated mailbox',
+  delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
   delegatedSuggestionsHeading: 'Suggested delegated',
   addDelegatedSuggestionTooltip: 'Add this delegated mailbox',
   delegatedScanning: 'Looking in your account menu…',
@@ -223,6 +233,8 @@ export const STRINGS_NORMAL: UiStrings = {
 };
 
 export const STRINGS_RENE: UiStrings = {
+  numberLocale: 'nl-NL',
+
   settingsTitle: 'Knopjes',
   save: 'Bewaar',
   saved: 'Klaar ✓',
@@ -259,6 +271,7 @@ export const STRINGS_RENE: UiStrings = {
   sectionAbout: 'Over de app',
   versionPrefix: 'Versie',
   updateNow: 'Doe maar!',
+  updateReady: 'Update klaar',
   restartInstall: 'Opnieuw opstarten',
   checkForUpdates: 'Is er iets nieuws?',
   checking: 'Even kijken…',
@@ -304,6 +317,7 @@ export const STRINGS_RENE: UiStrings = {
   addAccountTooltip: 'Doe er iemand bij',
   addAccountLabel: 'Doe er iemand bij',
   addDelegatedLabel: 'Doe een gedeelde postbus erbij',
+  delegatedTooltipSuffix: '(de postbus van iemand anders)',
   delegatedSuggestionsHeading: 'Gevonden postbussen',
   addDelegatedSuggestionTooltip: 'Doe deze gedeelde postbus erbij',
   delegatedScanning: 'Even in je accountmenu kijken…',

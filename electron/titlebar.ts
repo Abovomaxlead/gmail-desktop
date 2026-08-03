@@ -52,10 +52,19 @@ export function supportsOverlay(platform: string): boolean {
 // we daar de overlay helemaal niet aanzetten (zie supportsOverlay), dus Windows
 // is de enige plek waar we hem zowel zetten als kunnen bijwerken.
 //
-// Gevolg op macOS: de kleuren van de overlay lopen na het opstarten niet mee met
-// een themawissel. Dat is bewust — niet throwen is meer waard dan meelopen, en
-// macOS kleurt zijn stoplichten toch zelf (symbolColor is daar niet eens
-// ondersteund).
+// Gevolg op macOS is tweeledig, want deze setter draagt beide waarden.
+//
+// De kleuren van de overlay lopen na het opstarten niet mee met een themawissel.
+// Dat is daar het minste probleem: macOS kleurt zijn stoplichten toch zelf
+// (symbolColor is er niet eens ondersteund).
+//
+// De hóogte loopt evenmin mee, en dat is het zwaarste van de twee: in Rene-modus
+// zoomt de renderer naar 200%, dus de balk tekent 80px, terwijl de overlay op de
+// 40px van het opstarten blijft staan. De stoplichten hangen dan in de bovenste
+// helft van een dubbelhoge balk. macOS is een buildtarget, dus dit is een echt
+// gebrek daar en geen theorie — het blijft bewust staan omdat niet throwen meer
+// waard is dan meelopen, en een macOS-eigen pad de prijs niet waard is zolang
+// Rene-modus daar geen gebruiker heeft.
 export function supportsOverlayUpdate(platform: string): boolean {
   return platform === 'win32';
 }

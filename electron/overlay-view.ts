@@ -1,4 +1,5 @@
 import { BrowserWindow, WebContentsView } from 'electron';
+import { contentBounds } from './layout';
 
 // Een view over het hele venster, bovenóp de Gmail-view, met een doorzichtige
 // achtergrond. Nodig omdat de Gmail-view een native laag bóven de
@@ -16,6 +17,17 @@ export interface Rect {
   height: number;
 }
 
+// De zoomfactor van de balk. In Rene-modus staat het venster op 200%, dus tekent
+// de balk twee keer zo hoog en moet een overlay eronder ook twee keer zo laag
+// beginnen — dezelfde `scale` die contentBounds voor de Gmail-view gebruikt.
+function barScale(win: BrowserWindow): number {
+  try {
+    return win.webContents.getZoomFactor();
+  } catch {
+    return 1;
+  }
+}
+
 export class OverlayView {
   private view: WebContentsView | null = null;
   private pending: unknown = null;
@@ -28,13 +40,18 @@ export class OverlayView {
     private readonly preloadPath: string,
     private readonly url: string,
     private readonly channel: string,
-    // Waar de view komt. Standaard het hele venster (een modal met backdrop).
+    // Waar de view komt. Standaard het hele gebied ónder de topbar (een modal
+    // met backdrop) — precies wat contentBounds voor de Gmail-view uitrekent.
+    // Niet het hele venster: onze balk ís de titelbalk, dus een view daarover
+    // maakt het venster onversleepbaar en de tabs onaanklikbaar zolang de modal
+    // openstaat. De modal centreert zich zelf in de view die hij krijgt, dus een
+    // kortere view is genoeg — er hoort geen extra marge bij.
     // Een melding die Gmail bruikbaar moet laten geeft hier een eigen rechthoek:
-    // een view over het hele venster vangt namelijk álle klikken op.
+    // een view over het hele gebied vangt namelijk álle klikken op.
     private readonly boundsFor: (
       win: { width: number; height: number },
       rows: number,
-    ) => Rect = (w) => ({ x: 0, y: 0, width: w.width, height: w.height }),
+    ) => Rect = (w) => contentBounds(w, barScale(win)),
   ) {
     this.win.on('resize', () => this.applyBounds());
   }
