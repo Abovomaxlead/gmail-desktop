@@ -9,7 +9,8 @@ import { AccountsSection } from './settings/AccountsSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { SettingsShell } from './settings/SettingsShell';
-import type { SettingsSection } from './settings/nav';
+import { attentionFrom, type SettingsSection } from './settings/nav';
+import { NOTICE } from './settings/tokens';
 
 // De namen in de navigatiekolom. Aparte, korte sleutels: in de kolom is ruimte
 // voor één woord, in de sectiekop erboven voor een hele naam.
@@ -144,12 +145,11 @@ export function SettingsPanel({
       active={section}
       onSelect={setSection}
       // Een puntje bij Meldingen als je meldingen uit staan, en bij Over als er
-      // een update op je wacht. `available` en `downloaded` allebei: in beide
-      // standen staat er een knop klaar die je waarschijnlijk wilde weten.
-      attention={{
-        dnd: !!prefs?.notifications.dnd,
-        updateReady: update.state === 'available' || update.state === 'downloaded',
-      }}
+      // een update op je wacht. Het samenstellen staat in `nav.ts` en is daar
+      // getest: "meldingen uit" is niet alleen de schakelaar in dit paneel maar
+      // ook een tijdelijke demping uit het tray-menu (`dndUntil`), en juist dat
+      // tweede geval is waarvoor je een puntje wil zien.
+      attention={attentionFrom(prefs?.notifications, update.state)}
       attentionLabel={S.settingsAttention}
       saved={savedFlash}
       onSave={saveNow}
@@ -157,13 +157,10 @@ export function SettingsPanel({
       saveLabel={S.save}
       savedLabel={S.saved}
       closeLabel={S.close}
-      banner={
-        rene ? (
-          <div className="rounded-xl border border-yellow-300 bg-yellow-100 p-4 text-sm font-medium text-yellow-900 dark:border-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-200">
-            {S.reneBanner}
-          </div>
-        ) : undefined
-      }
+      // De strook was geel: een vierde tint in een paneel dat er drie toestaat
+      // (identiteit, de knop die een update uitvoert, gevaar). Zie `NOTICE` in
+      // `tokens.ts` voor waarom hij nu grijs is en waar die keuze staat.
+      banner={rene ? <div className={NOTICE}>{S.reneBanner}</div> : undefined}
     >
       {section === 'general' && (
         <GeneralSection

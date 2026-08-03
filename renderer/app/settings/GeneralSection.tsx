@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { Prefs } from '../page';
 import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
-import { BUTTON, CARD, CHECKBOX, FIELD, SECTION_TITLE } from './tokens';
+import { BUTTON, CARD, CHECKBOX, FIELD, SECTION_TITLE, VALUE } from './tokens';
 
 // Algemeen: de vijf instellingen die niet over meldingen, accounts of de app zelf
 // gaan. Elke instelling gaat door dezelfde `SettingRow`, dus alle controls
@@ -58,9 +58,7 @@ export function GeneralSection({
         {/* De status staat naast de knop en niet in de bijtekst: de bijtekst zegt
             wat er gebeurt als je hem indrukt, de status zegt hoe het nu staat. */}
         <SettingRow label={S.setDefaultMail} description={S.setDefaultMailHint}>
-          <span className="text-xs text-neutral-500">
-            {isDefaultMail ? S.isDefaultMail : S.notDefaultMail}
-          </span>
+          <span className={VALUE}>{isDefaultMail ? S.isDefaultMail : S.notDefaultMail}</span>
           <button type="button" onClick={onSetDefaultMail} disabled={isDefaultMail} className={BUTTON}>
             {S.setDefaultMail}
           </button>
@@ -105,7 +103,7 @@ export function GeneralSection({
           <span
             dir="rtl"
             title={mailDropFolder}
-            className="max-w-[200px] truncate text-xs tabular-nums text-neutral-500"
+            className={`max-w-[200px] truncate tabular-nums ${VALUE}`}
           >
             {mailDropFolder ? `\u202a${mailDropFolder}\u202c` : '—'}
           </span>

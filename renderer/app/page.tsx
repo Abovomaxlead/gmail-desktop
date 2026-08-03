@@ -67,7 +67,16 @@ export interface Prefs {
   autoStart: boolean;
   theme: 'system' | 'light' | 'dark';
   notificationOpen: 'app' | 'window';
-  notifications: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } };
+  // `dndUntil` is epoch-ms en komt alleen uit het hoofdproces: het tray-menu zet
+  // een tijdelijke demping ("30 minuten stil") en `prefs-store` bewaart hem, en
+  // het hoofdproces ruimt hem zelf op als hij verlopen is. Het paneel leest hem
+  // wel (het puntje bij Meldingen) maar schrijft hem niet — daarom staat het
+  // veld hier en niet in de argumenten van `setNotifications` hieronder.
+  notifications: {
+    dnd: boolean;
+    dndUntil?: number;
+    quietHours: { enabled: boolean; start: string; end: string };
+  };
   accounts: Record<string, AccountPref>;
   mailDrop: { folder: string };
   reneMode: boolean;

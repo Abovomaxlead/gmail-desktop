@@ -7,6 +7,7 @@ import type { UiStrings } from '../strings';
 import { SettingRow } from './SettingRow';
 import {
   ACCENT_BUTTON,
+  BLOCK_TITLE,
   BUTTON,
   CARD,
   DANGER_TEXT,
@@ -14,6 +15,7 @@ import {
   HAIRLINE,
   PANEL,
   SECTION_TITLE,
+  VALUE,
 } from './tokens';
 
 // De naam van de app is een eigennaam en wordt niet vertaald, dus hij staat niet
@@ -162,8 +164,11 @@ export function AboutSection({
 
       <div className={CARD}>
         <SettingRow label={APP_NAME}>
-          {/* Het versienummer is gegevens: `tabular-nums`. */}
-          <span className="text-[13px] tabular-nums text-neutral-500">
+          {/* Het versienummer is gegevens: `tabular-nums`. De maat komt uit
+              `VALUE` — dezelfde rol als de stand van de mailclient en het pad van
+              de dropmap in Algemeen, dus dezelfde maat. Hij stond hier op 13px en
+              daar op 12px, en dat verschil zei niets. */}
+          <span className={`tabular-nums ${VALUE}`}>
             {S.versionPrefix} {update.currentVersion ?? '—'}
           </span>
         </SettingRow>
@@ -188,7 +193,11 @@ export function AboutSection({
         </SettingRow>
       </div>
 
-      <h3 className="mt-2 text-[13.5px] font-semibold">{S.sectionWhatsNew}</h3>
+      {/* De kop van een blok binnen een sectie, dezelfde als boven het rooster in
+          Meldingen. Hij stond op 13.5px/600 — precies de maat van een rijlabel, en
+          een stap die niet in de typeschaal staat, waardoor de changelog geen kop
+          leek te hebben maar een rij. */}
+      <h3 className={`mt-2 ${BLOCK_TITLE}`}>{S.sectionWhatsNew}</h3>
 
       <div className={`${PANEL} p-4`}>
         {changelog.length === 0 ? (

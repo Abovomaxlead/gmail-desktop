@@ -83,11 +83,12 @@ export function AccountsSection({
         const showImg = p.avatarUrl && !brokenAvatars[p.avatarUrl];
         const delegated = p.kind === 'delegated';
 
+        // `px-4`, hetzelfde als de kaart met rijen (`CARD`) eronder: met `pr-3.5`
+        // liep de rechterrand van de accountkaarten 2px binnen die van de kaart
+        // onderaan, en twee kaarten onder elkaar die net niet op één lijn eindigen
+        // leest als een fout in de weergave.
         return (
-          <div
-            key={p.email}
-            className={`${PANEL} relative overflow-hidden py-3.5 pl-4 pr-3.5`}
-          >
+          <div key={p.email} className={`${PANEL} relative overflow-hidden px-4 py-3.5`}>
             {/* De rug: 3px accountkleur over de volle hoogte van de kaart. De
                 kaart klipt hem (`overflow-hidden`), dus de uiteinden lopen mee
                 met de ronding. */}
@@ -219,7 +220,10 @@ export function AccountsSection({
       })}
 
       <div className={CARD}>
-        <SettingRow label={S.navAccounts} description={S.redetectDescription}>
+        {/* Een eigen sleutel en niet `navAccounts`: die staat al als kop boven
+            deze sectie, en een rij die net zo heet als het kopje erboven ("Wie
+            doet mee?" onder "Wie doet mee?") zegt niet wat de rij doet. */}
+        <SettingRow label={S.redetectLabel} description={S.redetectDescription}>
           <button type="button" onClick={onRedetect} className={BUTTON}>
             {S.redetect}
           </button>

@@ -15,6 +15,10 @@ const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity
 // er staat er precies één in het paneel, want er is één sectie tegelijk open.
 const MATRIX_TITLE_ID = 'per-account-notifications-title';
 
+// Het id van de "tot" tussen de twee tijdvelden, die de naam van het tweede veld
+// is. Zelfde reden om het vast te zetten: één per paneel.
+const QUIET_END_LABEL_ID = 'setting-quiet-end-label';
+
 // Eén kolom van het rooster: dezelfde instelling voor elk account.
 interface ToggleColumn {
   key: string;
@@ -167,9 +171,14 @@ export function NotificationsSection({
               voorkeuren uit het hoofdproces binnen zijn, en dan zou er voor
               altijd een leeg veld staan. De sleutel klapt precies één keer om,
               bij die eerste voorkeuren; latere wijzigingen laten het veld staan
-              zodat er niets remount terwijl de gebruiker typt. */}
+              zodat er niets remount terwijl de gebruiker typt.
+
+              De naam van het veld staat in de sleutel: twee zusjes met dezelfde
+              `key` is een dubbele sleutel, waar React in de ontwikkelstand over
+              klaagt en waarbij het onvoorspelbaar is welk van de twee velden een
+              hermontage krijgt. */}
           <input
-            key={quiet ? 'ready' : 'loading'}
+            key={quiet ? 'start-ready' : 'start-loading'}
             id="setting-quiet-start"
             type="time"
             disabled={!quietOn}
@@ -186,10 +195,19 @@ export function NotificationsSection({
             }}
             className={TIME}
           />
-          <span className="text-xs text-neutral-500">{S.to}</span>
+          {/* Het rijlabel ("van") hoort via `htmlFor` bij het eerste veld, dus
+              zonder dit heeft het tweede veld geen naam en kondigt een
+              schermlezer een naamloos tijdveld aan. "tot" wordt die naam met
+              `aria-labelledby` en niet met een `<label>`: de rij zelf is al een
+              `<label>` (zie `SettingRow`), en een label in een label is ongeldige
+              HTML. Zo blijft de tekst in beeld de enige bron van die naam. */}
+          <span id={QUIET_END_LABEL_ID} className="text-xs text-neutral-500">
+            {S.to}
+          </span>
           <input
-            key={quiet ? 'ready' : 'loading'}
+            key={quiet ? 'end-ready' : 'end-loading'}
             id="setting-quiet-end"
+            aria-labelledby={QUIET_END_LABEL_ID}
             type="time"
             disabled={!quietOn}
             defaultValue={quiet?.end ?? ''}

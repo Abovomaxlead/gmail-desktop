@@ -105,6 +105,10 @@ export interface UiStrings {
   removeConfirmAfter: string;
   remove: string;
   cancel: string;
+  // De rij met de zoek-opnieuw-knop. `redetectLabel` is de naam van de rij en
+  // `redetect` de tekst op de knop erin; de rij mag niet `navAccounts` gebruiken,
+  // want dat woord staat al als kop boven de sectie.
+  redetectLabel: string;
   redetect: string;
   redetectDescription: string;
   noAccounts: string;
@@ -116,7 +120,6 @@ export interface UiStrings {
   addDelegatedLabel: string;
   delegatedTooltipSuffix: string; // appended to a delegated tab's tooltip, explaining its marker
   delegatedSuggestionsHeading: string;
-  addDelegatedSuggestionTooltip: string;
   delegatedScanning: string;
   delegatedNoneFound: string;
   settingsTooltip: string;
@@ -299,6 +302,7 @@ export const STRINGS_NORMAL: UiStrings = {
   removeConfirmAfter: ' button.',
   remove: 'Remove',
   cancel: 'Cancel',
+  redetectLabel: 'Account detection',
   redetect: 'Re-detect accounts',
   redetectDescription: 'Looks again at the Google accounts you are signed in to.',
   noAccounts: 'No accounts detected yet.',
@@ -312,7 +316,6 @@ export const STRINGS_NORMAL: UiStrings = {
   addDelegatedLabel: 'Add delegated mailbox',
   delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
   delegatedSuggestionsHeading: 'Suggested delegated',
-  addDelegatedSuggestionTooltip: 'Add this delegated mailbox',
   delegatedScanning: 'Looking in your account menu…',
   delegatedNoneFound: 'No delegated mailboxes found.',
   settingsTooltip: 'Settings',
@@ -414,6 +417,7 @@ export const STRINGS_RENE: UiStrings = {
   removeConfirmAfter: ' knop.',
   remove: 'Weg',
   cancel: 'Nee',
+  redetectLabel: 'Accounts zoeken',
   redetect: 'Zoek nog een keer',
   redetectDescription: 'De app kijkt nog een keer wie er mee doet.',
   noAccounts: 'Er is nog niemand.',
@@ -425,7 +429,6 @@ export const STRINGS_RENE: UiStrings = {
   addDelegatedLabel: 'Doe een gedeelde postbus erbij',
   delegatedTooltipSuffix: '(de postbus van iemand anders)',
   delegatedSuggestionsHeading: 'Gevonden postbussen',
-  addDelegatedSuggestionTooltip: 'Doe deze gedeelde postbus erbij',
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedeelde postbussen gevonden.',
   settingsTooltip: 'Knopjes',

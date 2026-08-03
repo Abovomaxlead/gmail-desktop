@@ -24,6 +24,15 @@
 export const FOCUS_RING =
   'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
 
+// Dezelfde ring, maar voor iets dat rechtstreeks op het vlak staat in plaats van
+// op een kaart: de knoppen in de kop en de items in de navigatiekolom. Alleen de
+// kleur van de offset verschilt — die hoort de achtergrond te zijn waar de ring
+// omheen ligt, anders staat er een wit randje op het grijze vlak. Een eigen naam
+// en geen kopie in de schil: het is een tweede token en niet een tweede soort
+// ring.
+export const SURFACE_FOCUS_RING =
+  'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 dark:focus-visible:ring-offset-neutral-950';
+
 // De haarlijn van de ontwerprichting: 8% zwart op licht, 8% wit op donker.
 export const HAIRLINE = 'border-black/[0.08] dark:border-white/[0.08]';
 
@@ -36,6 +45,16 @@ export const PANEL = `rounded-xl border ${HAIRLINE} bg-white dark:bg-neutral-900
 // lijn en hoeft er nergens geteld te worden.
 export const CARD = `${PANEL} divide-y divide-black/[0.08] px-4 dark:divide-white/[0.08]`;
 
+// Een melding onder de kop over de volle breedte — nu alleen de Rene-strook.
+// Grijs, en dat is een beslissing en geen verzuim: de strook zegt dat er een
+// stand aan staat, en dat is niet identiteit, niet de knop die een update
+// uitvoert en geen gevaar. Precies de drie rollen waar dit paneel kleur voor
+// bewaart. Een vierde tint erbij zou de regel onhandhaafbaar maken, en de winst
+// zou nul zijn: de strook staat er alleen áls die stand aan staat, dus zijn
+// aanwezigheid is al het signaal. Hij leent daarom de kaartvorm — dezelfde rand
+// en dezelfde achtergrond als elke andere kaart in het paneel.
+export const NOTICE = `${PANEL} p-4 text-[13px] font-medium`;
+
 // De kop van een sectie: 20px/600, zoals de titel van het paneel.
 export const SECTION_TITLE = 'text-[20px] font-semibold tracking-tight';
 
@@ -45,6 +64,13 @@ export const SECTION_TITLE = 'text-[20px] font-semibold tracking-tight';
 // rangorde te zien is zonder dat er een maat bij komt die niet in de schaal
 // staat. Een sectie met één blok gebruikt dit niet: dan is de sectietitel de kop.
 export const BLOCK_TITLE = 'text-[15px] font-semibold tracking-tight';
+
+// Een waarde die je niet kan aanzetten, naast de knop die er iets mee doet: de
+// stand van de standaard-mailclient, het pad van de dropmap, het versienummer.
+// Eén maat voor die rol, want hij stond eerst op 12px in Algemeen en op 13px in
+// Over. 12px is de stap uit de typeschaal die bij bijtekst hoort, en dat is wat
+// dit is: tekst die de rij toelicht, geen tweede rijlabel.
+export const VALUE = 'text-xs text-neutral-500';
 
 // De gewone knop. Grijs, want de meeste knoppen doen iets dat je terug kan
 // draaien.
