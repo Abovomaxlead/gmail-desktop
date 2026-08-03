@@ -26,6 +26,7 @@ export function SettingsShell({
   active,
   onSelect,
   attention,
+  attentionLabel,
   saved,
   onSave,
   onClose,
@@ -40,6 +41,7 @@ export function SettingsShell({
   active: SettingsSection;
   onSelect(s: SettingsSection): void;
   attention: AttentionInput;
+  attentionLabel: string;
   saved: boolean;
   onSave(): void;
   onClose(): void;
@@ -173,13 +175,17 @@ export function SettingsShell({
                 <span className="min-w-0 flex-1 truncate">{sectionLabel(section)}</span>
                 {/* Het puntje: hier staat iets dat je wilde weten zonder ernaar
                     te zoeken. 6px, en het enige blauw buiten de opslaan-knop.
-                    aria-hidden omdat er geen tekst voor is om het uit te leggen —
-                    de sectie zelf zegt wat er aan de hand is. */}
+                    Het bolletje zelf is aria-hidden — een vorm zegt niets — en de
+                    tekst ernaast staat in `sr-only`: onzichtbaar, maar wel gewone
+                    tekst binnen de knop, dus hij hangt achter de sectienaam in de
+                    naam van het tabblad ("Meldingen, …"). Staat er geen
+                    aandachtspunt, dan staat er niets: een puntje dat altijd wordt
+                    voorgelezen en dan "nee" zegt is erger dan geen puntje. */}
                 {needsAttention(section, attention) && (
-                  <span
-                    aria-hidden
-                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600"
-                  />
+                  <>
+                    <span className="sr-only">{attentionLabel}</span>
+                    <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
+                  </>
                 )}
               </button>
             );
@@ -191,11 +197,17 @@ export function SettingsShell({
             voorspelbare plek blijven. Geen overgang bij het wisselen van sectie:
             dat doe je één keer per bezoek, en een animatie maakt het alleen
             langzamer. */}
+        {/* tabIndex=0: het vlak is scrollbaar, en een sectie die tekst is in
+            plaats van knoppen (Over, met de changelog erin) heeft niets waar de
+            focus in kan landen — zonder dit is die met het toetsenbord niet te
+            scrollen. De ring staat naar binnen: een ring met offset om een vlak
+            van deze maat loopt over de haarlijn van de kolom heen. */}
         <div
           id={PANEL_ID}
           role="tabpanel"
           aria-labelledby={tabId(active)}
-          className="min-w-0 flex-1 overflow-y-auto"
+          tabIndex={0}
+          className="min-w-0 flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
         >
           <div className="mx-auto w-full max-w-[720px] px-8 py-7">{children}</div>
         </div>
