@@ -41,7 +41,7 @@ import {
   type CopyMode,
 } from './mail-copy';
 import { parseHeaders, extractPlainText, htmlToText } from './eml';
-import { writeThread, writeLabel, appendLog, type LogRecord, type SavedMessage } from './mail-archive';
+import { writeThread, writeLabel, appendLog, displayName, type LogRecord, type SavedMessage } from './mail-archive';
 import {
   labelListUrl,
   mergeThreads,
@@ -77,13 +77,25 @@ import {
   fetchThreadRaw,
   insertMessage,
   messageExistsInLabel,
+  watchMailbox,
+  stopWatch,
+  fetchProfileHistoryId,
+  fetchHistoryPage,
+  fetchMessageMeta,
+  fetchInboxUnread,
   GmailHttpError,
   type AccountLabels,
+  type MessageMeta,
 } from './gmail-api';
 import { mapLimit } from './concurrency';
 import { OAuthStore } from './oauth-store';
 import { connectAccount, accessTokenFor, forceRefresh } from './oauth-flow';
 import { hasScopes, type OAuthConfig } from './google-oauth';
+import { parsePushConfig, type PushConfig } from './push-config';
+import { PushCoverage } from './push-coverage';
+import { HistoryStore } from './history-store';
+import { startPushManager } from './push-manager';
+import { createSyncRunner } from './push-sync';
 
 // WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
 // and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
@@ -141,6 +153,11 @@ let lastDropSaved: SavedRef[] = [];
 // alleen maar een duplicaat in hetzelfde postvak opleveren.
 let lastDropSource = '';
 let oauthTokens: OAuthStore | null = null;
+let history: HistoryStore | null = null;
+const coverage = new PushCoverage();
+let pushManager: { stop(): void; refresh(): void } | null = null;
+// Eén runner per account: die coalesceert samenvallende syncs voor dat account.
+const syncRunners = new Map<string, { run(): Promise<void> }>();
 let reconnectBanner: OverlayView | null = null; // blijvende melding voor accounts zonder werkende koppeling
 let reconnectEmails: string[] = [];
 let updateRequested = false; // user pressed "Update now" → auto-install once downloaded
@@ -463,6 +480,7 @@ function registerAccount(
   profiles.sort((a, b) => authIdx(a) - authIdx(b));
   pushProfiles();
   refreshNotifyAllowed();
+  startPush();
   syncCalendarViews();
 }
 
@@ -507,6 +525,17 @@ async function addAccountAfterConsent(
 
 function removeAccount(email: string): void {
   removed!.add(email); // persist so detection skips it from now on
+  // Netjes afmelden, anders blijft Gmail nog tot een week publiceren voor een
+  // client die er niet meer is. Best-effort: het token is hierna weg.
+  void (async () => {
+    const cfg = oauthConfig();
+    if (!cfg || !oauthTokens) return;
+    const token = await accessTokenFor(cfg, oauthTokens, email);
+    if (token) await stopWatch(token).catch(() => undefined);
+  })();
+  history?.remove(email);
+  coverage.forget(email);
+  syncRunners.delete(email);
   // Het account gaat eruit, dus de API-toegang ook: een token laten staan voor
   // een postvak dat je niet meer in de app hebt is een geheim zonder doel.
   oauthTokens?.remove(email);
@@ -530,6 +559,7 @@ function showAccount(ref: AccountRef, surface: Surface): void {
   // A first switch to an app surface just created its view; gate it right away
   // (the app surfaces never notify in v1) instead of on the next 60s tick.
   refreshNotifyAllowed();
+  startPush();
   flushPendingMailto(); // an inbox is now live — run any queued mailto
 }
 
@@ -683,13 +713,25 @@ function refreshNotifyAllowed(): void {
   for (const profile of profiles) {
     for (const surface of SURFACES) {
       manager?.pushNotifyAllowed(keyOf(profile), surface, {
-        show: notificationsAllowed(p, profile.email, now, surface),
+        show: notificationsAllowed(p, profile.email, now, surface, coverage.has(profile.email)),
         silent: notificationSilent(p, profile.email, surface),
         persist: notificationPersist(p, profile.email),
       });
     }
   }
 }
+
+// De teller zoals de API hem geeft. Null betekent: onbekend gebleven, dan blijft
+// staan wat er stond.
+function reportApiUnread(email: string, count: number | null): void {
+  if (count === null) return;
+  const profile = profiles.find((p) => p.email === email);
+  if (!profile) return;
+  unread.report(keyOf(profile), count);
+  pushUnread();
+  refreshBadge();
+}
+
 function startNotifyTimer(): void {
   if (notifyTimer) return;
   // Quiet-hours boundaries only change on the minute; re-evaluate each minute.
@@ -927,6 +969,17 @@ function oauthConfig(): OAuthConfig | null {
     // ingesteld, en dan blokkeert het toevoegen van een account niet.
   }
   return null;
+}
+
+// Uit hetzelfde bestand als de client-id, en net als daar bij elke aanroep
+// opnieuw gelezen: zo kun je de relay-regels neerzetten zonder te herstarten.
+function pushConfig(): PushConfig | null {
+  try {
+    return parsePushConfig(JSON.parse(readFileSync(OAUTH_CONFIG_PATH, 'utf8')), process.env);
+  } catch {
+    // Bestand ontbreekt of is onleesbaar: dan is push simpelweg niet ingesteld.
+    return parsePushConfig(null, process.env);
+  }
 }
 
 // De controle hangt aan wijzigingen in de accountlijst: zo loopt hij zodra het
@@ -1409,6 +1462,134 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
   if (threadId && surface === 'mail') manager?.openMailThread(accountKey, threadId);
 }
 
+// Een melding voor één nieuw bericht, langs dezelfde weg als die van de webview:
+// zelfde geluid- en blijven-staan-voorkeuren, en dezelfde klikbehandeling. De
+// gate zelf is hierboven al gedaan — notificationsAllowed geldt ook voor push,
+// alleen dan zonder de pushCovered-vlag, want die dooft juist de webview.
+function notifyNewMail(email: string, meta: MessageMeta): void {
+  if (!prefs || !Notification.isSupported()) return;
+  const profile = profiles.find((p) => p.email === email);
+  if (!profile) return;
+  const p = prefs.getAll();
+  const now = new Date();
+  if (!notificationsAllowed(p, email, now, 'mail')) return;
+  const n = new Notification({
+    title: displayName(meta.from) || email,
+    body: meta.subject || NO_SUBJECT,
+    silent: notificationSilent(p, email, 'mail'),
+    // Blijven staan tot de gebruiker hem wegklikt, als dat aanstaat.
+    timeoutType: notificationPersist(p, email) ? 'never' : 'default',
+  });
+  n.on('click', () => activateNotification(keyOf(profile), 'mail', meta.threadId));
+  n.show();
+}
+
+// Eén runner per account, zodat samenvallende syncs voor hetzelfde account
+// gecoalesceerd worden en die van verschillende accounts elkaar niet ophouden.
+function syncRunnerFor(email: string): { run(): Promise<void> } | null {
+  const existing = syncRunners.get(email);
+  if (existing) return existing;
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens || !history) return null;
+
+  // Elke aanroep vraagt opnieuw een token: tussen twee syncs kan er een uur
+  // zitten en dan is het oude verlopen.
+  const withToken = async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
+    const token = await accessTokenFor(cfg, oauthTokens!, email);
+    if (!token) throw new Error('geen token');
+    try {
+      return await fn(token);
+    } catch (e) {
+      if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
+      const fresh = await forceRefresh(cfg, oauthTokens!, email);
+      if (!fresh) {
+        refreshFailures.add(email);
+        scheduleOAuthHealthCheck();
+        throw e;
+      }
+      refreshFailures.delete(email);
+      return await fn(fresh);
+    }
+  };
+
+  const runner = createSyncRunner({
+    client: {
+      profileHistoryId: () => withToken((t) => fetchProfileHistoryId(t)),
+      historyPage: (start, pageToken) => withToken((t) => fetchHistoryPage(t, start, pageToken)),
+      messageMeta: (id) => withToken((t) => fetchMessageMeta(t, id)),
+      inboxUnread: () => withToken((t) => fetchInboxUnread(t)),
+    },
+    cursor: {
+      get: () => history!.get(email),
+      set: (id) => history!.set(email, id),
+    },
+    coveredSince: () => coverage.since(email),
+    isExpiredCursor: (e) => e instanceof GmailHttpError && e.status === 404,
+    onOutcome: (outcome) => {
+      reportApiUnread(email, outcome.unread);
+      for (const meta of outcome.notify) notifyNewMail(email, meta);
+    },
+    onError: (e) => console.warn(`[push] sync mislukte voor ${email}:`, e),
+  });
+  syncRunners.set(email, runner);
+  return runner;
+}
+
+// Welke accounts push kán dekken: eigen accounts met een token dat de vereiste
+// scopes heeft. Een gedelegeerd postvak heeft geen eigen token en blijft dus de
+// webview gebruiken.
+function pushableEmails(): string[] {
+  if (!oauthTokens) return [];
+  return profiles
+    .filter((p) => p.kind === 'authuser')
+    .map((p) => p.email)
+    .filter((email) => {
+      const token = oauthTokens!.get(email);
+      return token !== undefined && hasScopes(token);
+    });
+}
+
+function startPush(): void {
+  if (pushManager) {
+    pushManager.refresh();
+    return;
+  }
+  const config = pushConfig();
+  if (!config) return; // niet ingesteld: alles blijft zoals het was
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens) return;
+
+  pushManager = startPushManager({
+    config,
+    accounts: pushableEmails,
+    accessToken: (email) => accessTokenFor(cfg, oauthTokens!, email),
+    armWatch: async (email) => {
+      const token = await accessTokenFor(cfg, oauthTokens!, email);
+      if (!token) return false;
+      try {
+        return (await watchMailbox(token, config.pushTopic)) !== null;
+      } catch (e) {
+        console.warn(`[push] watch mislukte voor ${email}:`, e);
+        return false;
+      }
+    },
+    onSync: (email) => void syncRunnerFor(email)?.run(),
+    onCoverage: (email, covered) => {
+      if (covered) coverage.cover(email);
+      else coverage.drop(email);
+      // De webview moet meteen weten of hij mag melden, en de teller wisselt
+      // van eigenaar.
+      refreshNotifyAllowed();
+    },
+    onFatal: (email, code) => {
+      console.warn(`[push] push definitief uit voor ${email} (code ${code})`);
+      // 4401 betekent bijna altijd een token zonder de e-mailscope. De
+      // herverbind-melding vraagt daar zelf om.
+      if (code === 4401) void checkOAuthHealth();
+    },
+  });
+}
+
 function createWindow(): void {
   prefs = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
   const stored = prefs.getAll().window;
@@ -1433,12 +1614,19 @@ function createWindow(): void {
   mainWindow.on('restore', refreshBadge);
   colors = new ColorStore(join(app.getPath('userData'), 'colors.json'));
   oauthTokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
+  history = new HistoryStore(join(app.getPath('userData'), 'gmail-history.json'));
   removed = new RemovedStore(join(app.getPath('userData'), 'removed.json'));
   delegated = new DelegatedStore(join(app.getPath('userData'), 'delegated.json'));
   manager = new ProfileViewManager(
     mainWindow,
     PRELOAD_PATH,
     (accountKey, count) => {
+      // Eén bron per account. Is het account door push gedekt, dan komt de
+      // teller uit labels.get en zou de paginatitel hem alleen overschrijven —
+      // twee bronnen die om hetzelfde getal vechten laten het heen en weer
+      // springen. Bij een teruggave van de dekking neemt de titel het weer over.
+      const email = profiles.find((p) => keyOf(p) === accountKey)?.email;
+      if (email && coverage.has(email)) return;
       unread.report(accountKey, count);
       pushUnread();
       refreshBadge();
@@ -2020,6 +2208,7 @@ function registerIpc(): void {
     pushProfiles();
     pushPrefs(); // keep the settings UI's per-account toggles in sync with what was stored
     refreshNotifyAllowed();
+    startPush();
     syncCalendarViews();
     refreshBadge(); // reflect a badgeCount change immediately
   });
@@ -2111,5 +2300,6 @@ app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
   isQuitting = true;
+  pushManager?.stop();
 });
 
