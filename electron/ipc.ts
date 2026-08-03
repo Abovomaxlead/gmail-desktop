@@ -28,7 +28,7 @@ export const IPC = {
   SET_RENE_MODE: 'prefs:rene-mode', // send(boolean) — settings-page easter egg toggle
   SET_DEFAULT_MAIL: 'mail:set-default', // send() — (re)claim the OS mailto: default
   LABELS_GET: 'gmail:labels-get', // invoke() -> {accounts: AccountLabels[]} — labels van elk gekoppeld account
-  OAUTH_RECONNECT_GET: 'oauth:reconnect-get', // invoke() -> {emails} — de melding haalt zelf op
+  OAUTH_RECONNECT_GET: 'oauth:reconnect-get', // invoke() -> {accounts: ReconnectAccount[]} — de melding haalt zelf op
   OAUTH_RECONNECT: 'oauth:reconnect', // invoke({email}) -> {ok, error?} — opnieuw toestemming vragen
   MAIL_DROP_FOLDER_GET: 'maildrop:folder-get', // invoke() -> string (resolved save folder)
   MAIL_DROP_FOLDER_PICK: 'maildrop:folder-pick', // invoke() -> string (new folder, or the old one on cancel)
@@ -50,7 +50,7 @@ export const IPC = {
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get', // invoke() -> {items} — de modal haalt zelf op, voor het geval de push hem nét miste
   MAIL_DROP_COPY: 'maildrop:copy', // invoke({targets, force?}) -> MailDropCopyResult — de sleep naar de gekozen labels kopiëren; zonder `force` eerst op duplicaten controleren
   MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress', // main -> modal: send(MailDropCopyProgress)
-  OAUTH_RECONNECT_LIST: 'oauth:reconnect-list', // main -> melding: send({emails}) — wie opnieuw verbonden moet worden
+  OAUTH_RECONNECT_LIST: 'oauth:reconnect-list', // main -> melding: send({accounts: ReconnectAccount[]}) — wie opnieuw verbonden moet worden, en waarom
 } as const;
 
 // Eén gesleept gesprek. Het onderwerp komt uit de berichtenlijst en is er dus

@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { reconnectHeading, type ReconnectAccount } from '../reconnect-text';
 
-// Blijvende melding voor accounts waarvan de Gmail-koppeling niet meer werkt.
-// Bewust zonder sluitknop: hij verdwijnt pas als elk account weer verbonden is.
-// Draait in een eigen view rechtsonder, dus de rest van Gmail blijft bruikbaar.
+// Blijvende melding voor accounts waarvan de Gmail-koppeling opnieuw gemaakt moet
+// worden. Bewust zonder sluitknop: hij verdwijnt pas als elk account weer
+// verbonden is. Draait in een eigen view rechtsonder, dus de rest van Gmail
+// blijft bruikbaar.
 export default function ReconnectPage() {
-  const [emails, setEmails] = useState<string[]>([]);
+  const [accounts, setAccounts] = useState<ReconnectAccount[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -15,10 +17,10 @@ export default function ReconnectPage() {
     if (!bridge) return;
     // Ophalen én luisteren: het main-proces kan de lijst al gestuurd hebben
     // voordat deze pagina klaar was met laden.
-    void bridge.getReconnectList().then(({ emails: e }) => {
-      if (e.length > 0) setEmails(e);
+    void bridge.getReconnectList().then(({ accounts: a }) => {
+      if (a.length > 0) setAccounts(a);
     });
-    bridge.onReconnectList(({ emails: e }) => setEmails(e));
+    bridge.onReconnectList(({ accounts: a }) => setAccounts(a));
   }, []);
 
   const reconnect = (email: string) => {
@@ -30,7 +32,7 @@ export default function ReconnectPage() {
     });
   };
 
-  const many = emails.length > 1;
+  const { title, sub } = reconnectHeading(accounts);
 
   return (
     <>
@@ -54,18 +56,14 @@ export default function ReconnectPage() {
           </svg>
           <div className="flex min-w-0 flex-col">
             <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              {many ? `${emails.length} accounts opnieuw verbinden` : 'Verbinding met Gmail verlopen'}
+              {title}
             </span>
-            <span className="text-xs text-neutral-500">
-              {many
-                ? 'Zonder verbinding kan er geen mail verplaatst worden.'
-                : 'Verbind opnieuw om mail te kunnen verplaatsen.'}
-            </span>
+            <span className="text-xs text-neutral-500">{sub}</span>
           </div>
         </div>
 
         <ul className="flex-1 divide-y divide-black/5 overflow-y-auto dark:divide-white/10">
-          {emails.map((email) => (
+          {accounts.map(({ email }) => (
             <li key={email} className="flex items-center justify-between gap-3 px-4 py-2.5">
               <div className="flex min-w-0 flex-col">
                 <span className="truncate text-sm text-neutral-800 dark:text-neutral-200" title={email}>

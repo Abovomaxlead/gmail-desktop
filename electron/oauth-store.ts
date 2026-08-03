@@ -27,7 +27,14 @@ export class OAuthStore {
   get(email: string): StoredToken | undefined {
     const t = this.all()[email.toLowerCase()];
     if (!t || typeof t.accessToken !== 'string' || typeof t.refreshToken !== 'string') return undefined;
-    return t;
+    // scopes hoort een lijst strings te zijn, maar dit bestand is met de hand te
+    // bewerken en `hasScopes` doet er meteen `.includes()` op — en dat gebeurt
+    // synchroon tijdens het registreren van accounts, dus een kapot veld zou de
+    // app bij het opstarten laten omvallen. Geen lijst betekent hier "we weten
+    // van geen enkele scope": het account blijft werken voor wat een token nodig
+    // heeft, en push vraagt netjes om hertoestemming in plaats van te crashen.
+    const scopes = Array.isArray(t.scopes) ? t.scopes.filter((s) => typeof s === 'string') : [];
+    return { ...t, scopes };
   }
 
   set(email: string, token: StoredToken): void {

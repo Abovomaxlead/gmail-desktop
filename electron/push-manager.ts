@@ -22,6 +22,14 @@ export interface PushManagerDeps {
   config: PushConfig;
   accounts(): string[];
   accessToken(email: string): Promise<string | null>;
+  // Een 4401 zegt: Google wil dit token niet. Soms is dat een token dat net
+  // verlopen is of dat de relay niet kon controleren, en dan lukt het met een
+  // gegarandeerd vers token wél. Deze dep vraagt daarom om een échte verversing
+  // (niet "geef me een token dat volgens onze klok nog geldig is"), en wordt
+  // precies één keer per weigering gebruikt. Null betekent: er komt geen vers
+  // token, dus de weigering is definitief. Ontbreekt de dep, dan is de eerste
+  // 4401 meteen definitief.
+  refreshToken?(email: string): Promise<string | null>;
   // True als de watch staat. Zonder watch stuurt Gmail niets en is het account
   // dus niet gedekt, hoe goed de socket het ook doet.
   armWatch(email: string): Promise<boolean>;
@@ -49,6 +57,10 @@ interface ConnState {
   stale?: Timer;
   grace?: Timer;
   dead: boolean; // definitief geweigerd: niet meer proberen
+  // Of deze weigeringsepisode zijn ene verversing al heeft gehad. Gaat weer uit
+  // zodra een verbinding staat, zodat een 4401 volgende week (een token dat dan
+  // écht verlopen is) opnieuw één kans krijgt.
+  retriedAuth: boolean;
   // Nummer van de lopende poging. Traag werk (token ophalen, watch zetten,
   // vernieuwen) neemt dit nummer mee en checkt het na elke await: als het niet
   // meer overeenkomt is deze poging overtroffen door een nieuwe verbinding,
@@ -154,9 +166,21 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
     }, staleMs);
   };
 
+  // Definitief. Dekking terug naar de webview en de aanroeper laten weten
+  // waarom, zodat die om hertoestemming kan vragen — anders valt push stil
+  // zonder dat iemand het merkt.
+  const giveUp = (email: string, state: ConnState, code: number): void => {
+    state.dead = true;
+    setCovered(email, state, false);
+    clearTimers(state);
+    deps.onFatal?.(email, code);
+  };
+
   const connect = (email: string): void => {
     if (stopped) return;
-    const state = conns.get(email) ?? { attempt: 0, covered: false, dead: false, generation: 0 };
+    const state =
+      conns.get(email) ??
+      { attempt: 0, covered: false, dead: false, retriedAuth: false, generation: 0 };
     conns.set(email, state);
     if (state.dead) return;
 
@@ -221,7 +245,27 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       } catch {
         return; // onleesbaar frame: negeren, niet omvallen
       }
+      // {type:'ready'} stuurt de relay alleen ná een geslaagde controle van het
+      // token. Dat is het énige harde bewijs dat dit token geaccepteerd is, en
+      // dus de enige plek waar de ene herkansing na een 4401 terug mag. Een
+      // geslaagde handdruk aan onze kant zegt daar niets over — users.watch lukt
+      // prima met een token dat precies de scope mist waar de relay op afkeurt —
+      // en terugzetten op dát moment zou een token zonder e-mailscope eeuwig
+      // laten verversen en herverbinden.
+      if (msg.type === 'ready') state.retriedAuth = false;
       if (msg.type === 'sync') deps.onSync(email);
+    });
+
+    // De hartslag van de relay is een protocol-ping, en op een stil postvak is
+    // dat het énige dat er de hele dag binnenkomt: applicatieframes zijn er maar
+    // twee ({type:'ready'} bij het inloggen en een sync als er mail is). Zonder
+    // deze draad verloopt de staleness-timer dus altijd, breekt de manager een
+    // gezonde verbinding elke 90 seconden af, en registreert hij bij elke
+    // herverbinding opnieuw een watch met een volledige catch-up-sync erachter —
+    // de pollende achtervang die de spec expliciet niet wil.
+    sock.onPing(() => {
+      if (!isLive(email, state, myGen, sock)) return;
+      armStale(email, state, myGen);
     });
 
     sock.onError((e) => console.warn(`[push] socketfout voor ${email}:`, e));
@@ -244,12 +288,37 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       // backoff-teller resetten voor een verbinding die niet meer bestaat.
       state.sock = undefined;
 
+      // 4401 is de enige weigering waar iets aan te doen valt: Google keurde
+      // dít token af. Eén keer met een gegarandeerd vers token opnieuw (zie de
+      // spec), en blijft het dan nog, dan is het definitief. Zonder deze kans is
+      // één hik bij de tokencontrole van de relay genoeg om push voor élk account
+      // uit te zetten tot de app herstart.
+      if (code === 4401 && !state.retriedAuth && deps.refreshToken) {
+        state.retriedAuth = true;
+        setCovered(email, state, false); // tot de nieuwe verbinding staat is er geen dekking
+        state.grace?.clear(); // dekking is al terug; een afvaltimer heeft niets meer te doen
+        state.grace = undefined;
+        void deps
+          .refreshToken(email)
+          .then((fresh) => {
+            if (!isLive(email, state, myGen)) return;
+            if (fresh) {
+              // Het verse token staat opgeslagen; de nieuwe handdruk haalt het
+              // via de gewone weg op. Meteen opnieuw en niet via de backoff: dit
+              // is geen storing maar een reparatie.
+              connect(email);
+              return;
+            }
+            giveUp(email, state, code);
+          })
+          .catch(() => {
+            if (isLive(email, state, myGen)) giveUp(email, state, code);
+          });
+        return;
+      }
+
       if (FATAL_CLOSE_CODES.includes(code)) {
-        // Hier lost opnieuw proberen niets op. Dekking terug naar de webview en
-        // de aanroeper laten weten waarom, zodat die om hertoestemming kan vragen.
-        state.dead = true;
-        setCovered(email, state, false);
-        deps.onFatal?.(email, code);
+        giveUp(email, state, code);
         return;
       }
 
@@ -290,6 +359,7 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
         // herstart, ook al is precies gerepareerd wat de weigering veroorzaakte.
         state.dead = false;
         state.attempt = 0;
+        state.retriedAuth = false; // nieuwe wereld, dus ook weer één verversingskans
         connect(email);
       }
     }

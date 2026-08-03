@@ -9,6 +9,7 @@ class FakeSocket implements PushSocket {
   closed = false;
   private open?: () => void;
   private message?: (d: string) => void;
+  private ping?: () => void;
   private close_?: (code: number) => void;
   private error?: (e: unknown) => void;
 
@@ -30,6 +31,9 @@ class FakeSocket implements PushSocket {
   onMessage(cb: (d: string) => void): void {
     this.message = cb;
   }
+  onPing(cb: () => void): void {
+    this.ping = cb;
+  }
   onClose(cb: (code: number) => void): void {
     this.close_ = cb;
   }
@@ -43,6 +47,11 @@ class FakeSocket implements PushSocket {
   fireMessage(d: string): void {
     this.message?.(d);
   }
+  // De hartslag zoals de relay hem stuurt: een protocol-ping, geen frame met
+  // inhoud. Op een stil postvak is dit het enige dat er binnenkomt.
+  firePing(): void {
+    this.ping?.();
+  }
   fireClose(code = 1006): void {
     this.close_?.(code);
   }
@@ -51,11 +60,15 @@ class FakeSocket implements PushSocket {
   }
 }
 
-// Nep-klok: we onthouden de geplande callbacks en vuren ze met de hand.
+// Nep-klok: we onthouden de geplande callbacks en vuren ze met de hand. Er zit
+// ook een echte klok in (`advance`), want sommige gevallen gaan juist over de
+// volgorde in de tijd: een hartslag die elke 30 seconden komt mag een deadline op
+// 90 seconden nooit laten verstrijken, en dat is met losse timers niet te zien.
 function fakeTimers() {
-  const pending: Array<{ ms: number; fn: () => void; cleared: boolean }> = [];
+  let now = 0;
+  const pending: Array<{ ms: number; due: number; fn: () => void; cleared: boolean }> = [];
   const setTimer = (fn: () => void, ms: number) => {
-    const entry = { ms, fn, cleared: false };
+    const entry = { ms, due: now + ms, fn, cleared: false };
     pending.push(entry);
     return { clear: () => (entry.cleared = true) };
   };
@@ -67,8 +80,28 @@ function fakeTimers() {
     entry.fn();
     return true;
   };
+  // Laat de klok lopen en vuurt onderweg alles wat aan de beurt is, op tijd en op
+  // volgorde — ook timers die tijdens het lopen bijgezet worden.
+  const advance = (ms: number): void => {
+    const target = now + ms;
+    for (;;) {
+      const due = pending
+        .filter((p) => !p.cleared && p.due <= target)
+        .sort((a, b) => a.due - b.due)[0];
+      if (!due) break;
+      due.cleared = true;
+      now = due.due;
+      due.fn();
+    }
+    now = target;
+  };
   const live = () => pending.filter((p) => !p.cleared).map((p) => p.ms);
-  return { setTimer, fire, live };
+  // Hoeveel timers met deze wachttijd er in totaal zijn gezet, afgezegde
+  // meegerekend. Nodig om te zien dat een deadline opnieuw is gezet: alleen naar
+  // de lopende timers kijken kan dat niet, want dan is er zowel vóór als ná het
+  // opschuiven precies één.
+  const armed = (ms: number) => pending.filter((p) => p.ms === ms).length;
+  return { setTimer, fire, advance, live, armed };
 }
 
 function harness(over: Partial<Parameters<typeof startPushManager>[0]> = {}) {
@@ -222,6 +255,122 @@ describe('startPushManager', () => {
     expect(FATAL_CLOSE_CODES).toEqual([4400, 4401, 4403]);
   });
 
+  // Important 2, eerste helft. Een 4401 zegt "Google keurde dit token af", en dat
+  // kan ook een hik in de tokencontrole van de relay zijn. Meteen definitief zijn
+  // betekent dat één zo'n hik push voor élk account uitzet tot de app herstart.
+  it('gives a first 4401 one more try with a genuinely fresh token', async () => {
+    const refreshed: string[] = [];
+    const h = harness({
+      refreshToken: async (email) => {
+        refreshed.push(email);
+        return 'token-2';
+      },
+    });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4401);
+    await settle();
+    expect(refreshed).toEqual(['a@x.nl']); // en wel een échte verversing
+    expect(h.sockets).toHaveLength(2); // meteen opnieuw, niet dood
+    expect(h.events).not.toContain('fatal:a@x.nl:4401');
+    h.sockets[1].fireOpen();
+    await settle();
+    expect(h.events).toContain('cover:a@x.nl:true');
+    h.manager.stop();
+  });
+
+  // Important 2, tweede helft. Blijft het na die verversing, dan is het
+  // definitief — en moet de aanroeper het horen, want alleen die kan de gebruiker
+  // om nieuwe toestemming vragen.
+  it('gives up after the second 4401 and says so', async () => {
+    let n = 0;
+    const h = harness({ refreshToken: async () => `token-${++n}` });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4401);
+    await settle();
+    h.sockets[1].fireClose(4401); // ook het verse token wordt geweigerd
+    await settle();
+    expect(n).toBe(1); // niet nóg een verversing
+    expect(h.sockets).toHaveLength(2); // en geen derde poging
+    expect(h.events).toContain('fatal:a@x.nl:4401');
+    expect(h.events).toContain('cover:a@x.nl:false');
+    expect(h.timers.live()).toEqual([]);
+    h.manager.stop();
+  });
+
+  it('is final right away when there is no fresh token to be had', async () => {
+    const h = harness({ refreshToken: async () => null });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4401);
+    await settle();
+    expect(h.sockets).toHaveLength(1);
+    expect(h.events).toContain('fatal:a@x.nl:4401');
+    h.manager.stop();
+  });
+
+  // De herkansing hoort bij de weigering, niet bij de levensduur van de app: een
+  // relay die ons geaccepteerd heeft ({type:'ready'}) en dagen later een verlopen
+  // token weigert, verdient weer één verversing.
+  it('earns a new retry once the relay has actually accepted the token', async () => {
+    let n = 0;
+    const h = harness({ refreshToken: async () => `token-${++n}` });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4401);
+    await settle();
+    h.sockets[1].fireOpen();
+    await settle();
+    h.sockets[1].fireMessage(JSON.stringify({ type: 'ready' })); // de relay accepteerde ons
+    h.sockets[1].fireClose(4401);
+    await settle();
+    expect(n).toBe(2); // opnieuw één verversing, geen definitieve weigering
+    expect(h.events).not.toContain('fatal:a@x.nl:4401');
+    expect(h.sockets).toHaveLength(3);
+    h.manager.stop();
+  });
+
+  // De keerzijde daarvan, en de reden dat het bewijs uit {type:'ready'} moet komen
+  // en niet uit onze eigen handdruk: users.watch lukt prima met een token dat de
+  // e-mailscope mist (dat is een geldig Gmail-token), dus "watch gelukt" zegt
+  // niets over wat de relay ervan vindt. Zou de herkansing daarop terugkomen, dan
+  // ververst zo'n token eeuwig door: elke ronde een verversing plus een echte
+  // users.watch, voor een verbinding die nooit gaat lukken.
+  it('does not hand out a new retry just because our own handshake succeeded', async () => {
+    let n = 0;
+    const h = harness({ refreshToken: async () => `token-${++n}` });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4401);
+    await settle();
+    h.sockets[1].fireOpen(); // watch lukt, want het token is voor Gmail geldig
+    await settle();
+    h.sockets[1].fireClose(4401); // maar de relay weigert hem nog steeds
+    await settle();
+    expect(n).toBe(1);
+    expect(h.events).toContain('fatal:a@x.nl:4401');
+    expect(h.sockets).toHaveLength(2);
+    h.manager.stop();
+  });
+
+  it('still refuses a 4403 on the spot: a fresh token changes nothing there', async () => {
+    const refreshed: string[] = [];
+    const h = harness({
+      refreshToken: async (email) => {
+        refreshed.push(email);
+        return 'token-2';
+      },
+    });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4403); // adres niet in ALLOWED_EMAILS van de relay
+    await settle();
+    expect(refreshed).toEqual([]);
+    expect(h.events).toContain('fatal:a@x.nl:4403');
+    h.manager.stop();
+  });
+
   it('renews the watch on its own clock', async () => {
     const h = harness({ renewMs: 86_400_000 });
     h.sockets[0].fireOpen();
@@ -238,17 +387,53 @@ describe('startPushManager', () => {
     const h = harness({ staleMs: 90_000 });
     h.sockets[0].fireOpen();
     await settle();
-    h.timers.fire(90_000);
+    h.timers.advance(90_000); // negentig seconden werkelijk niets
     expect(h.sockets[0].closed).toBe(true);
     h.manager.stop();
   });
 
-  it('pushes the silence deadline back on every frame', async () => {
+  // Critical 1. De hartslag van de relay is een protocol-ping (`ws.ping()`, elke
+  // 30 seconden), geen frame met inhoud: `ws` levert die af als een
+  // 'ping'-gebeurtenis en nooit als 'message'. Werd die niet gezien, dan verliep
+  // de stilte-deadline op élk stil postvak — en dan brak de manager elke 91
+  // seconden een gezonde verbinding af, registreerde opnieuw een watch en deed een
+  // volledige catch-up: precies de pollende achtervang die de spec uitsluit.
+  it('takes the relay heartbeat ping as a sign of life', async () => {
+    const h = harness({ staleMs: 90_000 });
+    h.sockets[0].fireOpen();
+    await settle();
+    expect(h.timers.armed(90_000)).toBe(1); // de handdruk zette de eerste deadline
+    h.sockets[0].firePing();
+    // Opnieuw gezet: de oude deadline is afgezegd, er staat een nieuwe.
+    expect(h.timers.armed(90_000)).toBe(2);
+    expect(h.timers.live().filter((ms) => ms === 90_000)).toHaveLength(1);
+    h.manager.stop();
+  });
+
+  it('keeps a quiet mailbox connected on nothing but pings', async () => {
+    const h = harness({ staleMs: 90_000, renewMs: 86_400_000 });
+    h.sockets[0].fireOpen();
+    await settle();
+    // Een uur zoals de relay het echt doet: elke 30 seconden een ping en verder
+    // niets, want er komt geen mail binnen.
+    for (let i = 0; i < 120; i++) {
+      h.timers.advance(30_000);
+      h.sockets[0].firePing();
+    }
+    expect(h.sockets[0].closed).toBe(false);
+    expect(h.sockets).toHaveLength(1); // geen enkele herverbinding
+    expect(h.events.filter((e) => e === 'watch:a@x.nl')).toHaveLength(1); // één watch
+    expect(h.events.filter((e) => e === 'sync:a@x.nl')).toHaveLength(1); // alleen de catch-up
+    expect(h.events).not.toContain('cover:a@x.nl:false');
+    h.manager.stop();
+  });
+
+  it('pushes the silence deadline back on an application frame too', async () => {
     const h = harness({ staleMs: 90_000 });
     h.sockets[0].fireOpen();
     await settle();
     h.sockets[0].fireMessage(JSON.stringify({ type: 'ready' }));
-    // De oude timer is afgezegd en er staat een nieuwe.
+    expect(h.timers.armed(90_000)).toBe(2);
     expect(h.timers.live().filter((ms) => ms === 90_000)).toHaveLength(1);
     h.manager.stop();
   });

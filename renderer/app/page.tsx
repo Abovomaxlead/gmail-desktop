@@ -13,6 +13,7 @@ import { getStrings } from './strings';
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../lib/surfaces';
 import { APP_ICONS, WaffleIcon } from './app-icons';
 import type { ChangelogVersion } from './changelog-types';
+import type { ReconnectAccount } from './reconnect-text';
 
 export interface Profile {
   key: string;
@@ -110,8 +111,8 @@ interface DesktopBridge {
     mode?: MailDropCopyMode,
   ): Promise<MailDropCopyResult>;
   onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;
-  onReconnectList(cb: (arg: { emails: string[] }) => void): void;
-  getReconnectList(): Promise<{ emails: string[] }>;
+  onReconnectList(cb: (arg: { accounts: ReconnectAccount[] }) => void): void;
+  getReconnectList(): Promise<{ accounts: ReconnectAccount[] }>;
   reconnectOAuth(email: string): Promise<{ ok: boolean; error?: string }>;
   getMailDropFolder(): Promise<string>;
   pickMailDropFolder(): Promise<string>;

@@ -1,6 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from './ipc';
 import type { Surface } from '../renderer/lib/surfaces';
+// Alleen het type: de reden hoort bij de beslissing in oauth-health, en die
+// staat hier niet nog een keer.
+import type { ReconnectAccount } from './oauth-health';
 
 interface Profile {
   key: string;
@@ -81,10 +84,10 @@ contextBridge.exposeInMainWorld('desktop', {
   onMailDropCopyProgress: (cb: (arg: unknown) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
   },
-  onReconnectList: (cb: (arg: { emails: string[] }) => void): void => {
+  onReconnectList: (cb: (arg: { accounts: ReconnectAccount[] }) => void): void => {
     ipcRenderer.on(IPC.OAUTH_RECONNECT_LIST, (_e, arg) => cb(arg));
   },
-  getReconnectList: (): Promise<{ emails: string[] }> =>
+  getReconnectList: (): Promise<{ accounts: ReconnectAccount[] }> =>
     ipcRenderer.invoke(IPC.OAUTH_RECONNECT_GET),
   reconnectOAuth: (email: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.OAUTH_RECONNECT, { email }),

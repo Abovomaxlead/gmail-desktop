@@ -69,7 +69,7 @@ import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
 import { OverlayView } from './overlay-view';
-import { accountsNeedingReconnect, bannerBounds } from './oauth-health';
+import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
   fetchLabels,
   fetchLabelId,
@@ -159,7 +159,7 @@ let pushManager: { stop(): void; refresh(): void } | null = null;
 // Eén runner per account: die coalesceert samenvallende syncs voor dat account.
 const syncRunners = new Map<string, { run(): Promise<void> }>();
 let reconnectBanner: OverlayView | null = null; // blijvende melding voor accounts zonder werkende koppeling
-let reconnectEmails: string[] = [];
+let reconnectAccounts: ReconnectAccount[] = [];
 let updateRequested = false; // user pressed "Update now" → auto-install once downloaded
 let pendingTrayUpdateCheck = false; // a check started from the tray → announce the result in a popup
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
@@ -563,7 +563,12 @@ function showAccount(ref: AccountRef, surface: Surface): void {
   // A first switch to an app surface just created its view; gate it right away
   // (the app surfaces never notify in v1) instead of on the next 60s tick.
   refreshNotifyAllowed();
-  startPush();
+  // Bewust géén startPush(): van view wisselen verandert de accountlijst niet.
+  // Het kostte een synchrone readFileSync + JSON.parse bij elke wisseling, ook
+  // voor iedereen zonder push, en een eerder definitief geweigerd account opende
+  // bij elke wisseling opnieuw een relay-socket met een echte users.watch erachter.
+  // De plekken waar de lijst wél verandert (registreren, verwijderen,
+  // hertoestemming, voorkeuren) roepen het zelf aan.
   flushPendingMailto(); // an inbox is now live — run any queued mailto
 }
 
@@ -1005,6 +1010,12 @@ function scheduleOAuthHealthCheck(): void {
 // (in testmodus na zeven dagen).
 const refreshFailures = new Set<string>();
 
+// Accounts waarvan de relay het token definitief heeft geweigerd (4401, ook na
+// een verse verversing). Push staat voor die accounts uit tot er nieuwe
+// toestemming is, en de melding is het enige dat dat vertelt. Weer leeg zodra
+// hertoestemming binnen is.
+const pushRefusals = new Set<string>();
+
 // Kijkt van elk eigen account of de koppeling nog werkt, en toont of verbergt de
 // melding. Draait bij het opstarten en daarna periodiek; een geldig token wordt
 // alleen aangeraakt als het bijna verlopen is.
@@ -1027,24 +1038,30 @@ async function checkOAuthHealth(): Promise<void> {
     ownEmails,
     hasToken: (e) => oauthTokens!.get(e) !== undefined,
     refreshFailed: (e) => refreshFailures.has(e),
+    // Een ontbrekende scope is alleen een probleem voor push. Staat push niet
+    // ingesteld, dan werkt de app precies zoals eerst en is er niets om over te
+    // melden — anders kreeg iedereen na deze update een blijvende melding over
+    // iets dat op zijn machine helemaal niet bestaat.
+    pushConfigured: pushConfig() !== null,
     missingScopes: (e) => {
       const token = oauthTokens!.get(e);
       return token !== undefined && !hasScopes(token);
     },
+    pushRefused: (e) => pushRefusals.has(e),
   });
   showReconnectBanner(needing);
 }
 
 // De melding blijft staan tot elk account weer verbonden is: er zit geen
 // sluitknop op. Verdwijnt van zelf zodra de lijst leeg is.
-function showReconnectBanner(emails: string[]): void {
+function showReconnectBanner(accounts: ReconnectAccount[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (emails.length === 0) {
+  if (accounts.length === 0) {
     reconnectBanner?.close();
-    reconnectEmails = [];
+    reconnectAccounts = [];
     return;
   }
-  reconnectEmails = emails;
+  reconnectAccounts = accounts;
   if (!reconnectBanner) {
     reconnectBanner = new OverlayView(
       mainWindow,
@@ -1054,8 +1071,8 @@ function showReconnectBanner(emails: string[]): void {
       bannerBounds,
     );
   }
-  if (reconnectBanner.isOpen()) reconnectBanner.update({ emails }, emails.length);
-  else reconnectBanner.open({ emails }, emails.length);
+  if (reconnectBanner.isOpen()) reconnectBanner.update({ accounts }, accounts.length);
+  else reconnectBanner.open({ accounts }, accounts.length);
 }
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -1476,6 +1493,10 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
 // alleen dan zonder de pushCovered-vlag, want die dooft juist de webview.
 function notifyNewMail(email: string, meta: MessageMeta): void {
   if (!prefs || !Notification.isSupported()) return;
+  // Spiegelbeeld van de guard in reportApiUnread: viel de dekking weg tussen de
+  // history-doorloop en dit moment, dan meldt de webview alweer zelf en zou dit
+  // een tweede melding voor hetzelfde bericht zijn.
+  if (!coverage.has(email)) return;
   const profile = profiles.find((p) => p.email === email);
   if (!profile) return;
   const p = prefs.getAll();
@@ -1571,6 +1592,17 @@ function startPush(): void {
     config,
     accounts: pushableEmails,
     accessToken: (email) => accessTokenFor(cfg, oauthTokens!, email),
+    // Voor de ene herkansing na een 4401. Bewust forceRefresh en niet
+    // accessTokenFor: die laatste geeft het opgeslagen token terug zolang onze
+    // eigen klok zegt dat het nog geldig is, en dat is precies het token dat net
+    // geweigerd is. Het verse token wordt opgeslagen, dus de nieuwe handdruk
+    // pakt het via de gewone weg op.
+    refreshToken: async (email) => {
+      const fresh = await forceRefresh(cfg, oauthTokens!, email);
+      if (fresh) refreshFailures.delete(email);
+      else refreshFailures.add(email);
+      return fresh;
+    },
     armWatch: async (email) => {
       const token = await accessTokenFor(cfg, oauthTokens!, email);
       if (!token) return false;
@@ -1583,17 +1615,29 @@ function startPush(): void {
     },
     onSync: (email) => void syncRunnerFor(email)?.run(),
     onCoverage: (email, covered) => {
-      if (covered) coverage.cover(email);
-      else coverage.drop(email);
+      if (covered) {
+        coverage.cover(email);
+        // Push werkt weer voor dit account, dus een eerdere weigering is
+        // geschiedenis en de melding erover moet weg. Kan ook zonder dat de
+        // gebruiker op "Verbind" drukte: elke refresh() laat een geweigerd
+        // account het opnieuw proberen.
+        if (pushRefusals.delete(email)) scheduleOAuthHealthCheck();
+      } else coverage.drop(email);
       // De webview moet meteen weten of hij mag melden, en de teller wisselt
       // van eigenaar.
       refreshNotifyAllowed();
     },
     onFatal: (email, code) => {
       console.warn(`[push] push definitief uit voor ${email} (code ${code})`);
-      // 4401 betekent bijna altijd een token zonder de e-mailscope. De
-      // herverbind-melding vraagt daar zelf om.
-      if (code === 4401) void checkOAuthHealth();
+      // 4401 betekent: Google keurde dit token af, en de manager heeft het al één
+      // keer met een vers token overgedaan. Alleen nieuwe toestemming helpt nog,
+      // en dus moet de gebruiker het weten: zonder deze regel valt push stil en
+      // vertelt niets het, want het token bestaat, ververst prima en heeft zijn
+      // scopes — de gezondheidscontrole ziet er van zichzelf niets aan.
+      if (code === 4401) {
+        pushRefusals.add(email);
+        void checkOAuthHealth();
+      }
     },
   });
 }
@@ -2164,7 +2208,7 @@ function registerIpc(): void {
     } satisfies MailDropCopyResult;
     },
   );
-  ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ emails: reconnectEmails }));
+  ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
   ipcMain.handle(IPC.OAUTH_RECONNECT, async (_e, arg: { email: string }) => {
     const cfg = oauthConfig();
     if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) {
@@ -2175,6 +2219,9 @@ function registerIpc(): void {
     const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
     if (!result.ok) return result;
     refreshFailures.delete(arg.email);
+    // Het nieuwe token is nog nergens geweigerd; blijft deze staan, dan blijft de
+    // melding staan voor een probleem dat net is opgelost.
+    pushRefusals.delete(arg.email);
     // Opnieuw langs de hele lijst: misschien was dit de laatste en kan de melding
     // helemaal weg.
     void checkOAuthHealth();

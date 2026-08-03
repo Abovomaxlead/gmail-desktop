@@ -279,8 +279,6 @@ export const STOP_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/stop';
 export const PROFILE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
 export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/history';
 
-const LABELS_BASE = LABELS_URL;
-
 // Alleen INBOX: wat daarbuiten gebeurt hoeft geen melding en geen teller. Staat
 // het ooit toch nodig te zijn (zie het openstaande punt in de spec over gelezen
 // markeren), dan is dit de enige plek die verandert.
@@ -409,7 +407,7 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
 }
 
 export function labelGetUrl(labelId: string): string {
-  return `${LABELS_BASE}/${encodeURIComponent(labelId)}`;
+  return `${LABELS_URL}/${encodeURIComponent(labelId)}`;
 }
 
 // threadsUnread en niet messagesUnread: de paginatitel van de webview telt ook

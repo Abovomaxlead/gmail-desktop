@@ -12,6 +12,22 @@ export interface PushConfig {
 }
 
 const WS_SCHEME = /^wss?:\/\//i;
+const PLAIN_SCHEME = /^ws:\/\//i;
+
+// Over `ws://` gaat het eerste frame dat we sturen — met een levend Google
+// access token erin — onversleuteld over de lijn. Dat mag alleen naar deze
+// machine zelf; dat is precies wat het lokaal uitproberen uit de spec nodig heeft
+// (`ws://localhost:8099`), en alles daarbuiten hoort `wss://` te zijn.
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
+
+function isLoopback(url: string): boolean {
+  try {
+    // URL geeft een IPv6-host terug zonder de blokhaken uit de url.
+    return LOOPBACK.has(new URL(url).hostname.toLowerCase());
+  } catch {
+    return false; // onleesbare url: dan is dit zeker geen bewust lokale test
+  }
+}
 
 const pick = (fromEnv: string | undefined, fromFile: unknown): string => {
   const env = (fromEnv ?? '').trim();
@@ -27,5 +43,6 @@ export function parsePushConfig(raw: unknown, env: NodeJS.ProcessEnv): PushConfi
   // Een http-url zou pas bij het verbinden stuk gaan, met een foutmelding die
   // niets over de oorzaak zegt. Hier weigeren is duidelijker.
   if (!WS_SCHEME.test(relayUrl)) return null;
+  if (PLAIN_SCHEME.test(relayUrl) && !isLoopback(relayUrl)) return null;
   return { relayUrl, pushTopic };
 }
