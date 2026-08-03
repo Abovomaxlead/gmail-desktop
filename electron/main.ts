@@ -136,8 +136,7 @@ let prefs: PrefsStore | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let settingsPanelOpen = false;
-let dropPreviewOpen = false; // modal na een drop staat open
-let dropOverlay: OverlayView | null = null; // eigen view waarin die modal leeft
+let dropOverlay: OverlayView | null = null; // eigen view waarin de kopieermodal leeft
 let lastDropPreview: MailDropPreviewItem[] = []; // laatste drop, zodat de modal het ook kan ophalen
 // Eén weggeschreven bericht uit de laatste sleep. Het pad, want het kopiëren
 // leest de bytes daarvandaan terug in plaats van ze in het geheugen te houden:
@@ -978,7 +977,6 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
       IPC.MAIL_DROP_PREVIEW,
     );
   }
-  dropPreviewOpen = true;
   lastDropPreview = items;
   dropOverlay.open({ items });
 }
@@ -2004,10 +2002,13 @@ function registerIpc(): void {
   // A topbar popup (the "+" menu) drops down out of the 40px bar over the
   // content area; the content view is a native layer above the topbar page, so
   // hide it while the popup is open (same trick as the settings panel) and
-  // restore after.
+  // restore after. No dropPreviewOpen check here: unlike the settings panel,
+  // the copy modal never hides the Gmail views itself (it dims them through its
+  // own semi-transparent backdrop instead) — Gmail is meant to stay visible
+  // behind it, so a popup closing should always restore it, modal or not.
   ipcMain.on(IPC.OVERLAY_TOGGLE, (_e, arg: { open: boolean }) => {
     if (arg.open) manager?.hideAll();
-    else if (!settingsPanelOpen && !dropPreviewOpen) manager?.showActive();
+    else if (!settingsPanelOpen) manager?.showActive();
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_DEFAULT_MAIL, () => {
@@ -2018,7 +2019,6 @@ function registerIpc(): void {
   // daarom haalt ze het bij het opstarten ook zelf op.
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => ({ items: lastDropPreview }));
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => {
-    dropPreviewOpen = false;
     dropOverlay?.close();
   });
   // Labels van elk gekoppeld account, voor de kopieermodal. Per account apart
