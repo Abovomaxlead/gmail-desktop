@@ -294,7 +294,7 @@ export function SettingsPanel({
   const statusText = updateStatusText(update, S);
 
   return (
-    <div className="flex h-screen flex-1 flex-col overflow-y-auto bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+    <div className="flex flex-1 flex-col overflow-y-auto bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       <div className="mx-auto w-full max-w-2xl px-8 py-8">
         <div className="mb-8 flex items-center justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">{S.settingsTitle}</h1>

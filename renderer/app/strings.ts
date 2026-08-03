@@ -85,9 +85,7 @@ export interface UiStrings {
   addDelegatedSuggestionTooltip: string;
   delegatedScanning: string;
   delegatedNoneFound: string;
-  delegatedTooltipSuffix: string;
   settingsTooltip: string;
-  calendarTooltipSuffix: string;
 }
 
 // Maps a known changelog category heading (English or Dutch, any case) to a
@@ -221,9 +219,7 @@ export const STRINGS_NORMAL: UiStrings = {
   addDelegatedSuggestionTooltip: 'Add this delegated mailbox',
   delegatedScanning: 'Looking in your account menu…',
   delegatedNoneFound: 'No delegated mailboxes found.',
-  delegatedTooltipSuffix: '(delegated)',
   settingsTooltip: 'Settings',
-  calendarTooltipSuffix: ' — Calendar',
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -312,9 +308,7 @@ export const STRINGS_RENE: UiStrings = {
   addDelegatedSuggestionTooltip: 'Doe deze gedeelde postbus erbij',
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedeelde postbussen gevonden.',
-  delegatedTooltipSuffix: '(gedeeld)',
   settingsTooltip: 'Knopjes',
-  calendarTooltipSuffix: ' — Agenda',
 };
 
 export function getStrings(reneMode: boolean): UiStrings {

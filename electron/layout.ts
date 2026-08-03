@@ -1,8 +1,10 @@
-// De hoogte van de topbar, op één plek. Drie dingen lezen deze waarde: de
-// bounds-berekening hieronder, de hoogte van titleBarOverlay (zodat de echte
-// vensterknoppen precies in onze balk vallen) en de CSS van de balk zelf. Lopen
-// die uiteen, dan hangen de knoppen half buiten de balk.
-export const TOPBAR_HEIGHT = 40;
+// De hoogte woont in renderer/lib omdat de balk-CSS hem óók nodig heeft en
+// Next.js niets buiten zijn root compileert. Hier weer geëxporteerd, zodat
+// bestaande importeurs (titlebar.ts, de tests) niets hoeven te weten van die
+// omweg.
+import { TOPBAR_HEIGHT } from '../renderer/lib/topbar';
+
+export { TOPBAR_HEIGHT };
 
 // No margin around the active Gmail/Calendar view: the webview sits flush
 // against the topbar so there is no dark frame from the renderer background.

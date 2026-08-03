@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AccountTab } from './AccountTab';
 import { AccountMenu } from './AccountMenu';
+import { TOPBAR_HEIGHT } from '../lib/topbar';
 import type { Profile, Surface, DelegatedSuggestion, UpdateStatus } from './page';
 
 // De balk ís de titelbalk van het venster. Twee regels beheersen dit bestand:
@@ -20,10 +21,27 @@ const AREA: React.CSSProperties = {
   left: 'env(titlebar-area-x, 0px)',
   top: 'env(titlebar-area-y, 0px)',
   width: 'env(titlebar-area-width, 100%)',
-  height: 'env(titlebar-area-height, 40px)',
+  height: `env(titlebar-area-height, ${TOPBAR_HEIGHT}px)`,
 };
 
 const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
+
+// De maten van de balk, zodat de tabstrook precies weet hoeveel ruimte hij
+// rechts van zich moet vrijlaten. Reserveert de strook te weinig, dan schuift
+// het tandwiel onder de vensterknoppen van Electron: dat is een overlay die
+// niet van ons is, dus daar valt niets meer aan te klikken. Reken de reservering
+// daarom uit deze onderdelen in plaats van er één getal van te maken — anders
+// vergeet de volgende die er iets bij zet om het bij te tellen.
+const GAP = 4; // gap-1 tussen de kinderen van de balk
+const ICON_BUTTON = 26; // h-/w-[26px] van de "+" en het tandwiel
+const GEAR_MARGIN = 4; // mr-1 rechts van het tandwiel
+const UPDATE_BUTTON = 104; // maxWidth van de updateknop; de tekst kapt af, hij groeit niet
+const DRAG_RESERVE = 60; // minimale sleepruimte, anders is het venster niet te verplaatsen
+
+// Zonder updateknop staan er drie gaten rechts van de strook (strook↔"+",
+// "+"↔rekstrook, rekstrook↔tandwiel); mét de knop een vierde.
+const RESERVE_WITHOUT_UPDATE = DRAG_RESERVE + ICON_BUTTON + ICON_BUTTON + GEAR_MARGIN + GAP * 3;
+const RESERVE_WITH_UPDATE = RESERVE_WITHOUT_UPDATE + UPDATE_BUTTON + GAP;
 
 function PlusIcon({ className = '' }: { className?: string }) {
   return (
@@ -88,6 +106,7 @@ export function Topbar({
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
   const menuProfile = profiles.find((p) => p.key === menu?.key) ?? null;
+  const updateReady = update.state === 'downloaded';
 
   // Elk uitklapmenu in de balk moet de Gmail-view wegduwen: die is een native
   // laag bóven deze pagina, dus een dropdown valt er anders achter.
@@ -100,14 +119,19 @@ export function Topbar({
       // user-select-none hoort bij een sleepgebied, en houdt tegelijk het
       // kopieermenu weg: attachContextMenu toont niets zonder selectie.
       className="relative shrink-0 select-none bg-neutral-100 dark:bg-neutral-950"
-      style={{ height: 40, WebkitAppRegion: 'drag' } as React.CSSProperties}
+      style={{ height: TOPBAR_HEIGHT, WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
       <div style={AREA} className="flex items-center gap-1 pl-2">
-        {/* max-w laat de tabs eerder horizontaal schuiven dan de laatste 60px
-            sleepruimte opeten — anders is het venster niet te verplaatsen. */}
+        {/* max-w laat de tabs eerder horizontaal schuiven dan de knoppen rechts
+            en de sleepruimte opeten — anders is het venster niet te verplaatsen
+            en verdwijnt het tandwiel onder de vensterknoppen. De updateknop is
+            er meestal niet, dus reserveer alleen ruimte als hij er staat. */}
         <div
           className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-          style={{ maxWidth: 'calc(100% - 60px - 132px)', ...NO_DRAG }}
+          style={{
+            maxWidth: `calc(100% - ${updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE}px)`,
+            ...NO_DRAG,
+          }}
         >
           {profiles.map((p) => (
             <AccountTab
@@ -186,13 +210,17 @@ export function Topbar({
         {/* De rekstrook: hier pak je het venster op. Geen no-drag. */}
         <div className="min-w-[60px] flex-1" />
 
-        {update.state === 'downloaded' && (
+        {updateReady && (
           <button
             onClick={onInstallUpdate}
-            style={NO_DRAG}
+            title="Update klaar"
+            // maxWidth maakt de reservering hierboven een garantie in plaats van
+            // een schatting: een bredere systeemletter kapt de tekst af, in
+            // plaats van het tandwiel onder de vensterknoppen te duwen.
+            style={{ maxWidth: UPDATE_BUTTON, ...NO_DRAG }}
             className="flex shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:bg-blue-700"
           >
-            Update klaar
+            <span className="min-w-0 truncate">Update klaar</span>
           </button>
         )}
         <button
