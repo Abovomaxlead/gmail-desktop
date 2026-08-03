@@ -20,6 +20,10 @@ export function notificationsAllowed(
   email: string,
   now: Date,
   surface: Surface = 'mail',
+  // Krijgt dit account zijn meldingen al van de Gmail API? Dan moet Gmail's
+  // eigen melding in de webview zwijgen, anders komt alles dubbel. Alleen voor
+  // mail: de agenda meldt via zijn eigen view en staat hier buiten.
+  pushCovered = false,
 ): boolean {
   const { dnd, dndUntil, quietHours } = prefs.notifications;
   if (dnd) return false;
@@ -33,6 +37,7 @@ export function notificationsAllowed(
   const account = prefs.accounts[email];
   if (surface === 'calendar') return account?.calendarNotify === true;
   if (surface !== 'mail') return false; // v1: the other Google apps never notify
+  if (pushCovered) return false;
   return account?.notify !== false;
 }
 

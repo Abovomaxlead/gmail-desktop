@@ -178,6 +178,38 @@ describe('wantsCalendarView', () => {
   });
 });
 
+describe('notificationsAllowed — push', () => {
+  // Een gedekt account krijgt zijn meldingen van de API. Zou de webview ook nog
+  // melden, dan kwam alles dubbel.
+  it('mutes the webview for an account push covers', () => {
+    const p = prefs({ accounts: { 'a@x.nl': { notify: true } } });
+    expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail', true)).toBe(false);
+  });
+
+  it('leaves the webview alone for an account push does not cover', () => {
+    const p = prefs({ accounts: { 'a@x.nl': { notify: true } } });
+    expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail', false)).toBe(true);
+  });
+
+  it('defaults to not covered, so nothing changes for callers that do not pass it', () => {
+    const p = prefs({ accounts: { 'a@x.nl': { notify: true } } });
+    expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail')).toBe(true);
+  });
+
+  // Dempen gaat over de webview, niet over de gebruiker: staat de melding uit,
+  // dan blijft hij uit, ook als push hem zou kunnen sturen.
+  it('does not turn a switched-off account back on', () => {
+    const p = prefs({ accounts: { 'a@x.nl': { notify: false } } });
+    expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail', false)).toBe(false);
+  });
+
+  // De agenda meldt via zijn eigen view en heeft niets met de mail-push te maken.
+  it('does not let mail coverage touch the calendar surface', () => {
+    const p = prefs({ accounts: { 'a@x.nl': { calendarNotify: true } } });
+    expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'calendar', true)).toBe(true);
+  });
+});
+
 describe('notificationPersist', () => {
   it('does not persist by default (field absent)', () => {
     expect(notificationPersist(prefs({}), 'a@x.com')).toBe(false);
