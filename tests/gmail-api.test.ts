@@ -15,6 +15,19 @@ import {
   messageIdQuery,
   searchInLabelUrl,
   parseHasMessage,
+  WATCH_URL,
+  STOP_URL,
+  PROFILE_URL,
+  HISTORY_URL,
+  watchBody,
+  parseWatch,
+  parseProfileHistoryId,
+  historyListUrl,
+  parseHistoryPage,
+  messageMetaUrl,
+  parseMessageMeta,
+  labelGetUrl,
+  parseUnreadThreads,
 } from '../electron/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -287,5 +300,173 @@ describe('parseInsertedId', () => {
     expect(parseInsertedId({})).toBeNull();
     expect(parseInsertedId({ id: '' })).toBeNull();
     expect(parseInsertedId(null)).toBeNull();
+  });
+});
+
+describe('watch', () => {
+  it('asks Gmail to publish inbox changes to our topic', () => {
+    const body = JSON.parse(watchBody('projects/p/topics/gmail-push'));
+    expect(body).toEqual({
+      topicName: 'projects/p/topics/gmail-push',
+      labelIds: ['INBOX'],
+      labelFilterBehavior: 'include',
+    });
+  });
+
+  it('posts to the watch endpoint', () => {
+    expect(WATCH_URL).toBe('https://gmail.googleapis.com/gmail/v1/users/me/watch');
+    expect(STOP_URL).toBe('https://gmail.googleapis.com/gmail/v1/users/me/stop');
+  });
+
+  it('reads the starting point and the expiry out of the answer', () => {
+    expect(parseWatch({ historyId: '9912', expiration: '1780000000000' })).toEqual({
+      historyId: '9912',
+      expiration: 1780000000000,
+    });
+  });
+
+  it('returns null when the answer has no history id to start from', () => {
+    expect(parseWatch({ expiration: '1780000000000' })).toBeNull();
+    expect(parseWatch(null)).toBeNull();
+  });
+});
+
+describe('profile', () => {
+  it('reads the current history id, used to re-baseline', () => {
+    expect(parseProfileHistoryId({ emailAddress: 'a@x.nl', historyId: '4242' })).toBe('4242');
+    expect(parseProfileHistoryId({ emailAddress: 'a@x.nl' })).toBeNull();
+    expect(PROFILE_URL).toBe('https://gmail.googleapis.com/gmail/v1/users/me/profile');
+  });
+});
+
+describe('historyListUrl', () => {
+  it('asks only for what we act on: messages added to the inbox', () => {
+    const url = new URL(historyListUrl('9900'));
+    expect(url.origin + url.pathname).toBe(HISTORY_URL);
+    expect(url.searchParams.get('startHistoryId')).toBe('9900');
+    expect(url.searchParams.get('labelId')).toBe('INBOX');
+    expect(url.searchParams.getAll('historyTypes')).toEqual(['messageAdded']);
+    expect(url.searchParams.get('maxResults')).toBe('500');
+  });
+
+  it('carries the page token', () => {
+    expect(new URL(historyListUrl('9900', 'tok')).searchParams.get('pageToken')).toBe('tok');
+  });
+});
+
+describe('parseHistoryPage', () => {
+  it('flattens messagesAdded across records', () => {
+    const page = parseHistoryPage({
+      history: [
+        { id: '1', messagesAdded: [{ message: { id: 'm1', labelIds: ['INBOX', 'UNREAD'] } }] },
+        { id: '2', messagesAdded: [{ message: { id: 'm2', labelIds: ['INBOX'] } }] },
+      ],
+      historyId: '9950',
+    });
+    expect(page.added).toEqual([
+      { id: 'm1', labelIds: ['INBOX', 'UNREAD'] },
+      { id: 'm2', labelIds: ['INBOX'] },
+    ]);
+    expect(page.historyId).toBe('9950');
+    expect(page.nextPageToken).toBeUndefined();
+  });
+
+  it('carries the next page token', () => {
+    expect(parseHistoryPage({ history: [], nextPageToken: 'tok' }).nextPageToken).toBe('tok');
+  });
+
+  it('treats a message without labels as having none, rather than crashing', () => {
+    const page = parseHistoryPage({ history: [{ messagesAdded: [{ message: { id: 'm1' } }] }] });
+    expect(page.added).toEqual([{ id: 'm1', labelIds: [] }]);
+  });
+
+  it('survives a quiet answer with nothing in it', () => {
+    expect(parseHistoryPage({ historyId: '9950' })).toEqual({ added: [], historyId: '9950' });
+    expect(parseHistoryPage(null)).toEqual({ added: [], historyId: null });
+  });
+});
+
+describe('message metadata', () => {
+  it('asks for only the two headers a notification shows', () => {
+    const url = new URL(messageMetaUrl('m1'));
+    expect(url.pathname).toBe('/gmail/v1/users/me/messages/m1');
+    expect(url.searchParams.get('format')).toBe('metadata');
+    expect(url.searchParams.getAll('metadataHeaders')).toEqual(['From', 'Subject']);
+  });
+
+  it('escapes the id instead of building a broken url', () => {
+    expect(messageMetaUrl('a/b')).toContain('/messages/a%2Fb?');
+  });
+
+  it('reads sender, subject and arrival time', () => {
+    expect(
+      parseMessageMeta({
+        id: 'm1',
+        threadId: 't1',
+        internalDate: '1780000000000',
+        payload: {
+          headers: [
+            { name: 'From', value: 'Jan <jan@x.nl>' },
+            { name: 'Subject', value: 'Offerte' },
+          ],
+        },
+      }),
+    ).toEqual({
+      id: 'm1',
+      threadId: 't1',
+      from: 'Jan <jan@x.nl>',
+      subject: 'Offerte',
+      internalDate: 1780000000000,
+    });
+  });
+
+  it('matches header names case-insensitively, the way rfc822 allows', () => {
+    const meta = parseMessageMeta({
+      id: 'm1',
+      threadId: 't1',
+      internalDate: '1',
+      payload: { headers: [{ name: 'from', value: 'a@x.nl' }, { name: 'SUBJECT', value: 'Hoi' }] },
+    });
+    expect(meta?.from).toBe('a@x.nl');
+    expect(meta?.subject).toBe('Hoi');
+  });
+
+  it('falls back to an empty subject rather than dropping the message', () => {
+    const meta = parseMessageMeta({
+      id: 'm1',
+      threadId: 't1',
+      internalDate: '1',
+      payload: { headers: [{ name: 'From', value: 'a@x.nl' }] },
+    });
+    expect(meta?.subject).toBe('');
+  });
+
+  it('returns null without an id or an arrival time, the two we cannot do without', () => {
+    expect(parseMessageMeta({ threadId: 't1', internalDate: '1' })).toBeNull();
+    expect(parseMessageMeta({ id: 'm1', threadId: 't1' })).toBeNull();
+    expect(parseMessageMeta(null)).toBeNull();
+  });
+});
+
+describe('inbox unread', () => {
+  it('asks the inbox label for its counts', () => {
+    expect(labelGetUrl('INBOX')).toBe(
+      'https://gmail.googleapis.com/gmail/v1/users/me/labels/INBOX',
+    );
+  });
+
+  // Threads, niet messages: de titel van de webview telt ook gesprekken, dus zo
+  // verspringt het getal niet op het moment dat de dekking wisselt.
+  it('reads the unread thread count', () => {
+    expect(parseUnreadThreads({ id: 'INBOX', threadsUnread: 7, messagesUnread: 12 })).toBe(7);
+  });
+
+  it('reads a zero as zero and not as missing', () => {
+    expect(parseUnreadThreads({ threadsUnread: 0 })).toBe(0);
+  });
+
+  it('returns null when the field is absent, so the caller leaves the count alone', () => {
+    expect(parseUnreadThreads({ id: 'INBOX' })).toBeNull();
+    expect(parseUnreadThreads(null)).toBeNull();
   });
 });

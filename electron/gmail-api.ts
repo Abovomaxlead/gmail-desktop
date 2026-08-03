@@ -269,6 +269,201 @@ export async function fetchThreadRaw(accessToken: string, threadId: string): Pro
   return out;
 }
 
+// --- Push: watch, history, metadata, teller -------------------------------
+//
+// Gmail meldt zelf wanneer er iets verandert, via Pub/Sub. De melding bevat geen
+// mail: alleen een historyId. Wat er veranderd is komt daarna uit history.list.
+
+export const WATCH_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/watch';
+export const STOP_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/stop';
+export const PROFILE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
+export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/history';
+
+const LABELS_BASE = LABELS_URL;
+
+// Alleen INBOX: wat daarbuiten gebeurt hoeft geen melding en geen teller. Staat
+// het ooit toch nodig te zijn (zie het openstaande punt in de spec over gelezen
+// markeren), dan is dit de enige plek die verandert.
+export function watchBody(topicName: string): string {
+  return JSON.stringify({
+    topicName,
+    labelIds: ['INBOX'],
+    labelFilterBehavior: 'include',
+  });
+}
+
+const numberFrom = (v: unknown): number | null => {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+};
+
+const stringFrom = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
+
+export function parseWatch(json: unknown): { historyId: string; expiration: number } | null {
+  const raw = json as { historyId?: unknown; expiration?: unknown };
+  const historyId = stringFrom(raw?.historyId);
+  if (!historyId) return null;
+  return { historyId, expiration: numberFrom(raw?.expiration) ?? 0 };
+}
+
+export function parseProfileHistoryId(json: unknown): string | null {
+  return stringFrom((json as { historyId?: unknown })?.historyId);
+}
+
+export function historyListUrl(startHistoryId: string, pageToken?: string): string {
+  const q = new URLSearchParams({
+    startHistoryId,
+    labelId: 'INBOX',
+    maxResults: '500',
+  });
+  // Alleen toegevoegde berichten: label-verschuivingen zijn voor de teller, en
+  // die halen we los op bij het INBOX-label zelf.
+  q.append('historyTypes', 'messageAdded');
+  if (pageToken) q.set('pageToken', pageToken);
+  return `${HISTORY_URL}?${q.toString()}`;
+}
+
+export interface HistoryMessage {
+  id: string;
+  labelIds: string[];
+}
+
+export interface HistoryPage {
+  added: HistoryMessage[];
+  historyId: string | null;
+  nextPageToken?: string;
+}
+
+export function parseHistoryPage(json: unknown): HistoryPage {
+  const raw = json as { history?: unknown; historyId?: unknown; nextPageToken?: unknown };
+  const added: HistoryMessage[] = [];
+  if (Array.isArray(raw?.history)) {
+    for (const record of raw.history) {
+      const list = (record as { messagesAdded?: unknown })?.messagesAdded;
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        const message = (entry as { message?: { id?: unknown; labelIds?: unknown } })?.message;
+        const id = stringFrom(message?.id);
+        if (!id) continue;
+        const labelIds = Array.isArray(message?.labelIds)
+          ? message!.labelIds.filter((l): l is string => typeof l === 'string')
+          : [];
+        added.push({ id, labelIds });
+      }
+    }
+  }
+  const page: HistoryPage = { added, historyId: stringFrom(raw?.historyId) };
+  const next = stringFrom(raw?.nextPageToken);
+  if (next) page.nextPageToken = next;
+  return page;
+}
+
+export const MESSAGE_META_HEADERS = ['From', 'Subject'];
+
+export function messageMetaUrl(messageId: string): string {
+  const q = new URLSearchParams({ format: 'metadata' });
+  for (const h of MESSAGE_META_HEADERS) q.append('metadataHeaders', h);
+  return `${MESSAGES_URL}/${encodeURIComponent(messageId)}?${q.toString()}`;
+}
+
+export interface MessageMeta {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  internalDate: number; // epoch ms; bepaalt of dit bericht nog meldingswaardig is
+}
+
+export function parseMessageMeta(json: unknown): MessageMeta | null {
+  const raw = json as {
+    id?: unknown;
+    threadId?: unknown;
+    internalDate?: unknown;
+    payload?: { headers?: unknown };
+  };
+  const id = stringFrom(raw?.id);
+  const internalDate = numberFrom(raw?.internalDate);
+  // Zonder id valt er niets te openen en zonder aankomsttijd kunnen we niet
+  // beslissen of het een melding waard is. De rest mag ontbreken.
+  if (!id || internalDate === null) return null;
+  const headers = Array.isArray(raw?.payload?.headers) ? raw!.payload!.headers : [];
+  const header = (name: string): string => {
+    for (const h of headers as Array<{ name?: unknown; value?: unknown }>) {
+      if (typeof h?.name === 'string' && h.name.toLowerCase() === name) {
+        return stringFrom(h.value) ?? '';
+      }
+    }
+    return '';
+  };
+  return {
+    id,
+    threadId: stringFrom(raw?.threadId) ?? '',
+    from: header('from'),
+    subject: header('subject'),
+    internalDate,
+  };
+}
+
+export function labelGetUrl(labelId: string): string {
+  return `${LABELS_BASE}/${encodeURIComponent(labelId)}`;
+}
+
+// threadsUnread en niet messagesUnread: de paginatitel van de webview telt ook
+// gesprekken, dus zo verspringt het getal niet zodra de dekking van bron wisselt.
+export function parseUnreadThreads(json: unknown): number | null {
+  return numberFrom((json as { threadsUnread?: unknown })?.threadsUnread);
+}
+
+export async function watchMailbox(
+  accessToken: string,
+  topicName: string,
+): Promise<{ historyId: string; expiration: number } | null> {
+  return parseWatch(
+    await requestJson(WATCH_URL, accessToken, {
+      method: 'POST',
+      contentType: 'application/json',
+      body: Buffer.from(watchBody(topicName), 'utf8'),
+    }),
+  );
+}
+
+// Netjes afmelden als een account weggaat, anders blijft Gmail nog tot een week
+// naar het topic publiceren voor een client die er niet meer is.
+export async function stopWatch(accessToken: string): Promise<void> {
+  await requestJson(STOP_URL, accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from('{}', 'utf8'),
+  });
+}
+
+export async function fetchProfileHistoryId(accessToken: string): Promise<string | null> {
+  return parseProfileHistoryId(await requestJson(PROFILE_URL, accessToken));
+}
+
+export async function fetchHistoryPage(
+  accessToken: string,
+  startHistoryId: string,
+  pageToken?: string,
+): Promise<HistoryPage> {
+  return parseHistoryPage(await requestJson(historyListUrl(startHistoryId, pageToken), accessToken));
+}
+
+export async function fetchMessageMeta(
+  accessToken: string,
+  messageId: string,
+): Promise<MessageMeta | null> {
+  return parseMessageMeta(await requestJson(messageMetaUrl(messageId), accessToken));
+}
+
+export async function fetchInboxUnread(accessToken: string): Promise<number | null> {
+  return parseUnreadThreads(await requestJson(labelGetUrl('INBOX'), accessToken));
+}
+
 // De scheidingsreeks mag nergens in het bericht voorkomen; anders leest Google
 // midden in een bijlage een nieuw onderdeel. Willekeurig én gecontroleerd, want
 // een .eml kan van alles bevatten — ook iets dat op onze boundary lijkt.
