@@ -24,11 +24,98 @@ to [Semantic Versioning](https://semver.org/).
 - **Na een sleep verschijnt een venster** met wat er is opgeslagen, over Gmail
   heen zodat je postvak zichtbaar blijft.
 - **Ctrl+Shift+I** opent de devtools van het venster waar je in werkt.
+- **Gesleepte mail naar een ander account kopiëren.** Na een sleep kies je in het
+  venster naar welke labels de mail toe moet, in elk gekoppeld account. Staat een
+  bericht daar al, dan wordt er niets geschreven en vraagt de app eerst wat je
+  wilt: alleen de nieuwe erbij, alles erbij, of niets. Herkenning gaat op de
+  Message-ID uit de header, dus per label — staat een mail al in "Klanten" maar
+  nog niet in "Offertes", dan komt hij alleen in die tweede terecht.
+- **Meldingen en de ongelezen-teller komen van Gmail zelf** in plaats van uit de
+  pagina te worden gelezen. Gmail meldt een wijziging, de app haalt op wat er
+  veranderd is en telt de ongelezen gesprekken bij de bron. Dit vraagt eenmalige
+  instelling (een eigen relay en een Pub/Sub-topic) en één keer opnieuw
+  toestemming geven per account. Accounts waarvoor dat niet is ingesteld — en
+  gedelegeerde postvakken, die geen eigen koppeling hebben — werken precies zoals
+  eerst.
+- **De accountbalk staat nu bovenaan** in plaats van in een kolom links, en is
+  tegelijk de bovenrand van het venster. Elk account is een tabblad met zijn naam,
+  het aantal ongelezen en een streepje in zijn eigen kleur. Rechtsklik op een
+  tabblad voor de agenda en de andere Google-apps van dát account. De "+" staat
+  achter het laatste tabblad, het tandwiel rechts.
+- **Instellingen opnieuw ingedeeld:** vier onderdelen naast een navigatiekolom in
+  plaats van vijf blokken onder elkaar. Welke meldingen je per account wilt staat
+  nu bij Meldingen — daar zie je in één tabel welk account waarvoor piept, in
+  plaats van vijf schakelaars per account. Accounts gaat over wie er meedoet: de
+  naam, de kleur, en weghalen.
+
+### Opgelost
+- **Hetzelfde label twee keer slepen lukte niet.** Na de eerste sleep bleef de
+  labelnaam geselecteerd, en dan begon Chromium bij de volgende poging zijn eigen
+  sleep van die selectie — waardoor de balk nooit verscheen. Alleen bij dat ene
+  label, wat het extra verwarrend maakte.
+- **Het "+"-menu liet Gmail verdwijnen.** Het menu werd in de app zelf getekend en
+  moest daarvoor de mailweergave wegduwen. Het is nu een gewoon menu van Windows,
+  dat er bovenop past, dus je postvak blijft staan.
+- **Een label slepen duurde minuten.** De app bladerde daarvoor door Gmail's
+  lijstweergave; nu vraagt hij het rechtstreeks op, vijf gesprekken tegelijk.
 
 ### Voor ontwikkelaars
 - `npm run dev` start alles met hot reload: wijzigingen in de zijbalk of de modal
   zijn direct zichtbaar, een nieuwe preload herlaadt alleen de Gmail-views, en
   alleen een wijziging in het main-proces herstart de app (automatisch).
+- Push vraagt twee regels in `google-oauth.json` (`relayUrl`, `pushTopic`) en de
+  relay uit `gmail-push-relay`. Zonder die regels blijft push uit en verandert er
+  niets. `GMAIL_PUSH_RELAY_URL` en `GMAIL_PUSH_TOPIC` gaan voor, om tegen een
+  lokale relay te testen.
+
+### Added
+- **A drop zone at the top of Gmail for keeping mail.** Start dragging a
+  conversation out of your message list and a bar appears at the top. Drop it
+  there and the app saves every message in that conversation as an `.eml` — the
+  real original, headers and all — in its own folder per conversation. If you have
+  several conversations ticked, they all come along. Each message also gets a line
+  in `log.jsonl`: time, account, sender, recipients, subject, date, file path and
+  the body as plain text. The bar then tells you how many messages were saved, or
+  what went wrong. You pick the folder under Settings → General; the default is
+  `Documents\Gmail Desktop\Mail`.
+- **Dragging a whole label.** Drag a label from the left-hand navigation onto the
+  bar and all the mail in it lands in one folder. At more than 200 conversations it
+  stops, and says so in the summary and the log rather than truncating quietly.
+- **After a drop a window appears** showing what was saved, over Gmail so your
+  mailbox stays visible.
+- **Ctrl+Shift+I** opens the devtools for the window you are working in.
+- **Copying dragged mail to another account.** After a drop, pick which labels in
+  which connected accounts the mail should go to. If a message is already there,
+  nothing is written and the app asks first: add only the new ones, add everything,
+  or nothing. Recognition uses the Message-ID from the header, so it works per
+  label — if a mail is already in "Clients" but not in "Quotes", it lands only in
+  the second.
+- **Notifications and the unread count now come from Gmail itself** instead of
+  being read off the page. Gmail reports a change, the app fetches what changed and
+  counts unread conversations at the source. This needs one-time setup (your own
+  relay and a Pub/Sub topic) and one re-authorisation per account. Accounts without
+  that setup — and delegated mailboxes, which have no connection of their own —
+  work exactly as before.
+- **The account bar is now along the top** instead of in a column on the left, and
+  doubles as the window's top edge. Each account is a tab with its name, its unread
+  count and a line in its own colour. Right-click a tab for that account's calendar
+  and other Google apps. The "+" sits after the last tab, the gear on the right.
+- **Settings rearranged:** four parts beside a navigation column instead of five
+  blocks stacked up. Which notifications you want per account now lives under
+  Notifications, where one table shows you which account sounds off for what,
+  instead of five switches per account. Accounts is about who takes part: the name,
+  the colour, and removing one.
+
+### Fixed
+- **Dragging the same label twice did not work.** After the first drag the label's
+  name stayed selected, so on the next attempt Chromium started its own drag of
+  that selection and the bar never appeared. Only for that one label, which made it
+  all the more puzzling.
+- **The "+" menu made Gmail disappear.** The menu was drawn inside the app, which
+  meant pushing the mail view out of the way first. It is now an ordinary Windows
+  menu that sits on top, so your mailbox stays put.
+- **Dragging a label took minutes.** The app used to page through Gmail's list
+  view; it now asks for the mail directly, five conversations at a time.
 
 ## [0.2.9] — 2026-07-29
 
