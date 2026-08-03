@@ -343,4 +343,78 @@ describe('startPushManager', () => {
     expect(events.filter((e) => e === 'sync:a@x.nl')).toHaveLength(0);
     manager.stop();
   });
+
+  it('ignores a non-fatal close that lands while the watch is still pending', async () => {
+    // Residual 1: generatie en kaart-identiteit blijven allebei ongewijzigd
+    // tijdens een niet-fatale sluiting die vóór de reconnect-timer afgaat, dus
+    // die twee checks alleen zien deze sluiting niet. Zonder de socket-check
+    // erbij zou de trage watch-aanroep alsnog dekking aanzetten, de
+    // hartslag/vernieuwingstimers zetten, én de backoff-teller resetten — dus
+    // een sluiting die zich blijft herhalen zou nooit verder dan de basiswacht
+    // komen en de relay met een vaste tussenpoos blijven bestoken.
+    let resolveWatch: (ok: boolean) => void = () => {};
+    const watchPromise = new Promise<boolean>((res) => {
+      resolveWatch = res;
+    });
+    const h = harness({
+      armWatch: async () => watchPromise, // blijft hangen tot de test hem lost
+      backoffMs: (attempt) => 100 * 2 ** attempt,
+      staleMs: 90_000,
+      renewMs: 86_400_000,
+    });
+    h.sockets[0].fireOpen();
+    await settle(); // token verstuurd, watch hangt nog
+    h.sockets[0].fireClose(1006); // niet-fatale sluiting tussendoor
+    expect(h.timers.live()).toContain(100); // backoff voor poging 0, meteen bij de sluiting
+    resolveWatch(true); // de trage watch komt alsnog terug, te laat
+    await settle();
+    // De socket is al weg: geen dekking, geen hartslag- of vernieuwingstimer.
+    expect(h.events).not.toContain('cover:a@x.nl:true');
+    expect(h.timers.live()).not.toContain(90_000);
+    expect(h.timers.live()).not.toContain(86_400_000);
+    // En de backoff-teller is niet stiekem gereset: de volgende sluiting
+    // escaleert door in plaats van terug te vallen op de basiswacht.
+    h.timers.fire(100);
+    expect(h.sockets).toHaveLength(2);
+    h.sockets[1].fireClose(1006);
+    expect(h.timers.live()).toContain(200); // niet terug naar 100
+    h.manager.stop();
+  });
+
+  it('reconnects after a failed watch renewal instead of waiting a full day', async () => {
+    // Residual 2: dezelfde soort mislukking als een mislukte eerste watch
+    // (Important 3), en dus dezelfde oplossing — socket dicht, bestaande
+    // backoff regelt de volgende poging — in plaats van 24 uur te wachten op
+    // de volgende geplande vernieuwing terwijl er niets aan gedaan wordt.
+    const h = harness({ renewMs: 86_400_000, backoffMs: () => 50 });
+    h.sockets[0].fireOpen();
+    await settle();
+    h.setWatchOk(false); // de volgende watch-aanroep — de vernieuwing — mislukt
+    h.timers.fire(86_400_000);
+    await settle();
+    expect(h.events).toContain('cover:a@x.nl:false');
+    expect(h.sockets[0].closed).toBe(true);
+    // Geen tweede wachttijd van 24 uur: de gewone backoff regelt de volgende
+    // poging, niet een nieuwe vernieuwingscyclus.
+    expect(h.timers.live()).toContain(50);
+    expect(h.timers.live()).not.toContain(86_400_000);
+    h.manager.stop();
+  });
+
+  it('revives a permanently refused account once refresh() runs again', async () => {
+    // Finding A: refresh() betekent "de wereld is veranderd, kijk opnieuw".
+    // Zonder herleving blijft een eerder geweigerd account dood totdat de app
+    // herstart, ook nadat de gebruiker opnieuw toestemming heeft gegeven.
+    const h = harness();
+    h.sockets[0].fireOpen();
+    await settle();
+    h.sockets[0].fireClose(4403); // adres niet in ALLOWED_EMAILS van de relay
+    expect(h.events).toContain('fatal:a@x.nl:4403');
+    h.manager.refresh(); // de aanroeper belt dit aan zodra hertoestemming binnen is
+    expect(h.sockets).toHaveLength(2);
+    h.sockets[1].fireOpen();
+    await settle();
+    expect(h.events).toContain('cover:a@x.nl:true');
+    h.manager.stop();
+  });
 });

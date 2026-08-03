@@ -95,8 +95,21 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
   // precies déze toestand onder precies dit pogingnummer. Elke asynchrone
   // vervolgstap (na een await, of in een losse timer-callback) checkt dit
   // vóórdat hij de socket aanraakt of dekking meldt.
-  const isLive = (email: string, state: ConnState, gen: number): boolean =>
-    !stopped && !state.dead && conns.get(email) === state && state.generation === gen;
+  //
+  // De socket zelf is optioneel: vernieuwen is bewust socket-onafhankelijk (de
+  // watch is een gewone HTTPS-aanroep die ook lukt terwijl de verbinding even
+  // weg is), maar alles wat ÉCHT bij één specifieke socket hoort — de handdruk,
+  // een binnenkomend frame, het sluiten zelf — moet ook checken dat die socket
+  // nog steeds de huidige is. Zonder die check overleeft een niet-fatale
+  // sluiting tijdens een hangende watch-aanroep de sluiting: de handdruk komt
+  // alsnog terug, zet dekking aan en reset de backoff-teller voor een
+  // verbinding die er niet meer is.
+  const isLive = (email: string, state: ConnState, gen: number, sock?: PushSocket): boolean =>
+    !stopped &&
+    !state.dead &&
+    conns.get(email) === state &&
+    state.generation === gen &&
+    (sock === undefined || state.sock === sock);
 
   // Elke vernieuwing plant de volgende zelf in, en hangt aan het account en niet
   // aan één socket: de watch is een gewone HTTPS-aanroep en kan dus ook slagen
@@ -109,13 +122,24 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
         .armWatch(email)
         .then((ok) => {
           if (!isLive(email, state, gen)) return;
-          if (!ok) setCovered(email, state, false);
+          if (ok) {
+            scheduleRenew(email, state, gen); // gelukt: volgende cyclus plannen
+            return;
+          }
+          // Mislukte vernieuwing is hetzelfde soort mislukking als een
+          // mislukte eerste watch (Important 3): geen tweede retrymechanisme
+          // naast backoff. Socket dicht laat de bestaande herverbinding het
+          // opnieuw proberen; de nieuwe verbinding zet zijn eigen
+          // vernieuwingscyclus weer op zodra de watch daar lukt. Zonder dit
+          // zou het account 24 uur lang — tot de volgende geplande vernieuwing
+          // — ongedekt blijven zonder dat er iets aan gedaan wordt.
+          setCovered(email, state, false);
+          state.sock?.close();
         })
         .catch(() => {
-          if (isLive(email, state, gen)) setCovered(email, state, false);
-        })
-        .finally(() => {
-          if (isLive(email, state, gen)) scheduleRenew(email, state, gen);
+          if (!isLive(email, state, gen)) return;
+          setCovered(email, state, false);
+          state.sock?.close();
         });
     }, renewMs);
   };
@@ -155,7 +179,7 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       void (async () => {
         try {
           const token = await deps.accessToken(email);
-          if (!isLive(email, state, myGen)) return;
+          if (!isLive(email, state, myGen, sock)) return;
           if (!token) {
             // Geen token: de relay zou ons toch weigeren. Socket dicht en de
             // gewone sluitpad regelt de herverbinding met backoff — geen tweede
@@ -166,7 +190,7 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
           }
           sock.send(JSON.stringify({ type: 'auth', accessToken: token }));
           const armed = await deps.armWatch(email);
-          if (!isLive(email, state, myGen)) return;
+          if (!isLive(email, state, myGen, sock)) return;
           if (!armed) {
             console.warn(`[push] watch mislukte voor ${email}; webview blijft melden`);
             sock.close(); // idem: laat de gewone sluitpad opnieuw proberen
@@ -183,13 +207,13 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
           deps.onSync(email);
         } catch (e) {
           console.warn(`[push] handdruk mislukte voor ${email}:`, e);
-          if (isLive(email, state, myGen)) sock.close();
+          if (isLive(email, state, myGen, sock)) sock.close();
         }
       })();
     });
 
     sock.onMessage((data) => {
-      if (!isLive(email, state, myGen)) return;
+      if (!isLive(email, state, myGen, sock)) return;
       armStale(email, state, myGen);
       let msg: { type?: string };
       try {
@@ -210,7 +234,15 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       // Niet meer de geldende poging — overtroffen, verwijderd door refresh(),
       // of de manager is gestopt. Dan is dit sluitgebeuren oud nieuws en mag
       // het geen dekking of herverbinding meer in beweging zetten.
-      if (!isLive(email, state, myGen)) return;
+      if (!isLive(email, state, myGen, sock)) return;
+
+      // Deze socket is nu weg. Los meteen maken, zodat een handdruk die nog op
+      // het token of de watch wacht (zelfde generatie, zelfde kaartregel, dus
+      // isLive() zonder deze regel nog steeds "true") zichzelf via de
+      // socket-check hierboven als achterhaald herkent — anders zou hij na het
+      // alsnog binnenkomen van het antwoord dekking aanzetten en de
+      // backoff-teller resetten voor een verbinding die niet meer bestaat.
+      state.sock = undefined;
 
       if (FATAL_CLOSE_CODES.includes(code)) {
         // Hier lost opnieuw proberen niets op. Dekking terug naar de webview en
@@ -245,7 +277,22 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
       setCovered(email, state, false);
       state.sock?.close();
     }
-    for (const email of wanted) if (!conns.has(email)) connect(email);
+    for (const email of wanted) {
+      const state = conns.get(email);
+      if (!state) {
+        connect(email);
+      } else if (state.dead) {
+        // refresh() betekent "de wereld is veranderd, kijk opnieuw" — en dat is
+        // precies het signaal dat een eerder definitieve afwijzing niet meer
+        // definitief hoeft te zijn. De aanroeper roept dit typisch aan nadat de
+        // gebruiker opnieuw toestemming heeft gegeven (nieuwe scope, nieuw
+        // token); zonder deze herleving blijft het account dood tot de app
+        // herstart, ook al is precies gerepareerd wat de weigering veroorzaakte.
+        state.dead = false;
+        state.attempt = 0;
+        connect(email);
+      }
+    }
   };
 
   refresh();
