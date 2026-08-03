@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, Notification } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, Notification, nativeTheme } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch } from 'node:fs';
 import { release } from 'node:os';
@@ -68,6 +68,7 @@ import {
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
+import { overlayOptions, supportsOverlay } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
@@ -693,13 +694,26 @@ function handleInput(input: KeyInput): void {
   }
 }
 
-// Rene mode: zoom the sidebar renderer and every Gmail/Calendar view to 200%
+// De overlay met de echte vensterknoppen moet meelopen met het thema en met de
+// zoom van Rene-modus. Anders staan de knoppen donker-op-donker na een
+// themawissel, of 40px hoog in een balk van 80px.
+function applyTitleBarOverlay(): void {
+  if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
+  if (!supportsOverlay(process.platform)) return;
+  const p = prefs.getAll();
+  mainWindow.setTitleBarOverlay(
+    overlayOptions(p.theme, nativeTheme.shouldUseDarkColors, p.reneMode),
+  );
+}
+
+// Rene mode: zoom the topbar renderer and every Gmail/Calendar view to 200%
 // (or restore factor 1 and each account's own stored zoom), then relayout so
-// the content view clears the now-wider sidebar.
+// the content view clears the now-taller topbar.
 function applyReneZoom(): void {
   if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
   const on = prefs.getAll().reneMode;
   mainWindow.webContents.setZoomFactor(on ? RENE_ZOOM_FACTOR : 1);
+  applyTitleBarOverlay();
   for (const p of profiles) {
     manager?.setZoomForKey(keyOf(p), on ? RENE_ZOOM_LEVEL : prefs.getAccount(p.email).zoom ?? 0);
   }
@@ -1649,6 +1663,19 @@ function createWindow(): void {
     { width: stored.width, height: stored.height, x: stored.x, y: stored.y },
     screen.getAllDisplays().map((d) => ({ bounds: d.bounds })),
   );
+  // De topbar ís de titelbalk: Electron tekent de echte vensterknoppen als
+  // overlay bovenop onze balk. Alleen op Windows en macOS — op Linux houden we
+  // het native frame, want daar bestaat de overlay niet.
+  const frameless = supportsOverlay(process.platform)
+    ? {
+        titleBarStyle: 'hidden' as const,
+        titleBarOverlay: overlayOptions(
+          prefs.getAll().theme,
+          nativeTheme.shouldUseDarkColors,
+          prefs.getAll().reneMode,
+        ),
+      }
+    : {};
   mainWindow = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
@@ -1656,8 +1683,11 @@ function createWindow(): void {
     y: bounds.y,
     backgroundColor: '#0a0a0a',
     icon: ICON_PATH,
+    ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
+  // Bij thema "system" verandert de kleur zonder dat de gebruiker iets doet.
+  nativeTheme.on('updated', () => applyTitleBarOverlay());
   if (stored.maximized) mainWindow.maximize();
   // Re-assert the badge when the window returns to the taskbar: an overlay clear
   // issued while hidden to the tray doesn't stick, so Windows would otherwise show
@@ -1965,9 +1995,10 @@ function registerIpc(): void {
     if (arg.open) manager?.hideAll();
     else manager?.showActive();
   });
-  // A sidebar popup (the "+" menu) extends past the 72px nav over the content
-  // area; the content view is a native layer above the sidebar page, so hide it
-  // while the popup is open (same trick as the settings panel) and restore after.
+  // A topbar popup (the "+" menu) drops down out of the 40px bar over the
+  // content area; the content view is a native layer above the topbar page, so
+  // hide it while the popup is open (same trick as the settings panel) and
+  // restore after.
   ipcMain.on(IPC.OVERLAY_TOGGLE, (_e, arg: { open: boolean }) => {
     if (arg.open) manager?.hideAll();
     else if (!settingsPanelOpen && !dropPreviewOpen) manager?.showActive();
@@ -2287,6 +2318,7 @@ function registerIpc(): void {
   ipcMain.on(IPC.SET_THEME, (_e, theme: 'system' | 'light' | 'dark') => {
     prefs!.setTheme(theme);
     pushPrefs();
+    applyTitleBarOverlay();
   });
   ipcMain.on(IPC.SET_NOTIFICATION_OPEN, (_e, v: 'app' | 'window') => {
     prefs!.setNotificationOpen(v);

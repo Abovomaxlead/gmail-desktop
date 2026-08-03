@@ -57,8 +57,8 @@ export class ProfileViewManager {
     // settings is to mute the view's audio output.
     private readonly getSilent: (accountKey: string) => boolean,
     private readonly getOpenMode: () => 'app' | 'window',
-    // Zoom factor of the sidebar renderer (2 in Rene mode) — the content view
-    // must sit past the visually wider sidebar.
+    // Zoom factor of the topbar renderer (2 in Rene mode) — the content view
+    // must sit below the visually taller topbar.
     private readonly getUiScale: () => number = () => 1,
     // Een mail is naar de dropzone in deze view gesleept.
     private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
