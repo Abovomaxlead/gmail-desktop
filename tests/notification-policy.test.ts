@@ -5,6 +5,7 @@ import {
   notificationPersist,
   wantsCalendarView,
   inQuietHours,
+  mergeNotificationsFromPanel,
 } from '../electron/notification-policy';
 import type { AccountRef } from '../renderer/lib/account-ref';
 import { DEFAULT_PREFS, type Prefs } from '../electron/prefs-store';
@@ -119,6 +120,53 @@ describe('notificationsAllowed — surface', () => {
     qh.notifications.quietHours = { enabled: true, start: '18:00', end: '08:00' };
     qh.accounts['a@x.com'] = { calendarNotify: true };
     expect(notificationsAllowed(qh, 'a@x.com', at(23), 'calendar')).toBe(false);
+  });
+});
+
+// De bug die dit dekt: het paneel stuurt alleen {dnd, quietHours}, en
+// `setNotifications` schrijft wat het krijgt wholesale weg. Zonder deze functie
+// verdwijnt een lopende tray-snooze (`dndUntil`) zodra de stille uren wijzigen.
+describe('mergeNotificationsFromPanel', () => {
+  const quietHours = { enabled: false, start: '18:00', end: '08:00' };
+
+  it('keeps a running snooze when only quiet hours change (dnd untouched)', () => {
+    const current = { dnd: false, dndUntil: 4_000_000_000_000, quietHours };
+    const result = mergeNotificationsFromPanel(current, {
+      dnd: false, // echoed back unchanged by the quiet-hours controls
+      quietHours: { ...quietHours, enabled: true },
+    });
+    expect(result.dndUntil).toBe(4_000_000_000_000);
+    expect(result.quietHours.enabled).toBe(true);
+  });
+
+  it('clears a running snooze when the DND switch is explicitly toggled off', () => {
+    // Snooze started from the tray leaves dnd:false; the switch was never on.
+    // Toggling it "off" again (still false -> false) must NOT be confused with
+    // an actual flip — this case is covered by the "untouched" test above.
+    // Here the switch genuinely changes: it was on, and the user turns it off,
+    // which is the "un-mute me" case called out in the design discussion.
+    const current = { dnd: true, dndUntil: 4_000_000_000_000, quietHours };
+    const result = mergeNotificationsFromPanel(current, { dnd: false, quietHours });
+    expect(result.dnd).toBe(false);
+    expect(result.dndUntil).toBeUndefined();
+  });
+
+  it('clears a running snooze when the DND switch is explicitly toggled on', () => {
+    // Mirrors the tray's own `setSnooze(null)` branch: turning DND on
+    // indefinitely supersedes any timed snooze, so it clears dndUntil too.
+    const current = { dnd: false, dndUntil: 4_000_000_000_000, quietHours };
+    const result = mergeNotificationsFromPanel(current, { dnd: true, quietHours });
+    expect(result.dnd).toBe(true);
+    expect(result.dndUntil).toBeUndefined();
+  });
+
+  it('has nothing to preserve when no snooze is running', () => {
+    const current = { dnd: false, quietHours };
+    const result = mergeNotificationsFromPanel(current, {
+      dnd: false,
+      quietHours: { ...quietHours, start: '20:00' },
+    });
+    expect(result.dndUntil).toBeUndefined();
   });
 });
 

@@ -66,6 +66,7 @@ import {
   notificationSilent,
   notificationPersist,
   wantsCalendarView,
+  mergeNotificationsFromPanel,
 } from './notification-policy';
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
@@ -2337,7 +2338,11 @@ function registerIpc(): void {
   ipcMain.on(
     IPC.SET_NOTIFICATIONS,
     (_e, arg: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } }) => {
-      prefs!.setNotifications(arg);
+      // Het paneel stuurt nooit `dndUntil` mee — dat veld is van de tray. Zonder
+      // `mergeNotificationsFromPanel` overschrijft `setNotifications` de hele
+      // opgeslagen waarde, en verdwijnt een lopende snooze zodra je alleen de
+      // stille uren aanpast.
+      prefs!.setNotifications(mergeNotificationsFromPanel(prefs!.getAll().notifications, arg));
       pushPrefs();
       refreshNotifyAllowed();
       refreshTray(); // a settings-driven DND change should re-label the tray too
