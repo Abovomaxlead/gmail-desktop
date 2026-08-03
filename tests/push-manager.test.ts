@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { startPushManager, FATAL_CLOSE_CODES, type PushSocket } from '../electron/push-manager';
+import { startPushManager, FATAL_CLOSE_CODES } from '../electron/push-manager';
+import type { PushSocket } from '../electron/push-transport';
 
 // Nep-socket: we sturen de gebeurtenissen zelf, zodat de test over de
 // toestandsmachine gaat en niet over ws.
