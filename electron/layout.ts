@@ -1,10 +1,15 @@
-export const SIDEBAR_WIDTH = 72;
+// De hoogte van de topbar, op één plek. Drie dingen lezen deze waarde: de
+// bounds-berekening hieronder, de hoogte van titleBarOverlay (zodat de echte
+// vensterknoppen precies in onze balk vallen) en de CSS van de balk zelf. Lopen
+// die uiteen, dan hangen de knoppen half buiten de balk.
+export const TOPBAR_HEIGHT = 40;
+
 // No margin around the active Gmail/Calendar view: the webview sits flush
-// against the sidebar so there is no dark frame from the renderer background.
+// against the topbar so there is no dark frame from the renderer background.
 export const CONTENT_MARGIN = 0;
 
-// `scale` is the sidebar renderer's zoom factor (2 in Rene mode): the fixed
-// 72px nav paints scale× wider, so the content view must start past that.
+// `scale` is de zoomfactor van de renderer (2 in Rene-modus): de vaste 40px
+// balk tekent dan scale× hoger, dus de content-view moet daaronder beginnen.
 export function contentBounds(
   win: { width: number; height: number },
   scale = 1,
@@ -14,11 +19,11 @@ export function contentBounds(
   width: number;
   height: number;
 } {
-  const sidebar = Math.round(SIDEBAR_WIDTH * scale);
+  const topbar = Math.round(TOPBAR_HEIGHT * scale);
   return {
-    x: sidebar + CONTENT_MARGIN,
-    y: CONTENT_MARGIN,
-    width: Math.max(0, win.width - sidebar - CONTENT_MARGIN * 2),
-    height: Math.max(0, win.height - CONTENT_MARGIN * 2),
+    x: CONTENT_MARGIN,
+    y: topbar + CONTENT_MARGIN,
+    width: Math.max(0, win.width - CONTENT_MARGIN * 2),
+    height: Math.max(0, win.height - topbar - CONTENT_MARGIN * 2),
   };
 }

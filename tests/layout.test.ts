@@ -1,24 +1,38 @@
 import { describe, it, expect } from 'vitest';
-import { contentBounds, SIDEBAR_WIDTH, CONTENT_MARGIN } from '../electron/layout';
+import { contentBounds, TOPBAR_HEIGHT, CONTENT_MARGIN } from '../electron/layout';
 
 describe('contentBounds', () => {
-  it('insets content past the sidebar and by the frame margin', () => {
+  it('puts the content under the topbar, across the full width', () => {
     expect(contentBounds({ width: 1000, height: 800 })).toEqual({
-      x: SIDEBAR_WIDTH + CONTENT_MARGIN,
-      y: CONTENT_MARGIN,
-      width: 1000 - SIDEBAR_WIDTH - CONTENT_MARGIN * 2,
-      height: 800 - CONTENT_MARGIN * 2,
+      x: CONTENT_MARGIN,
+      y: TOPBAR_HEIGHT + CONTENT_MARGIN,
+      width: 1000 - CONTENT_MARGIN * 2,
+      height: 800 - TOPBAR_HEIGHT - CONTENT_MARGIN * 2,
     });
   });
+
+  it('never returns a negative height', () => {
+    // Een venster dat lager is dan de balk: liever nul dan een negatieve hoogte,
+    // want setBounds met een negatieve hoogte laat Electron omvallen.
+    expect(contentBounds({ width: 800, height: 10 }).height).toBe(0);
+  });
+
   it('never returns a negative width', () => {
-    expect(contentBounds({ width: 10, height: 100 }).width).toBe(0);
+    expect(contentBounds({ width: 0, height: 800 }).width).toBe(0);
   });
-  it('offsets by the scaled sidebar when the UI is zoomed (Rene mode)', () => {
+
+  // Rene-modus zoomt de renderer naar 200%, dus de balk tekent twee keer zo
+  // hoog. Nu schaalt dat de hoogte; vóór de topbar was het de breedte.
+  it('offsets by the scaled topbar when the UI is zoomed (Rene mode)', () => {
     expect(contentBounds({ width: 1000, height: 800 }, 2)).toEqual({
-      x: SIDEBAR_WIDTH * 2 + CONTENT_MARGIN,
-      y: CONTENT_MARGIN,
-      width: 1000 - SIDEBAR_WIDTH * 2 - CONTENT_MARGIN * 2,
-      height: 800 - CONTENT_MARGIN * 2,
+      x: CONTENT_MARGIN,
+      y: TOPBAR_HEIGHT * 2 + CONTENT_MARGIN,
+      width: 1000 - CONTENT_MARGIN * 2,
+      height: 800 - TOPBAR_HEIGHT * 2 - CONTENT_MARGIN * 2,
     });
+  });
+
+  it('is 40px tall — the bar, the overlay and the CSS all read this one value', () => {
+    expect(TOPBAR_HEIGHT).toBe(40);
   });
 });
