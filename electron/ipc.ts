@@ -14,7 +14,7 @@ export const IPC = {
   SET_COLOR: 'color:set', // send({email, color})
   REMOVE_ACCOUNT: 'accounts:remove', // send({email}) — hide account + skip on detect
   SETTINGS_TOGGLE: 'settings:toggle', // send({open:boolean})
-  OVERLAY_TOGGLE: 'overlay:toggle', // send({open:boolean}) — hide/show the content view so a sidebar popup (e.g. the "+" menu) shows above it
+  MENU_POPUP: 'menu:popup', // invoke(NativeMenuItem[]) -> string | null — main opent een echt OS-menu voor de balk en meldt het gekozen id (null = weggeklikt)
   UPDATE_CHECK: 'update:check', // send() — check GitHub for a newer release
   UPDATE_DOWNLOAD: 'update:download', // send() — download + auto-install the update
   UPDATE_INSTALL: 'update:install', // send() — restart into an already-downloaded update

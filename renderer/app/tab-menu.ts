@@ -1,10 +1,13 @@
-import { APP_SURFACES, type Surface } from '../lib/surfaces';
+import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../lib/surfaces';
+import type { NativeMenuItem } from '../lib/native-menu';
 
-// De rekenwerkjes van het rechtsklikmenu op een tabblad: wat erin komt, en waar
-// het opengaat. Puur, zodat het te testen is zonder de balk te tekenen.
+// Wat er in het rechtsklikmenu op een tabblad komt. Puur, zodat het te testen is
+// zonder de balk te tekenen; main maakt er een echt OS-menu van. Waar het menu
+// opengaat staat hier niet meer: een OS-menu komt zelf op de cursor te staan en
+// houdt zichzelf binnen het scherm.
 //
-// Wat er in het menu komt. In de zijbalk stonden deze knoppen zichtbaar naast
-// elk account; in de balk zou dat te vol worden.
+// In de zijbalk stonden deze knoppen zichtbaar naast elk account; in de balk zou
+// dat te vol worden.
 //
 // De renderer kent de AccountRef niet — main stuurt alleen `kind` en
 // `hasCalendar` mee — dus dit werkt op die twee velden. De regels zijn dezelfde
@@ -26,28 +29,29 @@ export function tabMenuSurfaces(p: TabMenuAccount): Surface[] {
   return out;
 }
 
-// De breedte van het menu, hier in plaats van in een Tailwind-class: de
-// plaatsing hieronder rekent ermee, en twee getallen die hetzelfde moeten zijn
-// lopen uiteen zodra iemand er één aanpast.
-export const TAB_MENU_WIDTH = 208;
-
-// Marge tot de vensterrand, zodat het menu niet tegen de rand aan plakt.
-const EDGE_MARGIN = 4;
-
-// Waar het menu horizontaal begint. Een tabblad kan dicht bij de rechterrand
-// staan — bij vier accounts is dat zelfs de normale plek — en een menu dat daar
-// naar rechts opengaat valt half buiten het venster. Dan klapt het naar links
-// open, met de cursor als rechterrand, zoals elk contextmenu doet.
-export function tabMenuLeft(
-  cursorX: number,
-  viewportWidth: number,
-  width = TAB_MENU_WIDTH,
-  margin = EDGE_MARGIN,
-): number {
-  if (cursorX + width + margin <= viewportWidth) return cursorX;
-  const flipped = cursorX - width;
-  if (flipped >= margin) return flipped;
-  // Geen ruimte aan beide kanten: het venster is smaller dan het menu. Tegen de
-  // linkerrand aan is dan het minst erge — daar is de kop nog leesbaar.
-  return Math.max(margin, viewportWidth - width - margin);
+// Het menu zelf: de naam van het account als kop, daarna zijn surfaces. Het id
+// van een item ís de surface, dus hoeft er niets vertaald te worden als de keuze
+// terugkomt.
+//
+// Geen items betekent geen menu: een gedelegeerd postvak waarvan Google nooit een
+// agenda-URL prijsgaf heeft niets te kiezen, en een menu met alleen een kop is
+// een lege bak. Daarom valt hier ook de kop weg — de aanroeper hoeft maar één
+// ding te controleren.
+export function planTabMenu(
+  label: string,
+  surfaces: readonly Surface[],
+  activeSurface: Surface | null,
+): NativeMenuItem[] {
+  if (surfaces.length === 0) return [];
+  return [
+    { kind: 'text', label },
+    ...surfaces.map((s): NativeMenuItem => ({
+      kind: 'item',
+      id: s,
+      label: SURFACE_CONFIG[s].label,
+      // Waar dit account nu staat. In het uitklapmenu was dat een gevulde
+      // achtergrond; een OS-menu zet er een vinkje bij.
+      ...(s === activeSurface ? { checked: true } : {}),
+    })),
+  ];
 }

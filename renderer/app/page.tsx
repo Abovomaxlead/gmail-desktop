@@ -11,6 +11,7 @@ import type {
 } from './MailDropModal';
 import { getStrings } from './strings';
 import type { Surface } from '../lib/surfaces';
+import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 
@@ -84,7 +85,8 @@ interface DesktopBridge {
   setColor(email: string, color: string): void;
   removeAccount(email: string): void;
   toggleSettings(open: boolean): void;
-  setMenuOverlay(open: boolean): void;
+  // Laat main een echt OS-menu openen; levert het gekozen id of null.
+  popupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onSettingsForceClose(cb: () => void): void;
   onSettingsForceOpen(cb: () => void): void;
   checkForUpdate(): void;
@@ -142,7 +144,6 @@ export default function AppShell() {
   const [dropItems, setDropItems] = useState<MailDropItem[] | null>(null);
   const [update, setUpdate] = useState<UpdateStatus>({ state: 'idle' });
   const [prefs, setPrefs] = useState<Prefs | null>(null);
-  const [plusOpen, setPlusOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<DelegatedSuggestion[]>([]);
   const [scanning, setScanning] = useState(false);
   const [scanDone, setScanDone] = useState(false);
@@ -174,19 +175,12 @@ export default function AppShell() {
     bridge.onDefaultMailStatus(setIsDefaultMail);
   }, []);
 
-  // The "+" menu extends over the content area; hide/show the native content
-  // view (main-side) so the menu shows above it, and restore when it closes.
-  useEffect(() => {
-    window.desktop?.setMenuOverlay(plusOpen);
-  }, [plusOpen]);
-
-  // Het rechtsklikmenu op een tabblad heeft dezelfde overlay nodig, maar Topbar
-  // houdt die menutoestand zelf bij. Deze callback moet stabiel zijn: hij zit in
-  // de dependencies van Topbar's effect, en een nieuwe functie per render zou de
-  // overlay ook uitzetten terwijl het "+"-menu nog open staat.
-  const setMenuOverlay = useCallback((open: boolean) => {
-    window.desktop?.setMenuOverlay(open);
-  }, []);
+  // De menu's van de balk zijn OS-menu's van het main-proces: die staan boven de
+  // native Gmail-views, dus hoeft er niets weggeduwd en teruggezet te worden.
+  const popupMenu = useCallback(
+    async (items: NativeMenuItem[]) => (await window.desktop?.popupMenu(items)) ?? null,
+    [],
+  );
 
   useEffect(() => {
     const choice = prefs?.theme ?? 'system';
@@ -205,13 +199,11 @@ export default function AppShell() {
 
   function open(key: string, surface: Surface) {
     if (settingsOpen) setSettingsOpen(false);
-    setPlusOpen(false);
     setActive({ key, surface });
     window.desktop?.switchSurface(key, surface);
   }
   function addAccount() {
     if (settingsOpen) setSettingsOpen(false);
-    setPlusOpen(false);
     window.desktop?.addAccount();
   }
   function addDelegated() {
@@ -222,7 +214,6 @@ export default function AppShell() {
   }
   function acceptSuggestion(s: DelegatedSuggestion) {
     setSuggestions((cur) => cur.filter((x) => x.email !== s.email));
-    setPlusOpen(false);
     window.desktop?.addDelegatedSuggestion(s);
   }
   function redetect() {
@@ -231,7 +222,6 @@ export default function AppShell() {
   }
   function openSettings() {
     setSettingsOpen(true);
-    setPlusOpen(false);
     window.desktop?.toggleSettings(true);
   }
   function closeSettings() {
@@ -264,19 +254,17 @@ export default function AppShell() {
         settingsOpen={settingsOpen}
         update={update}
         strings={S}
-        plusOpen={plusOpen}
         suggestions={freshSuggestions}
         scanning={scanning}
         scanDone={scanDone}
         onOpen={open}
-        onSetPlusOpen={setPlusOpen}
+        onPopupMenu={popupMenu}
         onAddAccount={addAccount}
         onAddDelegated={addDelegated}
         onAcceptSuggestion={acceptSuggestion}
         onOpenSettings={openSettings}
         onInstallUpdate={() => window.desktop?.installUpdate()}
         onReorder={reorder}
-        onMenuOverlay={setMenuOverlay}
       />
 
       {/* Het instellingenpaneel vult het gebied onder de balk. Main verbergt de

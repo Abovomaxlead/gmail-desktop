@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AccountTab } from './AccountTab';
-import { AccountMenu } from './AccountMenu';
-import { tabMenuSurfaces } from './tab-menu';
+import { planTabMenu, tabMenuSurfaces } from './tab-menu';
+import { planPlusMenu, suggestionEmail, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
+import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import type { Profile, Surface, DelegatedSuggestion, UpdateStatus } from './page';
 
@@ -69,19 +70,17 @@ export function Topbar({
   settingsOpen,
   update,
   strings,
-  plusOpen,
   suggestions,
   scanning,
   scanDone,
   onOpen,
-  onSetPlusOpen,
+  onPopupMenu,
   onAddAccount,
   onAddDelegated,
   onAcceptSuggestion,
   onOpenSettings,
   onInstallUpdate,
   onReorder,
-  onMenuOverlay,
 }: {
   profiles: Profile[];
   unread: Record<string, number>;
@@ -89,37 +88,58 @@ export function Topbar({
   labelFor(p: Profile): string;
   settingsOpen: boolean;
   update: UpdateStatus;
-  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; addDelegatedSuggestionTooltip: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; numberLocale: string };
-  plusOpen: boolean;
+  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; numberLocale: string };
   suggestions: DelegatedSuggestion[];
   scanning: boolean;
   scanDone: boolean;
   onOpen(key: string, surface: Surface): void;
-  onSetPlusOpen(open: boolean): void;
+  // Laat main een echt OS-menu openen en levert het gekozen id, of null als er
+  // weggeklikt is. Beide menu's van de balk lopen hierlangs: een menu dat deze
+  // pagina zelf tekent valt achter de Gmail-view, want die is een native laag
+  // erboven.
+  onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onAddAccount(): void;
   onAddDelegated(): void;
   onAcceptSuggestion(s: DelegatedSuggestion): void;
   onOpenSettings(): void;
   onInstallUpdate(): void;
   onReorder(fromEmail: string, toEmail: string): void;
-  onMenuOverlay(open: boolean): void;
 }) {
   const [dragEmail, setDragEmail] = useState<string | null>(null);
-  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
-  const menuProfile = profiles.find((p) => p.key === menu?.key) ?? null;
-  const menuSurfaces = menuProfile ? tabMenuSurfaces(menuProfile) : [];
-  // Eén waarheid voor "er staat een menu open": zowel wat er getekend wordt als
-  // of main de Gmail-views moet wegduwen hangt hieraan. Liepen die twee uiteen,
-  // dan kon er een stand bestaan waarin de views weg zijn en er niets getekend
-  // is — geen menu, geen wegklik-vlak, alleen een leeg venster onder de balk.
-  const menuOpen = menu !== null && menuProfile !== null && menuSurfaces.length > 0;
+  // Alleen om het telbolletje te verbergen zolang het menu open staat; het menu
+  // zelf is van het OS en houdt zijn eigen toestand bij.
+  const [plusOpen, setPlusOpen] = useState(false);
   const updateReady = update.state === 'downloaded';
 
-  // Elk uitklapmenu in de balk moet de Gmail-view wegduwen: die is een native
-  // laag bóven deze pagina, dus een dropdown valt er anders achter.
-  useEffect(() => {
-    onMenuOverlay(menuOpen);
-  }, [menuOpen, onMenuOverlay]);
+  async function openPlusMenu(): Promise<void> {
+    setPlusOpen(true);
+    const picked = await onPopupMenu(
+      planPlusMenu({ strings, suggestions, scanning, scanDone }),
+    );
+    setPlusOpen(false);
+    if (picked === PLUS_ADD_ACCOUNT) return onAddAccount();
+    if (picked === PLUS_ADD_DELEGATED) return onAddDelegated();
+    const email = picked ? suggestionEmail(picked) : null;
+    const suggestion = suggestions.find((s) => s.email === email);
+    if (suggestion) onAcceptSuggestion(suggestion);
+  }
+
+  async function openTabMenu(p: Profile): Promise<void> {
+    const surfaces = tabMenuSurfaces(p);
+    const items = planTabMenu(
+      labelFor(p),
+      surfaces,
+      active?.key === p.key ? active.surface : null,
+    );
+    // Heeft dit account niets te kiezen — een gedelegeerd postvak waarvan Google
+    // nooit een agenda-URL prijsgaf — dan gaat er geen menu open. Een menu met
+    // alleen een kop is een lege bak waar niets in te klikken valt.
+    if (!hasClickableItem(items)) return;
+    const picked = await onPopupMenu(items);
+    // Het id ís de surface; zoek hem op in plaats van de string te vertrouwen.
+    const surface = surfaces.find((s) => s === picked);
+    if (surface) onOpen(p.key, surface);
+  }
 
   return (
     <div
@@ -150,19 +170,8 @@ export function Topbar({
               activeSurface={active?.key === p.key ? active.surface : null}
               dragging={dragEmail === p.email}
               strings={strings}
-              onOpen={() => {
-                setMenu(null);
-                onOpen(p.key, 'mail');
-              }}
-              // Heeft dit account niets te kiezen — een gedelegeerd postvak
-              // waarvan Google nooit een agenda-URL prijsgaf — dan gaat er geen
-              // menu open. Niet openen is beter dan een menu openen dat niets
-              // tekent: dat laatste duwt de Gmail-views weg en laat een leeg
-              // venster achter.
-              onMenu={(x, y) => {
-                if (tabMenuSurfaces(p).length === 0) return;
-                setMenu({ key: p.key, x, y });
-              }}
+              onOpen={() => onOpen(p.key, 'mail')}
+              onMenu={() => void openTabMenu(p)}
               onDragStart={() => setDragEmail(p.email)}
               onDrop={() => {
                 if (dragEmail) onReorder(dragEmail, p.email);
@@ -175,7 +184,7 @@ export function Topbar({
 
         <div className="relative shrink-0" style={NO_DRAG}>
           <button
-            onClick={() => onSetPlusOpen(!plusOpen)}
+            onClick={() => void openPlusMenu()}
             title={strings.addAccountTooltip}
             className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
           >
@@ -185,42 +194,6 @@ export function Topbar({
             <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-blue-500 px-1 text-[9px] font-bold leading-none text-white">
               {suggestions.length}
             </span>
-          )}
-          {plusOpen && (
-            <>
-              <div className="fixed inset-0 z-10" style={NO_DRAG} onClick={() => onSetPlusOpen(false)} />
-              <div className="absolute left-0 top-[30px] z-20 w-60 rounded-lg border border-black/10 bg-white p-1 shadow-xl dark:border-white/10 dark:bg-neutral-800">
-                <button onClick={onAddAccount} className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-neutral-800 hover:bg-black/5 dark:text-neutral-100 dark:hover:bg-white/10">
-                  {strings.addAccountLabel}
-                </button>
-                <button onClick={onAddDelegated} className="flex w-full items-center rounded-md px-3 py-2 text-left text-sm text-neutral-800 hover:bg-black/5 dark:text-neutral-100 dark:hover:bg-white/10">
-                  {strings.addDelegatedLabel}
-                </button>
-                {scanning && <div className="px-3 py-2 text-sm text-neutral-400">{strings.delegatedScanning}</div>}
-                {!scanning && suggestions.length > 0 && (
-                  <>
-                    <div className="mx-2 my-1 border-t border-black/10 dark:border-white/10" />
-                    <div className="px-3 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-                      {strings.delegatedSuggestionsHeading}
-                    </div>
-                    {suggestions.map((s) => (
-                      <button
-                        key={s.email}
-                        onClick={() => onAcceptSuggestion(s)}
-                        title={strings.addDelegatedSuggestionTooltip}
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-neutral-800 hover:bg-black/5 dark:text-neutral-100 dark:hover:bg-white/10"
-                      >
-                        <PlusIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                        <span className="truncate">{s.email}</span>
-                      </button>
-                    ))}
-                  </>
-                )}
-                {!scanning && scanDone && suggestions.length === 0 && (
-                  <div className="px-3 py-2 text-sm text-neutral-400">{strings.delegatedNoneFound}</div>
-                )}
-              </div>
-            </>
           )}
         </div>
 
@@ -253,21 +226,6 @@ export function Topbar({
           <GearIcon className="h-4 w-4" />
         </button>
       </div>
-
-      {menuOpen && menu && menuProfile && (
-        <AccountMenu
-          label={labelFor(menuProfile)}
-          surfaces={menuSurfaces}
-          x={menu.x}
-          y={menu.y}
-          activeSurface={active?.key === menuProfile.key ? active.surface : null}
-          onPick={(surface) => {
-            setMenu(null);
-            onOpen(menuProfile.key, surface);
-          }}
-          onClose={() => setMenu(null)}
-        />
-      )}
     </div>
   );
 }

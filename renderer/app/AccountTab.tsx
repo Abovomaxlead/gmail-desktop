@@ -59,7 +59,8 @@ export function AccountTab({
   dragging: boolean;
   strings: { delegatedTooltipSuffix: string; numberLocale: string };
   onOpen(): void;
-  onMenu(x: number, y: number): void;
+  // Zonder cursorpositie: het menu is een OS-menu en komt zelf op de cursor.
+  onMenu(): void;
   onDragStart(): void;
   onDrop(): void;
   onDragEnd(): void;
@@ -72,7 +73,7 @@ export function AccountTab({
       onClick={onOpen}
       onContextMenu={(e) => {
         e.preventDefault();
-        onMenu(e.clientX, e.clientY);
+        onMenu();
       }}
       onDragStart={onDragStart}
       onDragOver={(e) => e.preventDefault()}

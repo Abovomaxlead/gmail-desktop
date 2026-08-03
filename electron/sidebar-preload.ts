@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from './ipc';
 import type { Surface } from '../renderer/lib/surfaces';
+import type { NativeMenuItem } from '../renderer/lib/native-menu';
 // Alleen het type: de reden hoort bij de beslissing in oauth-health, en die
 // staat hier niet nog een keer.
 import type { ReconnectAccount } from './oauth-health';
@@ -49,7 +50,8 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.UPDATE_STATUS, (_e, status) => cb(status));
   },
   toggleSettings: (open: boolean): void => ipcRenderer.send(IPC.SETTINGS_TOGGLE, { open }),
-  setMenuOverlay: (open: boolean): void => ipcRenderer.send(IPC.OVERLAY_TOGGLE, { open }),
+  popupMenu: (items: NativeMenuItem[]): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.MENU_POPUP, items),
   onSettingsForceClose: (cb: () => void): void => {
     ipcRenderer.on(IPC.SETTINGS_FORCE_CLOSE, () => cb());
   },

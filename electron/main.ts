@@ -18,6 +18,8 @@ import { clampBoundsToDisplays } from './window-bounds';
 import { colorForIndex } from './palette';
 import { planNext } from './detection-planner';
 import { addAccountUrl } from './google-urls';
+import { popupNativeMenu } from './native-menu';
+import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import { applyBadge } from './badge-controller';
 import { UnreadStore } from './unread-store';
 import { shouldNotifyUpdate } from './update-notifier';
@@ -570,6 +572,19 @@ function showAccount(ref: AccountRef, surface: Surface): void {
   // De plekken waar de lijst wél verandert (registreren, verwijderen,
   // hertoestemming, voorkeuren) roepen het zelf aan.
   flushPendingMailto(); // an inbox is now live — run any queued mailto
+}
+
+// Welke view op dit moment de zichtbare is. Voor een tussendoortje dat zelf even
+// een andere view nodig heeft (de scan van de accountwisselaar hieronder), zodat
+// het de gebruiker daarna terugzet waar hij was. De manager houdt de actieve
+// surface niet als los gegeven bij, dus vragen we het hem per surface.
+function activeView(): { ref: AccountRef; surface: Surface } | null {
+  const m = manager;
+  const key = m?.activeKey();
+  if (!m || !key) return null;
+  const p = profiles.find((x) => keyOf(x) === key);
+  const surface = SURFACES.find((s) => m.isShowing(key, s));
+  return p && surface ? { ref: p.ref, surface } : null;
 }
 
 // Picks the authuser index to compose from for an incoming mailto. One account →
@@ -1968,14 +1983,22 @@ function registerIpc(): void {
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
-  // Open the account switcher and offer the delegated mailboxes found there.
-  // The "+" menu overlay hid the content view, but the switcher scrape needs
-  // the /u0 mail view painted to open its account chooser — so show it for the
-  // scan, then re-hide it so the menu (now with results) stays visible.
+  // Zoek gedelegeerde postbussen in de accountwisselaar. Het uitlezen daarvan
+  // heeft de mailview van /u0 getekend nodig, dus staat die er even bij, en
+  // daarna zetten we de gebruiker terug waar hij was. Vroeger eindigde dit met
+  // hideAll(), zodat het uitklapmenu (nu met resultaten) vrij bleef; dat menu is
+  // een OS-menu geworden en staat toch al bovenop, dus hideAll() zou hier alleen
+  // een leeg venster achterlaten.
   ipcMain.on(IPC.ADD_DELEGATED, () => {
+    const before = activeView();
     manager?.show(authRef(0), 'mail');
     void scanDelegatedSuggestions().then((s) => {
-      manager?.hideAll();
+      // Niet terugzetten als de gebruiker er zelf iets van gemaakt heeft: een
+      // tabblad aangeklikt (dan is /u0 mail niet meer de actieve view) of de
+      // instellingen geopend (die verbergt de views met opzet).
+      if (before && !settingsPanelOpen && manager?.isShowing(keyOfIndex(0), 'mail')) {
+        showAccount(before.ref, before.surface);
+      }
       pushDelegatedSuggestions(s);
     });
   });
@@ -1999,16 +2022,15 @@ function registerIpc(): void {
     if (arg.open) manager?.hideAll();
     else manager?.showActive();
   });
-  // A topbar popup (the "+" menu) drops down out of the 40px bar over the
-  // content area; the content view is a native layer above the topbar page, so
-  // hide it while the popup is open (same trick as the settings panel) and
-  // restore after. No dropPreviewOpen check here: unlike the settings panel,
-  // the copy modal never hides the Gmail views itself (it dims them through its
-  // own semi-transparent backdrop instead) — Gmail is meant to stay visible
-  // behind it, so a popup closing should always restore it, modal or not.
-  ipcMain.on(IPC.OVERLAY_TOGGLE, (_e, arg: { open: boolean }) => {
-    if (arg.open) manager?.hideAll();
-    else if (!settingsPanelOpen) manager?.showActive();
+  // De uitklapmenu's van de balk ("+" en het rechtsklikmenu op een tabblad). Een
+  // menu dat de balkpagina zelf tekent valt achter de Gmail-view — die is een
+  // native laag erboven — dus opent main hier een echt OS-menu, dat boven alles
+  // staat. De renderer stuurt de teksten mee en krijgt het gekozen id terug; er
+  // valt niets weg te duwen en dus ook niets terug te zetten.
+  ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[]) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return null;
+    return popupNativeMenu(win, items);
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_DEFAULT_MAIL, () => {
