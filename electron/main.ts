@@ -1365,6 +1365,50 @@ function watchPreloadForReload(): void {
   }
 }
 
+// Wat er moet gebeuren als een melding wordt aangeklikt. Getild uit de callback
+// die aan ProfileViewManager gaat, zodat de meldingen die de app zelf maakt
+// (push) er precies hetzelfde in kunnen: één gedrag, één plek.
+function activateNotification(accountKey: string, surface: Surface, threadId?: string): void {
+  const idx = idxOfKey(accountKey);
+  // The main window may have been torn down (some setups actually destroy it
+  // on close rather than hiding to the tray) while hidden views still fire
+  // events. Rebuild it so a notification click brings the app back instead of
+  // crashing on a destroyed window. Skip while quitting (don't resurrect).
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (isQuitting) return;
+    detectionStarted = false;
+    createWindow();
+    return;
+  }
+  // The app opens the clicked thread itself; Gmail's own click handler may
+  // fire window.open with the same thread right after — suppress that
+  // (genuine pop-out windows are exempted in windowOpenAction).
+  if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
+  const windowMode = prefs?.getAll().notificationOpen === 'window';
+  // "Open in a new window" mode: open the thread in the mail view so Gmail's
+  // own pop-out button exists, then trigger it for a focused reading window.
+  // Fall back to a full thread window if the button can't be found.
+  if (threadId && surface === 'mail' && windowMode) {
+    manager?.openMailThread(accountKey, threadId);
+    void manager?.popOutThread(accountKey).then((ok) => {
+      if (!ok && idx != null) openFullThreadWindow(idx, threadId);
+    });
+    return;
+  }
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  if (settingsPanelOpen) {
+    settingsPanelOpen = false;
+    mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
+  }
+  if (idx != null) switchSurface(idx, surface);
+  // "In the app" mode: also open the clicked thread in that mail view.
+  if (threadId && surface === 'mail') manager?.openMailThread(accountKey, threadId);
+}
+
 function createWindow(): void {
   prefs = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
   const stored = prefs.getAll().window;
@@ -1399,46 +1443,7 @@ function createWindow(): void {
       pushUnread();
       refreshBadge();
     },
-    (accountKey, surface, threadId) => {
-      const idx = idxOfKey(accountKey);
-      // The main window may have been torn down (some setups actually destroy it
-      // on close rather than hiding to the tray) while hidden views still fire
-      // events. Rebuild it so a notification click brings the app back instead of
-      // crashing on a destroyed window. Skip while quitting (don't resurrect).
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        if (isQuitting) return;
-        detectionStarted = false;
-        createWindow();
-        return;
-      }
-      // The app opens the clicked thread itself; Gmail's own click handler may
-      // fire window.open with the same thread right after — suppress that
-      // (genuine pop-out windows are exempted in windowOpenAction).
-      if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
-      const windowMode = prefs?.getAll().notificationOpen === 'window';
-      // "Open in a new window" mode: open the thread in the mail view so Gmail's
-      // own pop-out button exists, then trigger it for a focused reading window.
-      // Fall back to a full thread window if the button can't be found.
-      if (threadId && surface === 'mail' && windowMode) {
-        manager?.openMailThread(accountKey, threadId);
-        void manager?.popOutThread(accountKey).then((ok) => {
-          if (!ok && idx != null) openFullThreadWindow(idx, threadId);
-        });
-        return;
-      }
-      if (mainWindow) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
-      }
-      if (settingsPanelOpen) {
-        settingsPanelOpen = false;
-        mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
-      }
-      if (idx != null) switchSurface(idx, surface);
-      // "In the app" mode: also open the clicked thread in that mail view.
-      if (threadId && surface === 'mail') manager?.openMailThread(accountKey, threadId);
-    },
+    (accountKey, surface, threadId) => activateNotification(accountKey, surface, threadId),
     (accountKey, identity) => {
       const idx = idxOfKey(accountKey);
       if (idx != null) onIdentity(idx, identity);
