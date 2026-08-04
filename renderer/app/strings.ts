@@ -21,14 +21,12 @@ export interface UiStrings {
   navGeneral: string;
   navAccounts: string;
   navAppearance: string;
-  navBlocker: string;
   navDownloads: string;
   navGmail: string;
   navGoogleApps: string;
   navLanguages: string;
   navNotifications: string;
   navPhishingProtection: string;
-  navUnifiedInbox: string;
   navUpdates: string;
   navVerificationCodes: string;
   navAdvanced: string;
@@ -123,22 +121,12 @@ export interface UiStrings {
   restartRequired: string;
 
   // De tab Gmail: ingrepen in Gmail's eigen pagina.
-  gmailAppearanceGroup: string;
   gmailComposeGroup: string;
   gmailInboxGroup: string;
-  gmailHideLogo: string;
-  gmailHideLogoDescription: string;
-  gmailHideOutOfOffice: string;
-  gmailHideOutOfOfficeDescription: string;
-  gmailHideUpgrade: string;
-  gmailHideUpgradeDescription: string;
   gmailHideInboxFooter: string;
   gmailHideInboxFooterDescription: string;
   gmailComposeNewWindow: string;
   gmailComposeNewWindowDescription: string;
-  // Waarom het sluiten van het opstelvenster na verzenden er nog niet is. Zelfde
-  // aanpak als `trayColourTodo`: een regel in beeld in plaats van een dode schakelaar.
-  gmailCloseComposeTodo: string;
   // Dat een ingreep in Gmail's pagina kan omvallen als Google iets omgooit. Hoort
   // erbij te staan: als een schakelaar niets doet is dat de waarschijnlijke reden, en
   // dan weet je dat het niet aan jou ligt.
@@ -163,6 +151,57 @@ export interface UiStrings {
   gaPin: (name: string) => string;
   gaUnpin: (name: string) => string;
 
+  // De tab Download History.
+  dhEmpty: string;
+  dhFile: string;
+  dhSize: string;
+  dhWhen: string;
+  dhState: string;
+  dhStateCompleted: string;
+  dhStateCancelled: string;
+  dhStateInterrupted: string;
+  dhReveal: string;
+  dhOpen: string;
+  dhClear: string;
+  dhClearConfirm: string;
+  dhBytes: (n: number) => string;
+
+  // Het geluidje bij een melding. De namen horen bij de tonen die de app zelf maakt
+  // (renderer/lib/notification-sound.ts); `soundSystem` is de keuze "laat het
+  // besturingssysteem zijn eigen geluid spelen", en dat is de stand van nu.
+  soundChoice: string;
+  soundChoiceDescription: string;
+  soundSystem: string;
+  soundChime: string;
+  soundPing: string;
+  soundArpeggio: string;
+  soundKnock: string;
+  soundTick: string;
+  soundPreview: string;
+  volumeLabel: (percent: number) => string;
+  volumeDescription: string;
+
+  // De rij die er eerst niet was: het opstelvenster sluiten na verzenden.
+  gmailCloseCompose: string;
+  gmailCloseComposeDescription: string;
+
+  // De tab Verification Codes.
+  vcAutoCopy: string;
+  vcAutoCopyDescription: string;
+  vcConfidence: string;
+  vcConfidenceDescription: string;
+  vcConfidenceMedium: string;
+  vcConfidenceHigh: string;
+  vcMarkRead: string;
+  vcMarkReadDescription: string;
+  vcDelete: string;
+  vcDeleteDescription: string;
+  // De enige onomkeerbare instelling in de app krijgt een eigen waarschuwing.
+  vcDeleteWarning: string;
+  // Dat het herkennen zelf nog niet aanstaat, en waarom. Zonder deze regel zijn dit
+  // vier schakelaars die je omzet en die niets doen.
+  vcNotWiredYet: string;
+
   // Accounts, de nieuwe kaart. `addShort` is het opschrift op de pil rechtsboven —
   // `addAccountLabel` is de volledige zin en te breed voor een pil. `renameAccount`
   // is de naam van het potlood: dat mag niet `accountLabelField` zijn, want dan
@@ -182,7 +221,6 @@ export interface UiStrings {
   soundGroup: string;
   playSound: string;
   playSoundDescription: string;
-  soundChoiceTodo: string;
   googleAppsNotifications: string;
   googleAppsNotificationsDescription: string;
   downloadNotify: string;
@@ -356,14 +394,12 @@ export const STRINGS_NORMAL: UiStrings = {
   navGeneral: 'General',
   navAccounts: 'Accounts',
   navAppearance: 'Appearance',
-  navBlocker: 'Blocker',
   navDownloads: 'Downloads',
   navGmail: 'Gmail',
   navGoogleApps: 'Google Apps',
   navLanguages: 'Languages',
   navNotifications: 'Notifications',
   navPhishingProtection: 'Phishing Protection',
-  navUnifiedInbox: 'Unified Inbox',
   navUpdates: 'Updates',
   navVerificationCodes: 'Verification Codes',
   navAdvanced: 'Advanced',
@@ -455,22 +491,13 @@ export const STRINGS_NORMAL: UiStrings = {
     'Enabling hardware acceleration can improve performance but can also cause compatibility issues on some systems.',
   restartRequired: 'Takes effect the next time the app starts.',
 
-  gmailAppearanceGroup: 'Appearance',
   gmailComposeGroup: 'Compose',
   gmailInboxGroup: 'Inbox',
-  gmailHideLogo: 'Hide Gmail Logo',
-  gmailHideLogoDescription: 'Hides the Gmail logo on the top left corner.',
-  gmailHideOutOfOffice: 'Hide Out of Office Banner',
-  gmailHideOutOfOfficeDescription: 'Hides the out of office banner at the top of the window.',
-  gmailHideUpgrade: 'Hide Upgrade Button',
-  gmailHideUpgradeDescription: 'Hides the Upgrade button in Gmail.',
   gmailHideInboxFooter: 'Hide Inbox Footer',
   gmailHideInboxFooterDescription: 'Hides the footer at the bottom of the inbox.',
   gmailComposeNewWindow: 'Always Compose New Emails in New Window',
   gmailComposeNewWindowDescription:
     'Opens a new window for composing emails instead of inside Gmail.',
-  gmailCloseComposeTodo:
-    'Closing the compose window after sending is not here yet: that needs a hook inside Gmail’s own compose page, which deliberately runs without this app’s script.',
   gmailTweakFragile:
     'These hide the parts by their place in Gmail’s own page. Google changes that page without warning, so a switch here can quietly stop working — tell me and I will point it at the new spot.',
 
@@ -497,6 +524,55 @@ export const STRINGS_NORMAL: UiStrings = {
   gaPin: (name) => `Pin ${name}`,
   gaUnpin: (name) => `Unpin ${name}`,
 
+  dhEmpty: 'Nothing downloaded yet.',
+  dhFile: 'File',
+  dhSize: 'Size',
+  dhWhen: 'When',
+  dhState: 'State',
+  dhStateCompleted: 'Done',
+  dhStateCancelled: 'Cancelled',
+  dhStateInterrupted: 'Failed',
+  dhReveal: 'Show in folder',
+  dhOpen: 'Open',
+  dhClear: 'Clear list',
+  dhClearConfirm: "Clear the whole list? This can't be undone.",
+  dhBytes: (n) => `${n} bytes`,
+
+  soundChoice: 'Sound',
+  soundChoiceDescription: 'Select the sound to play for notifications.',
+  soundSystem: 'System sound',
+  soundChime: 'Chime',
+  soundPing: 'Ping',
+  soundArpeggio: 'Arpeggio',
+  soundKnock: 'Knock',
+  soundTick: 'Tick',
+  soundPreview: 'Play',
+  volumeLabel: (percent) => `Volume ${percent}%`,
+  volumeDescription: 'Set the volume level for notification sounds.',
+
+  gmailCloseCompose: 'Close Compose Window After Send',
+  gmailCloseComposeDescription:
+    'Automatically closes the compose window after pressing the send button. Only applies to a compose window the app opened itself.',
+
+  vcAutoCopy: 'Automatically Copy Verification Code to Clipboard',
+  vcAutoCopyDescription:
+    'Verification code received via email will be automatically copied to your clipboard for easy and instant pasting.',
+  vcConfidence: 'Verification Code Detection Confidence',
+  vcConfidenceDescription:
+    'Choose the confidence level for detecting verification codes. Medium may result in false positives, while High checks for explicit keywords, but may miss some codes.',
+  vcConfidenceMedium: 'Medium',
+  vcConfidenceHigh: 'High',
+  vcMarkRead: 'Automatically Mark Email as Read After Copying Verification Code',
+  vcMarkReadDescription:
+    'Email containing verification code will be automatically marked as read after the code has been copied to your clipboard.',
+  vcDelete: 'Automatically Delete Email After Copying Verification Code',
+  vcDeleteDescription:
+    'Email containing verification code will be automatically deleted after the code has been copied to your clipboard.',
+  vcDeleteWarning:
+    'A wrongly detected code means a real email goes to the bin. This is why High confidence is recommended — and why this one is off by default.',
+  vcNotWiredYet:
+    'Detecting the code is not switched on yet: reading a message body works, but marking it read or binning it needs a Google permission this app has never asked for, and asking for it means every account has to give consent again. Say the word and I will wire it up.',
+
   addShort: 'Add',
   renameAccount: 'Rename account',
 
@@ -512,8 +588,6 @@ export const STRINGS_NORMAL: UiStrings = {
   playSound: 'Play Sound',
   playSoundDescription:
     'Play a sound when showing a notification. Off is silent for every account, whatever they are set to.',
-  soundChoiceTodo:
-    'Picking a different sound and setting its volume are not here yet: notifications use the sound Windows plays for them, and choosing another one needs the app to ship its own audio.',
   googleAppsNotifications: 'Google Apps',
   googleAppsNotificationsDescription:
     'Allow notifications from Google Apps like Calendar. Off silences them for every account.',
@@ -610,14 +684,12 @@ export const STRINGS_RENE: UiStrings = {
   navGeneral: 'Gewoon',
   navAccounts: 'Wie doet mee?',
   navAppearance: 'Hoe het eruitziet',
-  navBlocker: 'Wat weg mag',
   navDownloads: 'Wat je haalt',
   navGmail: 'Gmail',
   navGoogleApps: 'Google-dingen',
   navLanguages: 'Talen',
   navNotifications: 'Meldingen',
   navPhishingProtection: 'Nepmail',
-  navUnifiedInbox: 'Alles bij elkaar',
   navUpdates: 'Nieuwe versie',
   navVerificationCodes: 'Codes',
   navAdvanced: 'Voor knutselaars',
@@ -703,21 +775,13 @@ export const STRINGS_RENE: UiStrings = {
     'Dit maakt de app sneller. Ziet het scherm er raar uit? Zet het dan uit.',
   restartRequired: 'Dit werkt pas als de app opnieuw opstart.',
 
-  gmailAppearanceGroup: 'Hoe het eruitziet',
   gmailComposeGroup: 'Mail maken',
   gmailInboxGroup: 'Postvak',
-  gmailHideLogo: 'Verstop het Gmail-logo',
-  gmailHideLogoDescription: 'Het logo linksboven is dan weg.',
-  gmailHideOutOfOffice: 'Verstop de "ik ben er niet"-balk',
-  gmailHideOutOfOfficeDescription: 'De balk bovenaan is weg. Je antwoord blijft wel aan staan.',
-  gmailHideUpgrade: 'Verstop de knop "meer opslag"',
-  gmailHideUpgradeDescription: 'De knop die meer ruimte verkoopt is dan weg.',
   gmailHideInboxFooter: 'Verstop de tekst onderaan',
   gmailHideInboxFooterDescription: 'Onder je postvak staat dan geen tekst meer.',
   gmailComposeNewWindow: 'Maak mail in een eigen venster',
   gmailComposeNewWindowDescription:
     'Een nieuwe mail gaat in een apart venster, niet in het hoekje van Gmail.',
-  gmailCloseComposeTodo: 'Het venster sluiten na verzenden kan nog niet.',
   gmailTweakFragile:
     'Google verandert Gmail soms. Dan werkt een knopje hier misschien niet meer. Zeg het dan, dan maak ik het weer goed.',
 
@@ -743,6 +807,52 @@ export const STRINGS_RENE: UiStrings = {
   gaPin: (name) => `Zet ${name} vast`,
   gaUnpin: (name) => `Haal ${name} weg`,
 
+  dhEmpty: 'Je hebt nog niks gehaald.',
+  dhFile: 'Bestand',
+  dhSize: 'Hoe groot',
+  dhWhen: 'Wanneer',
+  dhState: 'Hoe het ging',
+  dhStateCompleted: 'Klaar',
+  dhStateCancelled: 'Gestopt',
+  dhStateInterrupted: 'Ging mis',
+  dhReveal: 'Laat de map zien',
+  dhOpen: 'Doe hem open',
+  dhClear: 'Maak de lijst leeg',
+  dhClearConfirm: 'Wil je de hele lijst weggooien? Dat kan niet terug.',
+  dhBytes: (n) => `${n} bytes`,
+
+  soundChoice: 'Welk geluidje',
+  soundChoiceDescription: 'Kies wat je hoort bij een melding.',
+  soundSystem: 'Het geluid van de computer',
+  soundChime: 'Belletje',
+  soundPing: 'Piepje',
+  soundArpeggio: 'Trapje omhoog',
+  soundKnock: 'Klopje',
+  soundTick: 'Tikje',
+  soundPreview: 'Laat horen',
+  volumeLabel: (percent) => `Hoe hard: ${percent}%`,
+  volumeDescription: 'Hoe hard het geluidje is.',
+
+  gmailCloseCompose: 'Doe het venster dicht na versturen',
+  gmailCloseComposeDescription:
+    'Heb je de mail verstuurd? Dan gaat het venster zelf dicht. Alleen bij een venster dat de app zelf opende.',
+
+  vcAutoCopy: 'Zet de code op het klembord',
+  vcAutoCopyDescription: 'Krijg je een code in een mailtje? Dan kan je hem meteen plakken.',
+  vcConfidence: 'Hoe zeker moet de app zijn?',
+  vcConfidenceDescription:
+    'Bij "Heel zeker" zoekt de app naar het woord code in het mailtje. Bij "Beetje zeker" pakt hij ook losse cijfers, maar dan zit hij er soms naast.',
+  vcConfidenceMedium: 'Beetje zeker',
+  vcConfidenceHigh: 'Heel zeker',
+  vcMarkRead: 'Zet het mailtje op gelezen',
+  vcMarkReadDescription: 'Als de code op het klembord staat, is het mailtje gelezen.',
+  vcDelete: 'Gooi het mailtje weg',
+  vcDeleteDescription: 'Als de code op het klembord staat, gaat het mailtje in de prullenbak.',
+  vcDeleteWarning:
+    'Pas op! Ziet de app iets aan voor een code, dan gooit hij een echt mailtje weg. Daarom staat dit uit.',
+  vcNotWiredYet:
+    'Het zoeken naar codes staat nog niet aan. Daarvoor moet Google de app iets extra toestaan, en dan moet jij opnieuw ja zeggen. Zeg het maar, dan zet ik het aan.',
+
   addShort: 'Erbij',
   renameAccount: 'Geef hem een andere naam',
 
@@ -757,8 +867,6 @@ export const STRINGS_RENE: UiStrings = {
   soundGroup: 'Geluid',
   playSound: 'Maak een geluidje',
   playSoundDescription: 'Zet je dit uit, dan is het stil. Ook bij iemand waar geluid aan staat.',
-  soundChoiceTodo:
-    'Een ander geluidje kiezen kan nog niet. De app gebruikt nu het geluid van Windows zelf.',
   googleAppsNotifications: 'Google-dingen',
   googleAppsNotificationsDescription: 'Meldingen van de agenda en andere Google-dingen.',
   downloadNotify: 'Zeg het als iets binnen is',

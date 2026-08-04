@@ -11,6 +11,7 @@ import type {
 } from './MailDropModal';
 import { getStrings } from './strings';
 import type { Surface } from '../lib/surfaces';
+import { googleAppTarget } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
@@ -86,6 +87,8 @@ export interface Prefs {
     showSender: boolean;
     showSubject: boolean;
     sound: boolean;
+    soundName: string;
+    volume: number;
     googleApps: boolean;
   };
   accounts: Record<string, AccountPref>;
@@ -97,7 +100,7 @@ export interface Prefs {
   // pagina.
   appearance: {
     showUnreadBadges: boolean;
-    tray: { enabled: boolean; selectUnreadOnClick: boolean };
+    tray: { enabled: boolean; selectUnreadOnClick: boolean; color: 'system' | 'light' | 'dark' };
     restrictMinWindowSize: boolean;
   };
   downloads: {
@@ -111,11 +114,9 @@ export interface Prefs {
   updates: { autoCheck: boolean; notify: boolean };
   languages: { spellcheck: string[] };
   gmail: {
-    hideLogo: boolean;
-    hideOutOfOfficeBanner: boolean;
-    hideUpgradeButton: boolean;
     hideInboxFooter: boolean;
     alwaysComposeInNewWindow: boolean;
+    closeComposeAfterSend: boolean;
   };
   googleApps: {
     openInApp: boolean;
@@ -125,8 +126,24 @@ export interface Prefs {
     showAccountColor: boolean;
     pinned: string[];
   };
+  verificationCodes: {
+    autoCopy: boolean;
+    confidence: 'medium' | 'high';
+    markRead: boolean;
+    deleteAfter: boolean;
+  };
   advanced: { hardwareAcceleration: boolean };
   reneMode: boolean;
+}
+
+/** Eén regel in het logboek van downloads. Spiegelt `DownloadRecord` in electron/ipc.ts. */
+export interface DownloadRecord {
+  filename: string;
+  path: string;
+  url: string;
+  bytes: number;
+  startedAt: number;
+  state: 'completed' | 'cancelled' | 'interrupted';
 }
 
 export type DownloadClickAction = 'show-in-folder' | 'open-file' | 'nothing';
@@ -178,12 +195,22 @@ interface DesktopBridge {
   setLanguages(patch: { spellcheck?: string[] }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
   setGmail(patch: {
-    hideLogo?: boolean;
-    hideOutOfOfficeBanner?: boolean;
-    hideUpgradeButton?: boolean;
     hideInboxFooter?: boolean;
     alwaysComposeInNewWindow?: boolean;
+    closeComposeAfterSend?: boolean;
   }): void;
+  setVerificationCodes(patch: {
+    autoCopy?: boolean;
+    confidence?: 'medium' | 'high';
+    markRead?: boolean;
+    deleteAfter?: boolean;
+  }): void;
+  getDownloadHistory(): Promise<DownloadRecord[]>;
+  clearDownloadHistory(): void;
+  revealDownload(path: string): void;
+  openDownload(path: string): void;
+  onDownloadHistoryChanged(cb: () => void): void;
+  onPlayNotificationSound(cb: (arg: { name: string; volume: number }) => void): void;
   setGoogleApps(patch: {
     openInApp?: boolean;
     alwaysNewWindow?: boolean;
@@ -196,6 +223,8 @@ interface DesktopBridge {
     showSender?: boolean;
     showSubject?: boolean;
     sound?: boolean;
+    soundName?: string;
+    volume?: number;
     googleApps?: boolean;
   }): void;
   testNotification(): void;
@@ -349,7 +378,21 @@ export default function AppShell() {
       return;
     }
     setPendingEmail(null); // een gewone klik overstemt een onthouden klik
-    setActive({ key, surface });
+    // Gaat deze app buiten de app open, dan verschuift het actieve tabblad níet.
+    //
+    // Dit was een echte fout: de balk zette zijn tabblad meteen om, main opende
+    // alleen de browser (er hoort geen weergave bij een app die je in je browser
+    // wilde), en dan wees de balk een tabblad aan waar niets achter zat — een wit
+    // venster. Nu blijft staan wat er stond: je post.
+    //
+    // De vraag "waar gaat deze app open" staat in `renderer/lib/google-apps.ts` en
+    // wordt door main met dezelfde functie gestled, zodat de balk en het hoofdproces
+    // niet op een ander antwoord kunnen uitkomen.
+    const target =
+      surface === 'mail' || !prefs
+        ? 'in-app'
+        : googleAppTarget(surface, prefs.googleApps);
+    if (target !== 'external') setActive({ key, surface });
     window.desktop?.switchSurface(key, surface);
   }
   function addAccount() {

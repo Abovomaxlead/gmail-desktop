@@ -8,6 +8,7 @@ import { AboutSection } from './settings/AboutSection';
 import { AccountsSection } from './settings/AccountsSection';
 import { AdvancedSection } from './settings/AdvancedSection';
 import { AppearanceSection } from './settings/AppearanceSection';
+import { DownloadHistorySection } from './settings/DownloadHistorySection';
 import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { GmailSection } from './settings/GmailSection';
@@ -18,6 +19,7 @@ import { PhishingSection } from './settings/PhishingSection';
 import { EmptyNote, Section } from './settings/Section';
 import { SettingsShell } from './settings/SettingsShell';
 import { UpdatesSection } from './settings/UpdatesSection';
+import { VerificationCodesSection } from './settings/VerificationCodesSection';
 import { WhatsNewSection } from './settings/WhatsNewSection';
 import { DEFAULT_SECTION, attentionFrom, type SettingsSection } from './settings/nav';
 import { NOTICE } from './settings/tokens';
@@ -38,8 +40,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navAccounts;
     case 'appearance':
       return S.navAppearance;
-    case 'blocker':
-      return S.navBlocker;
     case 'downloads':
       return S.navDownloads;
     case 'gmail':
@@ -52,8 +52,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navNotifications;
     case 'phishing-protection':
       return S.navPhishingProtection;
-    case 'unified-inbox':
-      return S.navUnifiedInbox;
     case 'updates':
       return S.navUpdates;
     case 'verification-codes':
@@ -196,6 +194,10 @@ export function SettingsPanel({
             return <GmailSection S={S} prefs={prefs} />;
           case 'appearance':
             return <AppearanceSection S={S} prefs={prefs} />;
+          case 'download-history':
+            return <DownloadHistorySection S={S} />;
+          case 'verification-codes':
+            return <VerificationCodesSection S={S} prefs={prefs} />;
           case 'downloads':
             return <DownloadsSection S={S} prefs={prefs} />;
           case 'languages':

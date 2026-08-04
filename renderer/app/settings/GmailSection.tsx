@@ -7,12 +7,16 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { HINT } from './tokens';
 
-// Gmail: wat de app in Gmail's eigen pagina verandert. Drie groepen, en die
-// indeling is niet cosmetisch — hij scheidt twee soorten ingrepen die anders
-// stukgaan. "Weergave" en "Postvak" zijn CSS die over Google's pagina heen gaat
-// (electron/gmail-tweaks.ts); "Opstellen" verandert niets aan die pagina maar aan
-// de app zelf (het opstelvenster). Wie ze door elkaar zet, gaat later zoeken
-// waarom de ene helft na een Gmail-update stil is opgehouden en de andere niet.
+// Gmail: wat de app aan Gmail verandert. Twee groepen, en die indeling is niet
+// cosmetisch — hij scheidt twee soorten ingrepen die anders stukgaan. "Postvak" is
+// CSS die over Google's pagina heen gaat (electron/gmail-tweaks.ts); "Opstellen"
+// verandert niets aan die pagina maar aan de app zelf (het opstelvenster). Wie ze
+// door elkaar zet, gaat later zoeken waarom de ene helft na een Gmail-update stil is
+// opgehouden en de andere niet.
+//
+// Hier stonden ook "verstop het logo", "verstop de afwezigheidsbalk" en "verstop de
+// opslagknop". Die zijn er op verzoek weer uit; wat ze deden zat in dezelfde
+// CSS-tabel als de tekst onderaan het postvak, en die tabel heeft nu één regel.
 //
 // Elke schakelaar leest `=== true` en niet `!== false`. Alles staat standaard uit:
 // dit zijn ingrepen in een pagina die niet van ons is, en wie de app bijwerkt hoort
@@ -23,53 +27,6 @@ export function GmailSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }
 
   return (
     <Section title={S.navGmail}>
-      <SettingsGroup title={S.gmailAppearanceGroup}>
-        <SettingRow
-          label={S.gmailHideLogo}
-          description={S.gmailHideLogoDescription}
-          htmlFor="setting-gmail-hide-logo"
-        >
-          <Switch
-            id="setting-gmail-hide-logo"
-            checked={gmail?.hideLogo === true}
-            onChange={(v) => window.desktop?.setGmail({ hideLogo: v })}
-          />
-        </SettingRow>
-
-        {/* De balk die zegt dat je automatische antwoord aan staat. Verbergen haalt
-            de balk weg en niet het antwoord: het staat nog aan, je ziet het alleen
-            niet meer bovenaan. Dat verschil hoort in de bijtekst te staan. */}
-        <SettingRow
-          label={S.gmailHideOutOfOffice}
-          description={S.gmailHideOutOfOfficeDescription}
-          htmlFor="setting-gmail-hide-out-of-office"
-        >
-          <Switch
-            id="setting-gmail-hide-out-of-office"
-            checked={gmail?.hideOutOfOfficeBanner === true}
-            onChange={(v) => window.desktop?.setGmail({ hideOutOfOfficeBanner: v })}
-          />
-        </SettingRow>
-
-        <SettingRow
-          label={S.gmailHideUpgrade}
-          description={S.gmailHideUpgradeDescription}
-          htmlFor="setting-gmail-hide-upgrade"
-        >
-          <Switch
-            id="setting-gmail-hide-upgrade"
-            checked={gmail?.hideUpgradeButton === true}
-            onChange={(v) => window.desktop?.setGmail({ hideUpgradeButton: v })}
-          />
-        </SettingRow>
-
-        {/* Deze drie werken door in Gmail's eigen pagina te grijpen, en die pagina is
-            van Google. Dat hoort er te staan: gaat er ooit een schakelaar niets meer
-            doen, dan is dít de reden, en dan weet je dat het niet aan jou ligt en dat
-            het te repareren is. Zonder deze regel lijkt het een kapotte app. */}
-        <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.gmailTweakFragile}</p>
-      </SettingsGroup>
-
       <SettingsGroup title={S.gmailComposeGroup}>
         <SettingRow
           label={S.gmailComposeNewWindow}
@@ -89,7 +46,23 @@ export function GmailSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }
             met opzet zonder onze preload. Waarom het er niet is staat in beeld en
             niet alleen in dit commentaar — dezelfde aanpak als `trayColourTodo` bij
             Weergave: wie de rij zoekt en niet vindt, hoort te lezen waarom. */}
-        <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.gmailCloseComposeTodo}</p>
+        {/* Deze rij was eerst zo'n regel, en is nu een schakelaar: het venster dat de
+            app zelf opent krijgt een eigen, minimale preload die alleen op Verzenden
+            let. `disabled` zolang opstellen in een eigen venster uit staat — in
+            Gmail's eigen hoekje is er geen venster om te sluiten, en een schakelaar
+            die dan wél te zetten is belooft iets dat niet gebeurt. */}
+        <SettingRow
+          label={S.gmailCloseCompose}
+          description={S.gmailCloseComposeDescription}
+          htmlFor="setting-gmail-close-compose"
+        >
+          <Switch
+            id="setting-gmail-close-compose"
+            disabled={gmail?.alwaysComposeInNewWindow !== true}
+            checked={gmail?.closeComposeAfterSend === true}
+            onChange={(v) => window.desktop?.setGmail({ closeComposeAfterSend: v })}
+          />
+        </SettingRow>
       </SettingsGroup>
 
       <SettingsGroup title={S.gmailInboxGroup}>
@@ -104,6 +77,12 @@ export function GmailSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }
             onChange={(v) => window.desktop?.setGmail({ hideInboxFooter: v })}
           />
         </SettingRow>
+
+        {/* De enige overgebleven ingreep in Gmail's eigen pagina, en dus de enige die
+            stil kan ophouden te werken als Google daar iets omgooit. Dat hoort in
+            beeld te staan: gebeurt het, dan is dít de reden, en dan weet je dat het
+            niet aan jou ligt en dat het te repareren is. */}
+        <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.gmailTweakFragile}</p>
       </SettingsGroup>
     </Section>
   );

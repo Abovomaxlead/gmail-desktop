@@ -75,7 +75,7 @@ import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type Tra
 import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './shortcuts';
 import { openCompose, openFullThreadWindow } from './compose-window';
-import { parseMailto, extractMailtoFromArgv } from './mailto';
+import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mailto';
 import { sortByOrder } from './account-order';
 import {
   notificationsAllowed,
@@ -89,6 +89,7 @@ import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
 import { attachExternalLinkHandling, setExternalOpener } from './external-links';
 import { googleAppTarget } from './google-apps-open';
+import { DownloadHistoryStore } from './download-history';
 import { overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
@@ -127,6 +128,17 @@ if (process.platform === 'linux' && /microsoft|WSL/i.test(release())) {
   app.disableHardwareAcceleration();
 }
 
+// Chromium start een AudioContext gedempt tot het document een echte klik heeft
+// gehad. Voor de balk is dat een probleem dat je niet ziet aankomen: een klik ín
+// Gmail telt niet als klik voor het document van de balk — dat zijn twee aparte
+// documenten — dus iemand die een uur alleen in zijn postvak klikt heeft een balk die
+// nooit is aangeraakt, en dan valt het meldingsgeluidje stil weg.
+//
+// Deze schakelaar haalt die eis weg. Dat is hier te verdedigen: de app speelt alleen
+// geluid dat de gebruiker zelf heeft aangezet, bij een melding waar hij om vroeg. Er
+// gaat niets automatisch spelen wat hij niet heeft ingesteld.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 // Hardwareversnelling uitzetten als de gebruiker daarom vroeg (Geavanceerd). Moet
 // vóór 'ready', en dus vóórdat `prefs` bestaat — die wordt in createWindow gemaakt.
 // Daarom hier een eigen, wegwerpbare lezer: `PrefsStore` houdt geen staat vast, het
@@ -161,6 +173,9 @@ function loadChangelog(): ChangelogVersion[] {
 }
 const PRELOAD_PATH = join(__dirname, 'preload.js');
 const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
+// De preload van een opstelvenster. Alleen gebruikt als "sluit na verzenden" aan
+// staat; zie `openComposeWindow` voor waarom hij er anders niet aan gaat.
+const COMPOSE_PRELOAD_PATH = join(__dirname, 'compose-preload.js');
 // Bundled app icon. Resolves to <project>/assets/icon.png in dev and to
 // app.asar/assets/icon.png when packaged (assets/** is in electron-builder files).
 const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
@@ -195,6 +210,10 @@ let lastDropSaved: SavedRef[] = [];
 let lastDropSource = '';
 let oauthTokens: OAuthStore | null = null;
 let history: HistoryStore | null = null;
+// Het logboek van downloads. Kan nog null zijn wanneer een sessie zich meldt: die
+// hook loopt via `app.on('session-created')` en dat kan vóór `createWindow()` zijn.
+// Vandaar `downloadHistory?.add(...)` op de aanroepplek.
+let downloadHistory: DownloadHistoryStore | null = null;
 const coverage = new PushCoverage();
 let pushManager: { stop(): void; refresh(): void } | null = null;
 // Eén runner per account: die coalesceert samenvallende syncs voor dat account.
@@ -785,7 +804,10 @@ function dispatchMailto(mailtoUrl: string): void {
   }
   const index = chooseComposeAccount();
   if (index == null) return;
-  openCompose(index, fields);
+  // Langs `openComposeWindow`, zodat een mailto:-venster dezelfde stand volgt als een
+  // venster dat je met de Opstellen-knop opent: sluiten na verzenden hoort niet af te
+  // hangen van waar het venster vandaan kwam.
+  openComposeWindow(index, fields);
 }
 
 function flushPendingMailto(): void {
@@ -855,7 +877,7 @@ function handleInput(input: KeyInput): void {
   } else if (action.type === 'compose') {
     const activeKey = manager?.activeKey();
     const active = activeKey ? idxOfKey(activeKey) : null;
-    if (active != null) openCompose(active);
+    if (active != null) openComposeWindow(active);
   } else if (action.type === 'zoom') {
     if (prefs?.getAll().reneMode) return; // Rene mode pins everything at 200%
     const activeKey = manager?.activeKey();
@@ -906,6 +928,31 @@ function applyReneZoom(): void {
 // de meldingen van het besturingssysteem.
 const NOTIFY_HIDDEN_SENDER = 'New email';
 const NOTIFY_HIDDEN_SUBJECT = 'You have new mail.';
+// Het eigen geluidje van de app bij een melding, als de gebruiker er een koos.
+//
+// Het spelen gebeurt in de balk-renderer en niet hier: het hoofdproces heeft geen
+// audio, en er worden geen audiobestanden meegebundeld — de tonen worden gemaakt
+// (zie renderer/lib/notification-sound.ts). Main zegt alleen wélke, en hoe hard.
+//
+// Is er geen naam gekozen, dan gebeurt hier niets en speelt Windows zijn eigen
+// meldingsgeluid, precies zoals daarvoor. `silent` op de melding blijft dus de
+// hoofdschakelaar: staat geluid uit, dan wordt dit niet aangeroepen.
+//
+// Tegen samenvallende meldingen zit een korte poort: tien mailtjes tegelijk zouden
+// tien tonen over elkaar heen spelen, en dat klinkt als een storing in plaats van
+// als post.
+let lastSoundAt = 0;
+const SOUND_GAP_MS = 1500;
+function playNotificationSound(p: Prefs): void {
+  if (p.notifications.sound === false) return;
+  const name = p.notifications.soundName;
+  if (!name) return; // leeg = het geluid van het systeem, daar doen wij niets aan
+  const now = Date.now();
+  if (now - lastSoundAt < SOUND_GAP_MS) return;
+  lastSoundAt = now;
+  mainWindow?.webContents.send(IPC.NOTIFY_SOUND_PLAY, { name, volume: p.notifications.volume });
+}
+
 function hiddenNotificationText(p: Prefs): { hiddenSender?: string; hiddenSubject?: string } {
   return {
     ...(p.notifications.showSender === false ? { hiddenSender: NOTIFY_HIDDEN_SENDER } : {}),
@@ -1759,6 +1806,9 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   });
   n.on('click', () => activateNotification(keyOf(profile), 'mail', meta.threadId));
   n.show();
+  // Het eigen geluidje erbij, als er een gekozen is. `silent` hierboven houdt Windows
+  // stil; zonder deze regel zou een gekozen toon nooit klinken.
+  if (!notificationSilent(p, email, 'mail')) playNotificationSound(p);
 }
 
 // Eén runner per account, zodat samenvallende syncs voor hetzelfde account
@@ -1954,6 +2004,7 @@ function createWindow(): void {
   oauthTokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
   history = new HistoryStore(join(app.getPath('userData'), 'gmail-history.json'));
   removed = new RemovedStore(join(app.getPath('userData'), 'removed.json'));
+  downloadHistory = new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json'));
   delegated = new DelegatedStore(join(app.getPath('userData'), 'delegated.json'));
   accountCache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
   // Eén keer per proces inlezen. Wordt het venster later opnieuw opgebouwd (een
@@ -2244,13 +2295,51 @@ function refreshTray(): void {
 function applyTraySetting(): void {
   const want = prefs?.getAll().appearance.tray.enabled !== false;
   if (want && !tray) {
-    tray = createTray(ICON_PATH, getTrayState());
+    tray = createTray(trayImage(), getTrayState());
     return;
   }
   if (!want && tray) {
     tray.destroy();
     tray = null;
   }
+  // Bestaat de tray al, dan hoeft hij niet opnieuw gebouwd te worden voor een andere
+  // kleur: het icoon is te vervangen op de tray die er staat.
+  if (want && tray) tray.setImage(trayImage());
+}
+
+// Het icoon voor de systeembalk, in de kleur die bij Weergave staat.
+//
+// 'light' en 'dark' vragen om een monochroom icoon, en dat komt niet uit een tweede
+// bestand in assets/: het logo wordt hier omgekleurd. Electron's `nativeImage` heeft
+// de PNG al gedecodeerd, dus `toBitmap()` geeft de pixels (BGRA) en
+// `createFromBitmap` maakt er weer een icoon van. De vórm blijft dus precies het
+// logo — alleen de kleur gaat eruit.
+//
+// De doorzichtigheid blijft staan en alleen de kleurkanalen worden gezet. Dat is
+// waarom dit werkt zonder de vorm te kennen: de alfalaag ís de vorm.
+//
+// "light" betekent een licht icoon (voor een donkere balk) en "dark" een donker icoon
+// (voor een lichte balk) — dat is hoe elk ander programma die twee woorden gebruikt,
+// en het omgekeerde raden zou de keuze onbruikbaar maken.
+function trayImage(): Electron.NativeImage {
+  const { nativeImage } = require('electron') as typeof import('electron');
+  let image = nativeImage.createFromPath(ICON_PATH);
+  if (image.isEmpty()) return image;
+  image = image.resize({ width: 32, height: 32 });
+  const colour = prefs?.getAll().appearance.tray.color ?? 'system';
+  if (colour === 'system') return image;
+  const level = colour === 'light' ? 0xff : 0x00;
+  const { width, height } = image.getSize();
+  const bitmap = image.toBitmap();
+  for (let i = 0; i < bitmap.length; i += 4) {
+    // Volledig doorzichtige pixels ongemoeid laten: die hebben geen kleur, en ze een
+    // kleur geven maakt van een rand een blok zodra iets die alfa later afrondt.
+    if (bitmap[i + 3] === 0) continue;
+    bitmap[i] = level; // B
+    bitmap[i + 1] = level; // G
+    bitmap[i + 2] = level; // R
+  }
+  return nativeImage.createFromBitmap(bitmap, { width, height });
 }
 
 // De ondergrens van de vensterbreedte, naar de stand in Weergave. Zie de opmerking
@@ -2276,6 +2365,13 @@ function showTestNotification(): void {
     body: hidden.hiddenSubject ?? 'This is what a notification looks like.',
     silent: p.notifications.sound === false,
   }).show();
+  // De testknop hoort ook het gekozen geluidje te laten horen — dat is de helft van
+  // waarom je hem indrukt. De poort tegen samenvallende tonen wordt hier omzeild: je
+  // vraagt er zelf om, en twee keer drukken moet twee keer klinken.
+  if (p.notifications.sound !== false && p.notifications.soundName) {
+    lastSoundAt = 0;
+    playNotificationSound(p);
+  }
 }
 
 // De opmaak die de Gmail-tab vraagt naar elke mailweergave. Eén tekst voor alle
@@ -2319,6 +2415,14 @@ function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
   // Protection over, en dan is er één weg naar buiten die de regel niet volgt.
   if (target === 'external') {
     openExternalGuarded(url);
+    // En daarna blijft staan wat er stond. Zonder deze twee regels kon het venster
+    // leeg achterblijven: er wordt geen weergave voor deze app gemaakt (dat is het
+    // hele punt van "in de browser"), en als er op dat moment niets zichtbaar was —
+    // of als de aanroeper net iets had verborgen — was er ook niets om naar terug te
+    // vallen. Expliciet de post van dit account weer tonen is het antwoord dat de
+    // gebruiker verwacht: je vroeg om een app in je browser, niet om je postvak weg.
+    const visible = activeView();
+    if (!visible) showAccount(ref, 'mail');
     return;
   }
   openGoogleAppWindow(url, ref, surface);
@@ -2368,7 +2472,29 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
 function openComposeForAccount(accountKey: string): void {
   const idx = idxOfKey(accountKey);
   if (idx == null) return;
-  openCompose(idx);
+  openComposeWindow(idx);
+}
+
+// Een opstelvenster, met of zonder de meekijkende preload.
+//
+// De preload gaat er alleen aan als "sluit na verzenden" aan staat. Dat is geen
+// zuinigheid: die preload injecteert een klikluisteraar in een pagina van Google, en
+// dat hoort niet te gebeuren als de gebruiker er niets aan heeft. Staat de stand uit,
+// dan is het venster precies wat het altijd was.
+function openComposeWindow(index: number, fields?: MailtoFields): void {
+  const closeAfterSend = prefs?.getAll().gmail.closeComposeAfterSend === true;
+  const win = openCompose(index, fields, closeAfterSend ? COMPOSE_PRELOAD_PATH : undefined);
+  if (!closeAfterSend) return;
+  win.webContents.on('ipc-message', (_e, channel) => {
+    if (channel !== IPC.COMPOSE_SENT) return;
+    // Even wachten voordat het venster dichtgaat: de klik is net doorgegeven aan
+    // Gmail, en die moet zijn verzoek nog de deur uit krijgen. Meteen sluiten zou de
+    // pagina afbreken vóórdat de mail weg is — dan is de instelling geen gemak maar
+    // een manier om post te verliezen.
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.close();
+    }, 1500);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -2428,6 +2554,16 @@ function openExternalGuarded(url: string): void {
 // Downloads.
 // ---------------------------------------------------------------------------
 
+// Staat dit pad in het logboek van downloads?
+//
+// De poort voor de twee kanalen die een bestand in de verkenner laten zien of laten
+// openen. Zonder deze controle zou de renderer elk pad op de schijf mogen aanwijzen,
+// en `shell.openPath` op een willekeurig pad is precies zo gevaarlijk als het klinkt.
+// Het logboek is door de app zelf geschreven, en daarmee de enige toegestane herkomst.
+function knownDownloadPath(path: string): boolean {
+  return downloadHistory?.all().some((r) => r.path === path) === true;
+}
+
 // De map waar een download heen gaat. Leeg in de voorkeuren = de downloadmap van
 // het besturingssysteem; dezelfde afspraak als bij de map voor gesleepte mail.
 function downloadFolder(): string {
@@ -2464,6 +2600,22 @@ function attachSessionHandlers(s: Electron.Session): void {
     }
     item.once('done', (_ev, state) => {
       const path = item.getSavePath();
+      // `getStartTime()` geeft secondes met decimalen sinds epoch, niet milliseconden.
+      // Zonder de ×1000 komt elke download in 1970 te staan. Bij een afbreking vóórdat
+      // er een pad was kan hij 0 zijn; dan is "nu" het eerlijkste antwoord, want de
+      // store verzint zelf geen tijd.
+      const started = item.getStartTime();
+      downloadHistory?.add({
+        filename: item.getFilename(),
+        path,
+        url: item.getURL(),
+        // Ontvangen bytes en niet het totaal: dat laatste is 0 als de server geen
+        // Content-Length gaf, en bij een afbreking is wat er staat wat er staat.
+        bytes: item.getReceivedBytes() || item.getTotalBytes(),
+        startedAt: started > 0 ? Math.round(started * 1000) : Date.now(),
+        state,
+      });
+      mainWindow?.webContents.send(IPC.DOWNLOAD_HISTORY_CHANGED);
       if (state === 'completed' && d.openFolderWhenDone && path) shell.showItemInFolder(path);
       if (d.notify) notifyDownloadDone(item.getFilename(), path, state, d.notifyClick);
     });
@@ -2674,7 +2826,9 @@ function registerIpc(): void {
     // Alleen doen wat er in de patch zat: `applyTraySetting` bouwt een tray op of
     // breekt hem af, en dat hoort niet te gebeuren omdat er een vinkje over
     // ongelezen getallen omging.
-    if (patch?.tray?.enabled !== undefined) applyTraySetting();
+    // Ook bij een kleurwijziging: `applyTraySetting` zet het icoon opnieuw op de tray
+    // die er al staat, dus dat is één aanroep voor beide gevallen.
+    if (patch?.tray?.enabled !== undefined || patch?.tray?.color !== undefined) applyTraySetting();
     if (patch?.restrictMinWindowSize !== undefined) applyMinWindowSize();
     if (patch?.showUnreadBadges !== undefined) {
       refreshBadge();
@@ -2727,6 +2881,11 @@ function registerIpc(): void {
     pushGmailTweaks();
     pushPrefs();
   });
+  ipcMain.on(IPC.SET_VERIFICATION_CODES, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setVerificationCodes((patch ?? {}) as Parameters<PrefsStore['setVerificationCodes']>[0]);
+    pushPrefs();
+  });
   ipcMain.on(IPC.SET_GOOGLE_APPS, (_e, patch: unknown) => {
     if (!prefs) return;
     prefs.setGoogleApps((patch ?? {}) as Parameters<PrefsStore['setGoogleApps']>[0]);
@@ -2746,6 +2905,21 @@ function registerIpc(): void {
     return res.filePaths[0];
   });
   ipcMain.handle(IPC.SPELLCHECK_LANGUAGES_GET, () => spellcheckOptions());
+  ipcMain.handle(IPC.DOWNLOAD_HISTORY_GET, () => downloadHistory?.all() ?? []);
+  ipcMain.on(IPC.DOWNLOAD_HISTORY_CLEAR, () => {
+    downloadHistory?.clear();
+    mainWindow?.webContents.send(IPC.DOWNLOAD_HISTORY_CHANGED);
+  });
+  // Beide alleen voor een pad dat in het logboek staat. Een willekeurig pad uit de
+  // renderer openen zou van deze twee kanalen een manier maken om elk bestand op de
+  // schijf te laten uitvoeren; het logboek is de lijst die de app zelf heeft
+  // geschreven, en dus de enige toegestane herkomst.
+  ipcMain.on(IPC.DOWNLOAD_HISTORY_REVEAL, (_e, path: unknown) => {
+    if (typeof path === 'string' && knownDownloadPath(path)) shell.showItemInFolder(path);
+  });
+  ipcMain.on(IPC.DOWNLOAD_HISTORY_OPEN, (_e, path: unknown) => {
+    if (typeof path === 'string' && knownDownloadPath(path)) void shell.openPath(path);
+  });
   ipcMain.on(IPC.SET_DEFAULT_MAIL, (_e, v: boolean) => setDefaultMail(v === true));
   // De modal-pagina kan geladen zijn nádat het main-proces de items al stuurde;
   // daarom haalt ze het bij het opstarten ook zelf op.

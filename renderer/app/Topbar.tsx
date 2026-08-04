@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AccountTab } from './AccountTab';
 import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { planPlusMenu, suggestionEmail, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import { accountCountVisible } from '../lib/badge-visibility';
+import { pinnedSurfaces, surfaceLabel } from '../lib/google-apps';
+import { playSound } from '../lib/notification-sound';
+import { SURFACE_ICON_DATA_URIS } from '../lib/surface-icon-data';
 import type { Profile, Surface, DelegatedSuggestion, UpdateStatus, Prefs } from './page';
 
 // De balk ís de titelbalk van het venster. Twee regels beheersen dit bestand:
@@ -45,6 +48,12 @@ const DRAG_RESERVE = 60; // minimale sleepruimte, anders is het venster niet te 
 // "+"↔rekstrook, rekstrook↔tandwiel); mét de knop een vierde.
 const RESERVE_WITHOUT_UPDATE = DRAG_RESERVE + ICON_BUTTON + ICON_BUTTON + GEAR_MARGIN + GAP * 3;
 const RESERVE_WITH_UPDATE = RESERVE_WITHOUT_UPDATE + UPDATE_BUTTON + GAP;
+
+// Elk vastgezet app-icoon is een knop van 26px met een gat van 4px ervoor. Dit hoort
+// in de reservering, en dat is precies waar de opmerking hierboven voor waarschuwt:
+// vergeet je het, dan schuift de tabstrook onder het tandwiel of onder de
+// vensterknoppen van Windows, en dan is er niets meer aan te klikken.
+const PINNED_BUTTON = ICON_BUTTON + GAP;
 
 function PlusIcon({ className = '' }: { className?: string }) {
   return (
@@ -116,6 +125,25 @@ export function Topbar({
   // zelf is van het OS en houdt zijn eigen toestand bij.
   const [plusOpen, setPlusOpen] = useState(false);
   const updateReady = update.state === 'downloaded';
+  // De vastgezette apps komen uit de voorkeuren en worden gefilterd op wat deze
+  // versie kent (zie `pinnedSurfaces`). Zijn de voorkeuren er nog niet, dan staat er
+  // niets — en niet een gok, want elke knop hier kost de tabstrook ruimte.
+  const pinned = pinnedSurfaces(prefs?.googleApps.pinned ?? []);
+
+  // Het meldingsgeluidje. Het staat in de balk en niet in het hoofdproces, omdat main
+  // geen audio heeft en er geen geluidsbestanden worden meegebundeld: de tonen worden
+  // hier gemaakt met WebAudio (zie lib/notification-sound.ts). Main zegt alleen welke
+  // en hoe hard.
+  //
+  // Deze balk is het enige venster dat altijd bestaat zolang de app draait, dus is dit
+  // de enige plek waar zo'n luisteraar thuishoort. Eén keer opzetten: `playSound`
+  // gooit nooit en geeft `false` terug als er niets te spelen valt, dus er hoeft hier
+  // niets afgehandeld te worden.
+  useEffect(() => {
+    window.desktop?.onPlayNotificationSound(({ name, volume }) => {
+      playSound(name, volume);
+    });
+  }, []);
 
   async function openPlusMenu(): Promise<void> {
     setPlusOpen(true);
@@ -159,7 +187,10 @@ export function Topbar({
         <div
           className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{
-            maxWidth: `calc(100% - ${updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE}px)`,
+            maxWidth: `calc(100% - ${
+              (updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE) +
+              pinned.length * PINNED_BUTTON
+            }px)`,
             ...NO_DRAG,
           }}
         >
@@ -220,6 +251,34 @@ export function Topbar({
             <span className="min-w-0 truncate">{strings.updateReady}</span>
           </button>
         )}
+        {/* De vastgezette Google-apps, links van het tandwiel. Ze openen de app van
+            het account dat nu open staat: er is één balk voor alle accounts, dus
+            "welk account" kan alleen het actieve zijn — anders zou hetzelfde icoon
+            iets anders doen dan wat je op je scherm ziet.
+            Staat er geen account open, dan zijn ze uitgeschakeld in plaats van
+            verborgen: verdwijnende knoppen laten de hele balk verspringen, en de
+            reservering van de tabstrook hierboven rekent met hun aanwezigheid. */}
+        {pinned.map((surface) => (
+          <button
+            key={surface}
+            onClick={() => active && onOpen(active.key, surface)}
+            disabled={!active}
+            title={surfaceLabel(surface)}
+            aria-label={surfaceLabel(surface)}
+            style={NO_DRAG}
+            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10"
+          >
+            {/* Het icoon van de app zelf, als data-URI uit lib/ — geen tekst, want
+                naast het tandwiel is ruimte voor precies één vierkantje per app. De
+                naam staat in `title` en in `aria-label`. */}
+            <img
+              src={SURFACE_ICON_DATA_URIS[surface]}
+              alt=""
+              aria-hidden
+              className="h-4 w-4 object-contain"
+            />
+          </button>
+        ))}
         <button
           onClick={onOpenSettings}
           title={strings.settingsTooltip}

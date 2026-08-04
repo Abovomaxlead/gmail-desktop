@@ -12,35 +12,17 @@
 // kring maken zodra main-code de andere kant op wil kijken). Een type verdwijnt bij
 // het compileren, dus er blijft niets van over.
 import type { GoogleAppsPrefs } from './prefs-store';
+import { filterPinned } from '../renderer/lib/google-apps';
 
 // Drie bestemmingen, en niet een boolean per instelling. Een aanroeper die zelf
 // `openInApp && !alwaysNewWindow` moet uitrekenen komt vroeg of laat op een andere
 // uitkomst dan de aanroeper ernaast; met één naam per bestemming kan dat niet.
-export type GoogleAppTarget = 'in-app' | 'new-window' | 'external';
-
-/**
- * De bestemming van één Google-app. De volgorde van de regels hieronder ís de
- * beslissing — hij staat daarom expliciet in de opmerkingen erbij.
- */
-export function googleAppTarget(
-  surface: string,
-  prefs: Pick<GoogleAppsPrefs, 'openInApp' | 'alwaysNewWindow' | 'excluded'>,
-): GoogleAppTarget {
-  // De uitzondering per app gaat vóór de algemene stand. Wie één app op de lijst
-  // zet, zegt iets specifieker dan wie de hoofdschakelaar omzet, en het omgekeerde
-  // zou de lijst zinloos maken: bij `openInApp: true` (de standaard) zou er dan
-  // nooit iets naar de browser gaan en leek de lijst stuk.
-  if (prefs.excluded.includes(surface)) return 'external';
-  // De hoofdschakelaar staat uit: alles naar de browser. Dit gaat vóór
-  // `alwaysNewWindow`, want dat veld gaat over vensters van déze app — een app die
-  // de app helemaal niet in mag, mag ook geen eigen venster van ons krijgen. Zonder
-  // deze rangorde zou "niet in de app" met "altijd nieuw venster" alsnog een venster
-  // van de app opleveren, precies wat de gebruiker uitzette.
-  if (!prefs.openInApp) return 'external';
-  if (prefs.alwaysNewWindow) return 'new-window';
-  // De stand van nu, en dus de standaard: in het venster dat er al is.
-  return 'in-app';
-}
+// De beslissing zelf staat in `renderer/lib/google-apps.ts`. Daar en niet hier, omdat
+// de balk hem ook nodig heeft en Next.js niets van buiten `renderer/` compileert —
+// zie de opmerking bij die functie. Deze twee regels houden de naam waaronder het
+// hoofdproces hem kent.
+export type { GoogleAppTarget } from '../renderer/lib/google-apps';
+export { googleAppTarget } from '../renderer/lib/google-apps';
 
 /**
  * De vastgezette apps, geschoond tegen wat er in het voorkeurenbestand kan staan.
@@ -58,11 +40,11 @@ export function pinnedSurfaces(pinned: readonly string[], known: readonly string
   // waarin de iconen in de balk staan, en die heeft de gebruiker zelf gezet.
   // Ontdubbelen omdat dezelfde app twee keer in de balk twee knoppen naar hetzelfde
   // tabblad is, en de tweede niets toevoegt behalve breedte.
-  const out: string[] = [];
-  for (const key of pinned) {
-    if (!known.includes(key)) continue;
-    if (out.includes(key)) continue;
-    out.push(key);
-  }
-  return out;
+  //
+  // De regel zelf staat in `renderer/lib/google-apps.ts` en niet hier. De balk heeft
+  // hem óók nodig, en Next.js compileert niets van buiten `renderer/` — dus zou een
+  // eigen kopie hier betekenen dat dezelfde regel op twee plekken staat, met twee
+  // kansen dat er één verandert. Deze functie blijft bestaan als de naam waaronder
+  // het hoofdproces hem kent, en geeft het werk door.
+  return filterPinned(pinned, known);
 }

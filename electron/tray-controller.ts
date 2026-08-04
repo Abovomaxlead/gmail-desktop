@@ -129,12 +129,12 @@ export function buildTrayMenu(state: TrayState): Menu {
   return Menu.buildFromTemplate(trayMenuTemplate(state));
 }
 
-export function createTray(iconPath: string, state: TrayState): Tray {
-  const { Tray, nativeImage } = require('electron') as typeof import('electron');
-  // Load the app logo and scale it down to a crisp tray size. Fall back to an
-  // empty (platform-default) image if the icon can't be read.
-  let image = nativeImage.createFromPath(iconPath);
-  if (!image.isEmpty()) image = image.resize({ width: 32, height: 32 });
+// Neemt een kant-en-klaar icoon in plaats van een pad. Het samenstellen ervan zit in
+// main (`trayImage`), omdat het van een voorkeur afhangt — de kleur uit Weergave — en
+// dit bestand met opzet niets van voorkeuren weet: alles wat de tray toont of doet
+// komt als staat binnen, zodat het menu een pure functie blijft.
+export function createTray(image: Electron.NativeImage, state: TrayState): Tray {
+  const { Tray } = require('electron') as typeof import('electron');
   const tray = new Tray(image);
   tray.setToolTip('Gmail Desktop');
   tray.setContextMenu(buildTrayMenu(state));

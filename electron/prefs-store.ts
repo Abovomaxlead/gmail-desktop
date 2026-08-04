@@ -32,6 +32,14 @@ export interface NotificationPrefs {
   // die van een account waarvoor geluid aan staat. Aan laat de keuze per account
   // (`notifySound`) beslissen — dus standaard aan verandert er niets.
   sound: boolean;
+  // Welk geluidje, en hoe hard. De namen zijn die van tonen die de app zelf maakt
+  // (WebAudio, zie renderer/lib/notification-sound.ts) — er worden geen
+  // audiobestanden meegebundeld, want die hebben licenties. Leeg = het geluid dat
+  // het besturingssysteem zelf bij een melding speelt, en dat is de stand van nu.
+  soundName: string;
+  // 0..1. Geldt alleen voor de tonen van de app; het systeemgeluid heeft zijn eigen
+  // volume, dat wij niet horen te overrulen.
+  volume: number;
   // Meldingen van de andere Google-apps (nu: de agenda). Hoofdschakelaar boven de
   // keuze per account (`calendarNotify`), zelfde verhouding als `sound`.
   googleApps: boolean;
@@ -39,15 +47,18 @@ export interface NotificationPrefs {
 
 // De weergave van de app zelf: het thema staat hierbuiten (`Prefs.theme`) omdat
 // main het al vóór het eerste venster nodig heeft voor de achtergrondkleur.
+// De kleur van het tray-icoon. 'system' is het gewone, gekleurde app-logo; 'light'
+// en 'dark' zijn dat logo in één kleur, zodat het niet wegvalt tegen een lichte of
+// donkere taakbalk. Er komt geen tweede icoonbestand aan te pas: main leest het logo
+// met Electron's eigen decoder, houdt de vorm (de doorzichtigheid) en vervangt de
+// kleur. Zie `trayImage` in main.ts.
+export type TrayColor = 'system' | 'light' | 'dark';
 export interface TrayPrefs {
   enabled: boolean;
   // Klik je op het tray-icoon, spring dan naar het eerste account met ongelezen
   // post in plaats van naar het account dat vooraan stond.
   selectUnreadOnClick: boolean;
-  // Hier hoort ook de kleur van het tray-icoon. Die staat er nog niet: het icoon is
-  // het gekleurde app-logo, en "licht" of "donker" vraagt om een monochrome variant
-  // in assets/. Zonder die twee bestanden zou de keuze een schakelaar zijn die niets
-  // doet, en dat is erger dan een keuze die er nog niet is.
+  color: TrayColor;
 }
 export interface AppearancePrefs {
   // Hoofdschakelaar boven `badgeCount` per account: uit verbergt elk getal, ook
@@ -104,19 +115,16 @@ export interface LanguagePrefs {
 // één plek (gmail-tweaks.ts) met per regel wat hij zoekt, en niet verspreid: als
 // Google iets omgooit, is dat één tabel om bij te werken in plaats van een zoektocht.
 export interface GmailPrefs {
-  hideLogo: boolean;
-  hideOutOfOfficeBanner: boolean;
-  hideUpgradeButton: boolean;
   hideInboxFooter: boolean;
   // Opstellen in een eigen venster in plaats van in het hoekje van Gmail. Geen
   // ingreep in de opmaak maar in de app: het opstelvenster bestaat al
   // (compose-window.ts, gebruikt voor een mailto:-link).
-  //
-  // "Sluit het opstelvenster na verzenden" hoort hier ook en staat er niet: dat
-  // vraagt een haak binnen Gmail's eigen opstelpagina, en dat venster draait met
-  // opzet zonder onze preload — die is voor de mailweergave en zou daar ongelezen
-  // post gaan tellen en meldingen afvangen.
   alwaysComposeInNewWindow: boolean;
+  // Sluit dat venster zodra je op verzenden hebt gedrukt. Kan alleen in een venster
+  // dat wíj hebben geopend, en daar krijgt het een eigen, minimale preload voor —
+  // niet de preload van de mailweergave, want die telt ongelezen post en vangt
+  // meldingen af, en dat hoort een opstelvenster niet te doen.
+  closeComposeAfterSend: boolean;
 }
 
 // De tab Google Apps: hoe de agenda en de andere Google-apps opengaan.
@@ -132,6 +140,18 @@ export interface GoogleAppsPrefs {
   // = geen, en dat is de stand van nu: de agenda en de apps zitten in het
   // rechtsklikmenu van een tabblad.
   pinned: string[];
+}
+
+// De tab Verification Codes.
+export type CodeConfidence = 'medium' | 'high';
+export interface VerificationCodePrefs {
+  autoCopy: boolean;
+  confidence: CodeConfidence;
+  markRead: boolean;
+  // Het enige onomkeerbare in dit bestand: een verkeerd herkende code zou een mail
+  // weggooien. Standaard uit, en dat blijft zo — dit is een keuze die de gebruiker
+  // zelf moet maken, met de bijtekst erbij.
+  deleteAfter: boolean;
 }
 
 export interface AdvancedPrefs {
@@ -150,7 +170,10 @@ export type AppearancePatch = Partial<Omit<AppearancePrefs, 'tray'>> & {
 // en `quietHours` gaan langs `setNotifications`, dat er een eigen samenvoegregel
 // voor heeft.
 export type NotificationExtrasPatch = Partial<
-  Pick<NotificationPrefs, 'showSender' | 'showSubject' | 'sound' | 'googleApps'>
+  Pick<
+    NotificationPrefs,
+    'showSender' | 'showSubject' | 'sound' | 'soundName' | 'volume' | 'googleApps'
+  >
 >;
 export interface WindowPrefs {
   width: number;
@@ -189,6 +212,7 @@ export interface Prefs {
   languages: LanguagePrefs;
   gmail: GmailPrefs;
   googleApps: GoogleAppsPrefs;
+  verificationCodes: VerificationCodePrefs;
   advanced: AdvancedPrefs;
   // Easter egg: everything at 200% and the UI in simple Dutch. Toggled only by
   // the secret key sequence on the settings page.
@@ -207,6 +231,8 @@ export const DEFAULT_PREFS: Prefs = {
     showSender: true,
     showSubject: true,
     sound: true,
+    soundName: '',
+    volume: 1,
     googleApps: true,
   },
   accounts: {},
@@ -216,7 +242,7 @@ export const DEFAULT_PREFS: Prefs = {
   // er verandert, verandert omdat de gebruiker een schakelaar omzet.
   appearance: {
     showUnreadBadges: true,
-    tray: { enabled: true, selectUnreadOnClick: false },
+    tray: { enabled: true, selectUnreadOnClick: false, color: 'system' },
     restrictMinWindowSize: true,
   },
   downloads: {
@@ -230,11 +256,9 @@ export const DEFAULT_PREFS: Prefs = {
   updates: { autoCheck: true, notify: true },
   languages: { spellcheck: [] },
   gmail: {
-    hideLogo: false,
-    hideOutOfOfficeBanner: false,
-    hideUpgradeButton: false,
     hideInboxFooter: false,
     alwaysComposeInNewWindow: false,
+    closeComposeAfterSend: false,
   },
   googleApps: {
     openInApp: true,
@@ -244,6 +268,7 @@ export const DEFAULT_PREFS: Prefs = {
     showAccountColor: true,
     pinned: [],
   },
+  verificationCodes: { autoCopy: false, confidence: 'high', markRead: false, deleteAfter: false },
   advanced: { hardwareAcceleration: true },
   reneMode: false,
 };
@@ -261,6 +286,15 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 // Alleen niet-lege strings, ontdubbeld, in de volgorde waarin ze stonden. Een
 // hand-geschreven bestand met een getal of een null in de lijst mag de hele lijst
 // niet weggooien.
+// Een getal tussen 0 en 1. Buiten bereik wordt naar binnen getrokken in plaats van
+// teruggevallen op de standaard: een volume van 1.4 in een hand-geschreven bestand
+// betekent duidelijk "hard", en dan is 1 het juiste antwoord en niet "negeer maar".
+// NaN en niet-getallen vallen wél terug — die betekenen niets.
+function unitRange(v: unknown, fallback: number): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
+  return Math.min(1, Math.max(0, v));
+}
+
 function stringList(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   const out: string[] = [];
@@ -296,6 +330,8 @@ export class PrefsStore {
           showSender: bool(raw.notifications?.showSender, true),
           showSubject: bool(raw.notifications?.showSubject, true),
           sound: bool(raw.notifications?.sound, true),
+          soundName: typeof raw.notifications?.soundName === 'string' ? raw.notifications.soundName : '',
+          volume: unitRange(raw.notifications?.volume, 1),
           googleApps: bool(raw.notifications?.googleApps, true),
         },
         accounts: raw.accounts && typeof raw.accounts === 'object' && !Array.isArray(raw.accounts)
@@ -309,6 +345,7 @@ export class PrefsStore {
           tray: {
             enabled: bool(raw.appearance?.tray?.enabled, true),
             selectUnreadOnClick: bool(raw.appearance?.tray?.selectUnreadOnClick, false),
+            color: oneOf(raw.appearance?.tray?.color, ['system', 'light', 'dark'] as const, 'system'),
           },
           restrictMinWindowSize: bool(raw.appearance?.restrictMinWindowSize, true),
         },
@@ -333,11 +370,9 @@ export class PrefsStore {
         },
         languages: { spellcheck: stringList(raw.languages?.spellcheck) },
         gmail: {
-          hideLogo: bool(raw.gmail?.hideLogo, false),
-          hideOutOfOfficeBanner: bool(raw.gmail?.hideOutOfOfficeBanner, false),
-          hideUpgradeButton: bool(raw.gmail?.hideUpgradeButton, false),
           hideInboxFooter: bool(raw.gmail?.hideInboxFooter, false),
           alwaysComposeInNewWindow: bool(raw.gmail?.alwaysComposeInNewWindow, false),
+          closeComposeAfterSend: bool(raw.gmail?.closeComposeAfterSend, false),
         },
         googleApps: {
           openInApp: bool(raw.googleApps?.openInApp, true),
@@ -346,6 +381,12 @@ export class PrefsStore {
           showAccountLabel: bool(raw.googleApps?.showAccountLabel, true),
           showAccountColor: bool(raw.googleApps?.showAccountColor, true),
           pinned: stringList(raw.googleApps?.pinned),
+        },
+        verificationCodes: {
+          autoCopy: bool(raw.verificationCodes?.autoCopy, false),
+          confidence: oneOf(raw.verificationCodes?.confidence, ['medium', 'high'] as const, 'high'),
+          markRead: bool(raw.verificationCodes?.markRead, false),
+          deleteAfter: bool(raw.verificationCodes?.deleteAfter, false),
         },
         advanced: { hardwareAcceleration: bool(raw.advanced?.hardwareAcceleration, true) },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
@@ -415,6 +456,10 @@ export class PrefsStore {
   setAdvanced(patch: Partial<AdvancedPrefs>): void {
     const prefs = this.getAll();
     this.write({ ...prefs, advanced: { ...prefs.advanced, ...patch } });
+  }
+  setVerificationCodes(patch: Partial<VerificationCodePrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, verificationCodes: { ...prefs.verificationCodes, ...patch } });
   }
   setGmail(patch: Partial<GmailPrefs>): void {
     const prefs = this.getAll();

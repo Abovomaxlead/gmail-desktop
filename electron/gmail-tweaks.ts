@@ -32,9 +32,6 @@ import type { GmailPrefs } from './prefs-store';
  * te maken.
  */
 export type GmailHideFlag =
-  | 'hideLogo'
-  | 'hideOutOfOfficeBanner'
-  | 'hideUpgradeButton'
   | 'hideInboxFooter';
 
 export type GmailCssPrefs = Pick<GmailPrefs, GmailHideFlag>;
@@ -65,70 +62,6 @@ const HIDE = 'display: none !important;';
  * keer) — dat zijn juist de fouten die je in een CSS-tekst niet ziet.
  */
 export const GMAIL_TWEAK_RULES: readonly GmailTweakRule[] = [
-  {
-    pref: 'hideLogo',
-    // Het Gmail-logo linksboven in de kopbalk. "Gmail" is een merknaam en wordt in
-    // geen enkele taal vertaald, dus een `aria-label`/`alt`/`title` met die waarde
-    // is hier veilig — bij een gewone knop zou dat niet mogen, want die tekst is in
-    // het Nederlands anders.
-    //
-    // Vier kandidaten omdat Google het logo in de loop der jaren als `<img>` met
-    // `alt`, als link met `aria-label` en als achtergrond op een `<div>` heeft
-    // gehad. `logo_gmail` in de bestandsnaam van het plaatje is de stabielste van
-    // het stel: die naam zit in Google's eigen CDN-pad.
-    selectors: [
-      'header a[aria-label="Gmail"]',
-      'header a[title="Gmail"]',
-      '[role="banner"] a[aria-label="Gmail"]',
-      '[role="banner"] img[alt="Gmail"]',
-      'header img[src*="logo_gmail"]',
-    ],
-    declarations: HIDE,
-    confidence: 'midden',
-  },
-  {
-    pref: 'hideOutOfOfficeBanner',
-    // De balk bovenaan die zegt dat je automatische antwoord aan staat. De enige
-    // stabiele haak eraan is de link naar de instelling zelf: `#settings/vacation`.
-    //
-    // Let op de `>` in `:has(> …)`, en die staat er niet voor de leesbaarheid: een
-    // ongebonden `div:has(a[href…])` matcht élke voorouder van die link, dus ook
-    // `<body>`'s eerste div — dat verbergt de hele pagina. Met een directe-kind-eis
-    // kan de match niet omhoog klimmen en raakt hij precies het blok dat de link
-    // bevat. De test dwingt dit af voor elke `:has()` in dit bestand.
-    //
-    // Twee diepten omdat de link soms in een `<span>` zit, en `.aeH` als laatste
-    // redmiddel: dat is een versleutelde Google-klasse en dus een gok. Hij staat er
-    // alleen omdat er zonder de link (bijvoorbeeld als de balk een knop gebruikt in
-    // plaats van een link) niets anders is om op te mikken.
-    selectors: [
-      'div[role="alert"]:has(> a[href*="settings/vacation"])',
-      'div:has(> a[href*="settings/vacation"])',
-      'div:has(> span > a[href*="settings/vacation"])',
-      '.aeF .aeH',
-    ],
-    declarations: HIDE,
-    confidence: 'laag',
-  },
-  {
-    pref: 'hideUpgradeButton',
-    // De knop die meer opslag verkoopt. Die wijst altijd naar Google One
-    // (`one.google.com`) of naar de Workspace-verkooppagina, en dát is de haak: een
-    // `href` naar een ander domein overleeft elke hernoemronde van klassenamen.
-    //
-    // De twee `aria-label`-kandidaten staan er als vangnet en werken alleen in een
-    // Engelse Gmail — het woord "Upgrade" is elders vertaald. Ze staan achteraan en
-    // zijn afgebakend tot `a`/`button`, want een ongebonden `[aria-label*="…"]`
-    // raakt vroeg of laat een willekeurige container met dat woord in zijn naam.
-    selectors: [
-      'a[href*="one.google.com"]',
-      'a[href*="workspace.google.com"]',
-      'a[aria-label*="Upgrade" i]',
-      'button[aria-label*="Upgrade" i]',
-    ],
-    declarations: HIDE,
-    confidence: 'midden',
-  },
   {
     pref: 'hideInboxFooter',
     // De voettekst onder de lijst: hoeveel opslag je gebruikt, Voorwaarden,

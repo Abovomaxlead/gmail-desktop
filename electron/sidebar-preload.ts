@@ -72,6 +72,18 @@ contextBridge.exposeInMainWorld('desktop', {
   setLanguages: (patch: unknown): void => ipcRenderer.send(IPC.SET_LANGUAGES, patch),
   setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
   setGmail: (patch: unknown): void => ipcRenderer.send(IPC.SET_GMAIL, patch),
+  setVerificationCodes: (patch: unknown): void =>
+    ipcRenderer.send(IPC.SET_VERIFICATION_CODES, patch),
+  getDownloadHistory: (): Promise<unknown> => ipcRenderer.invoke(IPC.DOWNLOAD_HISTORY_GET),
+  clearDownloadHistory: (): void => ipcRenderer.send(IPC.DOWNLOAD_HISTORY_CLEAR),
+  revealDownload: (path: string): void => ipcRenderer.send(IPC.DOWNLOAD_HISTORY_REVEAL, path),
+  openDownload: (path: string): void => ipcRenderer.send(IPC.DOWNLOAD_HISTORY_OPEN, path),
+  onDownloadHistoryChanged: (cb: () => void): void => {
+    ipcRenderer.on(IPC.DOWNLOAD_HISTORY_CHANGED, () => cb());
+  },
+  onPlayNotificationSound: (cb: (arg: { name: string; volume: number }) => void): void => {
+    ipcRenderer.on(IPC.NOTIFY_SOUND_PLAY, (_e, arg) => cb(arg));
+  },
   setGoogleApps: (patch: unknown): void => ipcRenderer.send(IPC.SET_GOOGLE_APPS, patch),
   setNotificationExtras: (patch: unknown): void =>
     ipcRenderer.send(IPC.SET_NOTIFICATION_EXTRAS, patch),

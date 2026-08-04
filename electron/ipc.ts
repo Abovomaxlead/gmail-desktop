@@ -30,6 +30,17 @@ export const IPC = {
   SET_LANGUAGES: 'prefs:languages', // send(Partial<LanguagePrefs>)
   SET_ADVANCED: 'prefs:advanced', // send(Partial<AdvancedPrefs>)
   SET_GMAIL: 'prefs:gmail', // send(Partial<GmailPrefs>)
+  SET_VERIFICATION_CODES: 'prefs:verification-codes', // send(Partial<VerificationCodePrefs>)
+  // Het logboek van wat er is gehaald. Een eigen bestand en geen voorkeur: het is een
+  // lijst die groeit, en die hoort niet in prefs.json.
+  DOWNLOAD_HISTORY_GET: 'downloads:history-get', // invoke() -> DownloadRecord[]
+  DOWNLOAD_HISTORY_CLEAR: 'downloads:history-clear', // send()
+  DOWNLOAD_HISTORY_REVEAL: 'downloads:history-reveal', // send(path) — in de map laten zien
+  DOWNLOAD_HISTORY_OPEN: 'downloads:history-open', // send(path) — het bestand openen
+  DOWNLOAD_HISTORY_CHANGED: 'downloads:history-changed', // main -> renderer: send()
+  // main -> balk-renderer: speel dit geluidje. De tonen worden in de renderer gemaakt
+  // (WebAudio); main heeft geen audio en er worden geen bestanden meegebundeld.
+  NOTIFY_SOUND_PLAY: 'notify:sound-play', // send({name, volume})
   SET_GOOGLE_APPS: 'prefs:google-apps', // send(Partial<GoogleAppsPrefs>)
   // main -> mail view: alles wat de Gmail-tab van de pagina vraagt, in één bericht.
   // Wordt opnieuw gestuurd zodra een schakelaar omgaat én bij elke (her)laad, want
@@ -43,6 +54,10 @@ export const IPC = {
   // venster. De view stuurt alleen dát het gebeurde; welk account erbij hoort weet
   // main uit de view waar het bericht vandaan komt.
   COMPOSE_REQUEST: 'gmail:compose-request', // send()
+  // opstelvenster -> main: er is op Verzenden gedrukt. Main sluit het venster als de
+  // gebruiker dat bij Gmail heeft aangezet; de melding komt altijd, want het venster
+  // weet niet wat er ingesteld staat en hoort dat ook niet te weten.
+  COMPOSE_SENT: 'gmail:compose-sent', // send()
   SET_NOTIFICATION_EXTRAS: 'prefs:notification-extras', // send(NotificationExtrasPatch)
   NOTIFY_TEST: 'notify:test', // send() — laat één melding zien zoals hij eruit komt
   DOWNLOAD_FOLDER_PICK: 'downloads:folder-pick', // invoke() -> string (het gekozen pad, of het oude)
@@ -145,6 +160,16 @@ export interface MailDropResult {
 // geen vlaggetje: de preload wordt in Gmail's eigen pagina geïnjecteerd en kent
 // geen taal, dus wat er dán komt te staan hoort van main te komen. `undefined` =
 // laat wat de pagina zelf zei.
+// Eén regel in het logboek van downloads.
+export interface DownloadRecord {
+  filename: string;
+  path: string;
+  url: string;
+  bytes: number;
+  startedAt: number; // epoch ms
+  state: 'completed' | 'cancelled' | 'interrupted';
+}
+
 // Wat de Gmail-tab van de pagina vraagt. `css` leeg = niets in te spuiten (en dan
 // haalt de preload een eerder gezet `<style>` weg).
 export type GmailTweakState = { css: string; composeInNewWindow: boolean };

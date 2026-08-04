@@ -6,7 +6,29 @@ import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
-import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, HAIRLINE, HINT, PANEL } from './tokens';
+import { SOUNDS, playSound } from '../../lib/notification-sound';
+import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
+
+// De naam van een toon, uit `strings.ts`. Een `switch` en geen kaart in de strings:
+// zo klaagt de compiler zodra er een toon bij komt zonder naam, in plaats van een
+// lege regel in de keuzelijst te zetten. Onbekend valt terug op de sleutel zelf —
+// beter iets dan niets.
+function soundLabel(S: UiStrings, name: string): string {
+  switch (name) {
+    case 'chime':
+      return S.soundChime;
+    case 'ping':
+      return S.soundPing;
+    case 'arpeggio':
+      return S.soundArpeggio;
+    case 'knock':
+      return S.soundKnock;
+    case 'tick':
+      return S.soundTick;
+    default:
+      return name;
+  }
+}
 
 // De tijdvelden dragen `tabular-nums`: een tijd is een getal, en een getal dat
 // van 09:59 naar 10:00 springt hoort niet ook nog van breedte te veranderen.
@@ -286,11 +308,63 @@ export function NotificationsSection({
             onChange={(v) => window.desktop?.setNotificationExtras({ sound: v })}
           />
         </SettingRow>
-        {/* Welk geluid, en hoe hard, hoort hier ook. Dat kan pas als de app eigen
-            geluidsbestanden meebrengt: nu speelt Windows zijn eigen meldingsgeluid en
-            daar valt niets aan te kiezen. Liever deze regel dan een keuzelijst met
-            namen die niets doen. */}
-        <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.soundChoiceTodo}</p>
+        {/* Welk geluidje. "Het geluid van de computer" is de bovenste keuze en de
+            stand van nu: dan speelt Windows zijn eigen meldingsgeluid en doet de app
+            niets. De andere keuzes zijn tonen die de app zelf maakt — er worden geen
+            audiobestanden meegebundeld, want die hebben licenties. */}
+        <SettingRow label={S.soundChoice} description={S.soundChoiceDescription} htmlFor="setting-sound-name">
+          <select
+            id="setting-sound-name"
+            disabled={prefs?.notifications.sound === false}
+            value={prefs?.notifications.soundName ?? ''}
+            onChange={(e) => window.desktop?.setNotificationExtras({ soundName: e.target.value })}
+            className={`${FIELD} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            <option value="">{S.soundSystem}</option>
+            {SOUNDS.map((s) => (
+              <option key={s.name} value={s.name}>
+                {soundLabel(S, s.name)}
+              </option>
+            ))}
+          </select>
+          {/* Voorbeluisteren. Zonder deze knop moet je op een echt mailtje wachten om
+              te horen wat je koos, en dan is kiezen gokken. Uitgeschakeld bij het
+              systeemgeluid: dat kan de app niet spelen — dat doet Windows bij een
+              echte melding. */}
+          <button
+            type="button"
+            disabled={prefs?.notifications.sound === false || !prefs?.notifications.soundName}
+            onClick={() =>
+              playSound(prefs?.notifications.soundName ?? '', prefs?.notifications.volume ?? 1)
+            }
+            className={BUTTON}
+          >
+            {S.soundPreview}
+          </button>
+        </SettingRow>
+
+        {/* Het volume geldt alleen voor de tonen van de app: het systeemgeluid heeft
+            zijn eigen volume in Windows, en dat horen wij niet te overrulen. Vandaar
+            dat de schuif uit staat zolang het systeemgeluid gekozen is. */}
+        <SettingRow
+          label={S.volumeLabel(Math.round((prefs?.notifications.volume ?? 1) * 100))}
+          description={S.volumeDescription}
+          htmlFor="setting-sound-volume"
+        >
+          <input
+            id="setting-sound-volume"
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            disabled={prefs?.notifications.sound === false || !prefs?.notifications.soundName}
+            value={Math.round((prefs?.notifications.volume ?? 1) * 100)}
+            onChange={(e) =>
+              window.desktop?.setNotificationExtras({ volume: Number(e.target.value) / 100 })
+            }
+            className={`w-40 accent-neutral-900 disabled:cursor-not-allowed disabled:opacity-50 dark:accent-neutral-100 ${FOCUS_RING}`}
+          />
+        </SettingRow>
       </SettingsGroup>
 
       <SettingsGroup title={S.navGoogleApps}>
