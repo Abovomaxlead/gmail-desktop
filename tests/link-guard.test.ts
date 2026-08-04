@@ -1,7 +1,13 @@
 // Whether an external link needs confirming, and which hosts are trusted.
 
 import { describe, it, expect } from 'vitest';
-import { hostOf, isTrustedHost, needsLinkConfirm, unwrapRedirect } from '../electron/link-guard';
+import {
+  hostOf,
+  isTrustedHost,
+  isGoogleAppHost,
+  needsLinkConfirm,
+  unwrapRedirect,
+} from '../electron/link-guard';
 
 describe('hostOf', () => {
   it('lowercases the host', () => {
@@ -125,5 +131,57 @@ describe('needsLinkConfirm', () => {
   it('stays quiet when there is no host to show', () => {
     expect(needsLinkConfirm('mailto:iemand@example.com', on)).toBe(false);
     expect(needsLinkConfirm('rommel', on)).toBe(false);
+  });
+
+  it('never asks about the Google apps the app hosts itself', () => {
+    expect(needsLinkConfirm('https://drive.google.com/drive/u/0/my-drive', on)).toBe(false);
+    expect(needsLinkConfirm('https://docs.google.com/document/u/0/', on)).toBe(false);
+    expect(needsLinkConfirm('https://calendar.google.com/calendar/u/0/r', on)).toBe(false);
+    expect(needsLinkConfirm('https://keep.google.com/u/0/', on)).toBe(false);
+    expect(needsLinkConfirm('https://mail.google.com/mail/u/0/', on)).toBe(false);
+    expect(needsLinkConfirm('https://accounts.google.com/AddSession', on)).toBe(false);
+  });
+
+  it('still asks about other hosts under google.com', () => {
+    expect(needsLinkConfirm('https://sites.google.com/view/iets', on)).toBe(true);
+    expect(needsLinkConfirm('https://www.google.com/search?q=x', on)).toBe(true);
+    expect(needsLinkConfirm('https://myaccount.google.com/', on)).toBe(true);
+  });
+
+  it('does not fall for a host that only looks like a Google app', () => {
+    expect(needsLinkConfirm('https://drive.google.com.phish.test/', on)).toBe(true);
+    expect(needsLinkConfirm('https://notdrive.google.com/', on)).toBe(true);
+  });
+
+  it('judges the destination behind the wrapper, even towards a Google app', () => {
+    expect(
+      needsLinkConfirm('https://www.google.com/url?q=https%3A%2F%2Fdrive.google.com%2Fx', on),
+    ).toBe(false);
+    expect(
+      needsLinkConfirm('https://www.google.com/url?q=https%3A%2F%2Fphish.test%2Fx', on),
+    ).toBe(true);
+  });
+});
+
+describe('isGoogleAppHost', () => {
+  it('knows the hosts the app hosts as a surface', () => {
+    expect(isGoogleAppHost('drive.google.com')).toBe(true);
+    expect(isGoogleAppHost('docs.google.com')).toBe(true);
+    expect(isGoogleAppHost('accounts.google.com')).toBe(true);
+  });
+
+  it('matches on the whole host, never a suffix', () => {
+    expect(isGoogleAppHost('drive.google.com.phish.test')).toBe(false);
+    expect(isGoogleAppHost('a.drive.google.com')).toBe(false);
+  });
+
+  it('says no to the rest of google.com', () => {
+    expect(isGoogleAppHost('sites.google.com')).toBe(false);
+    expect(isGoogleAppHost('www.google.com')).toBe(false);
+    expect(isGoogleAppHost('google.com')).toBe(false);
+  });
+
+  it('ignores case', () => {
+    expect(isGoogleAppHost('Drive.Google.COM')).toBe(true);
   });
 });

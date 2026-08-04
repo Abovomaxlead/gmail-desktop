@@ -29,6 +29,8 @@ export function PhishingSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nul
             onChange={(v) => window.desktop?.setPhishing({ confirmExternalLinks: v })}
           />
         </SettingRow>
+
+        <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.confirmExternalLinksGoogleNote}</p>
       </SettingsGroup>
 
       <SettingsGroup title={S.trustedHosts}>

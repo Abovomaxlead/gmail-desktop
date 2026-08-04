@@ -18,6 +18,24 @@
 // business, and a `javascript:` target must never be handed to a browser as a
 // destination the user appeared to approve.
 
+import { SURFACES, SURFACE_CONFIG } from '../renderer/lib/surfaces';
+
+// Google's own apps are never asked about: the app opens them itself, and a question
+// about Drive on the way to Drive is noise, not protection. This list is deliberately its
+// own thing rather than a reuse of IN_APP_HOSTS - that set decides what opens inside the
+// app, and a host added there for a routing reason must not silently widen what phishing
+// protection waves through. Matching is on the whole host, never a suffix, so
+// "drive.google.com.phish.test" is still a question. The rest of google.com is not on the
+// list: sites.google.com and friends carry whatever a stranger put there.
+const GOOGLE_APP_HOSTS: readonly string[] = [
+  ...SURFACES.map((s) => SURFACE_CONFIG[s].host),
+  'accounts.google.com',
+];
+
+export function isGoogleAppHost(host: string): boolean {
+  return GOOGLE_APP_HOSTS.includes(host.toLowerCase());
+}
+
 const REDIRECT_HOSTS = new Set(['google.com', 'www.google.com']);
 const REDIRECT_PARAMS = ['q', 'url'];
 const MAX_UNWRAP_HOPS = 3;
@@ -83,5 +101,6 @@ export function needsLinkConfirm(url: string, state: LinkGuardState): boolean {
   if (!state.confirmExternalLinks) return false;
   const host = hostOf(unwrapRedirect(url));
   if (!host) return false;
+  if (isGoogleAppHost(host)) return false;
   return !isTrustedHost(host, state.trustedHosts);
 }

@@ -78,6 +78,7 @@ export interface UiStrings {
 
   confirmExternalLinks: string;
   confirmExternalLinksDescription: string;
+  confirmExternalLinksGoogleNote: string;
   trustedHosts: string;
   trustedHostsDescription: string;
   trustedHostsEmpty: string;
@@ -400,6 +401,8 @@ export const STRINGS_NORMAL: UiStrings = {
   confirmExternalLinks: 'Confirm External Links Before Opening',
   confirmExternalLinksDescription:
     'Prompt for confirmation before opening links from untrusted hosts in your browser. The prompt shows you where the link actually goes — it does not judge whether the host is safe.',
+  confirmExternalLinksGoogleNote:
+    'Google’s own apps are never asked about: Gmail, Calendar, Drive, Docs, Keep, Contacts, Chat and signing in. The rest of google.com is — a page on sites.google.com holds whatever a stranger put there.',
   trustedHosts: 'Trusted Hosts',
   trustedHostsDescription:
     'Hosts you never get asked about. A host lands here when you tick "Always allow" in the prompt; subdomains of a trusted host are trusted too.',
@@ -672,6 +675,8 @@ export const STRINGS_RENE: UiStrings = {
   confirmExternalLinks: 'Vraag het eerst bij een link',
   confirmExternalLinksDescription:
     'Klik je op een link in een mail? Dan laat de app eerst zien waar hij heen gaat.',
+  confirmExternalLinksGoogleNote:
+    'Over Google zelf vraagt de app niks: Gmail, Agenda, Drive, Documenten, Keep, Contacten, Chat en inloggen. Andere Google-pagina’s wel, want daar kan iemand anders iets neergezet hebben.',
   trustedHosts: 'Deze zijn goed',
   trustedHostsDescription:
     'Bij deze vraagt de app niks meer. Ze komen hier als je in het venster "altijd goed" aanvinkt.',
