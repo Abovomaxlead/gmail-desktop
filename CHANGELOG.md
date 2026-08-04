@@ -62,8 +62,8 @@ to [Semantic Versioning](https://semver.org/).
   toe helemaal niet af), Talen (extra talen voor de spellingcontrole), Phishing
   Protection (de host laten zien voordat een link naar de browser gaat, met een
   lijst die zichzelf vult als je "altijd goed" aanvinkt), Bijwerken, Geavanceerd
-  (hardwareversnelling), Gmail (het logo, de "ik ben er niet"-balk, de knop die
-  opslag verkoopt en de tekst onderaan verbergen; mail maken in een eigen venster),
+  (hardwareversnelling), Gmail (de tekst onderaan het postvak verbergen, mail maken
+  in een eigen venster en dat venster sluiten na verzenden),
   Google Apps (in de app of in de browser, per app een uitzondering, de naam en de
   kleur van het account op een appvenster), en bij Meldingen: afzender en onderwerp
   wel of niet in de melding, geluid, een testknop, en wat een klik op een
@@ -91,10 +91,13 @@ to [Semantic Versioning](https://semver.org/).
 - **Nieuw: geminimaliseerd starten.** Bij Algemeen → Opstarten. De app komt dan op
   in de taakbalk in plaats van in beeld. Staat los van zelf opstarten, dus het
   werkt ook als je hem met de hand start.
-- **Elf secties staan er wel maar doen nog niets** (Wat je hebt gehaald, Wat weg
-  mag, Gmail, Google-dingen, Talen, Nepmail, Bewaarde zoekjes, Alles bij elkaar,
-  Codes, De regels, Voor knutselaars). Ze zeggen dat er nog niets in staat in plaats
-  van te doen alsof.
+- **Blocker en Unified Inbox zijn er weer uit**, nadat ze gebouwd waren: op verzoek
+  volledig verwijderd, inclusief voorkeuren, kanalen en tests. Uit de Gmail-tab zijn
+  het verbergen van het logo, de afwezigheidsbalk en de opslagknop ook weggehaald.
+- **Verification Codes werkt, met één beperking.** De code wordt gelezen via de
+  Gmail-API, dus alleen bij accounts die daarvoor gekoppeld zijn. Het naar de
+  prullenbak verplaatsen en op gelezen zetten vraagt het recht `gmail.modify`, dat nu
+  in de scopes staat — daardoor moet elk account eenmalig opnieuw toestemming geven.
 
 ### Opgelost
 - **Hetzelfde label twee keer slepen lukte niet.** Na de eerste sleep bleef de
@@ -108,6 +111,18 @@ to [Semantic Versioning](https://semver.org/).
   lijstweergave; nu vraagt hij het rechtstreeks op, vijf gesprekken tegelijk.
 
 ### Voor ontwikkelaars
+- **Het commentaar in de code is teruggebracht van ruim 20% van alle regels naar
+  3,8%.** De afspraak is nu: bovenaan een bestand staat één blok dat zegt waar het
+  bestand voor is en welke valkuil er geldt, en daaronder staat geen enkele losse
+  opmerking meer. Wat echt dragend is — Electron staat één webRequest-luisteraar per
+  sessie toe, `getStartTime()` is secondes en geen milliseconden, Tailwind 3 heeft
+  haakjes nodig bij een fractie-opacity — is naar die kop verhuisd in plaats van
+  weggegooid. Alle koppen zijn Engels; `STRINGS_RENE` blijft Nederlands, want dat is
+  de taal van de app in de Rene-stand en geen vergeten vertaling.
+  Eén ding is er bij verloren: achter elk kanaal in `ipc.ts` stond een korte
+  signatuur (`invoke()` met de vorm van het antwoord). Die staat nergens meer.
+  De commit `f24dec1` heet "refactor(tests): enhance test descriptions" maar bevat
+  in werkelijkheid deze hele opruiming over `electron/`, `renderer/` en `tests/`.
 - `npm run dev` start alles met hot reload: wijzigingen in de zijbalk of de modal
   zijn direct zichtbaar, een nieuwe preload herlaadt alleen de Gmail-views, en
   alleen een wijziging in het main-proces herstart de app (automatisch).
