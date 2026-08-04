@@ -1,6 +1,12 @@
 import { BrowserWindow, WebContentsView } from 'electron';
 import { contentBounds } from './layout';
-import { IPC, type NotifyState, type MailDropPayload, type MailDropResult } from './ipc';
+import {
+  IPC,
+  type GmailTweakState,
+  type NotifyState,
+  type MailDropPayload,
+  type MailDropResult,
+} from './ipc';
 import { attachExternalLinkHandling } from './external-links';
 import type { KeyInput } from './shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, type Surface } from '../renderer/lib/surfaces';
@@ -35,6 +41,10 @@ const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
 
 export class ProfileViewManager {
   private views = new Map<string, WebContentsView>();
+  // De laatste stand uit de Gmail-tab. De manager houdt hem vast omdat hij hem bij
+  // elke (her)laad opnieuw moet sturen: een herlaad gooit het `<style>`-element weg
+  // dat de preload had gezet, en ook de luisteraar die Opstellen afvangt.
+  private lastGmailTweaks: GmailTweakState = { css: '', composeInNewWindow: false };
   private activeViewKey: string | null = null;
   // Views whose notification click the app just handled itself: Gmail's own
   // click handler fires window.open with the same thread shortly after, which
@@ -72,6 +82,10 @@ export class ProfileViewManager {
     private readonly getUiScale: () => number = () => 1,
     // Een mail is naar de dropzone in deze view gesleept.
     private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
+    // De gebruiker klikte op Opstellen terwijl "in een eigen venster" aan staat.
+    // Optioneel met een standaard, zodat de aanroeper in main hem kan weglaten en
+    // de bestaande volgorde van argumenten niet verschuift.
+    private readonly onCompose: (accountKey: string) => void = () => {},
   ) {
     this.win.on('resize', () => this.relayout());
   }
@@ -107,6 +121,10 @@ export class ProfileViewManager {
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
         this.onActivate(acctKey, surface, typeof args[0] === 'string' ? args[0] : undefined);
       }
+      // Opstellen in een eigen venster. Alleen uit de mailweergave: de agenda heeft
+      // geen Opstellen-knop, en een bericht van daar zou een leeg opstelvenster voor
+      // het verkeerde slot openen.
+      if (channel === IPC.COMPOSE_REQUEST && surface === 'mail') this.onCompose?.(acctKey);
     });
     void view.webContents.loadURL(urlOverride ?? SURFACE_CONFIG[surface].url(ref));
     view.webContents.on('before-input-event', (_e, input) => this.onInput(acctKey, input as unknown as KeyInput));
@@ -115,6 +133,11 @@ export class ProfileViewManager {
       // Apply the mute on every (re)load — a reload resets the audio state, and
       // this runs before Gmail can play a chime, unlike a delayed IPC push.
       if (surface === 'mail') view.webContents.setAudioMuted(this.getSilent(acctKey));
+      // Ook de stand uit de Gmail-tab opnieuw, om dezelfde reden als de mute: een
+      // herlaad gooit het `<style>`-element weg dat de preload had gezet, en zonder
+      // dit staat het logo dat je verborgen had er na een F5 weer. De manager
+      // onthoudt de laatste stand zelf, want hij kent de voorkeuren niet.
+      if (surface === 'mail') view.webContents.send(IPC.GMAIL_TWEAKS, this.lastGmailTweaks);
     });
     // A Google page can close itself (e.g. Gmail's full-page compose calls
     // window.close() after sending). Drop the dead view from the map so timers
@@ -324,6 +347,23 @@ export class ProfileViewManager {
     // pref change takes effect without waiting for a reload. `silent` is only
     // ever true for the mail surface (see notificationSilent).
     if (surface === 'mail') wc.setAudioMuted(state.silent);
+  }
+
+  // De opmaak die de Gmail-tab vraagt, naar élke mailweergave die nu bestaat. Eén
+  // tekst voor alle accounts: het zijn keuzes over hoe Gmail eruitziet en niet over
+  // wie je bent, dus ze gelden overal hetzelfde.
+  //
+  // Alleen de mail-views: de agenda is een andere pagina en de selectors uit
+  // gmail-tweaks.ts zeggen daar niets. Een lege tekst is geldig en betekent "haal
+  // weg wat er stond" — zo werkt uitzetten zonder de pagina te herladen.
+  pushGmailTweaks(state: GmailTweakState): void {
+    this.lastGmailTweaks = state;
+    for (const [key, view] of this.views) {
+      if (!key.endsWith(':mail')) continue;
+      const wc = view.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      wc.send(IPC.GMAIL_TWEAKS, state);
+    }
   }
 
   // Laadt een url in een tijdelijke view op dezelfde sessie, laat de aanroeper

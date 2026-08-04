@@ -96,6 +96,44 @@ export interface LanguagePrefs {
   spellcheck: string[];
 }
 
+// De tab Gmail: wat de app in Gmail's eigen pagina verandert. Alles standaard
+// `false` — dan wordt er niets aangeraakt en ziet Gmail eruit zoals Google hem
+// levert, precies zoals nu.
+//
+// Dit zijn ingrepen in een pagina die niet van ons is. De selectors staan daarom op
+// één plek (gmail-tweaks.ts) met per regel wat hij zoekt, en niet verspreid: als
+// Google iets omgooit, is dat één tabel om bij te werken in plaats van een zoektocht.
+export interface GmailPrefs {
+  hideLogo: boolean;
+  hideOutOfOfficeBanner: boolean;
+  hideUpgradeButton: boolean;
+  hideInboxFooter: boolean;
+  // Opstellen in een eigen venster in plaats van in het hoekje van Gmail. Geen
+  // ingreep in de opmaak maar in de app: het opstelvenster bestaat al
+  // (compose-window.ts, gebruikt voor een mailto:-link).
+  //
+  // "Sluit het opstelvenster na verzenden" hoort hier ook en staat er niet: dat
+  // vraagt een haak binnen Gmail's eigen opstelpagina, en dat venster draait met
+  // opzet zonder onze preload — die is voor de mailweergave en zou daar ongelezen
+  // post gaan tellen en meldingen afvangen.
+  alwaysComposeInNewWindow: boolean;
+}
+
+// De tab Google Apps: hoe de agenda en de andere Google-apps opengaan.
+export interface GoogleAppsPrefs {
+  // In de app of in de browser. Standaard `true`, want dat is wat er nu gebeurt.
+  openInApp: boolean;
+  alwaysNewWindow: boolean;
+  // Apps die tóch naar de browser gaan, als sleutel uit `renderer/lib/surfaces.ts`.
+  excluded: string[];
+  showAccountLabel: boolean;
+  showAccountColor: boolean;
+  // Apps die als icoon in de balk staan, in de volgorde waarin ze daar staan. Leeg
+  // = geen, en dat is de stand van nu: de agenda en de apps zitten in het
+  // rechtsklikmenu van een tabblad.
+  pinned: string[];
+}
+
 export interface AdvancedPrefs {
   // Uitzetten helpt bij een haperende of zwarte weergave op sommige machines.
   // Wordt vóór 'ready' gelezen en werkt dus pas na een herstart.
@@ -149,6 +187,8 @@ export interface Prefs {
   phishing: PhishingPrefs;
   updates: UpdatePrefs;
   languages: LanguagePrefs;
+  gmail: GmailPrefs;
+  googleApps: GoogleAppsPrefs;
   advanced: AdvancedPrefs;
   // Easter egg: everything at 200% and the UI in simple Dutch. Toggled only by
   // the secret key sequence on the settings page.
@@ -189,6 +229,21 @@ export const DEFAULT_PREFS: Prefs = {
   phishing: { confirmExternalLinks: false, trustedHosts: [] },
   updates: { autoCheck: true, notify: true },
   languages: { spellcheck: [] },
+  gmail: {
+    hideLogo: false,
+    hideOutOfOfficeBanner: false,
+    hideUpgradeButton: false,
+    hideInboxFooter: false,
+    alwaysComposeInNewWindow: false,
+  },
+  googleApps: {
+    openInApp: true,
+    alwaysNewWindow: false,
+    excluded: [],
+    showAccountLabel: true,
+    showAccountColor: true,
+    pinned: [],
+  },
   advanced: { hardwareAcceleration: true },
   reneMode: false,
 };
@@ -277,6 +332,21 @@ export class PrefsStore {
           notify: bool(raw.updates?.notify, true),
         },
         languages: { spellcheck: stringList(raw.languages?.spellcheck) },
+        gmail: {
+          hideLogo: bool(raw.gmail?.hideLogo, false),
+          hideOutOfOfficeBanner: bool(raw.gmail?.hideOutOfOfficeBanner, false),
+          hideUpgradeButton: bool(raw.gmail?.hideUpgradeButton, false),
+          hideInboxFooter: bool(raw.gmail?.hideInboxFooter, false),
+          alwaysComposeInNewWindow: bool(raw.gmail?.alwaysComposeInNewWindow, false),
+        },
+        googleApps: {
+          openInApp: bool(raw.googleApps?.openInApp, true),
+          alwaysNewWindow: bool(raw.googleApps?.alwaysNewWindow, false),
+          excluded: stringList(raw.googleApps?.excluded),
+          showAccountLabel: bool(raw.googleApps?.showAccountLabel, true),
+          showAccountColor: bool(raw.googleApps?.showAccountColor, true),
+          pinned: stringList(raw.googleApps?.pinned),
+        },
         advanced: { hardwareAcceleration: bool(raw.advanced?.hardwareAcceleration, true) },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
       };
@@ -345,6 +415,19 @@ export class PrefsStore {
   setAdvanced(patch: Partial<AdvancedPrefs>): void {
     const prefs = this.getAll();
     this.write({ ...prefs, advanced: { ...prefs.advanced, ...patch } });
+  }
+  setGmail(patch: Partial<GmailPrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, gmail: { ...prefs.gmail, ...patch } });
+  }
+  setGoogleApps(patch: Partial<GoogleAppsPrefs>): void {
+    const prefs = this.getAll();
+    // De twee lijsten door dezelfde lezer als bij het inlezen: sleutels zonder
+    // leegte en zonder dubbelen. `pinned` houdt zijn volgorde — die is de volgorde
+    // in de balk en dus betekenisvol.
+    const excluded = patch.excluded === undefined ? prefs.googleApps.excluded : stringList(patch.excluded);
+    const pinned = patch.pinned === undefined ? prefs.googleApps.pinned : stringList(patch.pinned);
+    this.write({ ...prefs, googleApps: { ...prefs.googleApps, ...patch, excluded, pinned } });
   }
   // De vier nieuwe velden bij meldingen apart van `setNotifications`: die gaat over
   // gedempt zijn en heeft in `mergeNotificationsFromPanel` een eigen regel over

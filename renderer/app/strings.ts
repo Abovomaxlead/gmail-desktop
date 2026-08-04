@@ -122,6 +122,54 @@ export interface UiStrings {
   hardwareAccelerationDescription: string;
   restartRequired: string;
 
+  // De tab Gmail: ingrepen in Gmail's eigen pagina.
+  gmailAppearanceGroup: string;
+  gmailComposeGroup: string;
+  gmailInboxGroup: string;
+  gmailHideLogo: string;
+  gmailHideLogoDescription: string;
+  gmailHideOutOfOffice: string;
+  gmailHideOutOfOfficeDescription: string;
+  gmailHideUpgrade: string;
+  gmailHideUpgradeDescription: string;
+  gmailHideInboxFooter: string;
+  gmailHideInboxFooterDescription: string;
+  gmailComposeNewWindow: string;
+  gmailComposeNewWindowDescription: string;
+  // Waarom het sluiten van het opstelvenster na verzenden er nog niet is. Zelfde
+  // aanpak als `trayColourTodo`: een regel in beeld in plaats van een dode schakelaar.
+  gmailCloseComposeTodo: string;
+  // Dat een ingreep in Gmail's pagina kan omvallen als Google iets omgooit. Hoort
+  // erbij te staan: als een schakelaar niets doet is dat de waarschijnlijke reden, en
+  // dan weet je dat het niet aan jou ligt.
+  gmailTweakFragile: string;
+
+  // De tab Google Apps.
+  gaOpenInApp: string;
+  gaOpenInAppDescription: string;
+  gaAlwaysNewWindow: string;
+  gaAlwaysNewWindowDescription: string;
+  gaExcluded: string;
+  gaExcludedDescription: string;
+  gaExcludedNone: string;
+  gaShowAccountLabel: string;
+  gaShowAccountLabelDescription: string;
+  gaShowAccountColor: string;
+  gaShowAccountColorDescription: string;
+  gaPinned: string;
+  gaPinnedDescription: string;
+  gaPinnedHeading: string;
+  gaAvailableHeading: string;
+  gaPin: (name: string) => string;
+  gaUnpin: (name: string) => string;
+
+  // Accounts, de nieuwe kaart. `addShort` is het opschrift op de pil rechtsboven —
+  // `addAccountLabel` is de volledige zin en te breed voor een pil. `renameAccount`
+  // is de naam van het potlood: dat mag niet `accountLabelField` zijn, want dan
+  // hoort een schermlezer twee dingen met dezelfde naam op één kaart.
+  addShort: string;
+  renameAccount: string;
+
   // Meldingen, de nieuwe blokken.
   notificationContent: string;
   showSender: string;
@@ -407,6 +455,51 @@ export const STRINGS_NORMAL: UiStrings = {
     'Enabling hardware acceleration can improve performance but can also cause compatibility issues on some systems.',
   restartRequired: 'Takes effect the next time the app starts.',
 
+  gmailAppearanceGroup: 'Appearance',
+  gmailComposeGroup: 'Compose',
+  gmailInboxGroup: 'Inbox',
+  gmailHideLogo: 'Hide Gmail Logo',
+  gmailHideLogoDescription: 'Hides the Gmail logo on the top left corner.',
+  gmailHideOutOfOffice: 'Hide Out of Office Banner',
+  gmailHideOutOfOfficeDescription: 'Hides the out of office banner at the top of the window.',
+  gmailHideUpgrade: 'Hide Upgrade Button',
+  gmailHideUpgradeDescription: 'Hides the Upgrade button in Gmail.',
+  gmailHideInboxFooter: 'Hide Inbox Footer',
+  gmailHideInboxFooterDescription: 'Hides the footer at the bottom of the inbox.',
+  gmailComposeNewWindow: 'Always Compose New Emails in New Window',
+  gmailComposeNewWindowDescription:
+    'Opens a new window for composing emails instead of inside Gmail.',
+  gmailCloseComposeTodo:
+    'Closing the compose window after sending is not here yet: that needs a hook inside Gmail’s own compose page, which deliberately runs without this app’s script.',
+  gmailTweakFragile:
+    'These hide the parts by their place in Gmail’s own page. Google changes that page without warning, so a switch here can quietly stop working — tell me and I will point it at the new spot.',
+
+  gaOpenInApp: 'Open in App',
+  gaOpenInAppDescription: 'Open Google Apps in app instead of external browser.',
+  gaAlwaysNewWindow: 'Always Open in New Window',
+  gaAlwaysNewWindowDescription:
+    'Always open Google Apps in a new window instead of reusing the same window if it is already open.',
+  gaExcluded: 'Excluded Apps',
+  gaExcludedDescription:
+    'Select which Google Apps should open in the external browser instead of the app.',
+  gaExcludedNone: 'None',
+  gaShowAccountLabel: 'Show Account Label',
+  gaShowAccountLabelDescription:
+    'Show the account name in the title bar of a Google App window, when you use more than one account.',
+  gaShowAccountColor: 'Show Account Color',
+  gaShowAccountColorDescription:
+    'Tint a Google App window in the account colour while it loads, so you can see whose it is.',
+  gaPinned: 'Pinned Apps',
+  gaPinnedDescription:
+    'Pick the apps you reach for most. The bar at the top does not draw them yet — that is the next step; for now they are also in the right-click menu of an account tab.',
+  gaPinnedHeading: 'Pinned',
+  gaAvailableHeading: 'Available',
+  gaPin: (name) => `Pin ${name}`,
+  gaUnpin: (name) => `Unpin ${name}`,
+
+  addShort: 'Add',
+  renameAccount: 'Rename account',
+
   notificationContent: 'What a notification says',
   showSender: 'Show Sender',
   showSenderDescription: "Display the email sender's name in notifications.",
@@ -609,6 +702,49 @@ export const STRINGS_RENE: UiStrings = {
   hardwareAccelerationDescription:
     'Dit maakt de app sneller. Ziet het scherm er raar uit? Zet het dan uit.',
   restartRequired: 'Dit werkt pas als de app opnieuw opstart.',
+
+  gmailAppearanceGroup: 'Hoe het eruitziet',
+  gmailComposeGroup: 'Mail maken',
+  gmailInboxGroup: 'Postvak',
+  gmailHideLogo: 'Verstop het Gmail-logo',
+  gmailHideLogoDescription: 'Het logo linksboven is dan weg.',
+  gmailHideOutOfOffice: 'Verstop de "ik ben er niet"-balk',
+  gmailHideOutOfOfficeDescription: 'De balk bovenaan is weg. Je antwoord blijft wel aan staan.',
+  gmailHideUpgrade: 'Verstop de knop "meer opslag"',
+  gmailHideUpgradeDescription: 'De knop die meer ruimte verkoopt is dan weg.',
+  gmailHideInboxFooter: 'Verstop de tekst onderaan',
+  gmailHideInboxFooterDescription: 'Onder je postvak staat dan geen tekst meer.',
+  gmailComposeNewWindow: 'Maak mail in een eigen venster',
+  gmailComposeNewWindowDescription:
+    'Een nieuwe mail gaat in een apart venster, niet in het hoekje van Gmail.',
+  gmailCloseComposeTodo: 'Het venster sluiten na verzenden kan nog niet.',
+  gmailTweakFragile:
+    'Google verandert Gmail soms. Dan werkt een knopje hier misschien niet meer. Zeg het dan, dan maak ik het weer goed.',
+
+  gaOpenInApp: 'Open in de app',
+  gaOpenInAppDescription: 'Open Google-dingen in de app en niet in je browser.',
+  gaAlwaysNewWindow: 'Altijd in een nieuw venster',
+  gaAlwaysNewWindowDescription:
+    'Doe een Google-ding altijd in een nieuw venster open, ook als er al een venster open staat.',
+  gaExcluded: 'Dingen die niet in de app gaan',
+  gaExcludedDescription: 'Kies welke Google-dingen in je browser open gaan en niet in de app.',
+  gaExcludedNone: 'Geen',
+  gaShowAccountLabel: 'Naam van het account laten zien',
+  gaShowAccountLabelDescription:
+    'De naam van het account staat bovenaan het venster, als je meer dan één account hebt.',
+  gaShowAccountColor: 'Kleur van het account laten zien',
+  gaShowAccountColorDescription:
+    'Het venster krijgt even het kleurtje van het account, zodat je ziet van wie het is.',
+  gaPinned: 'Vaste dingen',
+  gaPinnedDescription:
+    'Kies welke dingen je het meest gebruikt. De balk bovenaan laat ze nog niet zien — dat komt nog.',
+  gaPinnedHeading: 'Vast',
+  gaAvailableHeading: 'Te kiezen',
+  gaPin: (name) => `Zet ${name} vast`,
+  gaUnpin: (name) => `Haal ${name} weg`,
+
+  addShort: 'Erbij',
+  renameAccount: 'Geef hem een andere naam',
 
   notificationContent: 'Wat er in een melding staat',
   showSender: 'Van wie het is',

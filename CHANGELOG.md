@@ -56,6 +56,23 @@ to [Semantic Versioning](https://semver.org/).
   je na lange tijd aanklikt kan zichzelf nog even bijwerken.
 
 ### Gewijzigd
+- **De instellingen hebben inhoud gekregen, tab voor tab.** Weergave (de getallen
+  aan of uit, het tray-icoon, de ondergrens van het venster), Downloads (waar een
+  download heen gaat, eerst vragen, map openen — de app handelde downloads tot nu
+  toe helemaal niet af), Talen (extra talen voor de spellingcontrole), Phishing
+  Protection (de host laten zien voordat een link naar de browser gaat, met een
+  lijst die zichzelf vult als je "altijd goed" aanvinkt), Bijwerken, Geavanceerd
+  (hardwareversnelling), Gmail (het logo, de "ik ben er niet"-balk, de knop die
+  opslag verkoopt en de tekst onderaan verbergen; mail maken in een eigen venster),
+  Google Apps (in de app of in de browser, per app een uitzondering, de naam en de
+  kleur van het account op een appvenster), en bij Meldingen: afzender en onderwerp
+  wel of niet in de melding, geluid, een testknop, en wat een klik op een
+  download-melding doet.
+- **Accounts is een kaart geworden.** Eén kaart per account met de naam, de pillen
+  die zeggen wat je van dat account merkt, de kleuren, een potlood om de naam te
+  wijzigen en een prullenbak. Je kan de kaarten slepen om de volgorde te veranderen,
+  en de knop "Erbij" staat rechtsboven.
+- **Saved Searches en License zijn uit de kolom.**
 - **De instellingen zijn opnieuw ingericht.** Een kolom met negentien secties in
   drie groepen — wat je hebt gehaald, de voorkeuren zelf, en wat er over de app te
   lezen valt — naast één wit vlak met de sectie erin. De Bewaren-knop is weg: elke
@@ -145,6 +162,21 @@ to [Semantic Versioning](https://semver.org/).
   up to date.
 
 ### Changed
+- **The settings tabs got their content, tab by tab.** Appearance (unread counts on
+  or off, the tray icon, the window's minimum size), Downloads (where a download
+  goes, ask first, open the folder — the app did not handle downloads at all until
+  now), Languages (extra spellchecker languages), Phishing Protection (see the host
+  before a link opens in your browser, with a trusted list that fills itself when you
+  tick "always allow"), Updates, Advanced (hardware acceleration), Gmail (hide the
+  logo, the out-of-office banner, the Upgrade button and the inbox footer; compose in
+  its own window), Google Apps (in the app or in the browser, a per-app exception, the
+  account's name and colour on an app window), and under Notifications: sender and
+  subject in a notification or not, sound, a test button, and what clicking a
+  download notification does.
+- **Accounts is a card now.** One card per account with the name, chips saying what
+  you notice from that account, the colours, a pencil to rename and a bin to remove.
+  Cards can be dragged to reorder, and "Add" sits at the top right.
+- **Saved Searches and License are gone from the column.**
 - **Settings have been laid out again.** A column of nineteen sections in three
   groups — what you have downloaded, the preferences themselves, and what there is
   to read about the app — beside a single white surface holding the section. The

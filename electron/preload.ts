@@ -1,5 +1,11 @@
 import { parseUnreadCount } from './unread-parser';
-import { IPC, type NotifyState, type MailDropPayload, type MailDropResult } from './ipc';
+import {
+  IPC,
+  type GmailTweakState,
+  type NotifyState,
+  type MailDropPayload,
+  type MailDropResult,
+} from './ipc';
 import { labelFromDragTarget } from './label-drop';
 import {
   DROPZONE_ID,
@@ -126,6 +132,67 @@ export function notificationOptionsFor(
 // dan komt de titel van de pagina er ongewijzigd door.
 export function notificationTitleFor(state: NotifyState, title: string): string {
   return typeof state.hiddenSender === 'string' ? state.hiddenSender : title;
+}
+
+// Waaraan Gmail's Opstellen-knop te herkennen is. `gh="cm"` is Gmail's eigen haak
+// op die knop en staat er al jaren — het is een attribuut dat Google zelf gebruikt
+// om erbij te komen, en dus stabieler dan een versleutelde klassenaam. De tweede
+// kandidaat is de knop op zijn toegankelijke naam, voor het geval het attribuut ooit
+// verdwijnt; die is taalafhankelijk en daarom niet de eerste keus.
+//
+// Los en geëxporteerd zodat de vergelijking te testen is zonder een pagina, en zodat
+// de selectors op één regel staan in plaats van in een klikhandler.
+export const COMPOSE_BUTTON_SELECTOR = '[gh="cm"], div[role="button"][gh="cm"]';
+
+// Is er op Opstellen geklikt? Loopt omhoog vanaf het aangeklikte element, want de
+// klik landt op een `<span>` of `<div>` binnen de knop en niet op de knop zelf.
+export function isComposeClick(
+  target: { closest?: (selector: string) => unknown } | null | undefined,
+): boolean {
+  if (!target || typeof target.closest !== 'function') return false;
+  return target.closest(COMPOSE_BUTTON_SELECTOR) != null;
+}
+
+// Het id van het ene `<style>`-element waar de opmaak uit de Gmail-tab in staat.
+// Vast en herkenbaar: dit element is van ons en staat in een pagina die van Google
+// is, dus het moet terug te vinden zijn — door de app om het bij te werken, en door
+// een mens die zich afvraagt waar die regel vandaan komt.
+export const TWEAK_STYLE_ID = 'gmail-desktop-tweaks';
+
+// Wat een document minimaal moet kunnen om de opmaak te dragen. Een eigen, kleine
+// interface in plaats van `Document`, zodat dit te testen is zonder een browser: de
+// preload-tests draaien in Node en geven hier een nagemaakt document in.
+export interface TweakStyleHost {
+  getElementById(id: string): { textContent: string | null; remove(): void } | null;
+  createElement(tag: string): { id: string; textContent: string | null };
+  head: { appendChild(el: unknown): void } | null;
+}
+
+// Zet de opmaak in de pagina, of haal hem weg.
+//
+// Bijwerken van hetzelfde element in plaats van een nieuw element erbij: Gmail is
+// één pagina die nooit herlaadt, dus bij elke omgezette schakelaar zou er anders
+// een `<style>` bijkomen en zouden de oude regels blijven gelden. Wie zijn logo weer
+// zichtbaar maakte zou het niet terugzien.
+//
+// Een lege tekst haalt het element weg en laat er geen leeg omhulsel staan: "niets
+// aangepast" hoort ook in de DOM niets te zijn, anders is bij het opsporen van een
+// probleem niet te zien of de app iets deed.
+export function applyTweakCss(doc: TweakStyleHost, css: string): void {
+  const existing = doc.getElementById(TWEAK_STYLE_ID);
+  if (!css) {
+    existing?.remove();
+    return;
+  }
+  if (existing) {
+    existing.textContent = css;
+    return;
+  }
+  if (!doc.head) return; // pagina nog niet zo ver; de volgende push zet hem alsnog
+  const el = doc.createElement('style');
+  el.id = TWEAK_STYLE_ID;
+  el.textContent = css;
+  doc.head.appendChild(el);
 }
 
 export function isEditableTarget(
@@ -358,6 +425,44 @@ if (typeof document !== 'undefined') {
   ipcRenderer.on(IPC.NOTIFY_ALLOWED, (_e: unknown, state: NotifyState) => {
     notifyState = state;
   });
+
+  // Wat de Gmail-tab van deze pagina vraagt. Main stuurt het bij elke wijziging en
+  // bij elke (her)laad; hier wordt het alleen uitgevoerd. De laatste stand wordt
+  // onthouden zodat de opmaak ook staat als `<head>` er nog niet was toen hij
+  // binnenkwam — dan zet `DOMContentLoaded` hem alsnog.
+  let tweaks: GmailTweakState = { css: '', composeInNewWindow: false };
+  const putTweakCss = () => applyTweakCss(document as unknown as TweakStyleHost, tweaks.css);
+  ipcRenderer.on(IPC.GMAIL_TWEAKS, (_e: unknown, state: unknown) => {
+    const s = state as Partial<GmailTweakState> | null;
+    tweaks = {
+      css: typeof s?.css === 'string' ? s.css : '',
+      composeInNewWindow: s?.composeInNewWindow === true,
+    };
+    putTweakCss();
+  });
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', putTweakCss, { once: true });
+  }
+
+  // Opstellen in een eigen venster. Gmail's Opstellen-knop opent een overlay in
+  // dezelfde pagina — er is geen `window.open` om af te vangen — dus dit gaat langs
+  // de klik zelf, in de capture-fase, vóórdat Gmail's eigen handler hem ziet.
+  //
+  // Vindt hij de knop niet, dan gebeurt er niets bijzonders en opent Gmail zijn
+  // overlay zoals altijd. Dat is de goede kant om in om te vallen: de instelling
+  // werkt dan stil niet, in plaats van dat Opstellen helemaal kapot is.
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (!tweaks.composeInNewWindow) return;
+      const target = e.target as (Element & { closest?: (s: string) => Element | null }) | null;
+      if (!isComposeClick(target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      ipcRenderer.send(IPC.COMPOSE_REQUEST);
+    },
+    true,
+  );
 
   // Install before page scripts run so Gmail never sees a null window.open.
   window.open = wrapWindowOpen(window.open.bind(window));

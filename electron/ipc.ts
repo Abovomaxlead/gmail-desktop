@@ -29,6 +29,20 @@ export const IPC = {
   SET_UPDATE_PREFS: 'prefs:updates', // send(Partial<UpdatePrefs>)
   SET_LANGUAGES: 'prefs:languages', // send(Partial<LanguagePrefs>)
   SET_ADVANCED: 'prefs:advanced', // send(Partial<AdvancedPrefs>)
+  SET_GMAIL: 'prefs:gmail', // send(Partial<GmailPrefs>)
+  SET_GOOGLE_APPS: 'prefs:google-apps', // send(Partial<GoogleAppsPrefs>)
+  // main -> mail view: alles wat de Gmail-tab van de pagina vraagt, in één bericht.
+  // Wordt opnieuw gestuurd zodra een schakelaar omgaat én bij elke (her)laad, want
+  // een herlaad gooit weg wat de preload had neergezet.
+  //
+  // Eén bericht en niet twee kanalen: beide standen moeten op precies dezelfde twee
+  // momenten opnieuw worden gestuurd, en met twee kanalen zijn dat twee velden om te
+  // onthouden en twee kansen om er één te vergeten.
+  GMAIL_TWEAKS: 'gmail:tweaks', // send(GmailTweakState)
+  // mail view -> main: de gebruiker klikte op Opstellen en wil dat in een eigen
+  // venster. De view stuurt alleen dát het gebeurde; welk account erbij hoort weet
+  // main uit de view waar het bericht vandaan komt.
+  COMPOSE_REQUEST: 'gmail:compose-request', // send()
   SET_NOTIFICATION_EXTRAS: 'prefs:notification-extras', // send(NotificationExtrasPatch)
   NOTIFY_TEST: 'notify:test', // send() — laat één melding zien zoals hij eruit komt
   DOWNLOAD_FOLDER_PICK: 'downloads:folder-pick', // invoke() -> string (het gekozen pad, of het oude)
@@ -131,6 +145,10 @@ export interface MailDropResult {
 // geen vlaggetje: de preload wordt in Gmail's eigen pagina geïnjecteerd en kent
 // geen taal, dus wat er dán komt te staan hoort van main te komen. `undefined` =
 // laat wat de pagina zelf zei.
+// Wat de Gmail-tab van de pagina vraagt. `css` leeg = niets in te spuiten (en dan
+// haalt de preload een eerder gezet `<style>` weg).
+export type GmailTweakState = { css: string; composeInNewWindow: boolean };
+
 export type NotifyState = {
   show: boolean;
   silent: boolean;

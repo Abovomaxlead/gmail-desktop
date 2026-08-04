@@ -10,6 +10,8 @@ import { AdvancedSection } from './settings/AdvancedSection';
 import { AppearanceSection } from './settings/AppearanceSection';
 import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
+import { GmailSection } from './settings/GmailSection';
+import { GoogleAppsSection } from './settings/GoogleAppsSection';
 import { LanguagesSection } from './settings/LanguagesSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { PhishingSection } from './settings/PhishingSection';
@@ -182,7 +184,16 @@ export function SettingsPanel({
               />
             );
           case 'accounts':
-            return <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />;
+            // `prefs` erbij zodat de pillen op een accountkaart de echte stand van
+            // dat account tonen. Zonder deze prop laat de sectie ze weg in plaats van
+            // te gokken, en dan zie je op de kaart niet wat je bij Meldingen zette.
+            return (
+              <AccountsSection S={S} profiles={profiles} prefs={prefs} onRedetect={onRedetect} />
+            );
+          case 'google-apps':
+            return <GoogleAppsSection S={S} prefs={prefs} />;
+          case 'gmail':
+            return <GmailSection S={S} prefs={prefs} />;
           case 'appearance':
             return <AppearanceSection S={S} prefs={prefs} />;
           case 'downloads':

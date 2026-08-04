@@ -71,6 +71,8 @@ contextBridge.exposeInMainWorld('desktop', {
   setUpdatePrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_UPDATE_PREFS, patch),
   setLanguages: (patch: unknown): void => ipcRenderer.send(IPC.SET_LANGUAGES, patch),
   setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
+  setGmail: (patch: unknown): void => ipcRenderer.send(IPC.SET_GMAIL, patch),
+  setGoogleApps: (patch: unknown): void => ipcRenderer.send(IPC.SET_GOOGLE_APPS, patch),
   setNotificationExtras: (patch: unknown): void =>
     ipcRenderer.send(IPC.SET_NOTIFICATION_EXTRAS, patch),
   testNotification: (): void => ipcRenderer.send(IPC.NOTIFY_TEST),

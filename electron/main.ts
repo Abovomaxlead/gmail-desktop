@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import type { Tray } from 'electron';
 import { parseChangelog, type ChangelogVersion } from './changelog';
 import { ProfileViewManager, type Profile, type Surface } from './profile-view-manager';
-import { SURFACES, surfacesForRef } from '../renderer/lib/surfaces';
+import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountCountVisible } from '../renderer/lib/badge-visibility';
 import { accountKey, parseAccountKey, type AccountRef } from './account-ref';
 import { DelegatedStore, type StoredDelegate } from './delegated-store';
@@ -28,6 +28,7 @@ import {
 } from './prefs-store';
 import { hostOf, needsLinkConfirm } from './link-guard';
 import { uniqueFileName } from './download-path';
+import { gmailTweakCss } from './gmail-tweaks';
 import { clampBoundsToDisplays } from './window-bounds';
 import { colorForIndex } from './palette';
 import { planNext } from './detection-planner';
@@ -86,7 +87,8 @@ import {
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
-import { setExternalOpener } from './external-links';
+import { attachExternalLinkHandling, setExternalOpener } from './external-links';
+import { googleAppTarget } from './google-apps-open';
 import { overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
@@ -1994,6 +1996,7 @@ function createWindow(): void {
     () => prefs?.getAll().notificationOpen ?? 'app',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
+    (acctKey) => openComposeForAccount(acctKey),
   );
 
   if (DEV_URL) void mainWindow.loadURL(DEV_URL);
@@ -2275,6 +2278,99 @@ function showTestNotification(): void {
   }).show();
 }
 
+// De opmaak die de Gmail-tab vraagt naar elke mailweergave. Eén tekst voor alle
+// accounts: het zijn keuzes over hoe Gmail eruitziet, niet over wie je bent.
+//
+// De omzetting van voorkeuren naar CSS staat in gmail-tweaks.ts en is puur, zodat de
+// selectors op één plek staan en te testen zijn. Hier staat alleen wanneer hij gaat.
+function pushGmailTweaks(): void {
+  if (!prefs || !manager) return;
+  const g = prefs.getAll().gmail;
+  manager.pushGmailTweaks({
+    css: gmailTweakCss(g),
+    composeInNewWindow: g.alwaysComposeInNewWindow === true,
+  });
+}
+
+// Waar een Google-app opengaat: in de app, in een eigen venster, of in de browser.
+// De keuze zelf staat in google-apps-open.ts en is puur; hier staat wat elk van de
+// drie antwoorden betekent.
+//
+// Dit hangt aan de klik van de gebruiker (het IPC-bericht uit de balk) en níet in
+// `showAccount`. Dat is met opzet: `showAccount` is óók het pad van de detectie en
+// van een klik op een melding, en een tak daarbinnen zou de aanmeldprobe één
+// verbouwing verwijderd houden van "en nu opent hij in je browser".
+//
+// Mail blijft altijd in de app: "open in de browser" toegepast op het postvak zou de
+// app van zichzelf wegsturen.
+function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
+  if (surface === 'mail' || !prefs) {
+    showAccount(ref, surface);
+    return;
+  }
+  const target = googleAppTarget(surface, prefs.getAll().googleApps);
+  if (target === 'in-app') {
+    showAccount(ref, surface);
+    return;
+  }
+  const url = SURFACE_CONFIG[surface].url(ref);
+  // Langs dezelfde poort als elke andere link die de app verlaat, en niet
+  // rechtstreeks `shell.openExternal`: anders slaat dit de vraag uit Phishing
+  // Protection over, en dan is er één weg naar buiten die de regel niet volgt.
+  if (target === 'external') {
+    openExternalGuarded(url);
+    return;
+  }
+  openGoogleAppWindow(url, ref, surface);
+}
+
+// Een Google-app in een eigen venster. Zelfde vorm als het opstelvenster: op de
+// gedeelde Google-sessie, met de linkafhandeling eraan, zodat een link uit een
+// document dezelfde weg naar buiten neemt als een link uit een mail.
+function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): void {
+  const email = profiles.find((p) => accountKey(p.ref) === accountKey(ref))?.email ?? '';
+  const account = email ? prefs?.getAccount(email) : undefined;
+  const g = prefs?.getAll().googleApps;
+  // De naam van het account in de titelbalk, als dat aan staat en er meer dan één
+  // account is. Bij één account zegt het niets — er is niets om het van te
+  // onderscheiden — en dan is de naam van de app zelf de nuttigere titel.
+  const label = (account?.label || email || '').trim();
+  const showLabel = g?.showAccountLabel !== false && profiles.length > 1 && label;
+  const title = showLabel
+    ? `${SURFACE_CONFIG[surface].label} — ${label}`
+    : SURFACE_CONFIG[surface].label;
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 800,
+    title,
+    // De kleur van het account als achtergrond van het venster tijdens het laden:
+    // dat is het enige moment waarop een venster een vlak is in plaats van een
+    // pagina, en dus de enige plek waar een kleur iets kan zeggen zonder over
+    // Google's eigen opmaak heen te gaan. Staat de keuze uit, dan wit.
+    backgroundColor:
+      g?.showAccountColor !== false && profiles.find((p) => p.email === email)?.color
+        ? profiles.find((p) => p.email === email)!.color
+        : '#ffffff',
+    webPreferences: { partition: 'persist:google', contextIsolation: true },
+  });
+  // Gmail zet zijn eigen titel; zonder dit is de accountnaam na het laden weg.
+  win.on('page-title-updated', (e) => {
+    if (showLabel) e.preventDefault();
+  });
+  attachExternalLinkHandling(win.webContents);
+  void win.loadURL(url);
+}
+
+// De gebruiker klikte op Opstellen terwijl "in een eigen venster" aan staat. De
+// preload heeft die klik tegengehouden, dus als hier niets gebeurt komt er geen
+// opstelvenster — vandaar dat een onbekend account niet stil wordt genegeerd maar
+// alsnog het gewone venster krijgt.
+function openComposeForAccount(accountKey: string): void {
+  const idx = idxOfKey(accountKey);
+  if (idx == null) return;
+  openCompose(idx);
+}
+
 // ---------------------------------------------------------------------------
 // Phishing Protection: de vraag vóór een link de app verlaat.
 // ---------------------------------------------------------------------------
@@ -2512,7 +2608,8 @@ function registerIpc(): void {
     // geen URL die we mogen bouwen, en gokken zou het verkeerde postvak onder de
     // verkeerde naam openen. Detectie is al onderweg; zodra dit adres bevestigd is
     // staat er een echt tabblad dat wél opengaat.
-    if (p) showAccount(p.ref, arg.surface);
+    if (!p) return;
+    openSurfaceForAccount(p.ref, arg.surface);
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
@@ -2620,6 +2717,19 @@ function registerIpc(): void {
     // De webviews krijgen de nieuwe teksten en de geluidsstand meteen: zonder dit
     // blijft de melding uit Gmail zelf de oude tekst tonen tot de volgende minuuttik.
     refreshNotifyAllowed();
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_GMAIL, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setGmail((patch ?? {}) as Parameters<PrefsStore['setGmail']>[0]);
+    // De opmaak gaat meteen naar elke open mailweergave: dit hoort zichtbaar te zijn
+    // op het moment dat je de schakelaar omzet, niet na een herlaad.
+    pushGmailTweaks();
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_GOOGLE_APPS, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setGoogleApps((patch ?? {}) as Parameters<PrefsStore['setGoogleApps']>[0]);
     pushPrefs();
   });
   ipcMain.on(IPC.NOTIFY_TEST, () => showTestNotification());

@@ -110,6 +110,21 @@ export interface Prefs {
   phishing: { confirmExternalLinks: boolean; trustedHosts: string[] };
   updates: { autoCheck: boolean; notify: boolean };
   languages: { spellcheck: string[] };
+  gmail: {
+    hideLogo: boolean;
+    hideOutOfOfficeBanner: boolean;
+    hideUpgradeButton: boolean;
+    hideInboxFooter: boolean;
+    alwaysComposeInNewWindow: boolean;
+  };
+  googleApps: {
+    openInApp: boolean;
+    alwaysNewWindow: boolean;
+    excluded: string[];
+    showAccountLabel: boolean;
+    showAccountColor: boolean;
+    pinned: string[];
+  };
   advanced: { hardwareAcceleration: boolean };
   reneMode: boolean;
 }
@@ -162,6 +177,21 @@ interface DesktopBridge {
   setUpdatePrefs(patch: { autoCheck?: boolean; notify?: boolean }): void;
   setLanguages(patch: { spellcheck?: string[] }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
+  setGmail(patch: {
+    hideLogo?: boolean;
+    hideOutOfOfficeBanner?: boolean;
+    hideUpgradeButton?: boolean;
+    hideInboxFooter?: boolean;
+    alwaysComposeInNewWindow?: boolean;
+  }): void;
+  setGoogleApps(patch: {
+    openInApp?: boolean;
+    alwaysNewWindow?: boolean;
+    excluded?: string[];
+    showAccountLabel?: boolean;
+    showAccountColor?: boolean;
+    pinned?: string[];
+  }): void;
   setNotificationExtras(patch: {
     showSender?: boolean;
     showSubject?: boolean;
