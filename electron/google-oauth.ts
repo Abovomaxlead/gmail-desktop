@@ -27,6 +27,12 @@ export interface OAuthConfig {
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.insert',
+  // Marking a message read and moving one to the bin, for the verification-code
+  // feature. Adding this scope invalidates every stored token: `hasScopes` compares
+  // against this list, so an account linked before this line existed no longer counts
+  // as connected and has to give consent again. That is deliberate and was asked for
+  // — a narrower scope that can label and trash does not exist.
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 

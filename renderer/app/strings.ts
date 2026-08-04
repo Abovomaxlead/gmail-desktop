@@ -198,8 +198,8 @@ export interface UiStrings {
   vcDeleteDescription: string;
   // De enige onomkeerbare instelling in de app krijgt een eigen waarschuwing.
   vcDeleteWarning: string;
-  // Dat het herkennen zelf nog niet aanstaat, en waarom. Zonder deze regel zijn dit
-  // vier schakelaars die je omzet en die niets doen.
+  // Voor wie dit werkt. Niet elk account kan het: het lezen van een bericht gaat via
+  // de Gmail-API, en die verbinding hebben alleen accounts die daarvoor gekoppeld zijn.
   vcNotWiredYet: string;
 
   // Accounts, de nieuwe kaart. `addShort` is het opschrift op de pil rechtsboven —
@@ -571,7 +571,7 @@ export const STRINGS_NORMAL: UiStrings = {
   vcDeleteWarning:
     'A wrongly detected code means a real email goes to the bin. This is why High confidence is recommended — and why this one is off by default.',
   vcNotWiredYet:
-    'Detecting the code is not switched on yet: reading a message body works, but marking it read or binning it needs a Google permission this app has never asked for, and asking for it means every account has to give consent again. Say the word and I will wire it up.',
+    'Codes are read through the Gmail API, so this only covers accounts connected for it — the same connection notifications use. Marking read and binning need an extra Google permission; if you have not given consent since it was added, re-link the account.',
 
   addShort: 'Add',
   renameAccount: 'Rename account',
@@ -851,7 +851,7 @@ export const STRINGS_RENE: UiStrings = {
   vcDeleteWarning:
     'Pas op! Ziet de app iets aan voor een code, dan gooit hij een echt mailtje weg. Daarom staat dit uit.',
   vcNotWiredYet:
-    'Het zoeken naar codes staat nog niet aan. Daarvoor moet Google de app iets extra toestaan, en dan moet jij opnieuw ja zeggen. Zeg het maar, dan zet ik het aan.',
+    'Dit werkt bij de namen die aan Google zijn gekoppeld — dezelfde die je een belletje geven. Voor gelezen zetten en weggooien moet Google de app iets extra toestaan; heb je dat nog niet gedaan, koppel de naam dan opnieuw.',
 
   addShort: 'Erbij',
   renameAccount: 'Geef hem een andere naam',

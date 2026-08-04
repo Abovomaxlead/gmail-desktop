@@ -202,6 +202,54 @@ export function parseMessageRaw(json: unknown): Buffer | null {
   return typeof raw === 'string' && raw ? Buffer.from(raw, 'base64url') : null;
 }
 
+/**
+ * De RFC822-bron van één bericht, opgehaald en al.
+ *
+ * Bestaat zodat `requestJson` privé kan blijven: dat is de enige plek die weet hoe
+ * een verzoek aan Gmail eruitziet, en een aanroeper buiten dit bestand hoort dat niet
+ * over te nemen.
+ */
+export async function fetchMessageRaw(
+  accessToken: string,
+  messageId: string,
+): Promise<Buffer | null> {
+  return parseMessageRaw(await requestJson(messageRawUrl(messageId), accessToken));
+}
+
+// Beide vragen het gmail.modify-recht (zie SCOPES in google-oauth.ts). Ze staan
+// hier en niet in main omdat elke andere aanroep naar Gmail ook hier staat: één
+// bestand dat weet hoe een verzoek aan Gmail eruitziet.
+export function messageModifyUrl(messageId: string): string {
+  return `${MESSAGES_URL}/${encodeURIComponent(messageId)}/modify`;
+}
+export function messageTrashUrl(messageId: string): string {
+  return `${MESSAGES_URL}/${encodeURIComponent(messageId)}/trash`;
+}
+
+/** Haal het UNREAD-label van een bericht af. */
+export async function markMessageRead(accessToken: string, messageId: string): Promise<void> {
+  await requestJson(messageModifyUrl(messageId), accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify({ removeLabelIds: ['UNREAD'] }), 'utf8'),
+  });
+}
+
+/**
+ * Verplaats een bericht naar de prullenbak.
+ *
+ * `/trash` en niet `DELETE /messages/{id}`. Die tweede is definitief; deze is
+ * dertig dagen terug te draaien. Achter een herkenner die zich kan vergissen hoort
+ * geen knop die niets terugneemt.
+ */
+export async function trashMessage(accessToken: string, messageId: string): Promise<void> {
+  await requestJson(messageTrashUrl(messageId), accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from('{}', 'utf8'),
+  });
+}
+
 // Of een bericht al in een label staat. De Message-ID uit de header is het
 // enige dat een bericht over postvakken heen identificeert: dezelfde mail heeft
 // in elk account een ander Gmail-id, maar dezelfde Message-ID. Gmail kan er zelf

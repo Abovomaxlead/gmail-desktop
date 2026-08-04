@@ -1,4 +1,4 @@
-import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, Notification, nativeTheme } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, Notification, nativeTheme } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
@@ -109,6 +109,9 @@ import {
   GmailHttpError,
   type AccountLabels,
   type MessageMeta,
+  fetchMessageRaw,
+  markMessageRead,
+  trashMessage,
 } from './gmail-api';
 import { mapLimit } from './concurrency';
 import { OAuthStore } from './oauth-store';
@@ -119,6 +122,7 @@ import { PushCoverage } from './push-coverage';
 import { HistoryStore } from './history-store';
 import { startPushManager } from './push-manager';
 import { createSyncRunner } from './push-sync';
+import { findVerificationCode, subjectSuggestsCode } from './verification-code';
 
 // WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
 // and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
@@ -1811,6 +1815,62 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   if (!notificationSilent(p, email, 'mail')) playNotificationSound(p);
 }
 
+// De berichten waarvoor al een code is afgehandeld. Push kan een stuk geschiedenis
+// opnieuw aanbieden nadat een sync mislukte, en zonder dit zou dezelfde mail een
+// tweede keer naar de prullenbak gaan of een verlopen code opnieuw op het klembord
+// zetten. Alleen in het geheugen: na een herstart is de mail al gelezen en komt hij
+// niet meer als nieuw langs. Begrensd, want een set die de hele dag groeit is een lek.
+const handledCodeIds = new Set<string>();
+const HANDLED_CODE_LIMIT = 500;
+
+// Een verificatiecode uit een net binnengekomen bericht op het klembord zetten, en
+// daarna doen wat de gebruiker vroeg met de mail.
+//
+// De volgorde is de goedkoopste eerst: staat het kopiëren uit, dan gebeurt er niets.
+// Daarna beslist het onderwerp of het de moeite is om de body op te halen — dat is
+// één HTTP-verzoek per bericht en de meeste post is geen code. Zie
+// `subjectSuggestsCode` voor waarom die poort ruimer is dan de herkenner zelf.
+async function handleVerificationCode(
+  email: string,
+  meta: MessageMeta,
+  withToken: <T>(fn: (token: string) => Promise<T>) => Promise<T>,
+): Promise<void> {
+  const vc = prefs?.getAll().verificationCodes;
+  if (!vc?.autoCopy) return;
+  if (handledCodeIds.has(meta.id)) return;
+  if (!subjectSuggestsCode(meta.subject)) return;
+  try {
+    const raw = await withToken((token) => fetchMessageRaw(token, meta.id));
+    if (!raw) return;
+    const code = findVerificationCode(
+      { subject: meta.subject, body: extractPlainText(raw.toString('utf8')), from: meta.from },
+      vc.confidence,
+    );
+    if (!code) return;
+    // Eerst het klembord, en pas daarna de mail aanraken. Lukt het markeren of het
+    // weggooien niet, dan heb je in elk geval je code — de omgekeerde volgorde zou een
+    // mail kunnen weggooien voor een code die nooit ergens terechtkwam.
+    clipboard.writeText(code);
+    handledCodeIds.add(meta.id);
+    if (handledCodeIds.size > HANDLED_CODE_LIMIT) {
+      // De oudste helft eruit. Een `Set` houdt inzetvolgorde, dus dit is de oudste
+      // helft en niet een willekeurige.
+      for (const id of [...handledCodeIds].slice(0, HANDLED_CODE_LIMIT / 2)) {
+        handledCodeIds.delete(id);
+      }
+    }
+    if (vc.markRead) await withToken((token) => markMessageRead(token, meta.id));
+    if (vc.deleteAfter) await withToken((token) => trashMessage(token, meta.id));
+  } catch (e) {
+    // Stil falen, met een regel in de log. Dit loopt op de achtergrond bij elke nieuwe
+    // mail: een dialoog of een melding bij een mislukt verzoek zou de gebruiker
+    // lastigvallen over iets waar hij niet om vroeg, en er is niets aan te doen
+    // behalve de volgende mail afwachten. Ontbreekt het gmail.modify-recht nog, dan
+    // komt hij hier ook langs — het kopiëren is dan al gelukt.
+    console.warn(`[codes] kon geen code afhandelen voor ${email}:`, e);
+  }
+}
+
 // Eén runner per account, zodat samenvallende syncs voor hetzelfde account
 // gecoalesceerd worden en die van verschillende accounts elkaar niet ophouden.
 function syncRunnerFor(email: string): { run(): Promise<void> } | null {
@@ -1855,6 +1915,11 @@ function syncRunnerFor(email: string): { run(): Promise<void> } | null {
     onOutcome: (outcome) => {
       reportApiUnread(email, outcome.unread);
       for (const meta of outcome.notify) notifyNewMail(email, meta);
+      // Naast de melding en niet erin: `notifyNewMail` haakt af bij niet-storen, bij
+      // stille uren en bij een account waarvoor meldingen uit staan. Een gedempt
+      // account zou dan stil geen codes meer kopiëren, en dat is geen gevolg dat
+      // iemand achter een demping verwacht.
+      for (const meta of outcome.notify) void handleVerificationCode(email, meta, withToken);
     },
     onError: (e) => console.warn(`[push] sync mislukte voor ${email}:`, e),
   });
