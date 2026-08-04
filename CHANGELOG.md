@@ -60,8 +60,9 @@ to [Semantic Versioning](https://semver.org/).
   aan of uit, het tray-icoon, de ondergrens van het venster), Downloads (waar een
   download heen gaat, eerst vragen, map openen — de app handelde downloads tot nu
   toe helemaal niet af), Talen (extra talen voor de spellingcontrole), Phishing
-  Protection (de host laten zien voordat een link naar de browser gaat, met een
-  lijst die zichzelf vult als je "altijd goed" aanvinkt), Bijwerken, Geavanceerd
+  Protection (de host laten zien voordat een link naar de browser gaat — waar de
+  link écht heen gaat, niet de google.com-omleiding die Gmail om elke link zet —
+  met een lijst die zichzelf vult als je "altijd goed" aanvinkt), Bijwerken, Geavanceerd
   (hardwareversnelling), Gmail (mail maken in een eigen venster en dat venster
   sluiten na verzenden), Google Apps (in de app of in de browser, per app een
   uitzondering, de naam en de kleur van het account op een appvenster), en bij
@@ -180,8 +181,9 @@ to [Semantic Versioning](https://semver.org/).
   or off, the tray icon, the window's minimum size), Downloads (where a download
   goes, ask first, open the folder — the app did not handle downloads at all until
   now), Languages (extra spellchecker languages), Phishing Protection (see the host
-  before a link opens in your browser, with a trusted list that fills itself when you
-  tick "always allow"), Updates, Advanced (hardware acceleration), Gmail (compose in
+  before a link opens in your browser — where the link really goes, not the google.com
+  redirect Gmail wraps around every link — with a trusted list that fills itself when
+  you tick "always allow"), Updates, Advanced (hardware acceleration), Gmail (compose in
   its own window, and closing that window after sending), Google Apps (in the app or
   in the browser, a per-app exception, the account's name and colour on an app
   window), and under Notifications: sender and subject in a notification or not,

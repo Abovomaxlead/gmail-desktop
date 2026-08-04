@@ -45,7 +45,7 @@ import {
   type DownloadClickAction,
   type Prefs,
 } from './prefs-store';
-import { hostOf, needsLinkConfirm } from './link-guard';
+import { hostOf, needsLinkConfirm, unwrapRedirect } from './link-guard';
 import { uniqueFileName } from './download-path';
 import { clampBoundsToDisplays } from './window-bounds';
 import { colorForIndex } from './palette';
@@ -1997,9 +1997,13 @@ function openExternalGuarded(url: string): void {
     void shell.openExternal(url);
     return;
   }
-  const host = hostOf(url) ?? url;
+  // Ask about, show and trust where the link really goes, not the google.com/url
+  // wrapper Gmail puts around it. The browser still gets the URL as Gmail handed it
+  // over; that wrapper redirects to the very host the user just approved.
+  const target = unwrapRedirect(url);
+  const host = hostOf(target) ?? target;
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
-  const shown = url.length > 200 ? `${url.slice(0, 200)}…` : url;
+  const shown = target.length > 200 ? `${target.slice(0, 200)}…` : target;
   const box = {
     type: 'question' as const,
     noLink: true,

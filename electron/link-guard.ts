@@ -8,6 +8,53 @@
 // with ".host" rather than using `includes`: "example.com" on the list must not make
 // "example.com.phish.test" trusted. No host in the URL means no question, since a
 // `mailto:` or a bare path has no destination to show.
+//
+// Everything is decided on the unwrapped URL, never on what Gmail hands over. Gmail
+// rewrites every outgoing link to `google.com/url?q=<real target>`, so judging the URL
+// as-is would show "www.google.com" for all of them and — worse — a single tick of
+// "always allow" would put that host on the trusted list and silence the question for
+// every link in every mail from then on. Only google.com's own `/url` path is unwrapped,
+// and only to an absolute http(s) target: a `/url` path on another host is that host's
+// business, and a `javascript:` target must never be handed to a browser as a
+// destination the user appeared to approve.
+
+const REDIRECT_HOSTS = new Set(['google.com', 'www.google.com']);
+const REDIRECT_PARAMS = ['q', 'url'];
+const MAX_UNWRAP_HOPS = 3;
+
+function unwrapOnce(url: string): string | null {
+  let wrapper: URL;
+  try {
+    wrapper = new URL(url);
+  } catch {
+    return null;
+  }
+  if (!REDIRECT_HOSTS.has(wrapper.hostname.toLowerCase())) return null;
+  if (wrapper.pathname !== '/url') return null;
+  for (const param of REDIRECT_PARAMS) {
+    const value = wrapper.searchParams.get(param);
+    if (!value) continue;
+    let target: URL;
+    try {
+      target = new URL(value);
+    } catch {
+      continue;
+    }
+    if (target.protocol !== 'http:' && target.protocol !== 'https:') continue;
+    return target.href;
+  }
+  return null;
+}
+
+export function unwrapRedirect(url: string): string {
+  let current = url;
+  for (let hop = 0; hop < MAX_UNWRAP_HOPS; hop++) {
+    const next = unwrapOnce(current);
+    if (next === null) break;
+    current = next;
+  }
+  return current;
+}
 
 export function hostOf(url: string): string | null {
   try {
@@ -34,7 +81,7 @@ export interface LinkGuardState {
 
 export function needsLinkConfirm(url: string, state: LinkGuardState): boolean {
   if (!state.confirmExternalLinks) return false;
-  const host = hostOf(url);
+  const host = hostOf(unwrapRedirect(url));
   if (!host) return false;
   return !isTrustedHost(host, state.trustedHosts);
 }

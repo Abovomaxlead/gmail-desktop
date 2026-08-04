@@ -1,7 +1,7 @@
 // Whether an external link needs confirming, and which hosts are trusted.
 
 import { describe, it, expect } from 'vitest';
-import { hostOf, isTrustedHost, needsLinkConfirm } from '../electron/link-guard';
+import { hostOf, isTrustedHost, needsLinkConfirm, unwrapRedirect } from '../electron/link-guard';
 
 describe('hostOf', () => {
   it('lowercases the host', () => {
@@ -41,8 +41,72 @@ describe('isTrustedHost', () => {
   });
 });
 
+describe('unwrapRedirect', () => {
+  it('pulls the destination out of the wrapper Gmail puts around every link', () => {
+    expect(
+      unwrapRedirect('https://www.google.com/url?q=https%3A%2F%2Fexample.com%2Fa&source=gmail'),
+    ).toBe('https://example.com/a');
+  });
+
+  it('reads the url parameter as well as q', () => {
+    expect(unwrapRedirect('https://google.com/url?url=https%3A%2F%2Fexample.com%2Fb')).toBe(
+      'https://example.com/b',
+    );
+  });
+
+  it('leaves a link that is not wrapped alone', () => {
+    expect(unwrapRedirect('https://example.com/a?q=https%3A%2F%2Fother.test')).toBe(
+      'https://example.com/a?q=https%3A%2F%2Fother.test',
+    );
+  });
+
+  it('does not unwrap another host that happens to have a /url path', () => {
+    const url = 'https://phish.test/url?q=https%3A%2F%2Fexample.com';
+    expect(unwrapRedirect(url)).toBe(url);
+  });
+
+  it('keeps the wrapper when it carries no usable destination', () => {
+    const url = 'https://www.google.com/url?source=gmail';
+    expect(unwrapRedirect(url)).toBe(url);
+  });
+
+  it('refuses a destination that is not http', () => {
+    const url = 'https://www.google.com/url?q=javascript%3Aalert(1)';
+    expect(unwrapRedirect(url)).toBe(url);
+  });
+
+  it('unwraps a wrapper hiding inside a wrapper', () => {
+    const inner = encodeURIComponent('https://www.google.com/url?q=https%3A%2F%2Fexample.com%2Fc');
+    expect(unwrapRedirect(`https://www.google.com/url?q=${inner}`)).toBe('https://example.com/c');
+  });
+
+  it('hands back anything that is not a URL untouched', () => {
+    expect(unwrapRedirect('rommel')).toBe('rommel');
+  });
+});
+
 describe('needsLinkConfirm', () => {
   const on = { confirmExternalLinks: true, trustedHosts: [] as string[] };
+
+  it('judges the destination behind the wrapper, not the wrapper itself', () => {
+    expect(needsLinkConfirm('https://www.google.com/url?q=https%3A%2F%2Fphish.test%2Fa', on)).toBe(
+      true,
+    );
+  });
+
+  it('does not let a trusted google.com wave through every wrapped link', () => {
+    const state = { confirmExternalLinks: true, trustedHosts: ['google.com'] };
+    expect(
+      needsLinkConfirm('https://www.google.com/url?q=https%3A%2F%2Fphish.test%2Fa', state),
+    ).toBe(true);
+  });
+
+  it('stays quiet when the host behind the wrapper is trusted', () => {
+    const state = { confirmExternalLinks: true, trustedHosts: ['example.com'] };
+    expect(
+      needsLinkConfirm('https://www.google.com/url?q=https%3A%2F%2Fexample.com%2Fa', state),
+    ).toBe(false);
+  });
 
   it('asks nothing while the setting is off', () => {
     expect(needsLinkConfirm('https://example.com', { ...on, confirmExternalLinks: false })).toBe(false);
