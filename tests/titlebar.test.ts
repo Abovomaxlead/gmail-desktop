@@ -4,6 +4,7 @@ import {
   overlayOptions,
   supportsOverlay,
   supportsOverlayUpdate,
+  windowBackground,
 } from '../electron/titlebar';
 import { TOPBAR_HEIGHT } from '../electron/layout';
 
@@ -43,6 +44,25 @@ describe('overlayOptions', () => {
   // renderer. Zonder dit hangen de knoppen 40px hoog in een balk van 80px.
   it('doubles for Rene mode, which zooms the renderer to 200%', () => {
     expect(overlayOptions('light', false, true).height).toBe(TOPBAR_HEIGHT * 2);
+  });
+});
+
+describe('windowBackground', () => {
+  // Dit is wat je ziet vóórdat de renderer voor het eerst tekent. Stond het vast
+  // op de donkere kleur, dan begon een licht thema met een zwarte balk -- in
+  // ontwikkelmodus seconden lang, want de devserver moet eerst compileren.
+  it('follows the theme instead of always being dark', () => {
+    expect(windowBackground('light', false)).toBe('#f5f5f5');
+    expect(windowBackground('dark', false)).toBe('#0a0a0a');
+    expect(windowBackground('system', false)).toBe('#f5f5f5');
+    expect(windowBackground('system', true)).toBe('#0a0a0a');
+  });
+
+  // Zelfde kleur als de balk zelf, anders zie je bij het opstarten een naad
+  // tussen het venster en de balk die eroverheen komt.
+  it('matches the bar it sits behind', () => {
+    expect(windowBackground('light', false)).toBe(overlayOptions('light', false, false).color);
+    expect(windowBackground('dark', false)).toBe(overlayOptions('dark', false, false).color);
   });
 });
 
