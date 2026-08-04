@@ -12,6 +12,13 @@
 // never touched the setting has no `badgeCount` key at all, and that absence
 // must still show a count. Flipping this comparison would silently blank
 // every count for every user who never opened Settings.
-export function accountCountVisible(badgeCount: boolean | undefined): boolean {
+// `showAll` is de hoofdschakelaar uit Weergave (`appearance.showUnreadBadges`).
+// Hij staat vóór de keuze per account: uit verbergt élk getal, ook van een account
+// dat wél meetelt — dat is wat "Hide all unread badges … regardless of individual
+// account settings" betekent. Standaard `true`, zodat een aanroeper die de
+// hoofdschakelaar niet kent (of voorkeuren die nog niet binnen zijn) zich gedraagt
+// als vóórdat die schakelaar bestond.
+export function accountCountVisible(badgeCount: boolean | undefined, showAll = true): boolean {
+  if (!showAll) return false;
   return badgeCount !== false;
 }

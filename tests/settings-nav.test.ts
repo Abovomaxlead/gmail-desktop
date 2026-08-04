@@ -27,13 +27,12 @@ describe('SETTINGS_GROUPS', () => {
         'languages',
         'notifications',
         'phishing-protection',
-        'saved-searches',
         'unified-inbox',
         'updates',
         'verification-codes',
         'advanced',
       ],
-      ['license', 'whats-new', 'about'],
+      ['whats-new', 'about'],
     ]);
   });
 

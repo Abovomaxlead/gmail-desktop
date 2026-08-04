@@ -6,7 +6,7 @@ import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
-import { BLOCK_TITLE, CHECKBOX, DIVIDER, FIELD, HAIRLINE, PANEL } from './tokens';
+import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, HAIRLINE, HINT, PANEL } from './tokens';
 
 // De tijdvelden dragen `tabular-nums`: een tijd is een getal, en een getal dat
 // van 09:59 naar 10:00 springt hoort niet ook nog van breedte te veranderen.
@@ -234,6 +234,111 @@ export function NotificationsSection({
           >
             <option value="app">{S.openInApp}</option>
             <option value="window">{S.openInWindow}</option>
+          </select>
+        </SettingRow>
+      </SettingsGroup>
+
+      {/* Wat er in een melding te lezen staat. Uit betekent niet "leeg": de regel
+          wordt vervangen door een neutrale tekst, want een melding moet nog steeds
+          zeggen dát er post is. Dit werkt in beide soorten meldingen — die de app
+          zelf maakt en die Gmail in de pagina afvuurt. */}
+      <SettingsGroup title={S.notificationContent}>
+        <SettingRow label={S.showSender} description={S.showSenderDescription} htmlFor="setting-show-sender">
+          <Switch
+            id="setting-show-sender"
+            checked={prefs?.notifications.showSender !== false}
+            onChange={(v) => window.desktop?.setNotificationExtras({ showSender: v })}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={S.showSubject}
+          description={S.showSubjectDescription}
+          htmlFor="setting-show-subject"
+        >
+          <Switch
+            id="setting-show-subject"
+            checked={prefs?.notifications.showSubject !== false}
+            onChange={(v) => window.desktop?.setNotificationExtras({ showSubject: v })}
+          />
+        </SettingRow>
+
+        {/* De testknop gaat langs de demping niet: je vraagt er zelf om, en een knop
+            die niets doet omdat je stille uren aan staan lijkt stuk. Wat hij wél
+            volgt zijn de twee schakelaars erboven en het geluid, want dat is precies
+            wat je wil zien. */}
+        <SettingRow label={S.testNotification} description={S.testNotificationDescription}>
+          <button type="button" onClick={() => window.desktop?.testNotification()} className={BUTTON}>
+            {S.testNotificationButton}
+          </button>
+        </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={S.soundGroup}>
+        {/* De hoofdschakelaar boven het "Geluid"-vinkje per account in het rooster
+            onderaan. Uit is stil, ook voor een account waarvoor geluid aan staat —
+            en ook voor een agendaherinnering, want "geen geluid" is een uitspraak
+            over alle meldingen. */}
+        <SettingRow label={S.playSound} description={S.playSoundDescription} htmlFor="setting-play-sound">
+          <Switch
+            id="setting-play-sound"
+            checked={prefs?.notifications.sound !== false}
+            onChange={(v) => window.desktop?.setNotificationExtras({ sound: v })}
+          />
+        </SettingRow>
+        {/* Welk geluid, en hoe hard, hoort hier ook. Dat kan pas als de app eigen
+            geluidsbestanden meebrengt: nu speelt Windows zijn eigen meldingsgeluid en
+            daar valt niets aan te kiezen. Liever deze regel dan een keuzelijst met
+            namen die niets doen. */}
+        <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.soundChoiceTodo}</p>
+      </SettingsGroup>
+
+      <SettingsGroup title={S.navGoogleApps}>
+        <SettingRow
+          label={S.googleAppsNotifications}
+          description={S.googleAppsNotificationsDescription}
+          htmlFor="setting-google-apps-notify"
+        >
+          <Switch
+            id="setting-google-apps-notify"
+            checked={prefs?.notifications.googleApps !== false}
+            onChange={(v) => window.desktop?.setNotificationExtras({ googleApps: v })}
+          />
+        </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={S.navDownloads}>
+        <SettingRow
+          label={S.downloadNotify}
+          description={S.downloadNotifyDescription}
+          htmlFor="setting-download-notify"
+        >
+          <Switch
+            id="setting-download-notify"
+            checked={prefs?.downloads.notify !== false}
+            onChange={(v) => window.desktop?.setDownloadPrefs({ notify: v })}
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={S.downloadOnClick}
+          description={S.downloadOnClickDescription}
+          htmlFor="setting-download-click"
+        >
+          <select
+            id="setting-download-click"
+            disabled={prefs?.downloads.notify === false}
+            value={prefs?.downloads.notifyClick ?? 'show-in-folder'}
+            onChange={(e) =>
+              window.desktop?.setDownloadPrefs({
+                notifyClick: e.target.value as 'show-in-folder' | 'open-file' | 'nothing',
+              })
+            }
+            className={`${FIELD} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            <option value="show-in-folder">{S.downloadClickShowInFolder}</option>
+            <option value="open-file">{S.downloadClickOpenFile}</option>
+            <option value="nothing">{S.downloadClickNothing}</option>
           </select>
         </SettingRow>
       </SettingsGroup>

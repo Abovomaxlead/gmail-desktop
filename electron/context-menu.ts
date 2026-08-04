@@ -1,4 +1,5 @@
 import { Menu, clipboard, shell, type WebContents, type MenuItemConstructorOptions } from 'electron';
+import { openExternalLink } from './external-links';
 
 // Right-click menu for every webContents in the app (sidebar, Gmail/Calendar
 // views, compose and pop-out windows). Chromium's own context menu is not
@@ -155,7 +156,11 @@ export function attachContextMenu(webContents: WebContents, getLabels: () => Con
       pasteMatchStyle: () => webContents.pasteAndMatchStyle(),
       selectAll: () => webContents.selectAll(),
       copyLink: () => clipboard.writeText(params.linkURL),
-      openLink: () => void shell.openExternal(params.linkURL),
+      // Langs dezelfde poort als een link in een mail: "Open link" uit het
+      // rechtsklikmenu is net zo goed een link die de app verlaat, en die hoort
+      // dezelfde vraag te krijgen als Phishing Protection aan staat. Zoeken op
+      // Google hieronder niet: dat is een adres dat de app zelf opbouwt.
+      openLink: () => openExternalLink(params.linkURL),
       copyImage: () => webContents.copyImageAt(params.x, params.y),
       copyImageAddress: () => clipboard.writeText(params.srcURL),
       searchGoogle: () => void shell.openExternal(googleSearchUrl(params.selectionText)),

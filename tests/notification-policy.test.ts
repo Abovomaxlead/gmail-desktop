@@ -8,11 +8,29 @@ import {
   mergeNotificationsFromPanel,
 } from '../electron/notification-policy';
 import type { AccountRef } from '../renderer/lib/account-ref';
-import { DEFAULT_PREFS, type Prefs } from '../electron/prefs-store';
+import { DEFAULT_PREFS, type NotificationPrefs, type Prefs } from '../electron/prefs-store';
 
-function prefs(overrides: Partial<Prefs>): Prefs {
-  return { ...structuredClone(DEFAULT_PREFS), ...overrides };
+// `notifications` wordt hier een laag diep samengevoegd in plaats van vervangen.
+// Anders moet elke test die alleen `dnd` wil zetten ook de velden opschrijven die
+// niets met deze test te maken hebben (wat er in een melding staat, of geluid aan
+// staat) — en dan zegt een test over gedempt zijn ineens ook iets over die.
+function prefs(
+  overrides: Omit<Partial<Prefs>, 'notifications'> & { notifications?: Partial<NotificationPrefs> },
+): Prefs {
+  const base = structuredClone(DEFAULT_PREFS);
+  return {
+    ...base,
+    ...overrides,
+    notifications: { ...base.notifications, ...(overrides.notifications ?? {}) },
+  };
 }
+
+// Hetzelfde, voor een los blok meldingsvoorkeuren: `mergeNotificationsFromPanel`
+// krijgt de opgeslagen stand als eerste argument.
+const mute = (o: Partial<NotificationPrefs>): NotificationPrefs => ({
+  ...structuredClone(DEFAULT_PREFS.notifications),
+  ...o,
+});
 const at = (h: number, m = 0) => new Date(2026, 0, 1, h, m);
 
 describe('inQuietHours', () => {
@@ -130,7 +148,7 @@ describe('mergeNotificationsFromPanel', () => {
   const quietHours = { enabled: false, start: '18:00', end: '08:00' };
 
   it('keeps a running snooze when only quiet hours change (dnd untouched)', () => {
-    const current = { dnd: false, dndUntil: 4_000_000_000_000, quietHours };
+    const current = mute({ dnd: false, dndUntil: 4_000_000_000_000, quietHours });
     const result = mergeNotificationsFromPanel(current, {
       dnd: false, // echoed back unchanged by the quiet-hours controls
       quietHours: { ...quietHours, enabled: true },
@@ -145,7 +163,7 @@ describe('mergeNotificationsFromPanel', () => {
     // an actual flip — this case is covered by the "untouched" test above.
     // Here the switch genuinely changes: it was on, and the user turns it off,
     // which is the "un-mute me" case called out in the design discussion.
-    const current = { dnd: true, dndUntil: 4_000_000_000_000, quietHours };
+    const current = mute({ dnd: true, dndUntil: 4_000_000_000_000, quietHours });
     const result = mergeNotificationsFromPanel(current, { dnd: false, quietHours });
     expect(result.dnd).toBe(false);
     expect(result.dndUntil).toBeUndefined();
@@ -154,19 +172,82 @@ describe('mergeNotificationsFromPanel', () => {
   it('clears a running snooze when the DND switch is explicitly toggled on', () => {
     // Mirrors the tray's own `setSnooze(null)` branch: turning DND on
     // indefinitely supersedes any timed snooze, so it clears dndUntil too.
-    const current = { dnd: false, dndUntil: 4_000_000_000_000, quietHours };
+    const current = mute({ dnd: false, dndUntil: 4_000_000_000_000, quietHours });
     const result = mergeNotificationsFromPanel(current, { dnd: true, quietHours });
     expect(result.dnd).toBe(true);
     expect(result.dndUntil).toBeUndefined();
   });
 
   it('has nothing to preserve when no snooze is running', () => {
-    const current = { dnd: false, quietHours };
+    const current = mute({ dnd: false, quietHours });
     const result = mergeNotificationsFromPanel(current, {
       dnd: false,
       quietHours: { ...quietHours, start: '20:00' },
     });
     expect(result.dndUntil).toBeUndefined();
+  });
+});
+
+// De twee hoofdschakelaars uit Meldingen. Beide standaard aan, dus zonder dat de
+// gebruiker iets doet beslist de keuze per account — precies zoals daarvoor.
+describe('global masters', () => {
+  it('silences every surface when the sound master is off', () => {
+    const p = prefs({ notifications: { sound: false }, accounts: { 'a@x.com': { notifySound: true } } });
+    expect(notificationSilent(p, 'a@x.com')).toBe(true);
+    // Ook een agendaherinnering, die de keuze per account juist negeert: "geen
+    // geluid" is een uitspraak over alle meldingen.
+    expect(notificationSilent(p, 'a@x.com', 'calendar')).toBe(true);
+  });
+
+  it('leaves the per-account choice in charge while the sound master is on', () => {
+    const p = prefs({ notifications: { sound: true }, accounts: { 'a@x.com': { notifySound: false } } });
+    expect(notificationSilent(p, 'a@x.com')).toBe(true);
+    const q = prefs({ notifications: { sound: true }, accounts: { 'a@x.com': { notifySound: true } } });
+    expect(notificationSilent(q, 'a@x.com')).toBe(false);
+  });
+
+  it('blocks calendar reminders when the Google Apps master is off', () => {
+    const p = prefs({
+      notifications: { googleApps: false },
+      accounts: { 'a@x.com': { calendarNotify: true } },
+    });
+    expect(notificationsAllowed(p, 'a@x.com', at(12), 'calendar')).toBe(false);
+    // Post gaat door: de hoofdschakelaar gaat over de andere Google-apps.
+    expect(notificationsAllowed(p, 'a@x.com', at(12), 'mail')).toBe(true);
+  });
+
+  it('still needs the per-account opt-in while the Google Apps master is on', () => {
+    const p = prefs({ notifications: { googleApps: true }, accounts: { 'a@x.com': {} } });
+    expect(notificationsAllowed(p, 'a@x.com', at(12), 'calendar')).toBe(false);
+    const q = prefs({
+      notifications: { googleApps: true },
+      accounts: { 'a@x.com': { calendarNotify: true } },
+    });
+    expect(notificationsAllowed(q, 'a@x.com', at(12), 'calendar')).toBe(true);
+  });
+});
+
+// Het paneel stuurt alleen `dnd` en `quietHours`; de vier velden over de inhoud van
+// een melding en over geluid staan in hetzelfde blok en mogen daar niet door
+// verdwijnen. Dit is dezelfde soort bug als die met `dndUntil`, een laag hoger.
+describe('mergeNotificationsFromPanel keeps the content and sound fields', () => {
+  it('leaves showSender, showSubject, sound and googleApps as they were', () => {
+    const current = mute({
+      dnd: false,
+      showSender: false,
+      showSubject: false,
+      sound: false,
+      googleApps: false,
+    });
+    const result = mergeNotificationsFromPanel(current, {
+      dnd: false,
+      quietHours: { enabled: true, start: '18:00', end: '08:00' },
+    });
+    expect(result.showSender).toBe(false);
+    expect(result.showSubject).toBe(false);
+    expect(result.sound).toBe(false);
+    expect(result.googleApps).toBe(false);
+    expect(result.quietHours.enabled).toBe(true);
   });
 });
 

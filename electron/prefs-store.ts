@@ -22,7 +22,98 @@ export interface NotificationPrefs {
   dnd: boolean;
   dndUntil?: number; // epoch ms; notifications stay muted while Date.now() < dndUntil
   quietHours: QuietHours;
+  // Wat er in een melding te lezen staat. Beide standaard aan, want dat is wat een
+  // melding nu toont; uit betekent dat de regel wordt vervangen door een neutrale
+  // tekst en niet dat hij leeg blijft — een melding zonder afzender én zonder
+  // onderwerp moet nog steeds zeggen dát er post is.
+  showSender: boolean;
+  showSubject: boolean;
+  // De hoofdschakelaar voor geluid. Staat hij uit, dan is elke melding stil, ook
+  // die van een account waarvoor geluid aan staat. Aan laat de keuze per account
+  // (`notifySound`) beslissen — dus standaard aan verandert er niets.
+  sound: boolean;
+  // Meldingen van de andere Google-apps (nu: de agenda). Hoofdschakelaar boven de
+  // keuze per account (`calendarNotify`), zelfde verhouding als `sound`.
+  googleApps: boolean;
 }
+
+// De weergave van de app zelf: het thema staat hierbuiten (`Prefs.theme`) omdat
+// main het al vóór het eerste venster nodig heeft voor de achtergrondkleur.
+export interface TrayPrefs {
+  enabled: boolean;
+  // Klik je op het tray-icoon, spring dan naar het eerste account met ongelezen
+  // post in plaats van naar het account dat vooraan stond.
+  selectUnreadOnClick: boolean;
+  // Hier hoort ook de kleur van het tray-icoon. Die staat er nog niet: het icoon is
+  // het gekleurde app-logo, en "licht" of "donker" vraagt om een monochrome variant
+  // in assets/. Zonder die twee bestanden zou de keuze een schakelaar zijn die niets
+  // doet, en dat is erger dan een keuze die er nog niet is.
+}
+export interface AppearancePrefs {
+  // Hoofdschakelaar boven `badgeCount` per account: uit verbergt elk getal, ook
+  // van een account dat wél meetelt.
+  showUnreadBadges: boolean;
+  tray: TrayPrefs;
+  // De ondergrens van 800px op de vensterbreedte. Zie de opmerking bij `minWidth`
+  // in main.ts voor waarom die er is; uitzetten mag, maar dan kan de balk klem
+  // komen te zitten.
+  restrictMinWindowSize: boolean;
+}
+
+// Wat de app met een download uit Gmail doet. `folder` leeg = de downloadmap van
+// het besturingssysteem, die main oplost (deze module kent `app` niet) — dezelfde
+// afspraak als bij `MailDropPrefs`.
+export type DownloadClickAction = 'show-in-folder' | 'open-file' | 'nothing';
+export interface DownloadPrefs {
+  folder: string;
+  saveAsDialog: boolean;
+  openFolderWhenDone: boolean;
+  notify: boolean;
+  notifyClick: DownloadClickAction;
+}
+
+export interface PhishingPrefs {
+  // Standaard uit: tot nu toe ging een externe link zonder tussenstap naar de
+  // browser, en een app die na een update ineens bij elke link iets vraagt is
+  // stuk in de ogen van wie hem gebruikt. Aanzetten is een keuze van de gebruiker.
+  confirmExternalLinks: boolean;
+  // Hosts waarvoor niets wordt gevraagd. Kleine letters, zonder schema of pad.
+  trustedHosts: string[];
+}
+
+export interface UpdatePrefs {
+  // Zelf kijken of er een nieuwe versie is: bij het opstarten en daarna elk half
+  // uur. Standaard aan, want dat doet de app nu.
+  autoCheck: boolean;
+  // Een melding als er een versie klaarstaat. Los van `autoCheck`: je kan zelf
+  // willen kijken zonder gestoord te worden, of juist het omgekeerde.
+  notify: boolean;
+}
+
+export interface LanguagePrefs {
+  // Extra talen voor de spellingcontrole, naast de taal van het systeem. BCP-47,
+  // zoals Chromium ze noemt ('nl', 'en-GB').
+  spellcheck: string[];
+}
+
+export interface AdvancedPrefs {
+  // Uitzetten helpt bij een haperende of zwarte weergave op sommige machines.
+  // Wordt vóór 'ready' gelezen en werkt dus pas na een herstart.
+  hardwareAcceleration: boolean;
+}
+
+// De vorm waarin een wijziging binnenkomt. `tray` is een laag diep, dus een
+// gewone `Partial` zou bij het zetten van één tray-veld de andere twee wissen.
+export type AppearancePatch = Partial<Omit<AppearancePrefs, 'tray'>> & {
+  tray?: Partial<TrayPrefs>;
+};
+
+// Alleen de vier velden die geen deel zijn van "ben ik gedempt": `dnd`, `dndUntil`
+// en `quietHours` gaan langs `setNotifications`, dat er een eigen samenvoegregel
+// voor heeft.
+export type NotificationExtrasPatch = Partial<
+  Pick<NotificationPrefs, 'showSender' | 'showSubject' | 'sound' | 'googleApps'>
+>;
 export interface WindowPrefs {
   width: number;
   height: number;
@@ -53,6 +144,12 @@ export interface Prefs {
   notifications: NotificationPrefs;
   accounts: Record<string, AccountPref>;
   mailDrop: MailDropPrefs;
+  appearance: AppearancePrefs;
+  downloads: DownloadPrefs;
+  phishing: PhishingPrefs;
+  updates: UpdatePrefs;
+  languages: LanguagePrefs;
+  advanced: AdvancedPrefs;
   // Easter egg: everything at 200% and the UI in simple Dutch. Toggled only by
   // the secret key sequence on the settings page.
   reneMode: boolean;
@@ -64,11 +161,61 @@ export const DEFAULT_PREFS: Prefs = {
   launchMinimized: false,
   theme: 'system',
   notificationOpen: 'app',
-  notifications: { dnd: false, quietHours: { enabled: false, start: '18:00', end: '08:00' } },
+  notifications: {
+    dnd: false,
+    quietHours: { enabled: false, start: '18:00', end: '08:00' },
+    showSender: true,
+    showSubject: true,
+    sound: true,
+    googleApps: true,
+  },
   accounts: {},
   mailDrop: { folder: '' },
+  // Elke standaard hieronder is gekozen om het gedrag te laten zoals het was
+  // vóórdat de instelling bestond. Wie de app bijwerkt hoort niets te merken; wat
+  // er verandert, verandert omdat de gebruiker een schakelaar omzet.
+  appearance: {
+    showUnreadBadges: true,
+    tray: { enabled: true, selectUnreadOnClick: false },
+    restrictMinWindowSize: true,
+  },
+  downloads: {
+    folder: '',
+    saveAsDialog: false,
+    openFolderWhenDone: false,
+    notify: true,
+    notifyClick: 'show-in-folder',
+  },
+  phishing: { confirmExternalLinks: false, trustedHosts: [] },
+  updates: { autoCheck: true, notify: true },
+  languages: { spellcheck: [] },
+  advanced: { hardwareAcceleration: true },
   reneMode: false,
 };
+
+// Drie kleine lezers voor `getAll`. Met negentien velden erbij werd elke regel
+// daar een ternary met een pad erin, en dan is niet meer te zien welk veld welke
+// standaard krijgt. Ze staan hier en niet in een eigen bestand omdat ze alleen
+// over het lezen van dit ene bestand gaan.
+function bool(v: unknown, fallback: boolean): boolean {
+  return typeof v === 'boolean' ? v : fallback;
+}
+function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
+}
+// Alleen niet-lege strings, ontdubbeld, in de volgorde waarin ze stonden. Een
+// hand-geschreven bestand met een getal of een null in de lijst mag de hele lijst
+// niet weggooien.
+function stringList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item !== 'string') continue;
+    const s = item.trim();
+    if (s && !out.includes(s)) out.push(s);
+  }
+  return out;
+}
 
 export class PrefsStore {
   constructor(private readonly filePath: string) {}
@@ -91,6 +238,10 @@ export class PrefsStore {
           dnd: typeof raw.notifications?.dnd === 'boolean' ? raw.notifications.dnd : false,
           dndUntil: typeof raw.notifications?.dndUntil === 'number' ? raw.notifications.dndUntil : undefined,
           quietHours: { ...DEFAULT_PREFS.notifications.quietHours, ...(raw.notifications?.quietHours ?? {}) },
+          showSender: bool(raw.notifications?.showSender, true),
+          showSubject: bool(raw.notifications?.showSubject, true),
+          sound: bool(raw.notifications?.sound, true),
+          googleApps: bool(raw.notifications?.googleApps, true),
         },
         accounts: raw.accounts && typeof raw.accounts === 'object' && !Array.isArray(raw.accounts)
           ? raw.accounts
@@ -98,6 +249,35 @@ export class PrefsStore {
         mailDrop: {
           folder: typeof raw.mailDrop?.folder === 'string' ? raw.mailDrop.folder : '',
         },
+        appearance: {
+          showUnreadBadges: bool(raw.appearance?.showUnreadBadges, true),
+          tray: {
+            enabled: bool(raw.appearance?.tray?.enabled, true),
+            selectUnreadOnClick: bool(raw.appearance?.tray?.selectUnreadOnClick, false),
+          },
+          restrictMinWindowSize: bool(raw.appearance?.restrictMinWindowSize, true),
+        },
+        downloads: {
+          folder: typeof raw.downloads?.folder === 'string' ? raw.downloads.folder : '',
+          saveAsDialog: bool(raw.downloads?.saveAsDialog, false),
+          openFolderWhenDone: bool(raw.downloads?.openFolderWhenDone, false),
+          notify: bool(raw.downloads?.notify, true),
+          notifyClick: oneOf(
+            raw.downloads?.notifyClick,
+            ['show-in-folder', 'open-file', 'nothing'] as const,
+            'show-in-folder',
+          ),
+        },
+        phishing: {
+          confirmExternalLinks: bool(raw.phishing?.confirmExternalLinks, false),
+          trustedHosts: stringList(raw.phishing?.trustedHosts),
+        },
+        updates: {
+          autoCheck: bool(raw.updates?.autoCheck, true),
+          notify: bool(raw.updates?.notify, true),
+        },
+        languages: { spellcheck: stringList(raw.languages?.spellcheck) },
+        advanced: { hardwareAcceleration: bool(raw.advanced?.hardwareAcceleration, true) },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
       };
     } catch {
@@ -116,6 +296,63 @@ export class PrefsStore {
   setAutoStart(v: boolean): void {
     this.write({ ...this.getAll(), autoStart: v });
   }
+
+  // Vanaf hier één setter per tab, met een patch, in plaats van één per veld. Met
+  // ruim twintig nieuwe instellingen zou dat twintig methodes, twintig
+  // IPC-kanalen en twintig brugfuncties zijn die op de naam na identiek zijn. Een
+  // patch per groep houdt dat bij elkaar, en de groep is precies de tab waar de
+  // gebruiker de instelling zet.
+  //
+  // Elke patch wordt over de gelezen voorkeuren gelegd, dus een veld dat niet in
+  // de patch staat blijft staan. Bij `tray` gaat dat een laag dieper: een patch
+  // met alleen `color` erin mag de andere twee velden niet wissen.
+  setAppearance(patch: AppearancePatch): void {
+    const prefs = this.getAll();
+    this.write({
+      ...prefs,
+      appearance: {
+        ...prefs.appearance,
+        ...patch,
+        tray: { ...prefs.appearance.tray, ...(patch.tray ?? {}) },
+      },
+    });
+  }
+  setDownloads(patch: Partial<DownloadPrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, downloads: { ...prefs.downloads, ...patch } });
+  }
+  setPhishing(patch: Partial<PhishingPrefs>): void {
+    const prefs = this.getAll();
+    // De lijst gaat door dezelfde lezer als bij het inlezen: kleine letters,
+    // ontdubbeld, geen leegte. Zo kan de lijst niet via de ene weg schoon en via
+    // de andere rommelig binnenkomen.
+    const trustedHosts =
+      patch.trustedHosts === undefined
+        ? prefs.phishing.trustedHosts
+        : stringList(patch.trustedHosts.map((h) => h.toLowerCase()));
+    this.write({ ...prefs, phishing: { ...prefs.phishing, ...patch, trustedHosts } });
+  }
+  setUpdates(patch: Partial<UpdatePrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, updates: { ...prefs.updates, ...patch } });
+  }
+  setLanguages(patch: Partial<LanguagePrefs>): void {
+    const prefs = this.getAll();
+    const spellcheck =
+      patch.spellcheck === undefined ? prefs.languages.spellcheck : stringList(patch.spellcheck);
+    this.write({ ...prefs, languages: { spellcheck } });
+  }
+  setAdvanced(patch: Partial<AdvancedPrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, advanced: { ...prefs.advanced, ...patch } });
+  }
+  // De vier nieuwe velden bij meldingen apart van `setNotifications`: die gaat over
+  // gedempt zijn en heeft in `mergeNotificationsFromPanel` een eigen regel over
+  // `dndUntil`. Deze vier zijn gewone voorkeuren en horen daar niet tussen.
+  setNotificationExtras(patch: NotificationExtrasPatch): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, notifications: { ...prefs.notifications, ...patch } });
+  }
   setLaunchMinimized(v: boolean): void {
     this.write({ ...this.getAll(), launchMinimized: v });
   }
@@ -125,8 +362,14 @@ export class PrefsStore {
   setNotificationOpen(v: NotificationOpen): void {
     this.write({ ...this.getAll(), notificationOpen: v });
   }
-  setNotifications(n: NotificationPrefs): void {
-    this.write({ ...this.getAll(), notifications: n });
+  // Een patch en niet het hele blok. Het paneel stuurt `dnd` en `quietHours`, de
+  // tray stuurt `dndUntil`, en sinds er ook velden over de inhoud van een melding
+  // in dit blok staan zou "schrijf wat je krijgt" die wissen bij elke wijziging
+  // van de ene of de andere kant. Een volledig blok is nog steeds een geldige
+  // patch, dus main's `mergeNotificationsFromPanel` blijft werken zoals hij was.
+  setNotifications(patch: Partial<NotificationPrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, notifications: { ...prefs.notifications, ...patch } });
   }
   setReneMode(v: boolean): void {
     this.write({ ...this.getAll(), reneMode: v });

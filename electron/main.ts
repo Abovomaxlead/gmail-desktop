@@ -1,6 +1,6 @@
 import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, Notification, nativeTheme } from 'electron';
 import { join } from 'node:path';
-import { readFileSync, mkdirSync, writeFileSync, watch } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { Tray } from 'electron';
@@ -20,7 +20,14 @@ import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
 import { planDelegated } from './delegation-planner';
 import { ColorStore } from './color-store';
 import { RemovedStore } from './removed-store';
-import { PrefsStore } from './prefs-store';
+import {
+  PrefsStore,
+  type AppearancePatch,
+  type DownloadClickAction,
+  type Prefs,
+} from './prefs-store';
+import { hostOf, needsLinkConfirm } from './link-guard';
+import { uniqueFileName } from './download-path';
 import { clampBoundsToDisplays } from './window-bounds';
 import { colorForIndex } from './palette';
 import { planNext } from './detection-planner';
@@ -79,6 +86,7 @@ import {
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
+import { setExternalOpener } from './external-links';
 import { overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
@@ -116,6 +124,26 @@ import { createSyncRunner } from './push-sync';
 if (process.platform === 'linux' && /microsoft|WSL/i.test(release())) {
   app.disableHardwareAcceleration();
 }
+
+// Hardwareversnelling uitzetten als de gebruiker daarom vroeg (Geavanceerd). Moet
+// vóór 'ready', en dus vóórdat `prefs` bestaat — die wordt in createWindow gemaakt.
+// Daarom hier een eigen, wegwerpbare lezer: `PrefsStore` houdt geen staat vast, het
+// leest het bestand bij elke aanroep. `app.getPath('userData')` mag al vóór 'ready'.
+//
+// Alleen uitzetten, nooit aanzetten: versnelling ís aan tenzij je hem afzet, en er
+// bestaat geen omgekeerde aanroep. Vandaar dat dit een `if` is en geen `else`.
+try {
+  const early = new PrefsStore(join(app.getPath('userData'), 'prefs.json')).getAll();
+  if (early.advanced.hardwareAcceleration === false) app.disableHardwareAcceleration();
+} catch {
+  // Geen voorkeuren te lezen (eerste start, of een stuk bestand): dan blijft de
+  // versnelling aan, en dat is de stand waarin de app al jaren opkomt.
+}
+
+// De ondergrens van de vensterbreedte. Staat hier en niet als los getal in
+// createWindow, omdat `applyMinWindowSize` hem ook nodig heeft als de gebruiker de
+// grens weer aanzet zonder de app te herstarten.
+const MIN_WINDOW_WIDTH = 800;
 
 const RENDERER_DIST = join(__dirname, '..', 'renderer', 'out');
 const CHANGELOG_PATH = join(__dirname, '..', 'CHANGELOG.md');
@@ -463,7 +491,12 @@ function settleDetection(): void {
 function excludedBadgeKeys(): Set<string> {
   const keys = new Set<string>();
   for (const p of profiles) {
-    if (!accountCountVisible(prefs?.getAccount(p.email).badgeCount)) {
+    if (
+      !accountCountVisible(
+        prefs?.getAccount(p.email).badgeCount,
+        prefs?.getAll().appearance.showUnreadBadges,
+      )
+    ) {
       keys.add(keyOf(p));
     }
   }
@@ -861,6 +894,23 @@ function applyReneZoom(): void {
   manager?.relayout();
 }
 
+// Wat er in plaats van de afzender of het onderwerp komt te staan als de gebruiker
+// die niet in een melding wil zien. Het veld blijft weg zolang de schakelaar aan
+// staat, want `NotifyState` leest `undefined` als "laat staan wat er stond" — zo
+// hoeft de preload geen vlaggetje én een tekst te krijgen.
+//
+// Engels en niet uit `strings.ts`: alle tekst die main zelf in een melding zet is
+// dat (zie `maybeNotifyUpdate`). De Rene-stand kleurt het instellingenpaneel, niet
+// de meldingen van het besturingssysteem.
+const NOTIFY_HIDDEN_SENDER = 'New email';
+const NOTIFY_HIDDEN_SUBJECT = 'You have new mail.';
+function hiddenNotificationText(p: Prefs): { hiddenSender?: string; hiddenSubject?: string } {
+  return {
+    ...(p.notifications.showSender === false ? { hiddenSender: NOTIFY_HIDDEN_SENDER } : {}),
+    ...(p.notifications.showSubject === false ? { hiddenSubject: NOTIFY_HIDDEN_SUBJECT } : {}),
+  };
+}
+
 let notifyTimer: ReturnType<typeof setInterval> | null = null;
 function refreshNotifyAllowed(): void {
   if (!prefs) return;
@@ -880,6 +930,7 @@ function refreshNotifyAllowed(): void {
         show: notificationsAllowed(p, profile.email, now, surface, coverage.has(profile.email)),
         silent: notificationSilent(p, profile.email, surface),
         persist: notificationPersist(p, profile.email),
+        ...hiddenNotificationText(p),
       });
     }
   }
@@ -1696,9 +1747,10 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   const p = prefs.getAll();
   const now = new Date();
   if (!notificationsAllowed(p, email, now, 'mail')) return;
+  const hidden = hiddenNotificationText(p);
   const n = new Notification({
-    title: displayName(meta.from) || email,
-    body: meta.subject || NO_SUBJECT,
+    title: hidden.hiddenSender ?? (displayName(meta.from) || email),
+    body: hidden.hiddenSubject ?? (meta.subject || NO_SUBJECT),
     silent: notificationSilent(p, email, 'mail'),
     // Blijven staan tot de gebruiker hem wegklikt, als dat aanstaat.
     timeoutType: notificationPersist(p, email) ? 'never' : 'default',
@@ -1871,12 +1923,13 @@ function createWindow(): void {
     y: bounds.y,
     backgroundColor: windowBackground(prefs.getAll().theme, nativeTheme.shouldUseDarkColors),
     icon: ICON_PATH,
-    // Een bodem voor de vensterbreedte. Zonder dit is het venster smaller te
-    // slepen dan de balk aankan: onder ongeveer 236px klapt de reservering van de
-    // tabstrook naar nul en schuift het tandwiel onder de vensterknoppen-overlay,
-    // waar niets meer aan te klikken is. 800px is ruim boven die grens en is ook
-    // wat Gmail zelf nodig heeft voor een bruikbare inbox.
-    minWidth: 800,
+    // Een bodem voor de vensterbreedte, tenzij de gebruiker hem bij Weergave
+    // uitzet. Zonder deze grens is het venster smaller te slepen dan de balk
+    // aankan: onder ongeveer 236px klapt de reservering van de tabstrook naar nul
+    // en schuift het tandwiel onder de vensterknoppen-overlay, waar niets meer aan
+    // te klikken is. 800px is ruim boven die grens en is ook wat Gmail zelf nodig
+    // heeft voor een bruikbare inbox.
+    minWidth: prefs.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_WIDTH,
     ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
@@ -2059,6 +2112,9 @@ function checkForUpdate(opts?: { background?: boolean }): void {
 // most once per version per session. Clicking it opens the Settings update
 // section. Manual checks don't reach here as "background", so they stay quiet.
 function maybeNotifyUpdate(version: string): void {
+  // De schakelaar bij Bijwerken staat vóór alle andere regels: wie zegt dat hij niet
+  // gestoord wil worden over updates, hoort ook de eerste niet te krijgen.
+  if (prefs?.getAll().updates.notify === false) return;
   if (
     !shouldNotifyUpdate({
       state: 'available',
@@ -2127,10 +2183,36 @@ function clearSnooze(): void {
   setSnooze(0);
 }
 
+// Een klik op het tray-icoon. Standaard hetzelfde als "Open": het venster naar
+// voren. Staat "spring naar ongelezen" aan, dan gaat hij naar het eerste account
+// waar post op je wacht — de volgorde van de balk, dus het account dat vooraan
+// staat wint. Is er niets ongelezen, dan gebeurt het gewone: het venster komt op.
+//
+// `activateNotification` zonder gesprek doet precies dat werk al (venster naar
+// voren, instellingen dicht, naar dat postvak), dus dit is geen tweede weg naar
+// hetzelfde — het is dezelfde weg.
+function openFromTrayIcon(): void {
+  if (prefs?.getAll().appearance.tray.selectUnreadOnClick === true) {
+    const counts = unread.snapshot();
+    // `profiles` is de bevestigde lijst van main; een voorlopige tab uit de
+    // onthouden balk staat hier niet in, dus daar hoeft niet op gefilterd te worden.
+    const target = profiles.find((p) => (counts[keyOf(p)] ?? 0) > 0);
+    if (target) {
+      activateNotification(keyOf(target), 'mail');
+      return;
+    }
+  }
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
 function getTrayState(): TrayState {
   const p = prefs?.getAll();
   return {
     onOpen: () => mainWindow?.show(),
+    onIconClick: openFromTrayIcon,
     onQuit: () => {
       isQuitting = true;
       app.quit();
@@ -2151,6 +2233,243 @@ function getTrayState(): TrayState {
 }
 function refreshTray(): void {
   if (tray) updateTrayMenu(tray, getTrayState());
+}
+
+// Het tray-icoon aan of uit zetten, naar de stand in Weergave. Weghalen en opnieuw
+// aanmaken en niet verbergen: een Tray heeft geen "verberg" — je houdt hem of je
+// vernietigt hem, en een achtergebleven object houdt het icoon in de balk.
+function applyTraySetting(): void {
+  const want = prefs?.getAll().appearance.tray.enabled !== false;
+  if (want && !tray) {
+    tray = createTray(ICON_PATH, getTrayState());
+    return;
+  }
+  if (!want && tray) {
+    tray.destroy();
+    tray = null;
+  }
+}
+
+// De ondergrens van de vensterbreedte, naar de stand in Weergave. Zie de opmerking
+// bij `minWidth` in createWindow voor waarom die grens er is; uit betekent 0, en dan
+// mag de gebruiker het venster kleiner slepen dan de balk aankan.
+function applyMinWindowSize(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const on = prefs?.getAll().appearance.restrictMinWindowSize !== false;
+  mainWindow.setMinimumSize(on ? MIN_WINDOW_WIDTH : 0, 0);
+}
+
+// Eén melding zoals hij er echt uit komt: dezelfde tekstkeuzes (afzender,
+// onderwerp) en hetzelfde geluid als een echte, zodat de knop laat zien wat je
+// hebt ingesteld en niet wat de standaard is. Hij gaat wél langs de demping niet:
+// je vraagt er zelf om, en een testknop die niets doet omdat je stille uren aan
+// staan lijkt stuk.
+function showTestNotification(): void {
+  if (!Notification.isSupported() || !prefs) return;
+  const p = prefs.getAll();
+  const hidden = hiddenNotificationText(p);
+  new Notification({
+    title: hidden.hiddenSender ?? 'Gmail Desktop',
+    body: hidden.hiddenSubject ?? 'This is what a notification looks like.',
+    silent: p.notifications.sound === false,
+  }).show();
+}
+
+// ---------------------------------------------------------------------------
+// Phishing Protection: de vraag vóór een link de app verlaat.
+// ---------------------------------------------------------------------------
+
+// Elke link die naar de browser gaat komt hier langs (zie `setExternalOpener` in
+// external-links.ts). Staat de bescherming uit of is de host vertrouwd, dan gaat
+// hij zonder tussenstap door — dat is de standaard en het pad dat vandaag al loopt.
+//
+// De vraag zet de hostnaam apart en groot bovenaan, want dát is wat je moet lezen:
+// bij een phishinglink is de zichtbare tekst betrouwbaar en de bestemming niet. Het
+// hele adres staat eronder, afgekapt op 200 tekens — een tracking-URL van drie
+// regels maakt een dialoogvenster onleesbaar en voegt niets toe aan de beslissing.
+//
+// Het vinkje is de enige manier waarop de lijst met vertrouwde hosts groeit: je
+// vult hem terwijl je werkt, en niet door in de instellingen adressen te typen.
+function openExternalGuarded(url: string): void {
+  const p = prefs?.getAll();
+  if (!p || !needsLinkConfirm(url, p.phishing)) {
+    void shell.openExternal(url);
+    return;
+  }
+  const host = hostOf(url) ?? url;
+  const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
+  const shown = url.length > 200 ? `${url.slice(0, 200)}…` : url;
+  const box = {
+    type: 'question' as const,
+    // `noLink` houdt het bij gewone knoppen: zonder dat maakt Windows van de
+    // eerste knop een link-achtige tekst, en dan is niet te zien welke van de twee
+    // de gevaarlijke is.
+    noLink: true,
+    buttons: ['Open link', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    message: `Open ${host}?`,
+    detail: `This link leaves Gmail Desktop and opens in your browser.\n\n${shown}`,
+    checkboxLabel: `Always allow ${host}`,
+    checkboxChecked: false,
+  };
+  const done = (res: { response: number; checkboxChecked: boolean }) => {
+    if (res.response !== 0) return;
+    if (res.checkboxChecked && prefs) {
+      const current = prefs.getAll().phishing.trustedHosts;
+      prefs.setPhishing({ trustedHosts: [...current, host] });
+      pushPrefs();
+    }
+    void shell.openExternal(url);
+  };
+  // Met een venster erbij is het een modaal blad boven de app; zonder venster (de
+  // app leeft dan alleen in de tray) een los dialoogvenster.
+  if (parent) void dialog.showMessageBox(parent, box).then(done);
+  else void dialog.showMessageBox(box).then(done);
+}
+
+// ---------------------------------------------------------------------------
+// Downloads.
+// ---------------------------------------------------------------------------
+
+// De map waar een download heen gaat. Leeg in de voorkeuren = de downloadmap van
+// het besturingssysteem; dezelfde afspraak als bij de map voor gesleepte mail.
+function downloadFolder(): string {
+  const chosen = prefs?.getAll().downloads.folder?.trim();
+  return chosen || app.getPath('downloads');
+}
+
+// Alle sessies die de app heeft gemaakt. Elk account heeft zijn eigen partitie, dus
+// er is niet één sessie om iets op in te stellen — en een nieuw account maakt er
+// tijdens het draaien nog een bij. `app.on('session-created')` vangt ze allemaal,
+// ook de standaardsessie.
+const sessions = new Set<Electron.Session>();
+
+function attachSessionHandlers(s: Electron.Session): void {
+  if (sessions.has(s)) return;
+  sessions.add(s);
+  applySpellcheckTo(s);
+  s.on('will-download', (_e, item) => {
+    const d = prefs?.getAll().downloads;
+    if (!d) return;
+    // Niets zetten = Chromium vraagt zelf waar het bestand heen moet. Dat is
+    // precies wat "Show Save As Dialog Before Downloading" belooft, dus die stand
+    // is een `return` en geen eigen dialoog.
+    if (!d.saveAsDialog) {
+      const dir = downloadFolder();
+      try {
+        mkdirSync(dir, { recursive: true });
+        const name = uniqueFileName(item.getFilename(), (c) => existsSync(join(dir, c)));
+        item.setSavePath(join(dir, name));
+      } catch {
+        // Map niet te maken of niet beschrijfbaar: laat Chromium het vragen in
+        // plaats van de download te laten mislukken op een pad dat niet kan.
+      }
+    }
+    item.once('done', (_ev, state) => {
+      const path = item.getSavePath();
+      if (state === 'completed' && d.openFolderWhenDone && path) shell.showItemInFolder(path);
+      if (d.notify) notifyDownloadDone(item.getFilename(), path, state, d.notifyClick);
+    });
+  });
+}
+
+function notifyDownloadDone(
+  filename: string,
+  path: string,
+  state: 'completed' | 'cancelled' | 'interrupted',
+  onClick: DownloadClickAction,
+): void {
+  if (!Notification.isSupported()) return;
+  const done = state === 'completed';
+  const n = new Notification({
+    title: done ? 'Download complete' : state === 'cancelled' ? 'Download cancelled' : 'Download failed',
+    body: filename,
+    silent: prefs?.getAll().notifications.sound === false,
+  });
+  // Alleen een klik als er iets te openen is: een mislukte download heeft geen
+  // bestand, en een melding die op een klik niets doet leest als een fout.
+  if (done && path && onClick !== 'nothing') {
+    n.on('click', () => {
+      if (onClick === 'open-file') void shell.openPath(path);
+      else shell.showItemInFolder(path);
+    });
+  }
+  n.show();
+}
+
+// ---------------------------------------------------------------------------
+// Spellingcontrole.
+// ---------------------------------------------------------------------------
+
+// De taal van het systeem blijft er altijd bij staan: de instelling heet "extra
+// talen naast de systeemtaal", dus het zetten van een extra taal mag de taal waarin
+// je meestal schrijft niet vervangen. Chromium wil exacte codes uit zijn eigen
+// lijst, dus de systeemtaal wordt daarin opgezocht — eerst precies ('nl-NL'), dan op
+// het voorvoegsel ('nl'), want de lijst kent niet elke landvariant.
+function spellcheckLanguagesFor(s: Electron.Session, extra: readonly string[]): string[] {
+  const available = s.availableSpellCheckerLanguages;
+  const locale = app.getLocale();
+  const prefix = locale.split('-')[0]?.toLowerCase() ?? '';
+  const system =
+    available.find((c) => c.toLowerCase() === locale.toLowerCase()) ??
+    available.find((c) => c.toLowerCase() === prefix) ??
+    available.find((c) => c.toLowerCase().startsWith(`${prefix}-`));
+  const wanted = [...(system ? [system] : []), ...extra.filter((c) => available.includes(c))];
+  return [...new Set(wanted)];
+}
+
+function applySpellcheckTo(s: Electron.Session): void {
+  const extra = prefs?.getAll().languages.spellcheck ?? [];
+  try {
+    s.setSpellCheckerLanguages(spellcheckLanguagesFor(s, extra));
+  } catch {
+    // Een code die Chromium tussen twee versies laat vallen mag de app niet
+    // omgooien; de rest van de talen staat dan gewoon aan.
+  }
+}
+
+function applySpellcheck(): void {
+  for (const s of sessions) applySpellcheckTo(s);
+}
+
+// De lijst waaruit het instellingenpaneel kan kiezen, met een leesbare naam per
+// code. `Intl.DisplayNames` geeft die naam in de taal van de gebruiker; kan hij een
+// code niet plaatsen, dan is de code zelf het label — beter een code dan een leeg
+// item.
+function spellcheckOptions(): { code: string; label: string }[] {
+  const s = session.defaultSession;
+  let names: Intl.DisplayNames | null = null;
+  try {
+    names = new Intl.DisplayNames([app.getLocale()], { type: 'language' });
+  } catch {
+    names = null;
+  }
+  return s.availableSpellCheckerLanguages
+    .map((code) => ({ code, label: names?.of(code) || code }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+// ---------------------------------------------------------------------------
+// Bijwerken: zelf kijken, of niet.
+// ---------------------------------------------------------------------------
+
+let updateTimer: ReturnType<typeof setInterval> | null = null;
+
+// Zet de periodieke controle aan of uit naar de stand bij Bijwerken. Wordt bij het
+// opstarten aangeroepen en opnieuw zodra de gebruiker de schakelaar omzet, zodat
+// uitzetten meteen werkt in plaats van pas na een herstart.
+function applyAutoUpdateCheck(): void {
+  const on = app.isPackaged && prefs?.getAll().updates.autoCheck !== false;
+  if (on && !updateTimer) {
+    checkForUpdate({ background: true });
+    updateTimer = setInterval(() => checkForUpdate({ background: true }), 30 * 60_000);
+    return;
+  }
+  if (!on && updateTimer) {
+    clearInterval(updateTimer);
+    updateTimer = null;
+  }
 }
 
 function setupUpdater(): void {
@@ -2248,6 +2567,75 @@ function registerIpc(): void {
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_LAUNCH_MINIMIZED, (_e, v: boolean) => setLaunchMinimized(v));
+  // De patch-zetters. Elk kanaal doet drie dingen in dezelfde orde: wegschrijven,
+  // het gevolg meteen toepassen, en de nieuwe voorkeuren terugsturen zodat het
+  // paneel ziet wat er staat. Dat laatste is niet ceremonieel — de vertrouwde-host-
+  // lijst en de gekozen downloadmap veranderen ook buiten het paneel om.
+  ipcMain.on(IPC.SET_APPEARANCE, (_e, patch: AppearancePatch) => {
+    if (!prefs) return;
+    prefs.setAppearance(patch ?? {});
+    // Alleen doen wat er in de patch zat: `applyTraySetting` bouwt een tray op of
+    // breekt hem af, en dat hoort niet te gebeuren omdat er een vinkje over
+    // ongelezen getallen omging.
+    if (patch?.tray?.enabled !== undefined) applyTraySetting();
+    if (patch?.restrictMinWindowSize !== undefined) applyMinWindowSize();
+    if (patch?.showUnreadBadges !== undefined) {
+      refreshBadge();
+      pushUnread(); // de tabbladen lezen dezelfde stand
+    }
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_DOWNLOAD_PREFS, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setDownloads((patch ?? {}) as Parameters<PrefsStore['setDownloads']>[0]);
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_PHISHING, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setPhishing((patch ?? {}) as Parameters<PrefsStore['setPhishing']>[0]);
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_UPDATE_PREFS, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setUpdates((patch ?? {}) as Parameters<PrefsStore['setUpdates']>[0]);
+    applyAutoUpdateCheck();
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_LANGUAGES, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setLanguages((patch ?? {}) as Parameters<PrefsStore['setLanguages']>[0]);
+    applySpellcheck();
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_ADVANCED, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setAdvanced((patch ?? {}) as Parameters<PrefsStore['setAdvanced']>[0]);
+    // Geen toepassing hier: hardwareversnelling wordt vóór 'ready' gelezen. Het
+    // paneel zegt erbij dat het na een herstart geldt.
+    pushPrefs();
+  });
+  ipcMain.on(IPC.SET_NOTIFICATION_EXTRAS, (_e, patch: unknown) => {
+    if (!prefs) return;
+    prefs.setNotificationExtras((patch ?? {}) as Parameters<PrefsStore['setNotificationExtras']>[0]);
+    // De webviews krijgen de nieuwe teksten en de geluidsstand meteen: zonder dit
+    // blijft de melding uit Gmail zelf de oude tekst tonen tot de volgende minuuttik.
+    refreshNotifyAllowed();
+    pushPrefs();
+  });
+  ipcMain.on(IPC.NOTIFY_TEST, () => showTestNotification());
+  ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
+    const current = downloadFolder();
+    const res = await dialog.showOpenDialog({
+      title: 'Downloads',
+      defaultPath: current,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (res.canceled || !res.filePaths[0]) return current;
+    prefs?.setDownloads({ folder: res.filePaths[0] });
+    pushPrefs();
+    return res.filePaths[0];
+  });
+  ipcMain.handle(IPC.SPELLCHECK_LANGUAGES_GET, () => spellcheckOptions());
   ipcMain.on(IPC.SET_DEFAULT_MAIL, (_e, v: boolean) => setDefaultMail(v === true));
   // De modal-pagina kan geladen zijn nádat het main-proces de items al stuurde;
   // daarom haalt ze het bij het opstarten ook zelf op.
@@ -2609,6 +2997,15 @@ app.whenReady().then(() => {
   app.on('web-contents-created', (_e, wc) => {
     attachContextMenu(wc, () => (prefs?.getAll().reneMode ? LABELS_RENE : LABELS_NORMAL));
   });
+  // Elk account heeft zijn eigen sessie, en er komt er een bij zodra je een account
+  // toevoegt. Deze hook vangt ze allemaal — ook de standaardsessie — en hangt er de
+  // downloadafhandeling en de spellingcontrole aan. Vóór createWindow, zodat de
+  // sessies van het eerste venster erbij zitten.
+  app.on('session-created', (s) => attachSessionHandlers(s));
+  attachSessionHandlers(session.defaultSession);
+  // Vanaf nu gaat elke link die de app verlaat langs de vraag uit Phishing
+  // Protection. Staat die uit — de standaard — dan is het pad hetzelfde als eerst.
+  setExternalOpener(openExternalGuarded);
   registerAppProtocol();
   setupNotifications();
   registerIpc();
@@ -2628,16 +3025,20 @@ app.whenReady().then(() => {
   if (initialMailto) pendingMailto = initialMailto; // flushed once an inbox is live
   startNotifyTimer();
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
-  tray = createTray(ICON_PATH, getTrayState());
+  // Het tray-icoon naar de stand bij Weergave, in plaats van altijd. Staat hij uit,
+  // dan blijft `tray` null en doet `refreshTray` niets — de app leeft dan alleen in
+  // het venster.
+  applyTraySetting();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
   // Auto-update from GitHub Releases (packaged builds only; no-op in dev).
   setupUpdater();
-  if (app.isPackaged) {
-    checkForUpdate({ background: true });
-    setInterval(() => checkForUpdate({ background: true }), 30 * 60_000);
-  }
+  // Zelf kijken of er een nieuwe versie is, tenzij de gebruiker dat bij Bijwerken
+  // heeft uitgezet. `applyAutoUpdateCheck` doet ook de eerste controle, zodat het
+  // aanzetten van de schakelaar niet op de eerste tik van het halfuur hoeft te
+  // wachten.
+  applyAutoUpdateCheck();
 });
 
 app.on('window-all-closed', () => {

@@ -28,12 +28,10 @@ export interface UiStrings {
   navLanguages: string;
   navNotifications: string;
   navPhishingProtection: string;
-  navSavedSearches: string;
   navUnifiedInbox: string;
   navUpdates: string;
   navVerificationCodes: string;
   navAdvanced: string;
-  navLicense: string;
   navWhatsNew: string;
   navAbout: string;
   // Het puntje in de navigatie heeft geen vorm die iets zegt, dus staat er voor
@@ -68,6 +66,84 @@ export interface UiStrings {
   notificationOpenDescription: string;
   openInApp: string;
   openInWindow: string;
+
+  // Weergave. `windowGroup` heet zo en niet `window`, omdat dat woord in
+  // `Prefs.window` al de vensterafmetingen is.
+  showUnreadBadges: string;
+  showUnreadBadgesDescription: string;
+  systemTray: string;
+  trayEnabled: string;
+  trayEnabledDescription: string;
+  traySelectUnread: string;
+  traySelectUnreadDescription: string;
+  // Waarom de kleur van het tray-icoon er nog niet is. Een regel in beeld en geen
+  // schakelaar die niets doet.
+  trayColourTodo: string;
+  windowGroup: string;
+  restrictMinWindowSize: string;
+  restrictMinWindowSizeDescription: string;
+
+  // Downloads.
+  saveAsDialog: string;
+  saveAsDialogDescription: string;
+  openFolderWhenDone: string;
+  openFolderWhenDoneDescription: string;
+  downloadFolder: string;
+  downloadFolderDescription: string;
+  downloadFolderDefault: string; // staat er alleen zolang de gebruiker niets koos
+  change: string;
+  mailDropGroup: string; // de kop boven de map voor gesleepte mail
+
+  // Talen.
+  spellchecker: string;
+  spellcheckerDescription: string;
+  spellcheckerUnavailable: string;
+  spellcheckerNone: string;
+  spellcheckerChosen: (count: number) => string;
+  spellcheckerSystemNote: string;
+
+  // Phishing Protection.
+  confirmExternalLinks: string;
+  confirmExternalLinksDescription: string;
+  trustedHosts: string;
+  trustedHostsDescription: string;
+  trustedHostsEmpty: string;
+  trustedHostRemove: (host: string) => string;
+
+  // Bijwerken.
+  autoCheckUpdates: string;
+  autoCheckUpdatesDescription: string;
+  notifyUpdates: string;
+  notifyUpdatesDescription: string;
+
+  // Geavanceerd.
+  miscellaneous: string;
+  hardwareAcceleration: string;
+  hardwareAccelerationDescription: string;
+  restartRequired: string;
+
+  // Meldingen, de nieuwe blokken.
+  notificationContent: string;
+  showSender: string;
+  showSenderDescription: string;
+  showSubject: string;
+  showSubjectDescription: string;
+  testNotification: string;
+  testNotificationDescription: string;
+  testNotificationButton: string;
+  soundGroup: string;
+  playSound: string;
+  playSoundDescription: string;
+  soundChoiceTodo: string;
+  googleAppsNotifications: string;
+  googleAppsNotificationsDescription: string;
+  downloadNotify: string;
+  downloadNotifyDescription: string;
+  downloadOnClick: string;
+  downloadOnClickDescription: string;
+  downloadClickShowInFolder: string;
+  downloadClickOpenFile: string;
+  downloadClickNothing: string;
 
   dnd: string;
   dndDescription: string;
@@ -239,12 +315,10 @@ export const STRINGS_NORMAL: UiStrings = {
   navLanguages: 'Languages',
   navNotifications: 'Notifications',
   navPhishingProtection: 'Phishing Protection',
-  navSavedSearches: 'Saved Searches',
   navUnifiedInbox: 'Unified Inbox',
   navUpdates: 'Updates',
   navVerificationCodes: 'Verification Codes',
   navAdvanced: 'Advanced',
-  navLicense: 'License',
   navWhatsNew: "What's New",
   navAbout: 'About Gmail Desktop',
   settingsAttention: 'needs your attention',
@@ -277,6 +351,86 @@ export const STRINGS_NORMAL: UiStrings = {
     'The message opens in the app, or in a separate Gmail window on top of it.',
   openInApp: 'Open in the app',
   openInWindow: 'Open in a new window',
+
+  showUnreadBadges: 'Show Unread Badges',
+  showUnreadBadgesDescription:
+    'Hide all unread badges if disabled, regardless of individual account settings.',
+  systemTray: 'System Tray Icon',
+  trayEnabled: 'Enable System Tray Icon',
+  trayEnabledDescription: 'Show the application icon in the system tray.',
+  traySelectUnread: 'Select Account with Unread on Click',
+  traySelectUnreadDescription:
+    'Automatically select the first account with unread emails when clicking the system tray icon.',
+  trayColourTodo:
+    'The tray icon colour is not here yet: the icon is the app logo in colour, and a light or dark version needs its own monochrome image first.',
+  windowGroup: 'Window',
+  restrictMinWindowSize: 'Restrict Minimum Window Size',
+  restrictMinWindowSizeDescription:
+    'Limit the minimum size of the application window to prevent it from being too small.',
+
+  saveAsDialog: 'Show Save As Dialog Before Downloading',
+  saveAsDialogDescription: 'Prompt for a location each time before a file is downloaded.',
+  openFolderWhenDone: 'Open Folder When Done',
+  openFolderWhenDoneDescription:
+    'Automatically open the folder containing the downloaded file when the download is complete.',
+  downloadFolder: 'Default Download Location',
+  downloadFolderDescription: 'This is the default location where downloaded files are saved.',
+  downloadFolderDefault: "Using Windows' own Downloads folder.",
+  change: 'Change…',
+  mailDropGroup: 'Dragged mail',
+
+  spellchecker: 'Spellchecker',
+  spellcheckerDescription:
+    'Select additional languages for spellchecking alongside the system language.',
+  spellcheckerUnavailable: 'This build has no spellchecker dictionaries available.',
+  spellcheckerNone: 'No additional languages selected.',
+  spellcheckerChosen: (count) => `${count} additional ${count === 1 ? 'language' : 'languages'} selected.`,
+  spellcheckerSystemNote: 'Your system language is always checked, whatever you pick here.',
+
+  confirmExternalLinks: 'Confirm External Links Before Opening',
+  confirmExternalLinksDescription:
+    'Prompt for confirmation before opening links from untrusted hosts in your browser. The prompt shows you where the link actually goes — it does not judge whether the host is safe.',
+  trustedHosts: 'Trusted Hosts',
+  trustedHostsDescription:
+    'Hosts you never get asked about. A host lands here when you tick "Always allow" in the prompt; subdomains of a trusted host are trusted too.',
+  trustedHostsEmpty: 'No trusted hosts added.',
+  trustedHostRemove: (host) => `Stop trusting ${host}`,
+
+  autoCheckUpdates: 'Check For Updates Automatically',
+  autoCheckUpdatesDescription: 'Automatically check for updates periodically.',
+  notifyUpdates: 'Notify When Updates Are Available',
+  notifyUpdatesDescription: 'Receive notifications when updates are available.',
+
+  miscellaneous: 'Miscellaneous',
+  hardwareAcceleration: 'Hardware Acceleration',
+  hardwareAccelerationDescription:
+    'Enabling hardware acceleration can improve performance but can also cause compatibility issues on some systems.',
+  restartRequired: 'Takes effect the next time the app starts.',
+
+  notificationContent: 'What a notification says',
+  showSender: 'Show Sender',
+  showSenderDescription: "Display the email sender's name in notifications.",
+  showSubject: 'Show Subject',
+  showSubjectDescription: 'Display the email subject in notifications.',
+  testNotification: 'Test Notification',
+  testNotificationDescription: 'Show a test notification to see how notifications will appear.',
+  testNotificationButton: 'Show Test Notification',
+  soundGroup: 'Sound',
+  playSound: 'Play Sound',
+  playSoundDescription:
+    'Play a sound when showing a notification. Off is silent for every account, whatever they are set to.',
+  soundChoiceTodo:
+    'Picking a different sound and setting its volume are not here yet: notifications use the sound Windows plays for them, and choosing another one needs the app to ship its own audio.',
+  googleAppsNotifications: 'Google Apps',
+  googleAppsNotificationsDescription:
+    'Allow notifications from Google Apps like Calendar. Off silences them for every account.',
+  downloadNotify: 'Show Notification',
+  downloadNotifyDescription: 'Show a notification when a download is completed, cancelled or failed.',
+  downloadOnClick: 'On Click',
+  downloadOnClickDescription: 'Choose what happens when clicking the download notification.',
+  downloadClickShowInFolder: 'Show in folder',
+  downloadClickOpenFile: 'Open the file',
+  downloadClickNothing: 'Do nothing',
 
   dnd: 'Do not disturb (mute all)',
   dndDescription: 'No notifications and no sounds for any account until you turn this off.',
@@ -370,12 +524,10 @@ export const STRINGS_RENE: UiStrings = {
   navLanguages: 'Talen',
   navNotifications: 'Meldingen',
   navPhishingProtection: 'Nepmail',
-  navSavedSearches: 'Bewaarde zoekjes',
   navUnifiedInbox: 'Alles bij elkaar',
   navUpdates: 'Nieuwe versie',
   navVerificationCodes: 'Codes',
   navAdvanced: 'Voor knutselaars',
-  navLicense: 'De regels',
   navWhatsNew: 'Wat is er nieuw?',
   navAbout: 'Over de app',
   settingsAttention: 'kijk hier even',
@@ -405,6 +557,81 @@ export const STRINGS_RENE: UiStrings = {
   notificationOpenDescription: 'De mail gaat open in de app, of in een eigen raam ervoor.',
   openInApp: 'In de app',
   openInWindow: 'In een nieuw raam',
+
+  showUnreadBadges: 'Laat de getallen zien',
+  showUnreadBadgesDescription:
+    'Zet je dit uit, dan zie je nergens meer een getal. Ook niet bij iemand waar het aan staat.',
+  systemTray: 'Het knopje onderin',
+  trayEnabled: 'Laat het knopje onderin zien',
+  trayEnabledDescription: 'Het plaatje van de app komt onderin je scherm te staan.',
+  traySelectUnread: 'Ga naar nieuwe post',
+  traySelectUnreadDescription:
+    'Klik je op het knopje onderin, dan gaat de app naar de eerste met nieuwe post.',
+  trayColourTodo:
+    'De kleur van dat knopje kan nog niet. Daar is eerst een plaatje in één kleur voor nodig.',
+  windowGroup: 'Het raam',
+  restrictMinWindowSize: 'Niet te klein maken',
+  restrictMinWindowSizeDescription: 'Het raam kan niet kleiner dan de balk aankan.',
+
+  saveAsDialog: 'Vraag waar het heen moet',
+  saveAsDialogDescription: 'De app vraagt elke keer in welke map het bestand moet.',
+  openFolderWhenDone: 'Laat de map zien als het klaar is',
+  openFolderWhenDoneDescription: 'Is het bestand binnen? Dan gaat de map open.',
+  downloadFolder: 'Waar de bestanden komen',
+  downloadFolderDescription: 'Hier komt alles te staan wat je ophaalt.',
+  downloadFolderDefault: 'Nu de gewone map van de computer.',
+  change: 'Kies map',
+  mailDropGroup: 'Gesleepte mailtjes',
+
+  spellchecker: 'Spelling',
+  spellcheckerDescription: 'Kies talen waarin de app meekijkt of je goed schrijft.',
+  spellcheckerUnavailable: 'Er zijn nu geen woordenboeken.',
+  spellcheckerNone: 'Nog geen extra taal gekozen.',
+  spellcheckerChosen: (count) => `${count} ${count === 1 ? 'taal' : 'talen'} erbij.`,
+  spellcheckerSystemNote: 'De taal van je computer doet altijd mee.',
+
+  confirmExternalLinks: 'Vraag het eerst bij een link',
+  confirmExternalLinksDescription:
+    'Klik je op een link in een mail? Dan laat de app eerst zien waar hij heen gaat.',
+  trustedHosts: 'Deze zijn goed',
+  trustedHostsDescription:
+    'Bij deze vraagt de app niks meer. Ze komen hier als je in het venster "altijd goed" aanvinkt.',
+  trustedHostsEmpty: 'Er staat nog niks.',
+  trustedHostRemove: (host) => `Haal ${host} weg`,
+
+  autoCheckUpdates: 'Kijk zelf of er iets nieuws is',
+  autoCheckUpdatesDescription: 'De app kijkt af en toe of er een nieuwe versie is.',
+  notifyUpdates: 'Zeg het als er iets nieuws is',
+  notifyUpdatesDescription: 'Je krijgt een melding als er een nieuwe versie klaarstaat.',
+
+  miscellaneous: 'Van alles',
+  hardwareAcceleration: 'Snel tekenen',
+  hardwareAccelerationDescription:
+    'Dit maakt de app sneller. Ziet het scherm er raar uit? Zet het dan uit.',
+  restartRequired: 'Dit werkt pas als de app opnieuw opstart.',
+
+  notificationContent: 'Wat er in een melding staat',
+  showSender: 'Van wie het is',
+  showSenderDescription: 'De naam van wie het stuurde staat in de melding.',
+  showSubject: 'Waar het over gaat',
+  showSubjectDescription: 'Het onderwerp van de mail staat in de melding.',
+  testNotification: 'Even proberen',
+  testNotificationDescription: 'Laat één melding zien, zodat je ziet hoe het eruitziet.',
+  testNotificationButton: 'Laat zien',
+  soundGroup: 'Geluid',
+  playSound: 'Maak een geluidje',
+  playSoundDescription: 'Zet je dit uit, dan is het stil. Ook bij iemand waar geluid aan staat.',
+  soundChoiceTodo:
+    'Een ander geluidje kiezen kan nog niet. De app gebruikt nu het geluid van Windows zelf.',
+  googleAppsNotifications: 'Google-dingen',
+  googleAppsNotificationsDescription: 'Meldingen van de agenda en andere Google-dingen.',
+  downloadNotify: 'Zeg het als iets binnen is',
+  downloadNotifyDescription: 'Je krijgt een melding als een bestand klaar is of niet lukte.',
+  downloadOnClick: 'Als je erop klikt',
+  downloadOnClickDescription: 'Wat er gebeurt als je op die melding klikt.',
+  downloadClickShowInFolder: 'Laat de map zien',
+  downloadClickOpenFile: 'Doe het bestand open',
+  downloadClickNothing: 'Niks',
 
   dnd: 'Even stil zijn',
   dndDescription: 'Je krijgt geen meldingen en hoort niks, tot je dit weer uitzet.',

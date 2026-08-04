@@ -20,6 +20,19 @@ export const IPC = {
   UPDATE_INSTALL: 'update:install', // send() — restart into an already-downloaded update
   SET_AUTO_START: 'prefs:auto-start', // send(boolean)
   SET_LAUNCH_MINIMIZED: 'prefs:launch-minimized', // send(boolean) — start het venster geminimaliseerd
+  // Eén kanaal per tab van het instellingenpaneel, met een patch. Zie de
+  // opmerking bij `setAppearance` in prefs-store.ts voor waarom niet één kanaal
+  // per veld: dat waren er ruim twintig, allemaal identiek op de naam na.
+  SET_APPEARANCE: 'prefs:appearance', // send(AppearancePatch)
+  SET_DOWNLOAD_PREFS: 'prefs:downloads', // send(Partial<DownloadPrefs>)
+  SET_PHISHING: 'prefs:phishing', // send(Partial<PhishingPrefs>)
+  SET_UPDATE_PREFS: 'prefs:updates', // send(Partial<UpdatePrefs>)
+  SET_LANGUAGES: 'prefs:languages', // send(Partial<LanguagePrefs>)
+  SET_ADVANCED: 'prefs:advanced', // send(Partial<AdvancedPrefs>)
+  SET_NOTIFICATION_EXTRAS: 'prefs:notification-extras', // send(NotificationExtrasPatch)
+  NOTIFY_TEST: 'notify:test', // send() — laat één melding zien zoals hij eruit komt
+  DOWNLOAD_FOLDER_PICK: 'downloads:folder-pick', // invoke() -> string (het gekozen pad, of het oude)
+  SPELLCHECK_LANGUAGES_GET: 'spellcheck:available', // invoke() -> {code, label}[]
   SET_ACCOUNT_PREF: 'prefs:account', // send({email, label?, notify?})
   SET_ACCOUNT_ORDER: 'prefs:order', // send({emails: string[]})
   SET_NOTIFICATIONS: 'prefs:notifications', // send({dnd, quietHours})
@@ -113,6 +126,17 @@ export interface MailDropResult {
 // Payload of IPC.NOTIFY_ALLOWED. `show` gates whether a notification is shown
 // at all; `silent` and `persist` style a shown notification (no sound / stays
 // on screen until dismissed) without suppressing it.
-export type NotifyState = { show: boolean; silent: boolean; persist: boolean };
+// `hiddenSender`/`hiddenSubject` zijn de vervangende teksten voor het geval de
+// gebruiker de afzender of het onderwerp niet in een melding wil zien. Een tekst en
+// geen vlaggetje: de preload wordt in Gmail's eigen pagina geïnjecteerd en kent
+// geen taal, dus wat er dán komt te staan hoort van main te komen. `undefined` =
+// laat wat de pagina zelf zei.
+export type NotifyState = {
+  show: boolean;
+  silent: boolean;
+  persist: boolean;
+  hiddenSender?: string;
+  hiddenSubject?: string;
+};
 
 export type { ChangelogVersion, ChangelogEntry } from './changelog';

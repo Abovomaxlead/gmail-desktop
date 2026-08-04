@@ -17,12 +17,10 @@ export type SettingsSection =
   | 'languages'
   | 'notifications'
   | 'phishing-protection'
-  | 'saved-searches'
   | 'unified-inbox'
   | 'updates'
   | 'verification-codes'
   | 'advanced'
-  | 'license'
   | 'whats-new'
   | 'about';
 
@@ -67,13 +65,12 @@ export const SETTINGS_GROUPS: readonly (readonly SettingsSection[])[] = [
     'languages',
     'notifications',
     'phishing-protection',
-    'saved-searches',
     'unified-inbox',
     'updates',
     'verification-codes',
     'advanced',
   ],
-  ['license', 'whats-new', 'about'],
+  ['whats-new', 'about'],
 ];
 
 // Weergaveorde over de groepen heen: de rij waarin de pijltjestoetsen lopen. Die

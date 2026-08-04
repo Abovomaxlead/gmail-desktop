@@ -6,10 +6,13 @@ import { advanceReneSequence, RENE_SEQUENCE } from './settings-utils';
 import { getStrings, type UiStrings } from './strings';
 import { AboutSection } from './settings/AboutSection';
 import { AccountsSection } from './settings/AccountsSection';
+import { AdvancedSection } from './settings/AdvancedSection';
 import { AppearanceSection } from './settings/AppearanceSection';
 import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
+import { LanguagesSection } from './settings/LanguagesSection';
 import { NotificationsSection } from './settings/NotificationsSection';
+import { PhishingSection } from './settings/PhishingSection';
 import { EmptyNote, Section } from './settings/Section';
 import { SettingsShell } from './settings/SettingsShell';
 import { UpdatesSection } from './settings/UpdatesSection';
@@ -47,8 +50,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navNotifications;
     case 'phishing-protection':
       return S.navPhishingProtection;
-    case 'saved-searches':
-      return S.navSavedSearches;
     case 'unified-inbox':
       return S.navUnifiedInbox;
     case 'updates':
@@ -57,8 +58,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navVerificationCodes;
     case 'advanced':
       return S.navAdvanced;
-    case 'license':
-      return S.navLicense;
     case 'whats-new':
       return S.navWhatsNew;
     case 'about':
@@ -187,7 +186,13 @@ export function SettingsPanel({
           case 'appearance':
             return <AppearanceSection S={S} prefs={prefs} />;
           case 'downloads':
-            return <DownloadsSection S={S} />;
+            return <DownloadsSection S={S} prefs={prefs} />;
+          case 'languages':
+            return <LanguagesSection S={S} prefs={prefs} />;
+          case 'phishing-protection':
+            return <PhishingSection S={S} prefs={prefs} />;
+          case 'advanced':
+            return <AdvancedSection S={S} prefs={prefs} />;
           // Meldingen krijgt de accounts erbij: de schakelaars per account staan
           // daar, want daar ga je kijken als je je afvraagt wat je bereikt.
           // Accounts houdt wie een account is.
@@ -204,6 +209,7 @@ export function SettingsPanel({
             return (
               <UpdatesSection
                 S={S}
+                prefs={prefs}
                 update={update}
                 onCheckUpdate={onCheckUpdate}
                 onDownloadUpdate={onDownloadUpdate}

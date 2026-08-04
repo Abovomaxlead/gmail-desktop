@@ -109,12 +109,23 @@ export function notificationOptionsFor(
   state: NotifyState,
   options?: NotificationOptions,
 ): NotificationOptions | undefined {
-  if (!state.silent && !state.persist) return options;
+  const hideBody = typeof state.hiddenSubject === 'string';
+  if (!state.silent && !state.persist && !hideBody) return options;
   return {
     ...options,
+    ...(hideBody ? { body: state.hiddenSubject } : {}),
     ...(state.silent ? { silent: true } : {}),
     ...(state.persist ? { requireInteraction: true } : {}),
   };
+}
+
+// De titel van een melding uit de pagina, met "toon de afzender niet" erop
+// toegepast. Main stuurt de vervangende tekst mee in plaats van een vlaggetje: de
+// tekst die de gebruiker leest hoort niet in dit bestand te staan, dat in Gmail's
+// eigen pagina wordt geïnjecteerd en geen taal kent. Staat er niets in de stand,
+// dan komt de titel van de pagina er ongewijzigd door.
+export function notificationTitleFor(state: NotifyState, title: string): string {
+  return typeof state.hiddenSender === 'string' ? state.hiddenSender : title;
 }
 
 export function isEditableTarget(
@@ -370,9 +381,16 @@ if (typeof document !== 'undefined') {
           // Return a harmless stub so Gmail's code doesn't throw; nothing is shown.
           return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
         }
-        const n = new Original(title, notificationOptionsFor(notifyState, options));
+        const n = new Original(
+          notificationTitleFor(notifyState, title),
+          notificationOptionsFor(notifyState, options),
+        );
         n.addEventListener('click', () => {
           // Resolve the clicked thread at click time (the row exists by then).
+          // Let op: `options?.body` en niet de tekst die uiteindelijk in de melding
+          // stond. Staat "toon het onderwerp niet" aan, dan is die vervangen door een
+          // neutrale regel, en daarmee is geen gesprek terug te vinden — het
+          // onderwerp van de pagina is wat in de berichtenlijst staat.
           const threadId = findThreadIdBySubject(document, options?.body ?? '');
           ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId ?? undefined);
         });

@@ -169,7 +169,10 @@ export function Topbar({
               profile={p}
               label={labelFor(p)}
               unread={unread[p.key] ?? 0}
-              showUnread={accountCountVisible(prefs?.accounts[p.email]?.badgeCount)}
+              showUnread={accountCountVisible(
+                prefs?.accounts[p.email]?.badgeCount,
+                prefs?.appearance.showUnreadBadges,
+              )}
               active={active?.key === p.key}
               activeSurface={active?.key === p.key ? active.surface : null}
               dragging={dragEmail === p.email}

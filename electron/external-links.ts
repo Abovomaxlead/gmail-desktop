@@ -9,6 +9,25 @@ import {
   isAttachmentUrl,
 } from './google-urls';
 
+// Hoe een link de app verlaat. Standaard rechtstreeks naar de browser; main zet
+// hier bij het opstarten een variant in die eerst de vraag uit Phishing Protection
+// stelt (zie link-guard.ts).
+//
+// Een module-schakelaar en geen extra parameter, omdat `attachExternalLinkHandling`
+// op drie plekken wordt aangeroepen — waarvan twee (de opstelvensters) helemaal geen
+// opties meegeven. Die hoeven nu niets te weten en gaan toch langs de poort. Eén
+// plek waar staat wat "naar buiten" betekent, in plaats van drie die het onthouden.
+let openExternally: (url: string) => void = (url) => void shell.openExternal(url);
+
+export function setExternalOpener(fn: (url: string) => void): void {
+  openExternally = fn;
+}
+
+/** Open een link buiten de app, langs de poort die main heeft ingesteld. */
+export function openExternalLink(url: string): void {
+  openExternally(url);
+}
+
 // Routes links that don't belong to the in-app Gmail/Calendar/auth surfaces to
 // the user's default browser instead of opening them inside the mail view.
 //
@@ -81,7 +100,7 @@ export function attachExternalLinkHandling(
     }
     if (action === 'suppress') return { action: 'deny' };
     if (action === 'open-external') {
-      void shell.openExternal(url);
+      openExternally(url);
       return { action: 'deny' };
     }
     return { action: 'allow' };
@@ -95,7 +114,7 @@ export function attachExternalLinkHandling(
   webContents.on('will-navigate', (event, url) => {
     if (!isGoogleUrl(url) && !isFederatedLoginUrl(url) && !isBlankUrl(url)) {
       event.preventDefault();
-      void shell.openExternal(url);
+      openExternally(url);
     }
   });
 }

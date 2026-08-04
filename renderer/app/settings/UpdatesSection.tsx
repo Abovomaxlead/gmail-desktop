@@ -1,10 +1,11 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { UpdateStatus } from '../page';
+import type { Prefs, UpdateStatus } from '../page';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
+import { Switch } from './Switch';
 import { ACCENT_BUTTON, BUTTON, DANGER_TEXT } from './tokens';
 
 function updateStatusText(u: UpdateStatus, S: UiStrings): string {
@@ -50,12 +51,14 @@ function updateStatusNode(u: UpdateStatus, S: UiStrings): ReactNode {
 // kolom hangt eraan.
 export function UpdatesSection({
   S,
+  prefs,
   update,
   onCheckUpdate,
   onDownloadUpdate,
   onInstallUpdate,
 }: {
   S: UiStrings;
+  prefs: Prefs | null;
   update: UpdateStatus;
   onCheckUpdate: () => void;
   onDownloadUpdate: () => void;
@@ -65,6 +68,35 @@ export function UpdatesSection({
 
   return (
     <Section title={S.navUpdates}>
+      <SettingsGroup>
+        <SettingRow
+          label={S.autoCheckUpdates}
+          description={S.autoCheckUpdatesDescription}
+          htmlFor="setting-auto-check"
+        >
+          <Switch
+            id="setting-auto-check"
+            checked={prefs?.updates.autoCheck !== false}
+            onChange={(v) => window.desktop?.setUpdatePrefs({ autoCheck: v })}
+          />
+        </SettingRow>
+
+        {/* Los van zelf kijken: je kan willen dat de app kijkt zonder dat hij je
+            erover aanspreekt, en het omgekeerde kan ook — dan hoor je het alleen als
+            je zelf op de knop hieronder drukt. */}
+        <SettingRow
+          label={S.notifyUpdates}
+          description={S.notifyUpdatesDescription}
+          htmlFor="setting-notify-updates"
+        >
+          <Switch
+            id="setting-notify-updates"
+            checked={prefs?.updates.notify !== false}
+            onChange={(v) => window.desktop?.setUpdatePrefs({ notify: v })}
+          />
+        </SettingRow>
+      </SettingsGroup>
+
       <SettingsGroup>
         {/* De stand van de update staat als bijtekst onder de naam van de rij, en
             de knoppen die bij die stand horen ernaast. Zie `updateStatusNode`

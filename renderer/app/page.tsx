@@ -83,10 +83,43 @@ export interface Prefs {
     dnd: boolean;
     dndUntil?: number;
     quietHours: { enabled: boolean; start: string; end: string };
+    showSender: boolean;
+    showSubject: boolean;
+    sound: boolean;
+    googleApps: boolean;
   };
   accounts: Record<string, AccountPref>;
   mailDrop: { folder: string };
+  // De blokken per tab van het instellingenpaneel. Dezelfde vorm als in
+  // `electron/prefs-store.ts`; die is de bron, dit is de kopie die de renderer
+  // nodig heeft. Ze staan hier nog een keer om dezelfde reden als `UpdateState`:
+  // een `import type` uit het hoofdproces trekt Electron in de bundel van de
+  // pagina.
+  appearance: {
+    showUnreadBadges: boolean;
+    tray: { enabled: boolean; selectUnreadOnClick: boolean };
+    restrictMinWindowSize: boolean;
+  };
+  downloads: {
+    folder: string;
+    saveAsDialog: boolean;
+    openFolderWhenDone: boolean;
+    notify: boolean;
+    notifyClick: DownloadClickAction;
+  };
+  phishing: { confirmExternalLinks: boolean; trustedHosts: string[] };
+  updates: { autoCheck: boolean; notify: boolean };
+  languages: { spellcheck: string[] };
+  advanced: { hardwareAcceleration: boolean };
   reneMode: boolean;
+}
+
+export type DownloadClickAction = 'show-in-folder' | 'open-file' | 'nothing';
+
+/** Eén taal die Chromium's spellingcontrole kent, met een leesbare naam. */
+export interface SpellcheckLanguage {
+  code: string;
+  label: string;
 }
 
 interface DesktopBridge {
@@ -111,6 +144,33 @@ interface DesktopBridge {
   onUpdateStatus(cb: (status: UpdateStatus) => void): void;
   setAutoStart(v: boolean): void;
   setLaunchMinimized(v: boolean): void;
+  // Eén zetter per tab, met een patch. Zie de opmerking bij `setAppearance` in
+  // `electron/prefs-store.ts` voor waarom niet één per veld.
+  setAppearance(patch: {
+    showUnreadBadges?: boolean;
+    tray?: { enabled?: boolean; selectUnreadOnClick?: boolean };
+    restrictMinWindowSize?: boolean;
+  }): void;
+  setDownloadPrefs(patch: {
+    folder?: string;
+    saveAsDialog?: boolean;
+    openFolderWhenDone?: boolean;
+    notify?: boolean;
+    notifyClick?: DownloadClickAction;
+  }): void;
+  setPhishing(patch: { confirmExternalLinks?: boolean; trustedHosts?: string[] }): void;
+  setUpdatePrefs(patch: { autoCheck?: boolean; notify?: boolean }): void;
+  setLanguages(patch: { spellcheck?: string[] }): void;
+  setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
+  setNotificationExtras(patch: {
+    showSender?: boolean;
+    showSubject?: boolean;
+    sound?: boolean;
+    googleApps?: boolean;
+  }): void;
+  testNotification(): void;
+  pickDownloadFolder(): Promise<string>;
+  getSpellcheckLanguages(): Promise<SpellcheckLanguage[]>;
   onPrefsChanged(cb: (prefs: Prefs) => void): void;
   setAccountPref(arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }): void;
   setAccountOrder(emails: string[]): void;

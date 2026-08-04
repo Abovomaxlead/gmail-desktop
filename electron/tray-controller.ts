@@ -18,6 +18,11 @@ export interface TrayUpdateStatus {
 }
 export interface TrayState {
   onOpen: () => void;
+  // Wat een klik op het icoon zelf doet, als dat iets anders is dan "Open" in het
+  // menu. Weergave heeft een keuze om dan naar het eerste account met ongelezen
+  // post te springen, en die hoort niet ook achter het menu-item te zitten: daar
+  // staat "Open", en dat betekent het venster.
+  onIconClick?: () => void;
   onQuit: () => void;
   isPackaged: boolean;
   updateStatus: TrayUpdateStatus;
@@ -133,7 +138,11 @@ export function createTray(iconPath: string, state: TrayState): Tray {
   const tray = new Tray(image);
   tray.setToolTip('Gmail Desktop');
   tray.setContextMenu(buildTrayMenu(state));
-  tray.on('click', state.onOpen);
+  // Deze binding blijft staan zolang de Tray bestaat — `updateTrayMenu` vervangt
+  // alleen het menu. Dat mag: de functie die main hier meegeeft leest de voorkeuren
+  // op het moment van de klik, dus een gewijzigde keuze werkt zonder de tray
+  // opnieuw te bouwen.
+  tray.on('click', state.onIconClick ?? state.onOpen);
   return tray;
 }
 

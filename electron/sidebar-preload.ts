@@ -60,6 +60,23 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   setAutoStart: (v: boolean): void => ipcRenderer.send(IPC.SET_AUTO_START, v),
   setLaunchMinimized: (v: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_MINIMIZED, v),
+  // De patch-zetters per tab. `unknown` als type van de patch: deze brug hoeft de
+  // vorm niet te kennen — main leest hem met dezelfde lezers als het bestand op
+  // schijf (zie `bool`/`oneOf`/`stringList` in prefs-store.ts), dus een verkeerde
+  // waarde valt daar terug op de standaard in plaats van hier op een `any` te
+  // stuiten. De renderer heeft de echte types in `page.tsx`.
+  setAppearance: (patch: unknown): void => ipcRenderer.send(IPC.SET_APPEARANCE, patch),
+  setDownloadPrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_DOWNLOAD_PREFS, patch),
+  setPhishing: (patch: unknown): void => ipcRenderer.send(IPC.SET_PHISHING, patch),
+  setUpdatePrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_UPDATE_PREFS, patch),
+  setLanguages: (patch: unknown): void => ipcRenderer.send(IPC.SET_LANGUAGES, patch),
+  setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
+  setNotificationExtras: (patch: unknown): void =>
+    ipcRenderer.send(IPC.SET_NOTIFICATION_EXTRAS, patch),
+  testNotification: (): void => ipcRenderer.send(IPC.NOTIFY_TEST),
+  pickDownloadFolder: (): Promise<string> => ipcRenderer.invoke(IPC.DOWNLOAD_FOLDER_PICK),
+  getSpellcheckLanguages: (): Promise<{ code: string; label: string }[]> =>
+    ipcRenderer.invoke(IPC.SPELLCHECK_LANGUAGES_GET),
   onPrefsChanged: (cb: (prefs: unknown) => void): void => {
     ipcRenderer.on(IPC.PREFS_CHANGED, (_e, p) => cb(p));
   },
