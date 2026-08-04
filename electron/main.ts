@@ -24,6 +24,7 @@ import { PrefsStore } from './prefs-store';
 import { clampBoundsToDisplays } from './window-bounds';
 import { colorForIndex } from './palette';
 import { planNext } from './detection-planner';
+import { WarmupTracker } from './view-warmup';
 import { addAccountUrl } from './google-urls';
 import { popupNativeMenu } from './native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
@@ -262,17 +263,20 @@ function delegatedProfileFor(d: StoredDelegate): Profile {
 // (and not user-removed). Idempotent: skips emails already held as a profile.
 function loadDelegatedProfiles(): void {
   if (!delegated) return;
-  let added = false;
+  const fresh: Profile[] = [];
   for (const d of delegated.list()) {
     const email = d.email.toLowerCase();
     if (removed?.has(email)) continue;
     if (profiles.some((p) => p.email.toLowerCase() === email)) continue;
-    profiles.push(delegatedProfileFor({ ...d, email }));
-    added = true;
+    const profile = delegatedProfileFor({ ...d, email });
+    profiles.push(profile);
+    fresh.push(profile);
   }
-  if (added) {
+  if (fresh.length > 0) {
     pushProfiles();
     syncCalendarViews();
+    // Ook een gedelegeerd postvak hoort er te staan zonder eerst een klik.
+    for (const profile of fresh) warmAccount(profile);
   }
 }
 
@@ -579,19 +583,23 @@ function registerAccount(
     profiles.splice(dup, 1);
   }
   const color = colors!.get(identity.email) ?? colorForIndex(index);
-  profiles.push({
+  const profile: Profile = {
     ref: authRef(index),
     kind: 'authuser',
     email: identity.email,
     name: identity.name,
     avatarUrl: identity.avatarUrl,
     color,
-  });
+  };
+  profiles.push(profile);
   profiles.sort((a, b) => authIdx(a) - authIdx(b));
   pushProfiles();
   refreshNotifyAllowed();
   startPush();
   syncCalendarViews();
+  // Detectie heeft de view al aangemaakt, maar bedekt: laat hem zijn postvak
+  // opbouwen zodat dit tabblad er straks meteen staat.
+  warmAccount(profile);
 }
 
 // Een account dat met de "+" is toegevoegd komt er alleen in als de koppeling
@@ -896,6 +904,41 @@ function startNotifyTimer(): void {
   if (notifyTimer) return;
   // Quiet-hours boundaries only change on the minute; re-evaluate each minute.
   notifyTimer = setInterval(refreshNotifyAllowed, 60_000);
+}
+
+// Bij het opstarten hoefde je vroeger elk account één keer aan te klikken voordat
+// het postvak inlaadde: de mailview bestond al (detectie maakt hem aan), maar stond
+// op setVisible(false) en gold daarmee als bedekt, en dan bouwt Gmail zijn
+// berichtenlijst niet op. Elk account krijgt daarom eenmalig een warmloop buiten
+// het venster, waarna de view weer koelt — zie view-warmup.ts en warm()/cool().
+const warmup = new WarmupTracker();
+let warmupTimer: ReturnType<typeof setInterval> | null = null;
+
+function warmAccount(profile: Profile): void {
+  if (!manager) return;
+  const key = keyOf(profile);
+  // Het actieve account laadt al in beeld; daar is niets voor te laden.
+  if (manager.isShowing(key, 'mail')) return;
+  if (!warmup.begin(key, Date.now())) return; // al bezig of al geweest
+  manager.warm(profile.ref, 'mail');
+  if (!warmupTimer) warmupTimer = setInterval(tickWarmup, 1000);
+}
+
+// Leest per lopende warmloop de paginatitel uit — het enige signaal dat zegt of
+// het postvak echt staat — en koelt wat klaar is of zijn bovengrens haalt.
+function tickWarmup(): void {
+  const now = Date.now();
+  for (const key of warmup.pending()) {
+    // Geen manager meer (venster afgebroken): dan komt er ook geen titel, en loopt
+    // elke warmloop op zijn bovengrens af. Zo stopt deze timer altijd zichzelf.
+    if (warmup.verdict(key, manager?.titleOf(key, 'mail') ?? null, now) !== 'cool') continue;
+    manager?.cool(key, 'mail');
+    warmup.finish(key);
+  }
+  if (warmup.pending().length === 0 && warmupTimer) {
+    clearInterval(warmupTimer);
+    warmupTimer = null;
+  }
 }
 
 // Keep a hidden calendar view alive for each account with calendar reminders

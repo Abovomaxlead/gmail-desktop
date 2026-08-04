@@ -48,6 +48,13 @@ to [Semantic Versioning](https://semver.org/).
   plaats van vijf schakelaars per account. Accounts gaat over wie er meedoet: de
   naam, de kleur, en weghalen.
 
+- **Elk account laadt zijn postvak bij het opstarten.** Je hoefde de tabbladen
+  één voor één aan te klikken voordat de mail er stond. Nu laadt elk account bij
+  het opstarten eenmalig zijn postvak op de achtergrond in, buiten beeld, zodat
+  een tabblad er meteen staat als je het aanklikt. Daarna mag de weergave weer
+  rusten, dus het kost geen geheugen dat de hele dag warm blijft — een tabblad dat
+  je na lange tijd aanklikt kan zichzelf nog even bijwerken.
+
 ### Opgelost
 - **Hetzelfde label twee keer slepen lukte niet.** Na de eerste sleep bleef de
   labelnaam geselecteerd, en dan begon Chromium bij de volgende poging zijn eigen
@@ -105,6 +112,13 @@ to [Semantic Versioning](https://semver.org/).
   Notifications, where one table shows you which account sounds off for what,
   instead of five switches per account. Accounts is about who takes part: the name,
   the colour, and removing one.
+
+- **Every account loads its mailbox at startup.** You used to have to click the
+  tabs one by one before the mail was there. Each account now loads its mailbox
+  once at startup, in the background and off screen, so a tab is ready the moment
+  you click it. The view is then allowed to rest again, so nothing stays warm all
+  day taking up memory — a tab you click after a long while may still bring itself
+  up to date.
 
 ### Fixed
 - **Dragging the same label twice did not work.** After the first drag the label's
