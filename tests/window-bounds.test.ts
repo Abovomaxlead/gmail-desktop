@@ -1,7 +1,8 @@
-// Clamping remembered window bounds to the displays that actually exist.
+// Clamping remembered window bounds to the displays that actually exist, and pulling a
+// window that is already too small back up to the minimum.
 
 import { describe, it, expect } from 'vitest';
-import { clampBoundsToDisplays } from '../electron/window-bounds';
+import { clampBoundsToDisplays, grownToMinimum } from '../electron/window-bounds';
 
 const primary = { bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
 
@@ -25,5 +26,35 @@ describe('clampBoundsToDisplays', () => {
     const secondary = { bounds: { x: 1920, y: 0, width: 1920, height: 1080 } };
     const win = { width: 800, height: 600, x: 2000, y: 50 };
     expect(clampBoundsToDisplays(win, [primary, secondary])).toEqual(win);
+  });
+});
+
+describe('grownToMinimum', () => {
+  const min = { width: 800, height: 600 };
+
+  it('leaves a window that already clears the minimum alone', () => {
+    expect(grownToMinimum({ width: 1200, height: 820 }, min)).toEqual({
+      width: 1200,
+      height: 820,
+    });
+  });
+
+  it('grows only the axis that is under the minimum', () => {
+    expect(grownToMinimum({ width: 1200, height: 120 }, min)).toEqual({
+      width: 1200,
+      height: 600,
+    });
+    expect(grownToMinimum({ width: 300, height: 820 }, min)).toEqual({
+      width: 800,
+      height: 820,
+    });
+  });
+
+  it('grows both axes when the window is squashed on both', () => {
+    expect(grownToMinimum({ width: 200, height: 60 }, min)).toEqual(min);
+  });
+
+  it('treats a window exactly at the minimum as big enough', () => {
+    expect(grownToMinimum(min, min)).toEqual(min);
   });
 });

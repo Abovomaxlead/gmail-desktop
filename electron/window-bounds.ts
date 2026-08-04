@@ -19,3 +19,17 @@ export function clampBoundsToDisplays(win: StoredBounds, displays: Display[]): S
   if (displays.some((d) => overlaps(full, d.bounds))) return win;
   return { width: win.width, height: win.height };
 }
+
+export interface Size {
+  width: number;
+  height: number;
+}
+
+// Setting a minimum size does not resize a window that is already smaller than it, so
+// switching "do not make it too small" back on has to pull the window up itself.
+export function grownToMinimum(win: Size, min: Size): Size {
+  return {
+    width: Math.max(win.width, min.width),
+    height: Math.max(win.height, min.height),
+  };
+}

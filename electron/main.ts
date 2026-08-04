@@ -47,7 +47,7 @@ import {
 } from './prefs-store';
 import { hostOf, needsLinkConfirm, unwrapRedirect } from './link-guard';
 import { uniqueFileName } from './download-path';
-import { clampBoundsToDisplays } from './window-bounds';
+import { clampBoundsToDisplays, grownToMinimum } from './window-bounds';
 import { colorForIndex } from './palette';
 import { planNext } from './detection-planner';
 import { WarmupTracker } from './view-warmup';
@@ -154,7 +154,11 @@ try {
 } catch {
 }
 
+// The floor the "do not make it too small" switch enforces. Height matters as much as
+// width: the topbar is 40px (80 in Rene mode) and everything below it is the mail view,
+// so without a minimum height the window can be squashed to a bare strip of chrome.
 const MIN_WINDOW_WIDTH = 800;
+const MIN_WINDOW_HEIGHT = 600;
 
 const RENDERER_DIST = join(__dirname, '..', 'renderer', 'out');
 const CHANGELOG_PATH = join(__dirname, '..', 'CHANGELOG.md');
@@ -1615,6 +1619,7 @@ function createWindow(): void {
     backgroundColor: windowBackground(prefs.getAll().theme, nativeTheme.shouldUseDarkColors),
     icon: ICON_PATH,
     minWidth: prefs.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_WIDTH,
+    minHeight: prefs.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_HEIGHT,
     ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
@@ -1901,7 +1906,12 @@ function trayImage(): Electron.NativeImage {
 function applyMinWindowSize(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const on = prefs?.getAll().appearance.restrictMinWindowSize !== false;
-  mainWindow.setMinimumSize(on ? MIN_WINDOW_WIDTH : 0, 0);
+  mainWindow.setMinimumSize(on ? MIN_WINDOW_WIDTH : 0, on ? MIN_WINDOW_HEIGHT : 0);
+  if (!on || mainWindow.isMaximized() || mainWindow.isFullScreen()) return;
+  const bounds = mainWindow.getBounds();
+  const grown = grownToMinimum(bounds, { width: MIN_WINDOW_WIDTH, height: MIN_WINDOW_HEIGHT });
+  if (grown.width === bounds.width && grown.height === bounds.height) return;
+  mainWindow.setBounds({ ...bounds, ...grown });
 }
 
 function showTestNotification(): void {
