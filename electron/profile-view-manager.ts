@@ -42,7 +42,7 @@ const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
 
 export class ProfileViewManager {
   private views = new Map<string, WebContentsView>();
-  private lastGmailTweaks: GmailTweakState = { css: '', composeInNewWindow: false };
+  private lastGmailTweaks: GmailTweakState = { composeInNewWindow: false };
   private activeViewKey: string | null = null;
   private notifClickUntil = new Map<string, number>();
   private warming = new Set<string>();

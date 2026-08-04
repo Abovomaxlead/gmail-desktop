@@ -131,7 +131,7 @@ export interface DownloadRecord {
   state: 'completed' | 'cancelled' | 'interrupted';
 }
 
-export type GmailTweakState = { css: string; composeInNewWindow: boolean };
+export type GmailTweakState = { composeInNewWindow: boolean };
 
 export type NotifyState = {
   show: boolean;

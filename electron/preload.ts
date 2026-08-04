@@ -1,6 +1,6 @@
 // Preload for the Gmail and Calendar views: reports unread counts and the signed-in
-// identity, gates and re-routes the page's notifications, applies the Gmail tweak CSS
-// and installs the mail-drop strip. Everything above the Electron block at the bottom
+// identity, gates and re-routes the page's notifications, and installs the mail-drop
+// strip. Everything above the Electron block at the bottom
 // is Node-safe so it can be unit-tested. Gmail is not our page, so anything found in it
 // is matched by shape, never by translated text, and all user-facing wording arrives
 // from main — which is why a notification click resolves its thread from options.body
@@ -125,31 +125,6 @@ export function isComposeClick(
 ): boolean {
   if (!target || typeof target.closest !== 'function') return false;
   return target.closest(COMPOSE_BUTTON_SELECTOR) != null;
-}
-
-export const TWEAK_STYLE_ID = 'gmail-desktop-tweaks';
-
-export interface TweakStyleHost {
-  getElementById(id: string): { textContent: string | null; remove(): void } | null;
-  createElement(tag: string): { id: string; textContent: string | null };
-  head: { appendChild(el: unknown): void } | null;
-}
-
-export function applyTweakCss(doc: TweakStyleHost, css: string): void {
-  const existing = doc.getElementById(TWEAK_STYLE_ID);
-  if (!css) {
-    existing?.remove();
-    return;
-  }
-  if (existing) {
-    existing.textContent = css;
-    return;
-  }
-  if (!doc.head) return;
-  const el = doc.createElement('style');
-  el.id = TWEAK_STYLE_ID;
-  el.textContent = css;
-  doc.head.appendChild(el);
 }
 
 export function isEditableTarget(
@@ -343,19 +318,11 @@ if (typeof document !== 'undefined') {
     notifyState = state;
   });
 
-  let tweaks: GmailTweakState = { css: '', composeInNewWindow: false };
-  const putTweakCss = () => applyTweakCss(document as unknown as TweakStyleHost, tweaks.css);
+  let tweaks: GmailTweakState = { composeInNewWindow: false };
   ipcRenderer.on(IPC.GMAIL_TWEAKS, (_e: unknown, state: unknown) => {
     const s = state as Partial<GmailTweakState> | null;
-    tweaks = {
-      css: typeof s?.css === 'string' ? s.css : '',
-      composeInNewWindow: s?.composeInNewWindow === true,
-    };
-    putTweakCss();
+    tweaks = { composeInNewWindow: s?.composeInNewWindow === true };
   });
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', putTweakCss, { once: true });
-  }
 
   document.addEventListener(
     'click',

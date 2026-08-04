@@ -111,7 +111,6 @@ export interface Prefs {
   updates: { autoCheck: boolean; notify: boolean };
   languages: { spellcheck: string[] };
   gmail: {
-    hideInboxFooter: boolean;
     alwaysComposeInNewWindow: boolean;
     closeComposeAfterSend: boolean;
   };
@@ -187,7 +186,6 @@ interface DesktopBridge {
   setLanguages(patch: { spellcheck?: string[] }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
   setGmail(patch: {
-    hideInboxFooter?: boolean;
     alwaysComposeInNewWindow?: boolean;
     closeComposeAfterSend?: boolean;
   }): void;

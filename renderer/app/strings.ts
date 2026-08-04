@@ -102,12 +102,8 @@ export interface UiStrings {
   restartRequired: string;
 
   gmailComposeGroup: string;
-  gmailInboxGroup: string;
-  gmailHideInboxFooter: string;
-  gmailHideInboxFooterDescription: string;
   gmailComposeNewWindow: string;
   gmailComposeNewWindowDescription: string;
-  gmailTweakFragile: string;
 
   gaOpenInApp: string;
   gaOpenInAppDescription: string;
@@ -438,14 +434,9 @@ export const STRINGS_NORMAL: UiStrings = {
   restartRequired: 'Takes effect the next time the app starts.',
 
   gmailComposeGroup: 'Compose',
-  gmailInboxGroup: 'Inbox',
-  gmailHideInboxFooter: 'Hide Inbox Footer',
-  gmailHideInboxFooterDescription: 'Hides the footer at the bottom of the inbox.',
   gmailComposeNewWindow: 'Always Compose New Emails in New Window',
   gmailComposeNewWindowDescription:
     'Opens a new window for composing emails instead of inside Gmail.',
-  gmailTweakFragile:
-    'These hide the parts by their place in Gmail’s own page. Google changes that page without warning, so a switch here can quietly stop working — tell me and I will point it at the new spot.',
 
   gaOpenInApp: 'Open in App',
   gaOpenInAppDescription: 'Open Google Apps in app instead of external browser.',
@@ -722,14 +713,9 @@ export const STRINGS_RENE: UiStrings = {
   restartRequired: 'Dit werkt pas als de app opnieuw opstart.',
 
   gmailComposeGroup: 'Mail maken',
-  gmailInboxGroup: 'Postvak',
-  gmailHideInboxFooter: 'Verstop de tekst onderaan',
-  gmailHideInboxFooterDescription: 'Onder je postvak staat dan geen tekst meer.',
   gmailComposeNewWindow: 'Maak mail in een eigen venster',
   gmailComposeNewWindowDescription:
     'Een nieuwe mail gaat in een apart venster, niet in het hoekje van Gmail.',
-  gmailTweakFragile:
-    'Google verandert Gmail soms. Dan werkt een knopje hier misschien niet meer. Zeg het dan, dan maak ik het weer goed.',
 
   gaOpenInApp: 'Open in de app',
   gaOpenInAppDescription: 'Open Google-dingen in de app en niet in je browser.',

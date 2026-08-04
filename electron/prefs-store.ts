@@ -72,7 +72,6 @@ export interface LanguagePrefs {
 }
 
 export interface GmailPrefs {
-  hideInboxFooter: boolean;
   alwaysComposeInNewWindow: boolean;
   closeComposeAfterSend: boolean;
 }
@@ -177,7 +176,6 @@ export const DEFAULT_PREFS: Prefs = {
   updates: { autoCheck: true, notify: true },
   languages: { spellcheck: [] },
   gmail: {
-    hideInboxFooter: false,
     alwaysComposeInNewWindow: false,
     closeComposeAfterSend: false,
   },
@@ -280,7 +278,6 @@ export class PrefsStore {
         },
         languages: { spellcheck: stringList(raw.languages?.spellcheck) },
         gmail: {
-          hideInboxFooter: bool(raw.gmail?.hideInboxFooter, false),
           alwaysComposeInNewWindow: bool(raw.gmail?.alwaysComposeInNewWindow, false),
           closeComposeAfterSend: bool(raw.gmail?.closeComposeAfterSend, false),
         },

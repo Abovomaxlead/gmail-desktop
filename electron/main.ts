@@ -47,7 +47,6 @@ import {
 } from './prefs-store';
 import { hostOf, needsLinkConfirm } from './link-guard';
 import { uniqueFileName } from './download-path';
-import { gmailTweakCss } from './gmail-tweaks';
 import { clampBoundsToDisplays } from './window-bounds';
 import { colorForIndex } from './palette';
 import { planNext } from './detection-planner';
@@ -1924,7 +1923,6 @@ function pushGmailTweaks(): void {
   if (!prefs || !manager) return;
   const g = prefs.getAll().gmail;
   manager.pushGmailTweaks({
-    css: gmailTweakCss(g),
     composeInNewWindow: g.alwaysComposeInNewWindow === true,
   });
 }

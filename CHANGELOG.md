@@ -62,12 +62,11 @@ to [Semantic Versioning](https://semver.org/).
   toe helemaal niet af), Talen (extra talen voor de spellingcontrole), Phishing
   Protection (de host laten zien voordat een link naar de browser gaat, met een
   lijst die zichzelf vult als je "altijd goed" aanvinkt), Bijwerken, Geavanceerd
-  (hardwareversnelling), Gmail (de tekst onderaan het postvak verbergen, mail maken
-  in een eigen venster en dat venster sluiten na verzenden),
-  Google Apps (in de app of in de browser, per app een uitzondering, de naam en de
-  kleur van het account op een appvenster), en bij Meldingen: afzender en onderwerp
-  wel of niet in de melding, geluid, een testknop, en wat een klik op een
-  download-melding doet.
+  (hardwareversnelling), Gmail (mail maken in een eigen venster en dat venster
+  sluiten na verzenden), Google Apps (in de app of in de browser, per app een
+  uitzondering, de naam en de kleur van het account op een appvenster), en bij
+  Meldingen: afzender en onderwerp wel of niet in de melding, geluid, een testknop,
+  en wat een klik op een download-melding doet.
 - **Accounts is een kaart geworden.** Eén kaart per account met de naam, de pillen
   die zeggen wat je van dat account merkt, de kleuren, een potlood om de naam te
   wijzigen en een prullenbak. Je kan de kaarten slepen om de volgorde te veranderen,
@@ -182,12 +181,11 @@ to [Semantic Versioning](https://semver.org/).
   goes, ask first, open the folder — the app did not handle downloads at all until
   now), Languages (extra spellchecker languages), Phishing Protection (see the host
   before a link opens in your browser, with a trusted list that fills itself when you
-  tick "always allow"), Updates, Advanced (hardware acceleration), Gmail (hide the
-  logo, the out-of-office banner, the Upgrade button and the inbox footer; compose in
-  its own window), Google Apps (in the app or in the browser, a per-app exception, the
-  account's name and colour on an app window), and under Notifications: sender and
-  subject in a notification or not, sound, a test button, and what clicking a
-  download notification does.
+  tick "always allow"), Updates, Advanced (hardware acceleration), Gmail (compose in
+  its own window, and closing that window after sending), Google Apps (in the app or
+  in the browser, a per-app exception, the account's name and colour on an app
+  window), and under Notifications: sender and subject in a notification or not,
+  sound, a test button, and what clicking a download notification does.
 - **Accounts is a card now.** One card per account with the name, chips saying what
   you notice from that account, the colours, a pencil to rename and a bin to remove.
   Cards can be dragged to reorder, and "Add" sits at the top right.
