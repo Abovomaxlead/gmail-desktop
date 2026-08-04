@@ -27,6 +27,12 @@ const SESSION_PARTITION = 'persist:google';
 const viewKey = (acctKey: string, surface: Surface) => `${acctKey}:${surface}`;
 const acctKeyOfViewKey = (vk: string) => vk.slice(0, vk.lastIndexOf(':'));
 
+// Waar een view staat die aan het voorladen is. Buiten het venster in plaats van
+// op setVisible(false), om dezelfde reden als bij withHiddenView: een onzichtbare
+// view geldt als bedekt en Gmail bouwt zijn berichtenlijst dan niet op. Hij heeft
+// ook een echt formaat nodig, anders past er geen lijst in.
+const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
+
 export class ProfileViewManager {
   private views = new Map<string, WebContentsView>();
   private activeViewKey: string | null = null;
@@ -34,6 +40,10 @@ export class ProfileViewManager {
   // click handler fires window.open with the same thread shortly after, which
   // must be suppressed (it would open a duplicate window / force a reload).
   private notifClickUntil = new Map<string, number>();
+  // Views die op dit moment buiten het venster staan voor te laden. Ze moeten
+  // zichtbaar blijven om te kunnen renderen, dus show() en hideAll() mogen ze niet
+  // meenemen in hun "alles behalve de actieve gaat uit".
+  private warming = new Set<string>();
   // Views for which the app is actively triggering Gmail's pop-out button, so
   // the resulting pop-out window.open should be allowed through (vs Gmail's own
   // auto pop-out on a notification click, which is suppressed).
@@ -112,6 +122,7 @@ export class ProfileViewManager {
     view.webContents.once('destroyed', () => {
       if (this.views.get(k) !== view) return;
       this.views.delete(k);
+      this.warming.delete(k);
       if (this.activeViewKey === k) this.activeViewKey = null;
       // On app quit the window is torn down before its views; touching
       // contentView then throws "Object has been destroyed".
@@ -134,9 +145,51 @@ export class ProfileViewManager {
     const k = viewKey(accountKey(ref), surface);
     const view = this.views.get(k);
     if (!view) return;
-    for (const [vk, v] of this.views) v.setVisible(vk === k);
+    // Wordt een view die aan het voorladen is nu de echte, dan is zijn warmloop
+    // voorbij: applyBounds haalt hem hieronder terug in het venster.
+    this.warming.delete(k);
+    // Een warme view blijft zichtbaar, anders breekt zijn voorladen stil af. Hij
+    // staat buiten het venster, dus overlapt de actieve view niet.
+    for (const [vk, v] of this.views) v.setVisible(vk === k || this.warming.has(vk));
     this.activeViewKey = k;
     this.applyBounds(view);
+  }
+
+  // Laadt de view van dit account op de achtergrond in: buiten het venster
+  // geparkeerd en zichtbaar, zodat Gmail zijn berichtenlijst opbouwt zonder dat de
+  // gebruiker iets ziet. Zo staat een tabblad er meteen als het wordt aangeklikt.
+  // De actieve view slaat hij over: die staat al echt in beeld.
+  warm(ref: AccountRef, surface: Surface): void {
+    if (this.win.isDestroyed()) return;
+    this.ensureView(ref, surface, false);
+    const k = viewKey(accountKey(ref), surface);
+    const view = this.views.get(k);
+    if (!view || this.activeViewKey === k) return;
+    this.warming.add(k);
+    view.setBounds(WARM_BOUNDS);
+    view.setVisible(true);
+  }
+
+  // Einde van de warmloop: terug naar bedekt. De opgebouwde pagina blijft in het
+  // geheugen staan, dus een klik toont hem direct; Chromium mag hem nu throttlen.
+  cool(accountKey: string, surface: Surface): void {
+    const k = viewKey(accountKey, surface);
+    this.warming.delete(k);
+    const view = this.views.get(k);
+    if (!view || this.activeViewKey === k) return;
+    view.setVisible(false);
+  }
+
+  // De paginatitel van een view, waaruit af te lezen is of het postvak staat.
+  // Null als de view niet (meer) bestaat.
+  titleOf(accountKey: string, surface: Surface): string | null {
+    const view = this.views.get(viewKey(accountKey, surface));
+    if (!view || view.webContents.isDestroyed()) return null;
+    try {
+      return view.webContents.getTitle();
+    } catch {
+      return null;
+    }
   }
 
   activeKey(): string | null {
@@ -154,6 +207,7 @@ export class ProfileViewManager {
     this.win.contentView.removeChildView(view);
     view.webContents.close();
     this.views.delete(k);
+    this.warming.delete(k);
     if (this.activeViewKey === k) this.activeViewKey = null;
     // A torn-down mail view will never report a fresh unread count again, so its
     // last-reported number would otherwise stick in the taskbar badge total. Report
@@ -164,7 +218,10 @@ export class ProfileViewManager {
   }
 
   hideAll(): void {
-    for (const v of this.views.values()) v.setVisible(false);
+    // Een view die aan het voorladen is blijft staan: hij zit buiten het venster en
+    // kan het paneel waarvoor dit wijkt dus niet overlappen, terwijl onzichtbaar
+    // maken zijn voorladen stil zou afbreken.
+    for (const [vk, v] of this.views) if (!this.warming.has(vk)) v.setVisible(false);
   }
 
   showActive(): void {
