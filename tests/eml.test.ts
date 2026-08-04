@@ -1,3 +1,5 @@
+// Parsing .eml headers and plain-text bodies.
+
 import { describe, it, expect } from 'vitest';
 import { parseHeaders, extractPlainText } from '../electron/eml';
 
@@ -142,10 +144,6 @@ describe('extractPlainText', () => {
     expect(extractPlainText(raw)).toBe('Hoi Luca\n\nTot & met vrijdag');
   });
 
-  // De vorm van een echte Gmail-mail met een bijlage: geen text/plain-deel, een
-  // boundary die zelf met -- begint, en lege regels ná de sluit-boundary. Die
-  // epiloog heeft geen Content-Type en mag niet als leeg tekstdeel gelden — dan
-  // wint hij van de html en blijft de body leeg.
   it('falls back to the html part when a multipart message has no text/plain', () => {
     const raw = [
       'Content-Type: multipart/related; type="text/html";',

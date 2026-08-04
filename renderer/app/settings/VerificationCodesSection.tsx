@@ -7,32 +7,19 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { DANGER_TEXT, FIELD, HINT } from './tokens';
 
-// Verificatiecodes: de app leest een binnengekomen bericht, herkent er een code in
-// en zet die op het klembord. Alles staat standaard uit — zie
-// `electron/prefs-store.ts`.
-//
-// De sectie bestaat uit twee groepen, en die scheiding is de betekenis: bovenin
-// staat wát er wordt herkend, onderin wat er ná het kopiëren met de mail gebeurt.
-// De tweede groep heeft geen kop, want er is geen tekst voor; de haarlijn zegt al
-// dat het over iets anders gaat.
+// Verification codes: the app reads an incoming message, recognises a code in it and
+// puts it on the clipboard. Everything defaults to off. Nothing reacts to new mail
+// yet, which is why the section says so on screen. With copying off the three rows
+// below it are disabled rather than hidden, so the section does not jump and the
+// choices stay visible. Deleting the mail is the one irreversible setting here, and
+// the only row carrying a red warning.
+
 export function VerificationCodesSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const vc = prefs?.verificationCodes;
-  // Staat het kopiëren uit, dan gebeurt er niets: er wordt niet gezocht, dus de
-  // zekerheid doet niets, en er wordt niet gekopieerd, dus "daarna" bestaat niet.
-  // De drie rijen worden uitgeschakeld en niet verborgen — verdwijnt een rij, dan
-  // verspringt de sectie onder je handen zodra je de schakelaar erboven omzet, en
-  // dan is ook niet meer te zien dát die keuzes bestaan. Zelfde afweging als bij
-  // het tray-icoon in `AppearanceSection`.
   const locked = vc?.autoCopy !== true;
 
   return (
     <Section title={S.navVerificationCodes}>
-      {/* Bovenaan en niet als voetnoot: de vier schakelaars hieronder schrijven wél
-          een voorkeur weg, maar er is nog niets dat op nieuwe post reageert. Wie dat
-          niet weet, zet ze aan en concludeert dat de app stuk is. Het herkennen zelf
-          is er (electron/verification-code.ts, met tests); wat ontbreekt is de haak op
-          binnenkomende mail, en voor "gelezen" en "weggooien" een Google-recht dat de
-          app nooit heeft gevraagd. */}
       <SettingsGroup>
         <p className={`mb-1 max-w-[46ch] ${HINT}`}>{S.vcNotWiredYet}</p>
       </SettingsGroup>
@@ -78,15 +65,6 @@ export function VerificationCodesSection({ S, prefs }: { S: UiStrings; prefs: Pr
           />
         </SettingRow>
 
-        {/* De enige onomkeerbare instelling in dit paneel, en de enige rij met een
-            rode regel eronder. Rood is in dit paneel voorbehouden aan gevaar (zie
-            de uitleg boven `DANGER_TEXT` in ./tokens), en dit is precies dat:
-            herkent de app het verkeerde getal, dan gooit hij een echte mail weg en
-            is er niets dat dat terugdraait. De waarschuwing staat daarom in de rij
-            zelf en niet als losse regel onderaan de sectie — hij hoort bij deze
-            schakelaar en moet meebewegen met de blik die op die schakelaar landt.
-            Geen apart getint vlak (`DANGER_PANEL`): dat is voor een vraag die je
-            moet beantwoorden, en dit is een keuze die je maakt. */}
         <SettingRow
           label={S.vcDelete}
           description={

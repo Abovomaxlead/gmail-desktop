@@ -1,15 +1,16 @@
-// Waar een download terechtkomt, als naam. Puur: het bestandssysteem komt binnen
-// als één functie ("bestaat dit pad?"), zodat dit zonder schijf te testen is.
+// Where a download ends up, as a name. Pure: the filesystem arrives as a single "does
+// this name exist?" function, so this is testable without a disk.
+//
+// Known double extensions stay together — "archief.tar.gz (1)", not
+// "archief.tar (1).gz", which would also change the file's type in Windows' eyes —
+// and a name starting with a dot is a name, not an extension (".gitignore"). The
+// " (1)" form is the one Windows and Chrome use, so a second download of the same
+// file does not silently overwrite the first. The counter stops at 999: past that,
+// something other than a duplicate download is going on.
 
-/** Splits "rapport.tar.gz" in "rapport" en ".tar.gz" — de dubbele extensie blijft heel. */
 export function splitName(name: string): { base: string; ext: string } {
-  // Een naam die met een punt begint is een naam en geen extensie (".gitignore"),
-  // dus de zoektocht naar de punt begint op teken 1.
   const dot = name.indexOf('.', 1);
   if (dot <= 0) return { base: name, ext: '' };
-  // Bekende dubbele extensies horen bij elkaar: "archief.tar.gz (1)" is te lezen,
-  // "archief.tar (1).gz" niet — en die tweede zou het bestand ook nog van type
-  // veranderen in de ogen van Windows.
   const lower = name.toLowerCase();
   for (const combo of ['.tar.gz', '.tar.bz2', '.tar.xz', '.tar.zst']) {
     if (lower.endsWith(combo)) return { base: name.slice(0, -combo.length), ext: name.slice(-combo.length) };
@@ -19,16 +20,6 @@ export function splitName(name: string): { base: string; ext: string } {
   return { base: name.slice(0, last), ext: name.slice(last) };
 }
 
-/**
- * Een naam die in deze map nog niet bestaat: "rapport.pdf", anders
- * "rapport (1).pdf", enzovoort. Dezelfde vorm die Windows en Chrome gebruiken,
- * zodat een tweede download van hetzelfde bestand niet stil de eerste overschrijft.
- *
- * `exists` krijgt de volledige naam (zonder map) en zegt of die er al is. De
- * teller stopt bij 999: is het daarna nog bezet, dan is er iets anders aan de hand
- * dan een dubbele download, en dan is teruggeven wat we hebben beter dan blijven
- * doorzoeken.
- */
 export function uniqueFileName(name: string, exists: (candidate: string) => boolean): string {
   const safe = name.trim() || 'download';
   if (!exists(safe)) return safe;

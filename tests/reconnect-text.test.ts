@@ -1,12 +1,12 @@
+// The reconnect notice's wording. It cannot be dismissed, so a sentence that is not
+// true stays on screen until the next release.
+
 import { describe, it, expect } from 'vitest';
 import { reconnectHeading } from '../renderer/app/reconnect-text';
 
 const expired = (email: string) => ({ email, reason: 'expired' as const });
 const push = (email: string) => ({ email, reason: 'push' as const });
 
-// Deze melding is niet weg te klikken. Staat er iets in dat niet waar is, dan
-// kijkt de gebruiker daar tot de volgende versie naar — dus de tekst moet bij de
-// reden passen.
 describe('reconnectHeading', () => {
   it('says the connection expired when that is what happened', () => {
     const h = reconnectHeading([expired('a@x.nl')]);
@@ -14,9 +14,6 @@ describe('reconnectHeading', () => {
     expect(h.sub).toContain('verplaatsen');
   });
 
-  // Important 3: bij een ontbrekende push-scope is er niets verlopen en werkt het
-  // verplaatsen van mail gewoon. De oude tekst beweerde twee dingen die niet waar
-  // waren.
   it('does not claim anything expired when only push needs permission', () => {
     const h = reconnectHeading([push('a@x.nl')]);
     expect(h.title).not.toContain('verlopen');

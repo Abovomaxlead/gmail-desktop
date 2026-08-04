@@ -1,3 +1,5 @@
+// Building Gmail compose URLs.
+
 import { describe, it, expect } from 'vitest';
 import { composeUrl } from '../electron/compose-url';
 

@@ -6,10 +6,11 @@ import type { UiStrings } from '../strings';
 import { EmptyNote, Section, SettingsGroup } from './Section';
 import { FOCUS_RING, HAIRLINE } from './tokens';
 
-// Toon de changelog-regels in de taal van de interface. Het bestand mengt
-// Engelse (### Fixed) en Nederlandse (### Opgelost) koppen binnen één versie;
-// pak wat bij de interface past, en val terug op de andere taal als een versie
-// daar niets heeft. Versies zonder koppen komen er ongewijzigd door.
+// What's new: the changelog, newest version open and the rest behind a button. The
+// file mixes English (### Fixed) and Dutch (### Opgelost) headings within one
+// version, so entries are picked by interface language and fall back to the other
+// language when a version has nothing there. `renderInline` handles **bold** only.
+
 function entriesForLang(v: ChangelogVersion, uiLang: 'en' | 'nl'): ChangelogEntry[] {
   const hasLangTagged = v.entries.some((e) => e.lang !== 'unknown');
   if (!hasLangTagged) return v.entries;
@@ -18,7 +19,6 @@ function entriesForLang(v: ChangelogVersion, uiLang: 'en' | 'nl'): ChangelogEntr
   return v.entries.filter((e) => e.lang !== 'unknown');
 }
 
-// Minimale inline-markdown: **vet** wordt vet, de rest blijft tekst.
 function renderInline(text: string): ReactNode {
   return text
     .split(/(\*\*[^*]+\*\*)/g)
@@ -39,8 +39,6 @@ function ChangelogVersionBlock({
   const entries = entriesForLang(version, uiLang);
   return (
     <div>
-      {/* Versienummer en datum zijn gegevens: `tabular-nums`, zodat de nummers
-          van opeenvolgende versies onder elkaar op dezelfde plek staan. */}
       <div className="mb-2 flex items-baseline gap-2">
         <span className="text-[13.5px] font-semibold tabular-nums">
           {S.changelogVersionPrefix} {version.version}
@@ -66,15 +64,7 @@ function ChangelogVersionBlock({
   );
 }
 
-// Wat is er nieuw: de changelog, met de nieuwste versie open en de rest achter een
-// knop. Een eigen sectie in de kolom en niet een blok onderaan Over — het is de
-// enige sectie die je leest in plaats van gebruikt, en onder Over kwam je hem
-// alleen tegen als je toch al ergens anders naar zocht.
-//
-// Geen omlijnd blok om de tekst: de changelog is de inhoud van deze sectie, niet
-// een ding erin. Een rand eromheen zou een kader om de hele sectie zetten.
 export function WhatsNewSection({ S, uiLang }: { S: UiStrings; uiLang: 'en' | 'nl' }) {
-  // De changelog komt één keer uit het hoofdproces, dat CHANGELOG.md leest.
   const [changelog, setChangelog] = useState<ChangelogVersion[]>([]);
   const [showOlder, setShowOlder] = useState(false);
   useEffect(() => {
@@ -107,8 +97,6 @@ export function WhatsNewSection({ S, uiLang }: { S: UiStrings; uiLang: 'en' | 'n
                     ))}
                   </div>
                 )}
-                {/* Geen blauwe tekstlink: het blauw in dit paneel is van de
-                    updateknop. Dit is een knop die tekst uitklapt. */}
                 <button
                   type="button"
                   onClick={() => setShowOlder((s) => !s)}

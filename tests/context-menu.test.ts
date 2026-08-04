@@ -1,3 +1,5 @@
+// The right-click menu plan for the Gmail view, and its search entries.
+
 import { describe, it, expect } from 'vitest';
 import {
   planContextMenu,

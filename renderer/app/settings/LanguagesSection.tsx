@@ -6,17 +6,12 @@ import type { UiStrings } from '../strings';
 import { EmptyNote, Section, SettingsGroup } from './Section';
 import { CHECKBOX, HAIRLINE, HINT, PANEL } from './tokens';
 
-// Talen: welke talen de spellingcontrole naast de systeemtaal meeneemt.
-//
-// Een lijst met vinkjes en geen keuzelijst met meervoudige selectie. Zo'n
-// `<select multiple>` is met de muis een valkuil — één klik wist alles wat je al had
-// gekozen — en met het toetsenbord nauwelijks te doen. De lijst is lang (Chromium
-// kent er tientallen), dus hij scrollt binnen een eigen vlak in plaats van de sectie
-// meters lang te maken.
+// Languages: which languages the spellchecker uses besides the system one. The
+// available languages come from Chromium, since which dictionaries exist depends on
+// the build. A scrolling list of checkboxes rather than a `<select multiple>`, where
+// one stray click would wipe everything already chosen.
+
 export function LanguagesSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
-  // De beschikbare talen komen uit Chromium en niet uit een eigen lijst: welke
-  // woordenboeken er zijn hangt af van de build, en een eigen lijst zou talen
-  // aanbieden die niets doen.
   const [available, setAvailable] = useState<SpellcheckLanguage[]>([]);
   useEffect(() => {
     let alive = true;
@@ -46,9 +41,6 @@ export function LanguagesSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nu
           <EmptyNote>{S.spellcheckerUnavailable}</EmptyNote>
         ) : (
           <>
-            {/* De stand in woorden boven de lijst, want met een lijst van tientallen
-                items is "wat staat er nu aan" anders alleen te vinden door te
-                scrollen. */}
             <p className={`mb-2 ${HINT}`}>
               {chosen.length === 0 ? S.spellcheckerNone : S.spellcheckerChosen(chosen.length)}
             </p>
@@ -65,8 +57,6 @@ export function LanguagesSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nu
                     className={CHECKBOX}
                   />
                   <span className="min-w-0 flex-1 truncate">{lang.label}</span>
-                  {/* De code erbij: twee talen kunnen dezelfde naam krijgen ("Engels"
-                      voor en-GB en en-US), en dan is de code het enige verschil. */}
                   <span className={`shrink-0 tabular-nums ${HINT}`}>{lang.code}</span>
                 </label>
               ))}

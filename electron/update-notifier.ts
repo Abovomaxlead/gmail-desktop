@@ -1,13 +1,13 @@
+// Decides whether an available update is worth a notification: only a genuinely new
+// version surfaced by a background check, and never twice for the same version in one
+// session, since during a manual check the user is already looking.
 export interface NotifyDecisionInput {
-  state: string; // autoUpdater-derived state
-  version: string | null; // the available version
-  background: boolean; // was the triggering check a background one?
-  notifiedVersion: string | null; // last version already notified this session
+  state: string;
+  version: string | null;
+  background: boolean;
+  notifiedVersion: string | null;
 }
 
-// Notify only for a genuinely new version surfaced by a background check — not
-// for manual checks (the user is already looking) and not twice for the same
-// version within a session.
 export function shouldNotifyUpdate(i: NotifyDecisionInput): boolean {
   return (
     i.state === 'available' &&

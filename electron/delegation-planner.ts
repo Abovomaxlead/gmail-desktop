@@ -1,9 +1,10 @@
+// Decides which scraped or captured delegated entries to register: lowercase, dedupe,
+// and exclude any whose email matches an owned authuser account or whose `d:<email>`
+// key the user removed. Shared by the click-through capture path and the best-effort
+// auto-scan suggestions.
+
 import type { DelegatedEntry } from './delegation';
 
-// Decide which scraped/captured delegated entries to register. Pure: lowercase,
-// dedupe, and exclude any whose email matches an owned authuser account or whose
-// `d:<email>` key the user has removed. Shared by the click-through capture path
-// (Task 7) and the best-effort auto-scan suggestions (Task 8).
 export function planDelegated(
   entries: DelegatedEntry[],
   knownAuthuserEmails: string[],

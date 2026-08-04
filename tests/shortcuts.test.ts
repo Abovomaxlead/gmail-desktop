@@ -1,3 +1,5 @@
+// Resolving keyboard shortcuts, including the devtools one.
+
 import { describe, it, expect } from 'vitest';
 import { resolveShortcut } from '../electron/shortcuts';
 
@@ -25,7 +27,6 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ ...base, key: '1' })).toBeNull();
   });
   it('ignores Ctrl+0 reserved digit as switch (0 is zoom-reset only)', () => {
-    // '0' with modifier is zoom-reset, never switch
     expect(resolveShortcut({ ...base, control: true, key: '0' })).toEqual({ type: 'zoom', dir: 'reset' });
   });
 });

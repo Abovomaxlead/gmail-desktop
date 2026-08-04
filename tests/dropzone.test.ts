@@ -1,3 +1,6 @@
+// Reading thread ids and subjects out of Gmail's DOM for a drag, and the drop zone's
+// geometry.
+
 import { describe, it, expect } from 'vitest';
 import {
   threadIdFromDragTarget,
@@ -18,8 +21,6 @@ import {
   movedEnough,
 } from '../electron/dropzone';
 
-// Minimale namaak-DOM: de functie mag alleen getAttribute, querySelectorAll en
-// parentElement gebruiken, want de tests draaien zonder jsdom.
 function node(attrs: Record<string, string>, parent: any = null, descendants: any[] = []): any {
   return {
     getAttribute: (n: string) => attrs[n] ?? null,
@@ -28,9 +29,6 @@ function node(attrs: Record<string, string>, parent: any = null, descendants: an
   };
 }
 
-// Zoals Gmail het echt doet: het thread-id staat op de onderwerp-span diep in
-// de rij, en `dragstart` vuurt op de rij (het element met draggable="true").
-// Vanaf de rij omhoog lopen vindt de span dus nooit — die zit eronder.
 function gmailRow(threadId: string) {
   const subject = node({ 'data-legacy-thread-id': threadId });
   return node({ draggable: 'true', role: 'row' }, null, [subject]);
@@ -54,8 +52,6 @@ describe('threadIdFromDragTarget', () => {
     expect(threadIdFromDragTarget(cell)).toBe('18f2a');
   });
   it('refuses to guess when an ancestor holds several different ids', () => {
-    // Zoals de <table> of <body>: die bevat elke rij van de inbox. Daar een id
-    // uit pakken zou de verkeerde mail opslaan.
     const list = node({}, null, [
       node({ 'data-legacy-thread-id': 'a' }),
       node({ 'data-legacy-thread-id': 'b' }),
@@ -71,13 +67,12 @@ describe('threadIdFromDragTarget', () => {
   });
   it('stops after a sane number of levels instead of looping forever', () => {
     const self: any = { getAttribute: () => null, parentElement: null };
-    self.parentElement = self; // cyclus
+    self.parentElement = self;
     expect(threadIdFromDragTarget(self)).toBeNull();
   });
 });
 
 describe('selectedThreadIds / threadIdsForDrag', () => {
-  // Een aangevinkte rij: de checkbox zit ín de rij, net als de onderwerp-span.
   const checkedRow = (threadId: string) => {
     const row = node({}, null, [node({ 'data-legacy-thread-id': threadId })]);
     return node({ role: 'checkbox', 'aria-checked': 'true' }, row);
@@ -106,8 +101,6 @@ describe('selectedThreadIds / threadIdsForDrag', () => {
 });
 
 describe('threadSubjects / itemsForDrag', () => {
-  // Het element dat het thread-id draagt is Gmail's onderwerp-span, dus de
-  // onderwerptekst staat er al in.
   const subjectSpan = (id: string, text: string) => ({
     getAttribute: (n: string) => (n === 'data-legacy-thread-id' ? id : null),
     textContent: text,
@@ -198,8 +191,6 @@ describe('constants', () => {
     expect(DROPZONE_CSS).toContain('[data-state="armed"] { display: flex');
   });
   it('never lets the strip swallow clicks meant for Gmail', () => {
-    // Het loslaten gaat op coördinaten, dus de strip hoeft nooit muis-events te
-    // vangen — en mag Gmail dus ook nergens in de weg zitten.
     expect(DROPZONE_CSS).toContain('pointer-events: none');
     expect(DROPZONE_CSS).not.toContain('pointer-events: auto');
   });
@@ -213,8 +204,6 @@ describe('constants', () => {
   });
 });
 
-// Het loslaten wordt op coördinaten bepaald, niet op het element onder de
-// cursor: Gmail tekent daar tijdens het slepen zijn eigen sleepbeeld overheen.
 describe('isOverZone', () => {
   const rect = { left: 8, top: 8, right: 900, bottom: 64 };
   it('accepts a point inside the strip', () => {
@@ -244,9 +233,6 @@ describe('movedEnough', () => {
 });
 
 describe('stacking', () => {
-  // Gmail's eigen sleepkaartje wordt tijdens een sleep naar DRAG_CHROME_Z
-  // getild (zie liftDragChrome in preload.ts). Staat de strip daar niet ónder,
-  // dan verdwijnt dat kaartje er weer achter en zie je niet wát je versleept.
   it('leaves a layer above the strip for Gmail to draw its drag card in', () => {
     expect(DRAG_CHROME_Z).toBeGreaterThan(DROPZONE_Z);
   });

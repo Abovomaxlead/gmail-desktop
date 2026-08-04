@@ -9,10 +9,13 @@ import { Switch } from './Switch';
 import { SOUNDS, playSound } from '../../lib/notification-sound';
 import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
 
-// De naam van een toon, uit `strings.ts`. Een `switch` en geen kaart in de strings:
-// zo klaagt de compiler zodra er een toon bij komt zonder naam, in plaats van een
-// lege regel in de keuzelijst te zetten. Onbekend valt terug op de sleutel zelf —
-// beter iets dan niets.
+// Notifications: mute, quiet hours, the notification sound, and the per-account grid
+// of which notifications each account may give. The polarity per column is
+// deliberate and not sloppiness: mail, badge and sound read `!== false` because they
+// are on until you turn them off, while calendar and persist read `=== true` because
+// they are off until you turn them on. A cell whose setting does not exist for an
+// account (calendar on a delegated mailbox) stays empty, keeping the grid aligned.
+
 function soundLabel(S: UiStrings, name: string): string {
   switch (name) {
     case 'chime':
@@ -30,39 +33,19 @@ function soundLabel(S: UiStrings, name: string): string {
   }
 }
 
-// De tijdvelden dragen `tabular-nums`: een tijd is een getal, en een getal dat
-// van 09:59 naar 10:00 springt hoort niet ook nog van breedte te veranderen.
-// `disabled:` erbij, want ze blijven staan als de stille uren uit staan.
 const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity-50`;
 
-// Het id waarmee het rooster naar zijn eigen kop wijst. Vast en niet gegenereerd:
-// er staat er precies één in het paneel, want er is één sectie tegelijk open.
 const MATRIX_TITLE_ID = 'per-account-notifications-title';
 
-// Het id van de "tot" tussen de twee tijdvelden, die de naam van het tweede veld
-// is. Zelfde reden om het vast te zetten: één per paneel.
 const QUIET_END_LABEL_ID = 'setting-quiet-end-label';
 
-// Eén kolom van het rooster: dezelfde instelling voor elk account.
 interface ToggleColumn {
   key: string;
-  // De kolomkop in beeld. Kort, want de kolom is 64px breed.
   header: string;
-  // De volledige tekst. Dit is de toegankelijke naam van elk vakje in de kolom
-  // (de bestaande `*Title`-teksten eindigen al op "voor dit account", dus samen
-  // met de rijkop van de tabel klopt de zin) en de tooltip van de kop.
   name: string;
-  // `null` betekent: deze instelling bestaat voor dit account niet. Dan komt er
-  // geen vakje in de cel, want een vakje dat je niet kan omzetten liegt over
-  // waar je zeggenschap over hebt.
   cell: (p: Profile, a: AccountPref | undefined) => { checked: boolean; set: (v: boolean) => void } | null;
 }
 
-// De vijf instellingen per account, in de volgorde waarin ze in de accountkaart
-// stonden. De polariteit per instelling is letterlijk overgenomen: `!== false`
-// waar de instelling aan staat tenzij je hem uitzet (post, getal, geluid), en
-// `=== true` waar hij uit staat tenzij je hem aanzet (agenda, blijven staan). De
-// standaarden verschillen per instelling en het verschil is dus geen slordigheid.
 function toggleColumns(S: UiStrings): ToggleColumn[] {
   return [
     {
@@ -78,9 +61,6 @@ function toggleColumns(S: UiStrings): ToggleColumn[] {
       key: 'calendar',
       header: S.calendarToggle,
       name: S.calendarToggleTitle,
-      // Een gedeeld postvak zonder agenda heeft geen agenda om meldingen van te
-      // geven; de kolom blijft staan (anders verspringt het rooster per rij),
-      // maar de cel is leeg.
       cell: (p, a) =>
         p.hasCalendar
           ? {
@@ -119,15 +99,10 @@ function toggleColumns(S: UiStrings): ToggleColumn[] {
   ];
 }
 
-// Waaraan je een account in de rij herkent: het label dat de gebruiker zelf gaf,
-// anders de naam die Google eraan hangt, anders het adres. Nooit leeg, want een
-// naamloze rij in een rooster is een rij zonder eigenaar.
 function displayName(p: Profile): string {
   return p.label?.trim() || p.name?.trim() || p.email;
 }
 
-// Meldingen: eerst wat voor alles geldt (niet storen, stille uren), daarna wat
-// per account geldt.
 export function NotificationsSection({
   S,
   prefs,
@@ -178,23 +153,7 @@ export function NotificationsSection({
           />
         </SettingRow>
 
-        {/* Beide tijden op één rij, met "tot" ertussen: dat is één instelling en
-            niet twee. Staan de stille uren uit, dan zijn de velden uitgeschakeld
-            en niet verborgen — anders verspringt de sectie onder je handen zodra
-            je de schakelaar hierboven omzet. */}
         <SettingRow label={S.from} htmlFor="setting-quiet-start">
-          {/* `key` op "zijn de voorkeuren al binnen": de velden zijn
-              onbeheerd (`defaultValue`), dus wat er bij het monteren staat is wat
-              er staat. De sectie kan een tik eerder monteren dan dat de
-              voorkeuren uit het hoofdproces binnen zijn, en dan zou er voor
-              altijd een leeg veld staan. De sleutel klapt precies één keer om,
-              bij die eerste voorkeuren; latere wijzigingen laten het veld staan
-              zodat er niets remount terwijl de gebruiker typt.
-
-              De naam van het veld staat in de sleutel: twee zusjes met dezelfde
-              `key` is een dubbele sleutel, waar React in de ontwikkelstand over
-              klaagt en waarbij het onvoorspelbaar is welk van de twee velden een
-              hermontage krijgt. */}
           <input
             key={quiet ? 'start-ready' : 'start-loading'}
             id="setting-quiet-start"
@@ -202,9 +161,6 @@ export function NotificationsSection({
             disabled={!quietOn}
             defaultValue={quiet?.start ?? ''}
             onChange={(e) => {
-              // Chromium vuurt onChange met '' terwijl je een deel van de tijd
-              // typt. Zonder deze poort wordt de opgeslagen tijd gewist onder de
-              // cursor van de gebruiker; alleen een volledige HH:MM mag door.
               if (!prefs || !isCompleteTime(e.target.value)) return;
               onSetNotifications({
                 dnd: prefs.notifications.dnd,
@@ -213,12 +169,6 @@ export function NotificationsSection({
             }}
             className={TIME}
           />
-          {/* Het rijlabel ("van") hoort via `htmlFor` bij het eerste veld, dus
-              zonder dit heeft het tweede veld geen naam en kondigt een
-              schermlezer een naamloos tijdveld aan. "tot" wordt die naam met
-              `aria-labelledby` en niet met een `<label>`: de rij zelf is al een
-              `<label>` (zie `SettingRow`), en een label in een label is ongeldige
-              HTML. Zo blijft de tekst in beeld de enige bron van die naam. */}
           <span id={QUIET_END_LABEL_ID} className="text-xs text-neutral-500">
             {S.to}
           </span>
@@ -240,9 +190,6 @@ export function NotificationsSection({
           />
         </SettingRow>
 
-        {/* Wat een klik op een melding doet. Het stond bij Algemeen, en dat was
-            de verkeerde plek: je komt hier kijken als een melding iets deed wat je
-            niet verwachtte, niet daar. */}
         <SettingRow
           label={S.notificationOpenLabel}
           description={S.notificationOpenDescription}
@@ -260,10 +207,6 @@ export function NotificationsSection({
         </SettingRow>
       </SettingsGroup>
 
-      {/* Wat er in een melding te lezen staat. Uit betekent niet "leeg": de regel
-          wordt vervangen door een neutrale tekst, want een melding moet nog steeds
-          zeggen dát er post is. Dit werkt in beide soorten meldingen — die de app
-          zelf maakt en die Gmail in de pagina afvuurt. */}
       <SettingsGroup title={S.notificationContent}>
         <SettingRow label={S.showSender} description={S.showSenderDescription} htmlFor="setting-show-sender">
           <Switch
@@ -285,10 +228,6 @@ export function NotificationsSection({
           />
         </SettingRow>
 
-        {/* De testknop gaat langs de demping niet: je vraagt er zelf om, en een knop
-            die niets doet omdat je stille uren aan staan lijkt stuk. Wat hij wél
-            volgt zijn de twee schakelaars erboven en het geluid, want dat is precies
-            wat je wil zien. */}
         <SettingRow label={S.testNotification} description={S.testNotificationDescription}>
           <button type="button" onClick={() => window.desktop?.testNotification()} className={BUTTON}>
             {S.testNotificationButton}
@@ -297,10 +236,6 @@ export function NotificationsSection({
       </SettingsGroup>
 
       <SettingsGroup title={S.soundGroup}>
-        {/* De hoofdschakelaar boven het "Geluid"-vinkje per account in het rooster
-            onderaan. Uit is stil, ook voor een account waarvoor geluid aan staat —
-            en ook voor een agendaherinnering, want "geen geluid" is een uitspraak
-            over alle meldingen. */}
         <SettingRow label={S.playSound} description={S.playSoundDescription} htmlFor="setting-play-sound">
           <Switch
             id="setting-play-sound"
@@ -308,10 +243,6 @@ export function NotificationsSection({
             onChange={(v) => window.desktop?.setNotificationExtras({ sound: v })}
           />
         </SettingRow>
-        {/* Welk geluidje. "Het geluid van de computer" is de bovenste keuze en de
-            stand van nu: dan speelt Windows zijn eigen meldingsgeluid en doet de app
-            niets. De andere keuzes zijn tonen die de app zelf maakt — er worden geen
-            audiobestanden meegebundeld, want die hebben licenties. */}
         <SettingRow label={S.soundChoice} description={S.soundChoiceDescription} htmlFor="setting-sound-name">
           <select
             id="setting-sound-name"
@@ -327,10 +258,6 @@ export function NotificationsSection({
               </option>
             ))}
           </select>
-          {/* Voorbeluisteren. Zonder deze knop moet je op een echt mailtje wachten om
-              te horen wat je koos, en dan is kiezen gokken. Uitgeschakeld bij het
-              systeemgeluid: dat kan de app niet spelen — dat doet Windows bij een
-              echte melding. */}
           <button
             type="button"
             disabled={prefs?.notifications.sound === false || !prefs?.notifications.soundName}
@@ -343,9 +270,6 @@ export function NotificationsSection({
           </button>
         </SettingRow>
 
-        {/* Het volume geldt alleen voor de tonen van de app: het systeemgeluid heeft
-            zijn eigen volume in Windows, en dat horen wij niet te overrulen. Vandaar
-            dat de schuif uit staat zolang het systeemgeluid gekozen is. */}
         <SettingRow
           label={S.volumeLabel(Math.round((prefs?.notifications.volume ?? 1) * 100))}
           description={S.volumeDescription}
@@ -417,15 +341,6 @@ export function NotificationsSection({
         </SettingRow>
       </SettingsGroup>
 
-      {/* Het rooster: één rij per account, één kolom per instelling. Vijf keer
-          dezelfde vijf schakelaars onder elkaar met een naam per stuk is een muur;
-          zo staat elke instelling onder elkaar en zie je in één blik welk account
-          de luidruchtige is. Een echte tabel en geen rooster van divs: de kop van
-          de kolom en de naam van de rij zijn dan voor een schermlezer de context
-          van het vakje, zonder dat er per cel een zin in elkaar gezet wordt. */}
-      {/* De kop van deze groep is ook de naam van de tabel (`aria-labelledby` op
-          de tabel wijst hierheen), dus hij staat hier met een id op en niet via de
-          `title`-prop van de groep: die maakt een kop zonder id. */}
       <SettingsGroup>
         <h3 id={MATRIX_TITLE_ID} className={`${BLOCK_TITLE} mb-3`}>
           {S.perAccountNotifications}
@@ -434,10 +349,6 @@ export function NotificationsSection({
         {profiles.length === 0 ? (
           <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
         ) : (
-          // `overflow-x-auto` op de kaart: een tabel kan niet herschikken, en in
-          // de Rene-stand staat alles op 200%. Dan schuift het rooster liever
-          // zijwaarts dan dat de kolommen tot onleesbaar worden geknepen —
-          // `min-w-[420px]` is de bodem waaronder hij niet meer krimpt.
           <div className={`${PANEL} overflow-x-auto`}>
             <table
               aria-labelledby={MATRIX_TITLE_ID}
@@ -448,14 +359,6 @@ export function NotificationsSection({
                   <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-neutral-500">
                     {S.accountLabelField}
                   </th>
-                  {/* 64px per kolom: dat is wat er over is naast een naamkolom
-                      die mag meegroeien, en het past op de langste kop van beide
-                      talen. De kop mag afbreken (`whitespace-normal`) in plaats
-                      van afgekapt te worden: "Blijft staan" op twee regels is te
-                      lezen, "Blijft st…" niet. Daarom ook `align-bottom` — een
-                      kop van twee regels blijft dan op dezelfde lijn staan als
-                      een kop van één. De volledige tekst zit in `title` en in de
-                      naam van elk vakje in de kolom, dus er gaat niets verloren. */}
                   {columns.map((c) => (
                     <th
                       key={c.key}
@@ -473,13 +376,6 @@ export function NotificationsSection({
                   const account = prefs?.accounts?.[p.email];
                   return (
                     <tr key={p.email}>
-                      {/* De rijkop draagt de kleur van het account, als stip van
-                          8px. Dat is dezelfde taal als de rug van 3px op de
-                          accountkaart en het streepje onder het tabblad: kleur
-                          zegt in dit paneel één ding, en dat is van wie iets is.
-                          Het adres staat in `title` en niet in beeld — wie dit
-                          account is hoort bij Accounts, hier hoort alleen wie het
-                          is. */}
                       <th scope="row" title={p.email} className="px-4 py-2 text-left font-normal">
                         <span className="flex min-w-0 items-center gap-2">
                           <span
@@ -506,10 +402,6 @@ export function NotificationsSection({
                                 className={CHECKBOX}
                               />
                             ) : (
-                              // Een streepje in plaats van een dood vakje. Het
-                              // streepje is een teken en geen tekst, dus de
-                              // betekenis staat er in woorden naast voor wie het
-                              // niet ziet.
                               <>
                                 <span aria-hidden className="text-neutral-400 dark:text-neutral-600">
                                   —

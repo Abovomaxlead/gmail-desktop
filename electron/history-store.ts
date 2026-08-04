@@ -1,12 +1,12 @@
+// Per account, the last historyId seen from Gmail — the cursor for history.list.
+// Deliberately apart from google-tokens.json because this is progress, not a secret:
+// the file can be deleted without losing the link and the app re-calibrates on the
+// next sync. An unreadable file is treated as empty for the same reason —
+// re-calibrating costs one request, getting stuck costs every notification.
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-// Per account het laatste historyId dat we van Gmail zagen. Dat is de cursor voor
-// history.list: alles ná dit punt is wat we nog niet verwerkt hebben.
-//
-// Apart van de tokens (google-tokens.json), want dit is geen geheim maar
-// voortgang: je kunt dit bestand weggooien zonder je koppeling kwijt te raken.
-// De app ijkt dan bij de eerstvolgende sync opnieuw en meldt niets.
 export class HistoryStore {
   constructor(private readonly filePath: string) {}
 
@@ -17,8 +17,6 @@ export class HistoryStore {
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
       return raw as Record<string, string>;
     } catch {
-      // Halfgeschreven of met de hand verpest: opnieuw ijken kost één verzoek,
-      // hier blijven hangen kost alle meldingen.
       return {};
     }
   }

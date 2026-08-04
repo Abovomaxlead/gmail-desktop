@@ -1,7 +1,6 @@
-// Pure derivation of the little "check for updates" popup shown after a
-// tray-initiated update check. Returns null for intermediate states so the
-// caller waits for a terminal result before popping anything.
-
+// Pure derivation of the little "check for updates" dialog shown after a
+// tray-initiated check. Intermediate states return null so the caller waits for a
+// terminal result before popping anything up.
 export interface UpdateStatusLike {
   state: string;
   version?: string;
@@ -14,7 +13,6 @@ export interface UpdatePopup {
   message: string;
   detail?: string;
   buttons: string[];
-  // Index of the button that should start a download (absent = no download action).
   downloadButtonIndex?: number;
 }
 
@@ -44,7 +42,6 @@ export function updateCheckPopup(status: UpdateStatusLike): UpdatePopup | null {
         buttons: ['OK'],
       };
     default:
-      // idle / checking / downloading / downloaded — nothing to announce yet.
       return null;
   }
 }

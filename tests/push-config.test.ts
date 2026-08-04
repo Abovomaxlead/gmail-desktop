@@ -1,3 +1,5 @@
+// Parsing the push relay configuration, including which plaintext hosts are allowed.
+
 import { describe, it, expect } from 'vitest';
 import { parsePushConfig } from '../electron/push-config';
 
@@ -25,21 +27,14 @@ describe('parsePushConfig', () => {
     expect(parsePushConfig({ ...file, relayUrl: 'ws://127.0.0.1:8099' }, {})?.relayUrl).toBe(
       'ws://127.0.0.1:8099',
     );
-    // De IPv6-notatie van loopback; URL.hostname geeft die mét blokhaken terug
-    // ('[::1]', niet '::1'), dus dit moet net zo goed geaccepteerd worden.
     expect(parsePushConfig({ ...file, relayUrl: 'ws://[::1]:8099' }, {})?.relayUrl).toBe(
       'ws://[::1]:8099',
     );
   });
 
-  // Het eerste frame dat over deze verbinding gaat bevat een levend Google access
-  // token. Onversleuteld mag dat alleen naar deze machine zelf — dat is precies
-  // wat het lokaal uitproberen uit de spec nodig heeft, en verder niets.
   it('refuses plaintext ws:// to anything but loopback', () => {
     expect(parsePushConfig({ ...file, relayUrl: 'ws://push.example.com' }, {})).toBeNull();
     expect(parsePushConfig({ ...file, relayUrl: 'ws://192.168.1.10:8099' }, {})).toBeNull();
-    // Ook niet via de omgevingsvariabele, en ook niet met een hostnaam die er
-    // alleen maar lokaal uitziet.
     expect(parsePushConfig(file, { GMAIL_PUSH_RELAY_URL: 'ws://localhost.evil.example' })).toBeNull();
   });
 

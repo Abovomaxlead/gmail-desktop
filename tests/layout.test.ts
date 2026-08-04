@@ -1,3 +1,5 @@
+// contentBounds: where the Gmail view sits below the topbar.
+
 import { describe, it, expect } from 'vitest';
 import { contentBounds, TOPBAR_HEIGHT, CONTENT_MARGIN } from '../electron/layout';
 
@@ -12,8 +14,6 @@ describe('contentBounds', () => {
   });
 
   it('never returns a negative height', () => {
-    // Een venster dat lager is dan de balk: liever nul dan een negatieve hoogte,
-    // want setBounds met een negatieve hoogte laat Electron omvallen.
     expect(contentBounds({ width: 800, height: 10 }).height).toBe(0);
   });
 
@@ -21,8 +21,6 @@ describe('contentBounds', () => {
     expect(contentBounds({ width: 0, height: 800 }).width).toBe(0);
   });
 
-  // Rene-modus zoomt de renderer naar 200%, dus de balk tekent twee keer zo
-  // hoog. Nu schaalt dat de hoogte; vóór de topbar was het de breedte.
   it('offsets by the scaled topbar when the UI is zoomed (Rene mode)', () => {
     expect(contentBounds({ width: 1000, height: 800 }, 2)).toEqual({
       x: CONTENT_MARGIN,

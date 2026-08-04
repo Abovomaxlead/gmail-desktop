@@ -1,3 +1,5 @@
+// Planning the next step of account detection.
+
 import { describe, it, expect } from 'vitest';
 import { planNext } from '../electron/detection-planner';
 

@@ -1,3 +1,5 @@
+// Stable account keys for authuser slots and delegated mailboxes.
+
 import { describe, it, expect } from 'vitest';
 import { accountKey, parseAccountKey } from '../renderer/lib/account-ref';
 

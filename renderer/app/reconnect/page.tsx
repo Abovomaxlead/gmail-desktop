@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react';
 import { reconnectHeading, type ReconnectAccount } from '../reconnect-text';
 
-// Blijvende melding voor accounts waarvan de Gmail-koppeling opnieuw gemaakt moet
-// worden. Bewust zonder sluitknop: hij verdwijnt pas als elk account weer
-// verbonden is. Draait in een eigen view rechtsonder, dus de rest van Gmail
-// blijft bruikbaar.
+// Standing notice for accounts whose Gmail connection has to be made again. No close
+// button on purpose: it goes away once every account is connected, and it runs in its
+// own view in the bottom right so the rest of Gmail stays usable. The transparent
+// background is set in the rendered html rather than from an effect - one frame with
+// an opaque background makes Gmail flash visibly. The list is both fetched and
+// listened for, since main may have sent it before this page finished loading.
 export default function ReconnectPage() {
   const [accounts, setAccounts] = useState<ReconnectAccount[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
@@ -15,8 +17,6 @@ export default function ReconnectPage() {
   useEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
-    // Ophalen én luisteren: het main-proces kan de lijst al gestuurd hebben
-    // voordat deze pagina klaar was met laden.
     void bridge.getReconnectList().then(({ accounts: a }) => {
       if (a.length > 0) setAccounts(a);
     });
@@ -36,8 +36,6 @@ export default function ReconnectPage() {
 
   return (
     <>
-      {/* In de opgemaakte html, niet pas na een effect: één frame met een dichte
-          achtergrond laat Gmail zichtbaar wegflitsen. */}
       <style>{'html,body{background:transparent}'}</style>
 
       <div className="flex h-screen w-full flex-col overflow-hidden rounded-xl border border-amber-300 bg-white shadow-2xl dark:border-amber-700/60 dark:bg-neutral-900">

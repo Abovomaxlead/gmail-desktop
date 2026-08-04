@@ -1,10 +1,12 @@
+// Access and refresh tokens per account, in userData and deliberately in a separate
+// file from prefs.json: these are secrets, not settings, and can be thrown away on
+// their own. The file is hand-editable, so a scopes field that is not a list of
+// strings becomes an empty list rather than throwing — hasScopes runs synchronously
+// while accounts are registered, and push asks for re-consent instead of crashing.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { StoredToken } from './google-oauth';
 
-// Tokens per account, buiten de repo in userData. Bewust een apart bestand van
-// prefs.json: dit zijn geheimen en geen instellingen, en zo is het in één keer
-// weg te gooien zonder de rest van je voorkeuren te verliezen.
 export class OAuthStore {
   constructor(private readonly filePath: string) {}
 
@@ -27,12 +29,6 @@ export class OAuthStore {
   get(email: string): StoredToken | undefined {
     const t = this.all()[email.toLowerCase()];
     if (!t || typeof t.accessToken !== 'string' || typeof t.refreshToken !== 'string') return undefined;
-    // scopes hoort een lijst strings te zijn, maar dit bestand is met de hand te
-    // bewerken en `hasScopes` doet er meteen `.includes()` op — en dat gebeurt
-    // synchroon tijdens het registreren van accounts, dus een kapot veld zou de
-    // app bij het opstarten laten omvallen. Geen lijst betekent hier "we weten
-    // van geen enkele scope": het account blijft werken voor wat een token nodig
-    // heeft, en push vraagt netjes om hertoestemming in plaats van te crashen.
     const scopes = Array.isArray(t.scopes) ? t.scopes.filter((s) => typeof s === 'string') : [];
     return { ...t, scopes };
   }

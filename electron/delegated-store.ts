@@ -1,23 +1,21 @@
+// Durable storage for delegated mailboxes, holding Google's real URLs so a persisted
+// entry keeps working regardless of switcher-DOM changes. Detection only ever adds;
+// only explicit user removal deletes.
+//
+// mergeScan carries the health check: it never removes an entry a scan happened to
+// miss, and reports `healthOk === false` when a scan returns fewer entries than are
+// already held (probable scrape breakage), so the caller keeps the store intact
+// instead of pruning. Fields from a fresh scan overwrite the stored ones.
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-// The durability layer: delegated mailboxes persist with Google's real URLs, so
-// a persisted entry keeps working regardless of switcher-DOM changes. Detection
-// only ever *adds* to this store; only explicit user removal deletes an entry.
 export interface StoredDelegate {
   email: string;
   mailUrl: string;
   calendarUrl: string | null;
 }
 
-/**
- * Merge a fresh scan into the existing store. Pure, with the HEALTH CHECK: it
- * never removes an existing entry the scan happened to miss, and reports
- * `healthOk === false` when the scan returned fewer entries than we already
- * hold (probable scrape breakage) — the caller then keeps the store intact and
- * surfaces a non-fatal hint instead of pruning. Fields from a fresh scan
- * (e.g. a newly-resolved calendarUrl) overwrite the stored ones for that email.
- */
 export function mergeScan(
   existing: StoredDelegate[],
   scanned: StoredDelegate[],

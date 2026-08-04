@@ -1,3 +1,5 @@
+// mapLimit: running work with a bounded number of slots.
+
 import { describe, it, expect } from 'vitest';
 import { mapLimit } from '../electron/concurrency';
 
@@ -36,7 +38,7 @@ describe('mapLimit', () => {
       await gates[i].promise;
     });
     await Promise.resolve();
-    expect(started).toEqual([0, 1]); // derde wacht op een vrije plek
+    expect(started).toEqual([0, 1]);
     gates[0].resolve();
     await Promise.resolve();
     await Promise.resolve();

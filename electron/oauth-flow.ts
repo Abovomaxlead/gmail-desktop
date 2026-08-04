@@ -1,3 +1,10 @@
+// The Electron half of the OAuth flow; the pure parts live in google-oauth.ts and
+// 'electron' is required lazily so this module stays importable under Vitest.
+// Consent loads in a view on the same session partition as the Gmail views, so the
+// user only grants permission instead of signing in again, and the redirect to the
+// loopback url is intercepted before it loads so nothing has to listen on a port.
+// Every refresh re-checks that the account is still linked before saving: a removal
+// during the round trip must not put a working refresh token back.
 import type { BrowserWindow } from 'electron';
 import {
   authUrl,
@@ -12,9 +19,6 @@ import {
   type StoredToken,
 } from './google-oauth';
 import type { OAuthStore } from './oauth-store';
-
-// Het Electron-deel van de OAuth-flow. De pure delen staan in google-oauth.ts;
-// `electron` wordt lui geladen zodat die module onder Vitest importeerbaar blijft.
 
 async function postForm(url: string, body: string): Promise<Record<string, unknown>> {
   const { net } = require('electron') as typeof import('electron');
@@ -47,26 +51,12 @@ async function postForm(url: string, body: string): Promise<Record<string, unkno
   });
 }
 
-// Een verlenging kost een netwerkronde, en in die tijd kan het account verwijderd
-// zijn: removeAccount haalt het token uit de store terwijl het verzoek nog loopt.
-// Het verlengde token daarna alsnog wegschrijven zet een wérkende refresh token
-// terug voor een postvak dat de gebruiker net heeft weggegooid — precies wat hij
-// niet vroeg. Dus vlak voor het opslaan nog één keer kijken of het account er nog
-// is. False betekent: niet opgeslagen, en de aanroeper krijgt null alsof het
-// account niet gekoppeld is, want dat is het inmiddels ook niet meer.
 function storeIfStillLinked(store: OAuthStore, email: string, next: StoredToken): boolean {
   if (!store.get(email)) return false;
   store.set(email, next);
   return true;
 }
 
-// Toont de consent-pagina in een view op de partitie waarin de Gmail-views ook
-// leven. Daardoor is de gebruiker daar al ingelogd: geen wachtwoord, alleen
-// toestemming geven. Dat is de enige zinvolle koppeling tussen deze flow en de
-// inlog van de webviews — een sessiecookie is geen access token en omgekeerd.
-//
-// De redirect naar de loopback-url wordt opgevangen voordat hij laadt; er hoeft
-// dus niets op die poort te luisteren.
 async function consentCode(
   win: BrowserWindow,
   partition: string,
@@ -101,20 +91,17 @@ async function consentCode(
   try {
     await view.webContents.loadURL(authUrl({ clientId: cfg.clientId, challenge, loginHint }));
   } catch {
-    // Een afgebroken navigatie is normaal zodra wij de redirect opvangen.
   }
 
   const result = await done;
   try {
     win.contentView.removeChildView(view);
   } catch {
-    // Venster al afgebroken.
   }
   if (!view.webContents.isDestroyed()) view.webContents.close();
   return result;
 }
 
-// Volledige koppeling: toestemming vragen, code inwisselen, token opslaan.
 export async function connectAccount(
   win: BrowserWindow,
   partition: string,
@@ -139,11 +126,6 @@ export async function connectAccount(
   return { ok: true };
 }
 
-// Verlengt ongeacht wat onze eigen klok zegt. Nodig omdat Google een token kan
-// intrekken terwijl het volgens ons nog geldig is (bijvoorbeeld als dezelfde
-// client-id door een andere app gebruikt wordt en daar toegang wordt ingetrokken).
-// Null betekent: ook de refresh token is niet meer geldig, opnieuw toestemming
-// vragen is het enige wat rest.
 export async function forceRefresh(
   cfg: OAuthConfig,
   store: OAuthStore,
@@ -163,9 +145,6 @@ export async function forceRefresh(
   }
 }
 
-// Geeft een geldig access token en verlengt het als het verlopen is. Null als
-// het account niet gekoppeld is of de verlenging faalt — dan moet de gebruiker
-// opnieuw toestemming geven.
 export async function accessTokenFor(
   cfg: OAuthConfig,
   store: OAuthStore,
@@ -183,7 +162,6 @@ export async function accessTokenFor(
     if (!storeIfStillLinked(store, email, next)) return null;
     return next.accessToken;
   } catch {
-    // Verlopen refresh token (in testmodus na zeven dagen) of geen netwerk.
     return null;
   }
 }

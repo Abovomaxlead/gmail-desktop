@@ -1,3 +1,5 @@
+// A smoke test that the suite itself runs.
+
 import { describe, it, expect } from 'vitest';
 import { greet } from '../src/sanity';
 

@@ -6,11 +6,10 @@ import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 
-// Algemeen: hoe de app zich tegenover Windows gedraagt. Wat hij met een
-// mail-link doet, en wat hij doet als je je aanmeldt. Alles wat over het uiterlijk
-// gaat staat bij Weergave, alles over meldingen bij Meldingen — deze sectie is de
-// eerste in de kolom en hoort daarom de twee dingen te bevatten die je meteen na
-// het installeren wil zetten.
+// General: how the app behaves towards Windows - what it does with a mail link and
+// what it does when you sign in. The default-mail state comes from Windows itself
+// rather than from prefs, since it can be changed outside this app.
+
 export function GeneralSection({
   S,
   prefs,
@@ -29,10 +28,6 @@ export function GeneralSection({
   return (
     <Section title={S.navGeneral}>
       <SettingsGroup>
-        {/* De stand komt niet uit de voorkeuren maar uit Windows zelf
-            (`app.isDefaultProtocolClient`), want daar staat hij: de gebruiker kan
-            hem ook buiten deze app om omzetten. Daarom is dit de enige schakelaar
-            in het paneel die een aparte prop voor zijn stand heeft. */}
         <SettingRow
           label={S.defaultMailClient}
           description={S.defaultMailClientDescription}
@@ -47,10 +42,6 @@ export function GeneralSection({
           <Switch id="setting-auto-start" checked={!!prefs?.autoStart} onChange={onSetAutoStart} />
         </SettingRow>
 
-        {/* Geminimaliseerd starten heeft alleen zin als de app zelf opstart, maar
-            de rij blijft aan te zetten als dat uit staat: je kan hem ook met de
-            hand starten, en een control die uitgeschakeld raakt zodra je de rij
-            erboven omzet leest als een fout. */}
         <SettingRow
           label={S.launchMinimized}
           description={S.launchMinimizedDescription}

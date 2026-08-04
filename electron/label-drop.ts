@@ -1,7 +1,15 @@
-// Een label uit Gmail's linkernavigatie naar de dropzone slepen. Herkenning
-// gaat via de href van de navigatielink (`#label/<naam>`), niet via Gmail's
-// vervormde klassenamen of zichtbare tekst — dat is taalonafhankelijk en
-// overleeft een verbouwing van de navigatie.
+// Dragging a label from Gmail's left navigation onto the dropzone. Recognition goes
+// through the navigation link's href (`#label/<name>`), never Gmail's obfuscated
+// class names or visible text, so it is language-independent and survives a rebuild
+// of the navigation; only real labels have such an href, the inbox and sent items do
+// not.
+//
+// There is no API for listing a label, so pages of Gmail's own list view are scraped,
+// reading the same data-legacy-thread-id subject spans as a single-thread drag. Gmail
+// re-shows the last page for a too-high page number, so paging stops as soon as a
+// page adds nothing new, and MAX_THREADS caps the total — reported when it bites,
+// since truncating silently reads as "everything saved".
+
 import type { DragNode } from './dropzone';
 
 export interface LabelThread {
@@ -9,13 +17,8 @@ export interface LabelThread {
   subject: string;
 }
 
-// Gmail's eigen paginagrootte in de lijstweergave. Alleen gebruikt om te
-// beslissen of er nog een volgende pagina kan zijn.
 export const PAGE_SIZE = 50;
 
-// Bovengrens op wat één labelsleep oplevert. Zonder grens zou een label met
-// duizenden mails de app minutenlang bezig houden en de map volgooien. Wordt
-// gemeld zodra hij bijt — stil afkappen leest als "alles opgeslagen".
 export const MAX_THREADS = 200;
 export const MAX_PAGES = Math.ceil(MAX_THREADS / PAGE_SIZE);
 
@@ -29,8 +32,6 @@ export function labelFromHref(href: string): string | null {
   }
 }
 
-// Loopt omhoog naar de navigatielink onder de cursor. Alleen echte labels: het
-// postvak, verzonden items en dergelijke hebben geen `#label/`-href.
 export function labelFromDragTarget(el: DragNode | null): string | null {
   let cur = el;
   for (let depth = 0; cur && depth < 30; depth++) {
@@ -46,16 +47,12 @@ export function labelFromDragTarget(el: DragNode | null): string | null {
   return null;
 }
 
-// De lijstweergave van een label, pagina 1 heeft geen achtervoegsel.
 export function labelListUrl(authuser: string, label: string, page: number): string {
   const enc = encodeURIComponent(label).replace(/%2F/gi, '/');
   const suffix = page > 1 ? `/p${page}` : '';
   return `https://mail.google.com/mail/u/${authuser}/#label/${enc}${suffix}`;
 }
 
-// Voegt een gescrapete pagina toe aan wat we al hebben. Geeft terug hoeveel er
-// nieuw waren, zodat de aanroeper weet of doorbladeren nog zin heeft: Gmail
-// toont bij een te hoog paginanummer gewoon de laatste pagina opnieuw.
 export function mergeThreads(
   acc: LabelThread[],
   page: LabelThread[],
@@ -72,8 +69,6 @@ export function mergeThreads(
   return { added, total: acc.length };
 }
 
-// Draait in de Gmail-pagina en leest de zichtbare lijst uit. Zelfde bron als de
-// losse sleep: het element met data-legacy-thread-id is de onderwerp-span.
 export const LABEL_SCRAPE_JS = `(() => {
   var out = [];
   var seen = {};

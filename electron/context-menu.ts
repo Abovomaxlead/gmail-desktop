@@ -1,16 +1,19 @@
+// Right-click menu for every webContents in the app (sidebar, Gmail/Calendar views,
+// compose and pop-out windows). Chromium's own context menu is not available to an
+// Electron app, so without this a right-click does nothing at all.
+//
+// planContextMenu is pure data and attachContextMenu turns it into a native Menu, so
+// the item logic is testable without Electron. An editable field gets the full edit
+// menu; everything else gets only what applies to what was clicked, and nothing
+// clicked means an empty plan and no menu rather than greyed-out items. The edit
+// commands act on `webContents` directly instead of via menu roles, so they hit the
+// view that was clicked and not whatever Chromium considers focused. "Open link" goes
+// through the same gate as a link in a mail, so Phishing Protection still asks; the
+// Google search URL the app builds itself does not.
+
 import { Menu, clipboard, shell, type WebContents, type MenuItemConstructorOptions } from 'electron';
 import { openExternalLink } from './external-links';
 
-// Right-click menu for every webContents in the app (sidebar, Gmail/Calendar
-// views, compose and pop-out windows). Chromium's own context menu is not
-// available to an Electron app — without this, right-clicking a selection does
-// nothing at all, so text can only be copied with the keyboard.
-//
-// The menu is planned as pure data (planContextMenu) and only turned into a
-// native Menu in attachContextMenu, so the item/enabled logic is testable
-// without Electron.
-
-// The subset of Electron's ContextMenuParams the plan depends on.
 export interface ContextMenuInput {
   isEditable: boolean;
   selectionText: string;
@@ -48,11 +51,6 @@ export type PlannedItem =
 const SEP: PlannedItem = { kind: 'separator' };
 const act = (id: ContextMenuActionId, enabled = true): PlannedItem => ({ kind: 'action', id, enabled });
 
-// An editable field gets the full edit menu (Gmail's compose body and search
-// box, the sidebar's account-label inputs). Everything else gets only the
-// actions that apply to what was actually clicked: a selection, a link, an
-// image. Nothing clicked -> empty plan -> no menu is shown at all, which is
-// better than a menu of greyed-out items.
 export function planContextMenu(p: ContextMenuInput): PlannedItem[] {
   const f = p.editFlags;
   if (p.isEditable) {
@@ -86,8 +84,6 @@ export function planContextMenu(p: ContextMenuInput): PlannedItem[] {
 
 export type ContextMenuLabels = Record<ContextMenuActionId, string>;
 
-// English matches the app's own chrome; Rene mode's simple Dutch mirrors
-// renderer/app/strings.ts. Gmail's page content stays Google's.
 export const LABELS_NORMAL: ContextMenuLabels = {
   undo: 'Undo',
   redo: 'Redo',
@@ -120,7 +116,6 @@ export const LABELS_RENE: ContextMenuLabels = {
 
 const SEARCH_LABEL_MAX = 25;
 
-// "Search Google for “a very long selection…”" — one line, whitespace collapsed.
 export function searchMenuLabel(selectionText: string, template: string): string {
   const flat = selectionText.trim().replace(/\s+/g, ' ');
   const shown = flat.length > SEARCH_LABEL_MAX ? `${flat.slice(0, SEARCH_LABEL_MAX)}…` : flat;
@@ -144,9 +139,6 @@ export function attachContextMenu(webContents: WebContents, getLabels: () => Con
     if (plan.length === 0) return;
 
     const L = getLabels();
-    // Acting on `webContents` directly rather than via menu roles keeps the
-    // edit commands aimed at the view that was clicked, not at whatever
-    // Chromium currently considers focused.
     const clicks: Record<ContextMenuActionId, () => void> = {
       undo: () => webContents.undo(),
       redo: () => webContents.redo(),
@@ -156,10 +148,6 @@ export function attachContextMenu(webContents: WebContents, getLabels: () => Con
       pasteMatchStyle: () => webContents.pasteAndMatchStyle(),
       selectAll: () => webContents.selectAll(),
       copyLink: () => clipboard.writeText(params.linkURL),
-      // Langs dezelfde poort als een link in een mail: "Open link" uit het
-      // rechtsklikmenu is net zo goed een link die de app verlaat, en die hoort
-      // dezelfde vraag te krijgen als Phishing Protection aan staat. Zoeken op
-      // Google hieronder niet: dat is een adres dat de app zelf opbouwt.
       openLink: () => openExternalLink(params.linkURL),
       copyImage: () => webContents.copyImageAt(params.x, params.y),
       copyImageAddress: () => clipboard.writeText(params.srcURL),

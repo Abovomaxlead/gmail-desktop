@@ -1,3 +1,7 @@
+// Parses a mailto: URL into Gmail compose fields. Query values are stored raw and
+// decoded per field, first occurrence wins, and decoding tolerates malformed percent
+// sequences so a bad link never throws.
+
 export interface MailtoFields {
   to: string;
   cc: string;
@@ -6,7 +10,6 @@ export interface MailtoFields {
   body: string;
 }
 
-// decodeURIComponent, but tolerant of malformed sequences (never throws).
 function decode(s: string): string {
   try {
     return decodeURIComponent(s);
@@ -15,7 +18,6 @@ function decode(s: string): string {
   }
 }
 
-// Split a raw comma list into decoded, trimmed, non-empty addresses.
 function recipients(raw: string): string[] {
   return raw
     .split(',')
@@ -23,7 +25,6 @@ function recipients(raw: string): string[] {
     .filter(Boolean);
 }
 
-/** Parse a mailto: URL into Gmail compose fields, or null if not a mailto. */
 export function parseMailto(url: string): MailtoFields | null {
   if (typeof url !== 'string') return null;
   const trimmed = url.trim();
@@ -33,7 +34,6 @@ export function parseMailto(url: string): MailtoFields | null {
   const pathPart = q === -1 ? rest : rest.slice(0, q);
   const queryPart = q === -1 ? '' : rest.slice(q + 1);
 
-  // Store RAW (undecoded) query values, first occurrence wins; decode per field.
   const query: Record<string, string> = {};
   for (const pair of queryPart.split('&')) {
     if (!pair) continue;
@@ -52,7 +52,6 @@ export function parseMailto(url: string): MailtoFields | null {
   };
 }
 
-/** First argv entry that is a mailto: URL, else null. */
 export function extractMailtoFromArgv(argv: string[]): string | null {
   if (!Array.isArray(argv)) return null;
   return argv.find((a) => typeof a === 'string' && /^mailto:/i.test(a.trim())) ?? null;

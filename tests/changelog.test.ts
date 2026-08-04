@@ -1,3 +1,5 @@
+// Parsing the changelog into versions and categorised entries.
+
 import { describe, it, expect } from 'vitest';
 import { parseChangelog } from '../electron/changelog';
 

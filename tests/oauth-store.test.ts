@@ -1,3 +1,5 @@
+// The OAuth token store on disk.
+
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,11 +67,6 @@ describe('OAuthStore', () => {
     expect(new OAuthStore(path).get('a@b.c')).toBeUndefined();
   });
 
-  // hasScopes() doet meteen `.includes()` op dit veld, en dat gebeurt synchroon
-  // tijdens het registreren van accounts (pushableEmails). Een met de hand
-  // bewerkt tokenbestand zonder scopes zou de app dus bij het opstarten laten
-  // omvallen. Geen lijst betekent hier "we weten van geen enkele scope": het
-  // account blijft werken en push vraagt netjes om hertoestemming.
   it('never hands out a scopes field that is not a list of strings', () => {
     const path = newPath();
     writeFileSync(
@@ -90,7 +87,6 @@ describe('OAuthStore', () => {
       expect(t!.scopes.every((s) => typeof s === 'string')).toBe(true);
     }
     expect(store.get('rommel@x.nl')!.scopes).toEqual(['a']);
-    // En het gaat echt om wat hasScopes doet: die aanroep mag niet omvallen.
     expect(() => store.get('geen@x.nl')!.scopes.includes('x')).not.toThrow();
   });
 

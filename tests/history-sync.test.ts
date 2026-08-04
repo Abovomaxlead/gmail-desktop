@@ -1,3 +1,5 @@
+// Deciding which messages in a history delta are worth notifying about.
+
 import { describe, it, expect } from 'vitest';
 import { notifiableIds, shouldNotify, SKIP_LABELS } from '../electron/history-sync';
 
@@ -9,8 +11,6 @@ describe('notifiableIds', () => {
   });
 
   it('skips a message that is not in the inbox', () => {
-    // history.list filtert al op INBOX, maar een record kan meer berichten
-    // bevatten dan het label waarop gefilterd is.
     expect(notifiableIds([msg('m1', 'SENT')])).toEqual([]);
   });
 
@@ -49,7 +49,6 @@ describe('shouldNotify', () => {
   });
 
   it('stays quiet for mail that was already there when coverage began', () => {
-    // Anders krijg je bij elke start een melding voor alles wat je al zag.
     expect(shouldNotify(covered - 1, covered)).toBe(false);
   });
 
@@ -58,7 +57,6 @@ describe('shouldNotify', () => {
   });
 
   it('stays quiet when the account is not covered at all', () => {
-    // Zonder dekking meldt de webview; een tweede melding van ons zou dubbel zijn.
     expect(shouldNotify(covered + 1, null)).toBe(false);
   });
 });

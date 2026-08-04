@@ -1,3 +1,5 @@
+// Clamping remembered window bounds to the displays that actually exist.
+
 import { describe, it, expect } from 'vitest';
 import { clampBoundsToDisplays } from '../electron/window-bounds';
 

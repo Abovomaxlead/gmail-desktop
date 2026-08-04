@@ -1,3 +1,5 @@
+// Copying dragged mail into labels: targets, totals and duplicate detection.
+
 import { describe, it, expect } from 'vitest';
 import {
   normalizeTargets,

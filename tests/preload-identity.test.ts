@@ -1,3 +1,5 @@
+// Reading the signed-in identity out of the Gmail page, and spotting editable targets.
+
 import { describe, it, expect } from 'vitest';
 import { extractIdentity, isEditableTarget } from '../electron/preload';
 

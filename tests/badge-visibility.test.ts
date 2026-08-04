@@ -1,11 +1,10 @@
+// Whether an account's unread count may be shown. The toggle is opt-out: an account
+// that never touched Settings has no `badgeCount` key and must still show a count.
+
 import { describe, it, expect } from 'vitest';
 import { accountCountVisible } from '../renderer/lib/badge-visibility';
 
 describe('accountCountVisible', () => {
-  // The toggle is opt-out: an account that never touched Settings has no
-  // `badgeCount` key at all, and must still show a count everywhere. Getting
-  // this backwards would silently blank every count for every existing user
-  // the day this ships.
   it('shows the count when the preference is absent', () => {
     expect(accountCountVisible(undefined)).toBe(true);
   });
@@ -18,10 +17,6 @@ describe('accountCountVisible', () => {
     expect(accountCountVisible(false)).toBe(false);
   });
 
-  // De hoofdschakelaar uit Weergave. Hij staat vóór de keuze per account, want dat
-  // is wat "regardless of individual account settings" betekent — en de standaard is
-  // `true`, zodat een aanroeper die hem niet meegeeft zich gedraagt als vóórdat de
-  // schakelaar bestond.
   describe('with the global master', () => {
     it('behaves as before when the master is absent or on', () => {
       expect(accountCountVisible(undefined, undefined)).toBe(true);

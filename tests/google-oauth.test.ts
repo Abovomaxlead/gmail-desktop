@@ -1,3 +1,5 @@
+// The Google OAuth flow: PKCE, auth URLs, callbacks, token handling and scopes.
+
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
@@ -151,8 +153,6 @@ describe('isExpired / hasScopes', () => {
   });
 });
 
-// De relay koppelt een verbinding aan een account via het e-mailadres uit
-// tokeninfo. Met alleen Gmail-scopes geeft tokeninfo dat adres niet.
 describe('SCOPES', () => {
   it('includes the email scope the relay needs to identify the account', () => {
     expect(SCOPES).toContain('https://www.googleapis.com/auth/userinfo.email');

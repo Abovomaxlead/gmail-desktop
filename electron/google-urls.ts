@@ -1,3 +1,17 @@
+// URL predicates deciding whether a Google URL stays inside the app or goes to the
+// browser. Pure, so external-links.ts can be reasoned about without a window.
+//
+// Each predicate exists because of a specific failure. A /popout URL and the ?view=lg
+// "View entire message" reader must open as their own windows: routed in-app they load
+// into the shared mail view and replace the inbox with no way back, as the reader has
+// no opener history. Attachment URLs (?view=att, plus the bytes on
+// mail-attachment.googleusercontent.com) are files rather than surfaces, and would
+// otherwise map straight back to the mail surface. about:blank must open as a real
+// window the opener can drive; handed to shell.openExternal, Windows pops a "no app can
+// open this link" dialog and the login window never appears. Any google.com host and
+// the federated Microsoft Entra login hosts stay in-app, because externalising a
+// federation POST re-issues it as a GET and Entra answers "AADSTS900561".
+
 import { SURFACES, SURFACE_CONFIG } from '../renderer/lib/surfaces';
 
 export function mailUrl(index: number): string {
@@ -8,9 +22,6 @@ export function calendarUrl(index: number): string {
   return SURFACE_CONFIG.calendar.url({ kind: 'authuser', index });
 }
 
-// Gmail's focused single-message reading window lives under a /popout path.
-// Such a window.open must always be allowed through as a real window (never
-// suppressed or redirected in-app), since only Gmail can open a working one.
 export function isPopoutUrl(url: string): boolean {
   try {
     return new URL(url).pathname.includes('/popout');
@@ -19,11 +30,6 @@ export function isPopoutUrl(url: string): boolean {
   }
 }
 
-// Gmail's "View entire message" link on a clipped email (and the legacy
-// full-message reader) opens a standalone reading page via ?view=lg with
-// target=_blank. Like a pop-out, it must open as its own window: routing it
-// through the in-app open-in-app path loads it into the shared mail view,
-// replacing the inbox with no way back (the reader has no opener history).
 export function isFullMessageViewUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -33,14 +39,6 @@ export function isFullMessageViewUrl(url: string): boolean {
   }
 }
 
-// Gmail serves attachment downloads and previews — a PDF, an image, a docx —
-// from ?view=att urls on its own host, and the bytes themselves from the
-// mail-attachment.googleusercontent.com host. Those are files, not app
-// surfaces, so opening one in a new window belongs to the browser/OS.
-//
-// Without this they fall into the open-in-app path, where surfaceForUrl() maps
-// mail.google.com straight back to the mail surface: the attachment loads into
-// the existing mail view, replacing the inbox with no way back to it.
 export function isAttachmentUrl(url: string): boolean {
   try {
     const u = new URL(url);
@@ -53,22 +51,11 @@ export function isAttachmentUrl(url: string): boolean {
   }
 }
 
-// A window.open / navigation with no real destination yet: about:blank (or an
-// empty target). Login and verification flows open such a blank popup first,
-// then navigate it to the identity provider themselves. It must open as a real
-// window the opener can drive — never be handed to shell.openExternal, which on
-// Windows pops a "no app can open this about: link" dialog and the login window
-// never appears.
 export function isBlankUrl(url: string): boolean {
   const u = url.trim().toLowerCase();
   return u === '' || u.startsWith('about:');
 }
 
-// Hosts served inside the app windows themselves: every hosted surface
-// (Gmail, Calendar, Drive, Docs, …) plus the Google auth flow. Navigations and
-// popups to these stay in-app; everything else (links clicked inside an email,
-// including Google's www.google.com/url redirect wrapper) opens in the user's
-// default browser instead.
 const IN_APP_HOSTS = new Set([
   ...SURFACES.map((s) => SURFACE_CONFIG[s].host),
   'accounts.google.com',
@@ -82,28 +69,16 @@ function hostOf(url: string): string | null {
   }
 }
 
-// True when a URL belongs to a surface the app hosts itself (Gmail/Calendar/
-// auth), so its popups and navigation should be kept in-app.
 export function isInAppUrl(url: string): boolean {
   const host = hostOf(url);
   return host !== null && IN_APP_HOSTS.has(host);
 }
 
-// True for any google.com host. Used as a safety net for top-frame navigation:
-// Google's own login/redirect flows may hop between google.com subdomains, so
-// those stay in-app; only genuinely off-Google navigation is externalised.
 export function isGoogleUrl(url: string): boolean {
   const host = hostOf(url);
   return host !== null && (host === 'google.com' || host.endsWith('.google.com'));
 }
 
-// Identity-provider hosts a Google Workspace sign-in can redirect the embedded
-// view to. When a domain federates Google sign-in to Microsoft Entra ID, the
-// login flow leaves google.com for login.microsoftonline.com (and friends)
-// mid-handshake. Such a navigation must stay in-app: externalising it via
-// shell.openExternal drops the federation form POST and re-issues it as a bare
-// GET, which Entra rejects with "AADSTS900561: The endpoint only accepts POST
-// requests. Received a GET request." — leaving the account impossible to add.
 const FEDERATED_LOGIN_HOSTS = new Set([
   'login.microsoftonline.com',
   'login.microsoft.com',
@@ -111,18 +86,12 @@ const FEDERATED_LOGIN_HOSTS = new Set([
   'login.live.com',
 ]);
 
-// True for a Microsoft Entra login host used during federated Workspace SSO, so
-// its top-frame navigation is kept in-app rather than bounced to the browser.
 export function isFederatedLoginUrl(url: string): boolean {
   const host = hostOf(url);
   if (host === null) return false;
   return FEDERATED_LOGIN_HOSTS.has(host) || host.endsWith('.microsoftonline.com');
 }
 
-// Opens Google's "add another account" flow and lands back in Gmail once the
-// new session is signed in. Used by the sidebar "+" button: unlike a hidden
-// re-detect probe, this shows a real login page so a not-yet-signed-in account
-// can actually be added; auto-detection then registers it via its identity.
 export function addAccountUrl(): string {
   return 'https://accounts.google.com/AddSession?continue=https://mail.google.com/mail/';
 }

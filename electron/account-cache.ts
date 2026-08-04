@@ -1,19 +1,16 @@
+// The last known own accounts (accounts.json), so the tab bar is not empty at
+// startup — own accounts are stored nowhere else, as prefs.json holds only
+// per-address preferences and colors.json only colours.
+//
+// Deliberately stores no session index (the digit in /mail/u/2/): that index belongs
+// to Google's browser session, not to the account, so a stored one would be a URL
+// you could wrongly build. Everything here is drawing material only; no URL, counter
+// or notification ever comes out of it. A broken file yields an empty tab bar rather
+// than a failed start, and an empty list is never written.
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-// De laatst bekende eigen accounts, zodat de tabbalk bij het opstarten niet leeg
-// begint. Gedelegeerde postbussen staan in delegated.json; hier gaat het om de
-// accounts waarop de gebruiker zelf is ingelogd, en die worden nergens anders
-// bewaard: prefs.json kent alleen voorkeuren per adres en colors.json alleen
-// kleuren, dus zonder dit bestand bestaat een eigen account pas nadat een
-// verborgen probe het adres uit de Gmail-pagina heeft gelezen.
-//
-// Bewust géén sessie-index (het cijfer in /mail/u/2/). Die index hoort bij
-// Google's browsersessie en niet bij het account: logt de gebruiker elders in of
-// uit, dan wijst slot 2 naar een ander postvak. Een bewaarde index is dus een gok
-// waaruit een URL te bouwen valt — precies de fout die we niet willen kúnnen
-// maken. Wat hier staat is alleen wat een tab tékent; er komt nooit een URL, een
-// teller of een melding uit voort.
 export interface CachedAccount {
   email: string;
   name: string;
@@ -21,14 +18,6 @@ export interface CachedAccount {
   color: string;
 }
 
-/**
- * Leest de bewaarde lijst uit ruwe JSON. Neemt alléén de velden over die een tab
- * tekent: staat er meer in het bestand (bijvoorbeeld een sessie-index uit een
- * oudere of met de hand aangepaste versie), dan wordt dat hier weggelaten in
- * plaats van doorgegeven. Zo kan er nooit iets anders dan tekenwerk uit komen.
- * Een onbruikbaar item wordt overgeslagen, niet fataal: een halve balk is beter
- * dan geen balk.
- */
 export function parseCachedAccounts(raw: unknown): CachedAccount[] {
   if (!Array.isArray(raw)) return [];
   const out: CachedAccount[] = [];
@@ -36,7 +25,7 @@ export function parseCachedAccounts(raw: unknown): CachedAccount[] {
     if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const r = item as Record<string, unknown>;
     const email = typeof r.email === 'string' ? r.email.trim().toLowerCase() : '';
-    if (!email) continue; // zonder adres is het geen account: het adres ís de identiteit
+    if (!email) continue;
     out.push({
       email,
       name: typeof r.name === 'string' ? r.name : '',
@@ -47,15 +36,6 @@ export function parseCachedAccounts(raw: unknown): CachedAccount[] {
   return out;
 }
 
-/**
- * Welke bewaarde accounts nog als voorlopige tab getekend mogen worden: alles wat
- * detectie nog niet heeft bevestigd en de gebruiker niet zelf heeft verwijderd.
- * Bevestigd valt eruit omdat daar dan een echt tabblad voor staat; verwijderd
- * valt eruit omdat een verwijderd account anders bij elke start terugkomt. De
- * bewaarde volgorde blijft staan — dat is de volgorde waarin de tabs stonden toen
- * de app dichtging, dus verschuift er niets als de detectie ze één voor één
- * bevestigt.
- */
 export function seedable(
   cached: CachedAccount[],
   opts: { confirmed: string[]; removed: string[] },
@@ -72,15 +52,6 @@ export function seedable(
   return out;
 }
 
-/**
- * De plek die elk onthouden adres in de balk had, als terugval voor de volgorde.
- * Geldt de hele sessie, ook nadat de voorlopige tabs zijn afgevallen: zo staat een
- * bevestigd account op dezelfde plek als de tab die het vervangt, en verschuift de
- * balk geen enkele keer — niet als de eerste bevestiging landt en niet als
- * detectie uitloopt. Een eigen voorkeur uit prefs.json gaat hier altijd voor; een
- * adres dat hier niet in staat (een gedelegeerd postvak, of een account dat er
- * vorige keer nog niet was) valt terug op zijn eigen index, zoals altijd.
- */
 export function rememberedOrder(cached: CachedAccount[]): Map<string, number> {
   return new Map(cached.map((c, i) => [c.email.trim().toLowerCase(), i]));
 }
@@ -93,22 +64,17 @@ export class AccountCacheStore {
     try {
       return parseCachedAccounts(JSON.parse(readFileSync(this.filePath, 'utf8')));
     } catch {
-      // Halfgeschreven of met de hand verpest: dan begint de balk leeg en vult
-      // detectie hem zoals vroeger. Hier blijven hangen kost de hele app.
       return [];
     }
   }
 
-  // Overschrijft de hele lijst: dit is een momentopname van de balk, geen
-  // verzameling die groeit. Nog één keer langs de parser, zodat er ook via deze
-  // weg niets anders dan tekenwerk in het bestand belandt.
   save(items: CachedAccount[]): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(parseCachedAccounts(items), null, 2), 'utf8');
   }
 
   remove(email: string): void {
-    if (!existsSync(this.filePath)) return; // niets bewaard: geen leeg bestand achterlaten
+    if (!existsSync(this.filePath)) return;
     const e = email.trim().toLowerCase();
     this.save(this.list().filter((c) => c.email !== e));
   }

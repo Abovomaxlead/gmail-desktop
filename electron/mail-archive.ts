@@ -1,3 +1,14 @@
+// Writes a saved mail to disk and appends a line to log.jsonl. On failure that line
+// carries `error` and whatever was known instead of file/bytes/body; a `target` entry
+// describes a copy to another account rather than the save itself.
+//
+// Filenames are sanitised per code point rather than with a regex class, because a
+// subject can contain a newline and an escaped character class is easy to break here,
+// and Windows rejects a name ending in a dot or a space. Timestamps are split in UTC,
+// the same zone as the ISO stamp in the log, so folder and log line match. A label
+// drag puts everything in one folder with numbering that runs across the threads,
+// keeping Gmail's order visible in the filenames.
+
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EmlHeaders } from './eml';
@@ -7,8 +18,6 @@ export interface SavedMessage {
   headers: EmlHeaders;
 }
 
-// Eén regel in log.jsonl. Bij een fout ontbreken file/bytes/body en staat er
-// `error` in, met wat er wél bekend was.
 export interface LogRecord {
   ts: string;
   account: string;
@@ -23,17 +32,12 @@ export interface LogRecord {
   bytes?: number;
   body?: string;
   error?: string;
-  label?: string; // gezet als deze mail via een labelsleep is binnengekomen
-  // Gezet als deze regel over het kopiëren naar een ánder account gaat, niet
-  // over het opslaan zelf. `account` is dan het doelaccount.
+  label?: string;
   copy?: { to: string; labels: string[]; ok: boolean; error?: string };
 }
 
 const MAX_NAME = 60;
 
-// Stuurtekens (een onderwerp kan een regelovergang bevatten) horen niet in een
-// bestandsnaam. Per code point, want een regexklasse met escapes is hier
-// makkelijk stuk te maken.
 const stripControl = (s: string) =>
   Array.from(s, (c) => ((c.codePointAt(0) ?? 32) < 32 ? ' ' : c)).join('');
 
@@ -43,7 +47,6 @@ export function safeName(s: string, fallback = 'onbekend'): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, MAX_NAME)
-    // Windows accepteert geen naam die op een punt of spatie eindigt.
     .replace(/[. ]+$/, '');
   return cleaned || fallback;
 }
@@ -61,8 +64,6 @@ export function displayName(address: string): string {
     .trim();
 }
 
-// "2026-07-29T08:02:44.000Z" -> { date: "2026-07-29", time: "0802" }, in UTC —
-// dezelfde tijdzone als de ISO-stempel in het log, zodat map en logregel matchen.
 function stamp(iso: string): { date: string; time: string } {
   const d = new Date(iso);
   const p = (n: number) => String(n).padStart(2, '0');
@@ -106,9 +107,6 @@ export function writeThread(root: string, dropIso: string, messages: SavedMessag
   });
 }
 
-// Alles uit één label in één map, in plaats van een map per gesprek. De
-// nummering loopt door over de gesprekken heen, zodat de volgorde uit Gmail
-// zichtbaar blijft in de bestandsnamen.
 export function labelFolderName(dropIso: string, label: string): string {
   const { date, time } = stamp(dropIso);
   return `${date}_${time}_label_${safeName(label, 'label')}`;

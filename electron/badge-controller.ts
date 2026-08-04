@@ -1,3 +1,7 @@
+// Pushes the unread total to the OS badge. On Windows app.setBadgeCount's own 0-clear
+// does not stick if the window was hidden to the tray as unread dropped, leaving a
+// stale taskbar number — hence the separate clearOverlay callback for that case.
+
 import { totalUnread } from './badge-math';
 
 export function applyBadge(
@@ -8,9 +12,6 @@ export function applyBadge(
 ): number {
   const total = totalUnread(counts, excluded);
   setBadge(total);
-  // On Windows, app.setBadgeCount's overlay clear doesn't reliably stick (e.g. when
-  // the window was hidden to tray as unread dropped), leaving a stale number on the
-  // taskbar. Let the caller explicitly clear the overlay once nothing is unread.
   if (total === 0) clearOverlay?.();
   return total;
 }

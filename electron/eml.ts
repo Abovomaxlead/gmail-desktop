@@ -1,14 +1,21 @@
-// Minimale RFC822/MIME-lezer: precies genoeg om een opgeslagen bericht te
-// kunnen loggen — de belangrijkste headers en een platte-tekstweergave van de
-// body. Geen algemene MIME-parser: bijlagen, ondertekening en versleuteling
-// worden genegeerd, alleen tekstdelen tellen mee.
+// Minimal RFC822/MIME reader: just enough to log a saved message — the main headers
+// and a plain-text rendering of the body. Not a general MIME parser; attachments,
+// signing and encryption are ignored and only text parts count.
+//
+// Header values may continue across lines (a continuation starts with a space or
+// tab), RFC2047 "=?utf-8?B?...?=" words are decoded, and an unknown charset falls
+// back to utf-8. Address lists split only on commas outside quotes and angle
+// brackets, so "Vries, A." <a@x> stays one address. Body selection walks depth-first
+// for the first non-empty text/plain part, then text/html stripped to text; emptiness
+// is what makes it correct, since the epilogue after the closing boundary has no
+// Content-Type and would otherwise pass for text/plain and beat the real html part.
 
 export interface EmlHeaders {
   from: string;
   to: string[];
   cc: string[];
   subject: string;
-  date: string | null; // ISO 8601, of null als de Date-header ontbreekt/onleesbaar is
+  date: string | null;
   messageId: string;
 }
 
@@ -21,8 +28,6 @@ function splitHeadAndBody(text: string): { head: string; body: string } {
   return { head: t.slice(0, i), body: t.slice(i + 2) };
 }
 
-// Headers mogen over meerdere regels lopen: een vervolgregel begint met een
-// spatie of tab en hoort bij de vorige.
 function unfold(head: string): string[] {
   const out: string[] = [];
   for (const line of head.split('\n')) {
@@ -46,7 +51,6 @@ function decodeBytes(buf: Buffer, charset: string): string {
   try {
     return new TextDecoder(cs).decode(buf);
   } catch {
-    // Onbekende charset: utf-8 is de minst schadelijke gok.
     return buf.toString('utf8');
   }
 }
@@ -60,14 +64,12 @@ function decodeQuotedPrintable(s: string, charset: string): string {
       bytes.push(parseInt(noSoftBreaks.slice(i + 1, i + 3), 16));
       i += 2;
     } else {
-      // Al gedecodeerde tekens kunnen zelf uit meerdere bytes bestaan.
       for (const b of Buffer.from(c, 'binary')) bytes.push(b);
     }
   }
   return decodeBytes(Buffer.from(bytes), charset);
 }
 
-// RFC2047: "=?utf-8?B?...?=" en "=?utf-8?Q?...?=" in headerwaarden.
 export function decodeWords(s: string): string {
   return s.replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (_m, charset: string, enc: string, data: string) => {
     if (enc.toUpperCase() === 'B') return decodeBytes(Buffer.from(data, 'base64'), charset);
@@ -75,8 +77,6 @@ export function decodeWords(s: string): string {
   });
 }
 
-// Splitst een adreslijst op komma's die buiten aanhalingstekens en punthaken
-// staan — "Vries, A." <a@x> is één adres, geen twee.
 function splitAddresses(value: string): string[] {
   const out: string[] = [];
   let cur = '';
@@ -117,8 +117,6 @@ function paramOf(headerLine: string, name: string): string {
   return m ? m[1].replace(/^"|"$/g, '') : '';
 }
 
-// Onzichtbare tekens die mailsjablonen strooien om previewtekst te sturen
-// (zero-width non-joiner en verwanten). In platte tekst zijn het ruis.
 const INVISIBLE = /&(zwnj|zwj|shy|lrm|rlm|#x?200[b-d]|#8203|#173);/gi;
 
 export function htmlToText(html: string): string {
@@ -135,10 +133,8 @@ export function htmlToText(html: string): string {
       .replace(/&quot;/gi, '"')
       .replace(/&#39;/g, "'")
       .replace(/&amp;/gi, '&')
-      // Overgebleven numerieke entiteiten (&#8364; / &#x20ac;).
       .replace(/&#(\d+);/g, (_m, n: string) => String.fromCodePoint(Number(n)))
       .replace(/&#x([0-9a-f]+);/gi, (_m, n: string) => String.fromCodePoint(parseInt(n, 16)))
-      // Html-opmaak levert regels vol inspringing en lege tussenregels op.
       .split('\n')
       .map((line) => line.replace(/\s+/g, ' ').trim())
       .join('\n')
@@ -154,8 +150,6 @@ function decodeBody(body: string, encoding: string, charset: string): string {
   return decodeBytes(Buffer.from(body, 'binary'), charset);
 }
 
-// Zoekt diepte-eerst naar het eerste text/plain-deel. Levert dat niets op, dan
-// het eerste text/html-deel, tot tekst gestript.
 function findText(part: string, want: 'plain' | 'html'): string | null {
   const { head, body } = splitHeadAndBody(part);
   const lines = unfold(head);
@@ -169,7 +163,6 @@ function findText(part: string, want: 'plain' | 'html'): string | null {
     const chunks = body.split(
       new RegExp(`^--${boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(--)?[ \t]*$`, 'm'),
     );
-    // Het eerste stuk is de preamble vóór de eerste boundary — die telt niet mee.
     for (const chunk of chunks.slice(1)) {
       if (chunk === undefined || chunk === '--') continue;
       const found = findText(chunk.replace(/^\n/, ''), want);
@@ -184,9 +177,6 @@ function findText(part: string, want: 'plain' | 'html'): string | null {
   if (want === 'html' && !isHtml) return null;
   const decoded = decodeBody(body, enc, charset);
   const out = want === 'html' ? htmlToText(decoded) : decoded.trim();
-  // Een leeg deel telt niet als treffer. Anders wint de epiloog — de lege regels
-  // ná de sluit-boundary, die geen Content-Type heeft en dus voor text/plain
-  // doorgaat — van het html-deel waar de echte tekst in staat.
   return out === '' ? null : out;
 }
 

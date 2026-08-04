@@ -1,12 +1,9 @@
-// Welke accounts door push gedekt worden, en vanaf welk moment. Drie dingen
-// hangen hieraan:
-//
-//   1. Of Gmail's eigen meldingen in die webview gedempt worden.
-//   2. Wie de ongelezen-teller mag zetten — de API of de paginatitel.
-//   3. Of een binnengekomen bericht nog een melding waard is (zie shouldNotify).
-//
-// Het moment is het punt: dat is wat voorkomt dat de catch-up na een storing mail
-// nog eens meldt die de webview toen al gemeld heeft.
+// Which accounts push covers, and from what moment. That moment decides whether an
+// arriving message still deserves a notification, whether Gmail's own notification
+// in the webview is muted, and whether the API or the page title owns the unread
+// count. cover() must leave an existing moment alone: if it moved on a second
+// successful watch, mail that arrived in between would fall outside the window and
+// stay silent.
 export class PushCoverage {
   private since_ = new Map<string, number>();
 
@@ -16,9 +13,6 @@ export class PushCoverage {
     return email.toLowerCase();
   }
 
-  // True als er echt iets veranderde. Een tweede geslaagde watch laat het moment
-  // staan: zou het meeschuiven, dan viel mail die er tussenin kwam buiten het
-  // venster en zou die stil blijven.
   cover(email: string): boolean {
     const key = this.key(email);
     if (this.since_.has(key)) return false;

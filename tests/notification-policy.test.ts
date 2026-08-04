@@ -1,3 +1,6 @@
+// Whether a notification may be shown: quiet hours, do-not-disturb, and the
+// per-account and per-surface switches.
+
 import { describe, it, expect } from 'vitest';
 import {
   notificationsAllowed,
@@ -10,10 +13,6 @@ import {
 import type { AccountRef } from '../renderer/lib/account-ref';
 import { DEFAULT_PREFS, type NotificationPrefs, type Prefs } from '../electron/prefs-store';
 
-// `notifications` wordt hier een laag diep samengevoegd in plaats van vervangen.
-// Anders moet elke test die alleen `dnd` wil zetten ook de velden opschrijven die
-// niets met deze test te maken hebben (wat er in een melding staat, of geluid aan
-// staat) — en dan zegt een test over gedempt zijn ineens ook iets over die.
 function prefs(
   overrides: Omit<Partial<Prefs>, 'notifications'> & { notifications?: Partial<NotificationPrefs> },
 ): Prefs {
@@ -25,8 +24,6 @@ function prefs(
   };
 }
 
-// Hetzelfde, voor een los blok meldingsvoorkeuren: `mergeNotificationsFromPanel`
-// krijgt de opgeslagen stand als eerste argument.
 const mute = (o: Partial<NotificationPrefs>): NotificationPrefs => ({
   ...structuredClone(DEFAULT_PREFS.notifications),
   ...o,
@@ -35,9 +32,9 @@ const at = (h: number, m = 0) => new Date(2026, 0, 1, h, m);
 
 describe('inQuietHours', () => {
   it('handles a midnight-crossing window', () => {
-    expect(inQuietHours('22:00', '07:00', 23 * 60)).toBe(true); // 23:00
-    expect(inQuietHours('22:00', '07:00', 6 * 60)).toBe(true); // 06:00
-    expect(inQuietHours('22:00', '07:00', 12 * 60)).toBe(false); // 12:00
+    expect(inQuietHours('22:00', '07:00', 23 * 60)).toBe(true);
+    expect(inQuietHours('22:00', '07:00', 6 * 60)).toBe(true);
+    expect(inQuietHours('22:00', '07:00', 12 * 60)).toBe(false);
   });
   it('handles a same-day window', () => {
     expect(inQuietHours('09:00', '17:00', 10 * 60)).toBe(true);
@@ -71,14 +68,14 @@ describe('notificationsAllowed', () => {
     const p = prefs({
       notifications: { dnd: false, dndUntil: at(12, 30).getTime(), quietHours: { enabled: false, start: '18:00', end: '08:00' } },
     });
-    expect(notificationsAllowed(p, 'a@x.com', at(12))).toBe(false); // 12:00 < 12:30
+    expect(notificationsAllowed(p, 'a@x.com', at(12))).toBe(false);
   });
 
   it('allows again once dndUntil has passed', () => {
     const p = prefs({
       notifications: { dnd: false, dndUntil: at(11, 30).getTime(), quietHours: { enabled: false, start: '18:00', end: '08:00' } },
     });
-    expect(notificationsAllowed(p, 'a@x.com', at(12))).toBe(true); // 12:00 > 11:30
+    expect(notificationsAllowed(p, 'a@x.com', at(12))).toBe(true);
   });
 
   it('a snooze gates the calendar surface too', () => {
@@ -95,7 +92,7 @@ describe('notificationsAllowed — surface', () => {
 
   it("defaults to the mail surface", () => {
     const p = base();
-    expect(notificationsAllowed(p, 'a@x.com', at(12))).toBe(true); // no 4th arg → mail
+    expect(notificationsAllowed(p, 'a@x.com', at(12))).toBe(true);
   });
 
   it('mail: allowed unless notify===false', () => {
@@ -107,7 +104,7 @@ describe('notificationsAllowed — surface', () => {
 
   it('calendar: off by default, on only when calendarNotify===true', () => {
     const p = base();
-    expect(notificationsAllowed(p, 'a@x.com', at(12), 'calendar')).toBe(false); // opt-in
+    expect(notificationsAllowed(p, 'a@x.com', at(12), 'calendar')).toBe(false);
     p.accounts['a@x.com'] = { calendarNotify: true };
     expect(notificationsAllowed(p, 'a@x.com', at(12), 'calendar')).toBe(true);
   });
@@ -121,7 +118,6 @@ describe('notificationsAllowed — surface', () => {
 
   it('never allows the Google app surfaces (v1: no notifications)', () => {
     const p = base();
-    // Even a fully opted-in account gets no Drive/Chat/etc. notifications.
     p.accounts['a@x.com'] = { notify: true, calendarNotify: true };
     for (const surface of ['drive', 'docs', 'sheets', 'slides', 'keep', 'contacts', 'chat'] as const) {
       expect(notificationsAllowed(p, 'a@x.com', at(12), surface)).toBe(false);
@@ -141,16 +137,13 @@ describe('notificationsAllowed — surface', () => {
   });
 });
 
-// De bug die dit dekt: het paneel stuurt alleen {dnd, quietHours}, en
-// `setNotifications` schrijft wat het krijgt wholesale weg. Zonder deze functie
-// verdwijnt een lopende tray-snooze (`dndUntil`) zodra de stille uren wijzigen.
 describe('mergeNotificationsFromPanel', () => {
   const quietHours = { enabled: false, start: '18:00', end: '08:00' };
 
   it('keeps a running snooze when only quiet hours change (dnd untouched)', () => {
     const current = mute({ dnd: false, dndUntil: 4_000_000_000_000, quietHours });
     const result = mergeNotificationsFromPanel(current, {
-      dnd: false, // echoed back unchanged by the quiet-hours controls
+      dnd: false,
       quietHours: { ...quietHours, enabled: true },
     });
     expect(result.dndUntil).toBe(4_000_000_000_000);
@@ -158,11 +151,6 @@ describe('mergeNotificationsFromPanel', () => {
   });
 
   it('clears a running snooze when the DND switch is explicitly toggled off', () => {
-    // Snooze started from the tray leaves dnd:false; the switch was never on.
-    // Toggling it "off" again (still false -> false) must NOT be confused with
-    // an actual flip — this case is covered by the "untouched" test above.
-    // Here the switch genuinely changes: it was on, and the user turns it off,
-    // which is the "un-mute me" case called out in the design discussion.
     const current = mute({ dnd: true, dndUntil: 4_000_000_000_000, quietHours });
     const result = mergeNotificationsFromPanel(current, { dnd: false, quietHours });
     expect(result.dnd).toBe(false);
@@ -170,8 +158,6 @@ describe('mergeNotificationsFromPanel', () => {
   });
 
   it('clears a running snooze when the DND switch is explicitly toggled on', () => {
-    // Mirrors the tray's own `setSnooze(null)` branch: turning DND on
-    // indefinitely supersedes any timed snooze, so it clears dndUntil too.
     const current = mute({ dnd: false, dndUntil: 4_000_000_000_000, quietHours });
     const result = mergeNotificationsFromPanel(current, { dnd: true, quietHours });
     expect(result.dnd).toBe(true);
@@ -188,14 +174,10 @@ describe('mergeNotificationsFromPanel', () => {
   });
 });
 
-// De twee hoofdschakelaars uit Meldingen. Beide standaard aan, dus zonder dat de
-// gebruiker iets doet beslist de keuze per account — precies zoals daarvoor.
 describe('global masters', () => {
   it('silences every surface when the sound master is off', () => {
     const p = prefs({ notifications: { sound: false }, accounts: { 'a@x.com': { notifySound: true } } });
     expect(notificationSilent(p, 'a@x.com')).toBe(true);
-    // Ook een agendaherinnering, die de keuze per account juist negeert: "geen
-    // geluid" is een uitspraak over alle meldingen.
     expect(notificationSilent(p, 'a@x.com', 'calendar')).toBe(true);
   });
 
@@ -212,7 +194,6 @@ describe('global masters', () => {
       accounts: { 'a@x.com': { calendarNotify: true } },
     });
     expect(notificationsAllowed(p, 'a@x.com', at(12), 'calendar')).toBe(false);
-    // Post gaat door: de hoofdschakelaar gaat over de andere Google-apps.
     expect(notificationsAllowed(p, 'a@x.com', at(12), 'mail')).toBe(true);
   });
 
@@ -227,9 +208,6 @@ describe('global masters', () => {
   });
 });
 
-// Het paneel stuurt alleen `dnd` en `quietHours`; de vier velden over de inhoud van
-// een melding en over geluid staan in hetzelfde blok en mogen daar niet door
-// verdwijnen. Dit is dezelfde soort bug als die met `dndUntil`, een laag hoger.
 describe('mergeNotificationsFromPanel keeps the content and sound fields', () => {
   it('leaves showSender, showSubject, sound and googleApps as they were', () => {
     const current = mute({
@@ -276,10 +254,6 @@ describe('notificationSilent', () => {
   });
 });
 
-// A hidden calendar view exists only to fire reminders, so it follows the
-// calendarNotify opt-in — but a delegated mailbox whose calendar URL was never
-// captured has no calendar to load. Trusting the pref alone crashed main with
-// loadURL(null) the moment such a delegate was restored at startup.
 describe('wantsCalendarView', () => {
   const authuser: AccountRef = { kind: 'authuser', index: 0 };
   const delegateNoCal: AccountRef = {
@@ -308,8 +282,6 @@ describe('wantsCalendarView', () => {
 });
 
 describe('notificationsAllowed — push', () => {
-  // Een gedekt account krijgt zijn meldingen van de API. Zou de webview ook nog
-  // melden, dan kwam alles dubbel.
   it('mutes the webview for an account push covers', () => {
     const p = prefs({ accounts: { 'a@x.nl': { notify: true } } });
     expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail', true)).toBe(false);
@@ -325,14 +297,11 @@ describe('notificationsAllowed — push', () => {
     expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail')).toBe(true);
   });
 
-  // Dempen gaat over de webview, niet over de gebruiker: staat de melding uit,
-  // dan blijft hij uit, ook als push hem zou kunnen sturen.
   it('does not turn a switched-off account back on', () => {
     const p = prefs({ accounts: { 'a@x.nl': { notify: false } } });
     expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'mail', false)).toBe(false);
   });
 
-  // De agenda meldt via zijn eigen view en heeft niets met de mail-push te maken.
   it('does not let mail coverage touch the calendar surface', () => {
     const p = prefs({ accounts: { 'a@x.nl': { calendarNotify: true } } });
     expect(notificationsAllowed(p, 'a@x.nl', new Date(), 'calendar', true)).toBe(true);

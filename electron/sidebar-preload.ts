@@ -1,9 +1,12 @@
+// The contextBridge surface of the sidebar page. That same page also runs as the
+// modal overlay, told apart by the --gmd-overlay argument main sets on that view
+// only. Preference patches are typed unknown on purpose: main revalidates them with
+// the same readers it uses for the file on disk, so a wrong value falls back to a
+// default there instead of being caught here. The renderer holds the real types.
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC } from './ipc';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
-// Alleen het type: de reden hoort bij de beslissing in oauth-health, en die
-// staat hier niet nog een keer.
 import type { ReconnectAccount } from './oauth-health';
 
 interface Profile {
@@ -18,8 +21,6 @@ interface Profile {
   label?: string;
 }
 
-// Dezelfde pagina draait in twee views: de zijbalk en de modal-overlay. Het
-// main-proces zet dit argument alleen op die tweede.
 const isOverlay = process.argv.includes('--gmd-overlay');
 
 contextBridge.exposeInMainWorld('desktop', {
@@ -60,11 +61,6 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   setAutoStart: (v: boolean): void => ipcRenderer.send(IPC.SET_AUTO_START, v),
   setLaunchMinimized: (v: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_MINIMIZED, v),
-  // De patch-zetters per tab. `unknown` als type van de patch: deze brug hoeft de
-  // vorm niet te kennen — main leest hem met dezelfde lezers als het bestand op
-  // schijf (zie `bool`/`oneOf`/`stringList` in prefs-store.ts), dus een verkeerde
-  // waarde valt daar terug op de standaard in plaats van hier op een `any` te
-  // stuiten. De renderer heeft de echte types in `page.tsx`.
   setAppearance: (patch: unknown): void => ipcRenderer.send(IPC.SET_APPEARANCE, patch),
   setDownloadPrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_DOWNLOAD_PREFS, patch),
   setPhishing: (patch: unknown): void => ipcRenderer.send(IPC.SET_PHISHING, patch),

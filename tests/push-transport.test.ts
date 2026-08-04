@@ -1,13 +1,10 @@
+// adaptSocket decides which ws event means the connection is still alive; the relay's
+// heartbeat is a protocol ping, which once arrived nowhere.
+
 import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { adaptSocket } from '../electron/push-transport';
 
-// Dit bestand had eerst geen test, met als reden "het geeft alleen
-// gebeurtenissen door". Dat was niet waar: het beslist welke ws-gebeurtenis
-// betekent dat de verbinding nog leeft, en die beslissing was fout — de hartslag
-// van de relay is een protocol-ping en die kwam nergens aan. Daarom staat het
-// afbeelden nu los in `adaptSocket` en toetst deze test precies dat afbeelden,
-// met een gewone EventEmitter in de rol van `ws`.
 class FakeWs extends EventEmitter {
   sent: string[] = [];
   closed = 0;
@@ -36,8 +33,6 @@ describe('adaptSocket', () => {
     expect(pings).toBe(1);
   });
 
-  // Een ping is geen bericht: hij heeft geen inhoud en mag niet als frame door de
-  // meldingsafhandeling gaan.
   it('does not pass a ping off as a message', () => {
     const ws = new FakeWs();
     const messages: string[] = [];

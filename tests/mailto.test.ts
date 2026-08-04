@@ -1,3 +1,5 @@
+// Parsing mailto: links, including the one Windows passes in argv.
+
 import { describe, it, expect } from 'vitest';
 import { parseMailto, extractMailtoFromArgv } from '../electron/mailto';
 

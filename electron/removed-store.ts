@@ -1,10 +1,10 @@
+// Persists the account emails the user explicitly removed. Accounts are auto-detected
+// from the shared Google session, so without this a removed account would reappear at
+// the next detection. Detection skips any email listed here; signing in again through
+// the "+" flow clears it.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-// Persists the set of account emails the user explicitly removed. Accounts are
-// auto-detected from the shared Google session, so without this a removed
-// account would immediately reappear on the next detection. Detection skips
-// any email listed here; signing in again via the "+" flow clears it.
 export class RemovedStore {
   constructor(private readonly filePath: string) {}
 

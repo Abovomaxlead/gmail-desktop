@@ -1,3 +1,5 @@
+// Sorting accounts by their stored order.
+
 import { describe, it, expect } from 'vitest';
 import { sortByOrder } from '../electron/account-order';
 

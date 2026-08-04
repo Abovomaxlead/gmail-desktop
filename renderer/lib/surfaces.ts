@@ -1,8 +1,12 @@
 // Single source of truth for the Google surfaces the app hosts, shared by the
-// Electron main process, the preloads and the sidebar renderer. It lives under
-// renderer/ because Next.js cannot compile imports from outside its root,
-// while esbuild (main bundle) and vitest import from anywhere. Keep this
-// module pure data — no Electron or DOM imports.
+// Electron main process, the preloads and the sidebar renderer. Everything under
+// renderer/lib/ lives there for that reason: Next.js cannot compile imports from
+// outside its own root, while esbuild and vitest can import from anywhere. Keep
+// these modules pure data - no Electron or DOM imports.
+//
+// Delegated mailboxes offer only mail, plus calendar when Google's switcher exposed
+// one; other combinations throw rather than hand out a URL that would end up in
+// webContents.loadURL(null) and kill the main process.
 
 import type { AccountRef } from './account-ref';
 
@@ -22,23 +26,12 @@ export type Surface = (typeof SURFACES)[number];
 
 export interface SurfaceConfig {
   label: string;
-  // Host the surface lives on; navigations/popups to it stay in-app.
   host: string;
-  // First path segment when the host is shared between surfaces
-  // (docs.google.com serves Docs, Sheets and Slides).
   path?: string;
-  // Build the surface URL for an account. Authuser accounts derive it from
-  // their /u/<index>/ slot; delegated mailboxes carry Google's own captured
-  // URL (mail/calendar only — other surfaces are not offered for delegates and
-  // throw if asked, guarded by surfacesForRef).
   url(ref: AccountRef): string;
-  // Only calendar needs background timers to keep firing (reminder timing).
   backgroundThrottling: boolean;
 }
 
-// A surface that only exists for the user's own accounts: reject delegated refs
-// loudly rather than emit a wrong URL. surfacesForRef never offers these for a
-// delegated mailbox, so this only fires on a programming error.
 function ownedIndex(ref: AccountRef, surface: string): number {
   if (ref.kind !== 'authuser') {
     throw new Error(`surface "${surface}" is not available for delegated mailboxes`);
@@ -46,10 +39,6 @@ function ownedIndex(ref: AccountRef, surface: string): number {
   return ref.index;
 }
 
-// A delegated mailbox only has a calendar when Google's switcher exposed one.
-// Refuse loudly when it didn't: returning undefined here used to reach
-// webContents.loadURL(null), which kills the main process with an opaque
-// "conversion failure from null". surfacesForRef gates the honest callers.
 function delegatedCalendarUrl(ref: { email: string; calendarUrl: string | null }): string {
   if (!ref.calendarUrl) {
     throw new Error(`no calendar url captured for delegated mailbox ${ref.email}`);
@@ -61,7 +50,6 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
   mail: {
     label: 'Mail',
     host: 'mail.google.com',
-    // Delegated mailboxes use Google's own captured href, adopted verbatim.
     url: (ref) =>
       ref.kind === 'delegated' ? ref.mailUrl : `https://mail.google.com/mail/u/${ref.index}/`,
     backgroundThrottling: true,
@@ -69,7 +57,6 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
   calendar: {
     label: 'Calendar',
     host: 'calendar.google.com',
-    // Delegated calendar URL is the captured one (only present when reachable).
     url: (ref) =>
       ref.kind === 'delegated'
         ? delegatedCalendarUrl(ref)
@@ -123,22 +110,15 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
   },
 };
 
-// Which surfaces an account offers: all of them for an authuser account; mail
-// (and calendar only when reachable) for a delegated mailbox.
 export function surfacesForRef(ref: AccountRef): Surface[] {
   if (ref.kind === 'authuser') return [...SURFACES];
   return ref.calendarUrl ? ['mail', 'calendar'] : ['mail'];
 }
 
-// The waffle flyout's contents: every surface except the pinned mail avatar
-// and calendar button.
 export const APP_SURFACES: readonly Surface[] = SURFACES.filter(
   (s) => s !== 'mail' && s !== 'calendar',
 );
 
-// Which hosted surface owns a URL, so an in-app popup (e.g. a Docs link in an
-// email) opens in that surface's view instead of clobbering the view it was
-// clicked in. Null for anything the app doesn't host as a surface.
 export function surfaceForUrl(url: string): Surface | null {
   let parsed: URL;
   try {

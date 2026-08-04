@@ -1,3 +1,5 @@
+// Dropping mail onto a Gmail label: reading the label from the DOM and merging threads.
+
 import { describe, it, expect } from 'vitest';
 import {
   labelFromHref,
@@ -76,8 +78,6 @@ describe('mergeThreads', () => {
     expect(mergeThreads(acc, [t('b'), t('c')])).toEqual({ added: 2, total: 3 });
   });
   it('reports zero when a page repeats what we already had', () => {
-    // Gmail toont bij een te hoog paginanummer de laatste pagina opnieuw; dat is
-    // het signaal om te stoppen met bladeren.
     const acc = [t('a'), t('b')];
     expect(mergeThreads(acc, [t('a'), t('b')])).toEqual({ added: 0, total: 2 });
   });

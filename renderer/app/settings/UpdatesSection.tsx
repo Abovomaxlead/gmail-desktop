@@ -8,6 +8,10 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { ACCENT_BUTTON, BUTTON, DANGER_TEXT } from './tokens';
 
+// Updates: the state of the update and the button that belongs to that state. The
+// status line is a node rather than a string so a percentage can carry `tabular-nums`
+// and a failure can be red.
+
 function updateStatusText(u: UpdateStatus, S: UiStrings): string {
   switch (u.state) {
     case 'checking':
@@ -29,14 +33,6 @@ function updateStatusText(u: UpdateStatus, S: UiStrings): string {
   }
 }
 
-// De statusregel als bijtekst bij de updaterij. Twee dingen die de kale string
-// niet kan dragen:
-//
-//   - `tabular-nums` als er een getal in staat. Bij het binnenhalen loopt een
-//     percentage tot drie tekens op en weer terug; zonder tabelcijfers schuift de
-//     hele regel bij elke tik heen en weer.
-//   - rood als het mislukt is. Dat is een toestand die je van een meter afstand
-//     moet kunnen zien, en de tekst ernaast is niet genoeg.
 function updateStatusNode(u: UpdateStatus, S: UiStrings): ReactNode {
   const text = updateStatusText(u, S);
   if (!text) return undefined;
@@ -45,10 +41,6 @@ function updateStatusNode(u: UpdateStatus, S: UiStrings): ReactNode {
   return classes ? <span className={classes}>{text}</span> : text;
 }
 
-// Bijwerken: de stand van de update en de knop die bij die stand hoort. Een eigen
-// sectie en niet een rij onder Over: dit is het enige in het paneel waar je komt
-// om iets te laten gebeuren in plaats van om iets te zetten, en het puntje in de
-// kolom hangt eraan.
 export function UpdatesSection({
   S,
   prefs,
@@ -81,9 +73,6 @@ export function UpdatesSection({
           />
         </SettingRow>
 
-        {/* Los van zelf kijken: je kan willen dat de app kijkt zonder dat hij je
-            erover aanspreekt, en het omgekeerde kan ook — dan hoor je het alleen als
-            je zelf op de knop hieronder drukt. */}
         <SettingRow
           label={S.notifyUpdates}
           description={S.notifyUpdatesDescription}
@@ -98,9 +87,6 @@ export function UpdatesSection({
       </SettingsGroup>
 
       <SettingsGroup>
-        {/* De stand van de update staat als bijtekst onder de naam van de rij, en
-            de knoppen die bij die stand horen ernaast. Zie `updateStatusNode`
-            voor waarom die bijtekst een node is en geen string. */}
         <SettingRow label={S.updates} description={updateStatusNode(update, S)}>
           {update.state === 'available' && (
             <button type="button" onClick={onDownloadUpdate} className={ACCENT_BUTTON}>

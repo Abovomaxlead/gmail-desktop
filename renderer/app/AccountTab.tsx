@@ -6,10 +6,13 @@ import { CALENDAR_ICON_DATA_URI } from '../lib/calendar-icon-data';
 import { unreadLabel } from './unread-label';
 import type { Profile } from './page';
 
-// Het gedelegeerd-icoontje: in de zijbalk was dit een hoekmarkering op de
-// avatar, hier staat het vóór de naam. Het icoontje zelf is aria-hidden; wat het
-// betekent staat in de tooltip van het tabblad, want een markering zonder uitleg
-// is een raadseltje.
+// One account tab. The active tab is marked twice over - a filled background and the
+// account colour as a strip along the bottom edge - because the colour alone is too
+// weak with a muted account colour. A tab carries its surface icon when the account
+// is on something other than mail, and the delegated icon means what the tooltip
+// says. `showUnread` is the per-account Badge checkbox, the same question the taskbar
+// counter asks accountCountVisible. Without `-webkit-app-region: no-drag` the tab is
+// part of the window's drag region and cannot be clicked at all.
 function DelegatedIcon({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
@@ -18,11 +21,6 @@ function DelegatedIcon({ className = '' }: { className?: string }) {
   );
 }
 
-// Het icoontje van de surface waar dit account op staat. De zijbalk had per
-// account een eigen knop per surface en liet daarmee zien waar je was; met één
-// tabblad per account is dat weg, en staat de agenda van een account er precies
-// zo bij als zijn post. Dus: staat het account op iets anders dan mail, dan
-// draagt het tabblad dat icoontje. Dezelfde bronnen als het rechtsklikmenu.
 function SurfaceIcon({ surface, className = '' }: { surface: Surface; className?: string }) {
   if (surface === 'calendar') {
     return <img src={CALENDAR_ICON_DATA_URI} alt="" draggable={false} className={className} />;
@@ -31,10 +29,6 @@ function SurfaceIcon({ surface, className = '' }: { surface: Surface; className?
   return Icon ? <Icon className={className} /> : null;
 }
 
-// Eén tabblad. Het actieve tabblad is aan twee dingen te zien: een gevulde
-// achtergrond, én de accountkleur als streepje langs de onderrand. Beide zijn
-// nodig — alleen de kleur is te zwak bij een gedempte accountkleur, en alleen de
-// achtergrond gooit de kleurcodering weg die de zijbalk had.
 export function AccountTab({
   profile,
   label,
@@ -53,19 +47,12 @@ export function AccountTab({
   profile: Profile;
   label: string;
   unread: number;
-  // Het per-account "Badge"-vinkje: staat het uit, dan toont dit tabblad geen
-  // getal — geen 0, geen leeg bolletje, gewoon niets. Dezelfde vraag als de
-  // taakbalk-teller stelt aan accountCountVisible, zodat ze nooit uit elkaar
-  // kunnen lopen.
   showUnread: boolean;
   active: boolean;
-  // De surface waar dít account op staat, of null als het niet het actieve
-  // account is. `mail` toont geen icoontje: dat is de gewone stand.
   activeSurface: Surface | null;
   dragging: boolean;
   strings: { delegatedTooltipSuffix: string; numberLocale: string };
   onOpen(): void;
-  // Zonder cursorpositie: het menu is een OS-menu en komt zelf op de cursor.
   onMenu(): void;
   onDragStart(): void;
   onDrop(): void;
@@ -86,8 +73,6 @@ export function AccountTab({
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       title={delegated ? `${profile.email} ${strings.delegatedTooltipSuffix}` : profile.email}
-      // no-drag: zonder dit is het tabblad onderdeel van het sleepgebied van het
-      // venster en is het niet aan te klikken.
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       className={`group relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition ${
         active
@@ -103,7 +88,6 @@ export function AccountTab({
           {unreadLabel(unread, strings.numberLocale)}
         </span>
       )}
-      {/* De accountkleur. Vol bij het actieve tabblad, gedempt bij de rest. */}
       <span
         aria-hidden
         className={`pointer-events-none absolute inset-x-1.5 bottom-0 h-[3px] rounded-t-sm transition-opacity ${

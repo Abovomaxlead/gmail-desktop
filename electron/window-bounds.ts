@@ -1,8 +1,11 @@
+// Drops a stored window position that no longer overlaps any display by at least
+// MIN_VISIBLE pixels on both axes, so a window last closed on a monitor that is now
+// disconnected reopens on screen at its remembered size.
 export interface Rect { x: number; y: number; width: number; height: number }
 export interface Display { bounds: Rect }
 export interface StoredBounds { width: number; height: number; x?: number; y?: number }
 
-const MIN_VISIBLE = 100; // px that must overlap a display on each axis
+const MIN_VISIBLE = 100;
 
 function overlaps(win: Required<StoredBounds>, d: Rect): boolean {
   const xOverlap = Math.min(win.x + win.width, d.x + d.width) - Math.max(win.x, d.x);

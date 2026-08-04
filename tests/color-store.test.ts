@@ -1,3 +1,5 @@
+// The per-account colour store on disk.
+
 import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -25,7 +27,7 @@ describe('ColorStore', () => {
   it('tolerates a corrupt or non-object file (returns undefined, then can still write)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'colors-'));
     const fp = join(dir, 'colors.json');
-    writeFileSync(fp, '[1,2,3]', 'utf8'); // valid JSON but not a Record
+    writeFileSync(fp, '[1,2,3]', 'utf8');
     const s = new ColorStore(fp);
     expect(s.get('a@x.com')).toBeUndefined();
     s.set('a@x.com', '#000');

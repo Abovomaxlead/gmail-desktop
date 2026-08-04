@@ -1,3 +1,5 @@
+// Writing dragged mail to disk: safe file names, thread and label files, the log.
+
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

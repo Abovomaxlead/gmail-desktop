@@ -1,3 +1,5 @@
+// Whether an available update is worth notifying about.
+
 import { describe, it, expect } from 'vitest';
 import { shouldNotifyUpdate } from '../electron/update-notifier';
 

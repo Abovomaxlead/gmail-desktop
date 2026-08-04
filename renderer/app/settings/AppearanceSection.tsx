@@ -7,9 +7,12 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { FIELD, HINT } from './tokens';
 
-// Weergave: hoe de app eruitziet en waar hij zich laat zien. Het thema, de
-// hoofdschakelaar boven de ongelezen-getallen, het icoon in de systeembalk, en de
-// ondergrens van de vensterbreedte.
+// Appearance: the theme, the master switch above the per-account unread counts, the
+// tray icon, and the minimum window size. The tray row that depends on the tray
+// being enabled is disabled rather than hidden, because a disappearing row makes the
+// section jump under your hands. Tray colour is deliberately absent: it would need a
+// monochrome icon that is not in assets/ yet, so the section says so instead.
+
 export function AppearanceSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const tray = prefs?.appearance.tray;
 
@@ -31,10 +34,6 @@ export function AppearanceSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
       </SettingsGroup>
 
       <SettingsGroup title={S.navAccounts}>
-        {/* De hoofdschakelaar boven het "Getal"-vinkje per account bij Meldingen.
-            Uit verbergt élk getal — op de taakbalk en op de tabbladen — ook van een
-            account dat wél meetelt. Dat het de keuze per account overstemt staat in
-            de bijtekst, want anders lijkt die keuze stuk. */}
         <SettingRow
           label={S.showUnreadBadges}
           description={S.showUnreadBadgesDescription}
@@ -57,9 +56,6 @@ export function AppearanceSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
           />
         </SettingRow>
 
-        {/* Uitgeschakeld en niet verborgen als het icoon uit staat: verdwijnt de rij,
-            dan verspringt de sectie onder je handen zodra je de schakelaar erboven
-            omzet. `disabled` op de schakelaar zegt hetzelfde zonder te bewegen. */}
         <SettingRow
           label={S.traySelectUnread}
           description={S.traySelectUnreadDescription}
@@ -73,10 +69,6 @@ export function AppearanceSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
           />
         </SettingRow>
 
-        {/* De kleur van het icoon hoort hier ook, en die is er nog niet. Dat staat er
-            met zoveel woorden in plaats van als schakelaar die niets doet: het icoon
-            is het gekleurde app-logo, en "licht" of "donker" vraagt om een monochrome
-            variant die nog niet in assets/ zit. */}
         <p className={`mt-1 ${HINT}`}>{S.trayColourTodo}</p>
       </SettingsGroup>
 

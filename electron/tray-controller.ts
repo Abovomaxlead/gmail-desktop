@@ -1,3 +1,10 @@
+// The tray icon and its context menu. Everything the menu shows or does arrives as
+// state, so the template stays a pure function that is testable without Electron and
+// this file knows nothing about preferences; now is epoch ms, used to tell whether
+// dndUntil is still active. Electron bakes labels and checkbox values in at build
+// time, so every state change has to rebuild the whole menu. The click binding
+// survives those rebuilds, and createTray takes a finished image because tinting it
+// depends on a preference main owns.
 import type { Tray, Menu, MenuItemConstructorOptions } from 'electron';
 
 export function shouldHideOnClose(state: {
@@ -7,21 +14,13 @@ export function shouldHideOnClose(state: {
   return !state.isQuitting;
 }
 
-// Read model for the tray context menu. Everything the menu shows or does is
-// passed in so the template is a pure function of state (and unit-testable
-// without Electron). `now` is an epoch-ms timestamp used to render/relative-check
-// the active snooze.
 export interface TrayUpdateStatus {
-  state: string; // idle | checking | available | not-available | downloading | downloaded | error | dev
+  state: string;
   version?: string;
   percent?: number;
 }
 export interface TrayState {
   onOpen: () => void;
-  // Wat een klik op het icoon zelf doet, als dat iets anders is dan "Open" in het
-  // menu. Weergave heeft een keuze om dan naar het eerste account met ongelezen
-  // post te springen, en die hoort niet ook achter het menu-item te zitten: daar
-  // staat "Open", en dat betekent het venster.
   onIconClick?: () => void;
   onQuit: () => void;
   isPackaged: boolean;
@@ -31,14 +30,13 @@ export interface TrayState {
   onInstallUpdate: () => void;
   autoStart: boolean;
   onToggleAutoStart: (v: boolean) => void;
-  dnd: boolean; // indefinite mute ("off until I turn it back on")
-  dndUntil?: number; // epoch ms; timed snooze end
-  now: number; // epoch ms; used to decide whether dndUntil is still active
-  onSnooze: (minutes: number | null) => void; // null = mute indefinitely
+  dnd: boolean;
+  dndUntil?: number;
+  now: number;
+  onSnooze: (minutes: number | null) => void;
   onClearSnooze: () => void;
 }
 
-// Local 24h HH:MM, zero-padded.
 export function formatClock(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
@@ -129,26 +127,15 @@ export function buildTrayMenu(state: TrayState): Menu {
   return Menu.buildFromTemplate(trayMenuTemplate(state));
 }
 
-// Neemt een kant-en-klaar icoon in plaats van een pad. Het samenstellen ervan zit in
-// main (`trayImage`), omdat het van een voorkeur afhangt — de kleur uit Weergave — en
-// dit bestand met opzet niets van voorkeuren weet: alles wat de tray toont of doet
-// komt als staat binnen, zodat het menu een pure functie blijft.
 export function createTray(image: Electron.NativeImage, state: TrayState): Tray {
   const { Tray } = require('electron') as typeof import('electron');
   const tray = new Tray(image);
   tray.setToolTip('Gmail Desktop');
   tray.setContextMenu(buildTrayMenu(state));
-  // Deze binding blijft staan zolang de Tray bestaat — `updateTrayMenu` vervangt
-  // alleen het menu. Dat mag: de functie die main hier meegeeft leest de voorkeuren
-  // op het moment van de klik, dus een gewijzigde keuze werkt zonder de tray
-  // opnieuw te bouwen.
   tray.on('click', state.onIconClick ?? state.onOpen);
   return tray;
 }
 
-// Rebuild the whole context menu from fresh state — Electron bakes checkbox/label
-// values in at build time, so any state change (snooze, autostart, update status)
-// must go through here to be reflected.
 export function updateTrayMenu(tray: Tray, state: TrayState): void {
   tray.setContextMenu(buildTrayMenu(state));
 }

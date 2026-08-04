@@ -1,3 +1,5 @@
+// The sync runner: first run, history deltas, recovery, resilience and coalescing.
+
 import { describe, it, expect } from 'vitest';
 import { createSyncRunner, type SyncClient, type SyncOutcome } from '../electron/push-sync';
 import type { HistoryPage, MessageMeta } from '../electron/gmail-api';
@@ -25,9 +27,6 @@ function fake(options: FakeOptions = {}) {
   const client: SyncClient = {
     async profileHistoryId() {
       calls.profile += 1;
-      // Niet `??`: die behandelt een expliciete `null` (profiel zonder
-      // historyId) hetzelfde als "niet meegegeven", waardoor die casus nooit
-      // getest kan worden.
       return options.profileHistoryId === undefined ? '5000' : options.profileHistoryId;
     },
     async historyPage(start, pageToken) {
@@ -72,7 +71,7 @@ describe('createSyncRunner — first run', () => {
     expect(t.cursor()).toBe('5000');
     expect(t.outcomes[0].notify).toEqual([]);
     expect(t.outcomes[0].rebaselined).toBe(true);
-    expect(t.calls.history).toEqual([]); // niets om te vergelijken
+    expect(t.calls.history).toEqual([]);
   });
 
   it('still reports the unread count on a baseline', async () => {
@@ -144,7 +143,6 @@ describe('createSyncRunner — delta', () => {
     });
     await t.r.run();
     expect(t.outcomes[0].notify).toEqual([]);
-    // De teller moet wél kloppen: het bericht bestaat, het meldt alleen niet.
     expect(t.outcomes[0].unread).toBe(3);
   });
 
@@ -191,7 +189,6 @@ describe('createSyncRunner — recovery', () => {
     expect(t.outcomes[0].notify).toEqual([]);
   });
 
-  // De enige invariant waarvan het breken mail geruisloos laat verdwijnen.
   it('does not advance the cursor when a page fails', async () => {
     const t = runner({ stored: '4900', historyThrows: { status: 500 } });
     await t.r.run();
@@ -227,9 +224,6 @@ describe('createSyncRunner — recovery', () => {
 });
 
 describe('createSyncRunner — resilience', () => {
-  // Zonder opvangnet rond de doorloop blijft `running` een verworpen belofte
-  // vasthouden: elke latere run() krijgt dan voorgoed dezelfde oude fout terug
-  // en dit account synct nooit meer. Dit is de belangrijkste test van het stel.
   it('does not wedge after a baseline failure: the next run performs a fresh pass', async () => {
     let profileCalls = 0;
     const outcomes: SyncOutcome[] = [];
@@ -253,15 +247,10 @@ describe('createSyncRunner — resilience', () => {
       onError: (e) => errors.push(e),
     });
 
-    // Eerste run: de profielaanvraag faalt. run() moet zelf resolven, niet
-    // rejecten — anders wordt de aanroeper (`void runner.run()`) een
-    // onafgehandelde afwijzing.
     await expect(r.run()).resolves.toBeUndefined();
     expect(errors).toHaveLength(1);
     expect(stored).toBeUndefined();
 
-    // Tweede run: geen oude fout, maar een echte nieuwe doorloop die de
-    // client daadwerkelijk weer raakt.
     await r.run();
     expect(profileCalls).toBe(2);
     expect(stored).toBe('5000');
@@ -271,8 +260,6 @@ describe('createSyncRunner — resilience', () => {
 
   it('recovers after a failing pass: a later run succeeds normally', async () => {
     let call = 0;
-    // De gedeelde fake() kent geen "eerste keer mislukt, daarna niet meer";
-    // dat vraagt om een client die per aanroep anders reageert, dus los opgezet.
     const outcomes: SyncOutcome[] = [];
     const errors: unknown[] = [];
     let stored: string | undefined = '4900';
@@ -332,9 +319,9 @@ describe('createSyncRunner — coalescing', () => {
       onOutcome: () => {},
     });
     const a = r.run();
-    const b = r.run(); // komt binnen terwijl de eerste nog loopt
-    const c = r.run(); // en nog een: samen levert dat één extra doorloop op
-    expect(seen).toEqual(['4900']); // de tweede is nog niet begonnen
+    const b = r.run();
+    const c = r.run();
+    expect(seen).toEqual(['4900']);
     release();
     await Promise.all([a, b, c]);
     expect(seen).toEqual(['4900', '5000']);

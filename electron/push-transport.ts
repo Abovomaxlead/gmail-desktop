@@ -1,27 +1,17 @@
+// The only module that knows the ws library. Mapping ws events onto PushSocket is a
+// real decision, not plumbing: the relay's heartbeat is a protocol ping, which
+// arrives as a 'ping' (answered by ws with a 'pong') and never as a 'message', so
+// both feed onPing — without that the manager sees nothing for 90 seconds on a quiet
+// mailbox and drops a healthy connection. Close codes are passed through because
+// 4400/4401/4403 are what separates "retry" from "this will never work".
 import WebSocket from 'ws';
 
-// De enige plek die `ws` kent. De manager erboven praat alleen met deze
-// interface en krijgt in tests een nep-transport.
-//
-// Wat hier gebeurt is méér dan doorgeven: dit bestand beslist welke
-// ws-gebeurtenis "de verbinding leeft nog" betekent. Die beslissing is één keer
-// fout gegaan — de hartslag van de relay is een protocol-ping (`ws.ping()`) en
-// die komt bij `ws` binnen als een `'ping'`-gebeurtenis, nooit als
-// `'message'`. Zonder die draad zag de manager op een stil postvak 90 seconden
-// niets en brak hij een gezonde verbinding elke minuut-en-een-half af. Daarom is
-// het afbeelden van gebeurtenissen losgetrokken in `adaptSocket` en wél getest.
 export interface PushSocket {
   send(data: string): void;
   close(): void;
   onOpen(cb: () => void): void;
   onMessage(cb: (data: string) => void): void;
-  // De hartslag. De relay stuurt elke 30 seconden een ping en verwacht daar
-  // alleen een pong op (die stuurt `ws` zelf). Er zit geen inhoud in, het enige
-  // dat hij zegt is "ik ben er nog" — en dat is precies wat de staleness-timer
-  // van de manager moet weten. Een pong telt net zo goed: zelfde signaal.
   onPing(cb: () => void): void;
-  // De sluitcode is het verschil tussen "probeer opnieuw" en "dit gaat nooit
-  // lukken": de relay gebruikt 4401/4403/4400 om te zeggen wat er mis was.
   onClose(cb: (code: number) => void): void;
   onError(cb: (e: unknown) => void): void;
 }
@@ -30,8 +20,6 @@ export interface PushTransport {
   connect(url: string): PushSocket;
 }
 
-// Het stukje `ws` dat we gebruiken, apart benoemd zodat `adaptSocket` met een
-// gewone EventEmitter te testen is zonder een echte server of socket.
 export interface WsLike {
   send(data: string): void;
   close(): void;
@@ -48,9 +36,6 @@ export function adaptSocket(ws: WsLike): PushSocket {
     onOpen: (cb) => void ws.on('open', cb),
     onMessage: (cb) => void ws.on('message', (d) => cb(d.toString())),
     onPing: (cb) => {
-      // Beide: `ws` levert de ping van de relay af als 'ping' en antwoordt zelf
-      // met een pong. Zou de relay het ooit omdraaien, dan is dat hetzelfde
-      // signaal en hoeft hier niets te veranderen.
       ws.on('ping', () => cb());
       ws.on('pong', () => cb());
     },

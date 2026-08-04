@@ -1,22 +1,18 @@
-// All user-facing text in the app's own chrome (sidebar + settings), in two
-// flavors: the normal English UI and Rene mode's simple Dutch — short words a
-// four-year-old can read. Gmail's own page content is Google's and stays as-is.
+// All user-facing text in the app's own chrome (bar + settings), in two flavours: the
+// normal English UI and Rene mode's simple Dutch, short words a four-year-old can
+// read. Gmail's own page content is Google's and stays as it is. `numberLocale` is a
+// formatting choice that belongs to the language: which separator groups the thousands
+// in an unread count (1.324 vs 1,324). A nav name is also the heading above its own
+// section, one key for both, because nineteen sections with two keys each would be
+// nineteen chances for the two to drift apart.
 
 export interface UiStrings {
-  // Not text on screen but a formatting choice that belongs to the language:
-  // which separator groups the thousands in an unread count (1.324 vs 1,324).
   numberLocale: string;
 
   close: string;
-  // Het opschrift onder de sluitknop: de naam van de toets die hetzelfde doet.
   escKey: string;
   reneBanner: string;
 
-  // De namen in de navigatiekolom. Ze zijn óók de kop boven de sectie zelf: er is
-  // één naam per sectie, en die staat op twee plekken hetzelfde. Twee sleutels per
-  // sectie leverde twee namen voor hetzelfde ding op ("Algemeen" in de kolom,
-  // "Algemeen" erboven), en bij negentien secties is dat negentien kansen om uit
-  // elkaar te lopen. Kort houden blijft nodig: de kolom is 240px.
   navDownloadHistory: string;
   navGeneral: string;
   navAccounts: string;
@@ -32,18 +28,12 @@ export interface UiStrings {
   navAdvanced: string;
   navWhatsNew: string;
   navAbout: string;
-  // Het puntje in de navigatie heeft geen vorm die iets zegt, dus staat er voor
-  // een schermlezer tekst achter de sectienaam: "Notifications, needs your
-  // attention". Formuleer zo dat het achter een sectienaam voorleesbaar blijft.
   settingsAttention: string;
-  // Wat er in een sectie staat waar nog niets is ingericht. Eén tekst voor alle
-  // lege secties: het is dezelfde mededeling, en per sectie een eigen formulering
-  // zou suggereren dat er per sectie iets anders aan de hand is.
   sectionEmpty: string;
 
   defaultMailClient: string;
   defaultMailClientDescription: string;
-  startup: string; // de kop van de groep met de opstartkeuzes
+  startup: string;
   autoStart: string;
   autoStartDescription: string;
   launchMinimized: string;
@@ -65,8 +55,6 @@ export interface UiStrings {
   openInApp: string;
   openInWindow: string;
 
-  // Weergave. `windowGroup` heet zo en niet `window`, omdat dat woord in
-  // `Prefs.window` al de vensterafmetingen is.
   showUnreadBadges: string;
   showUnreadBadgesDescription: string;
   systemTray: string;
@@ -74,25 +62,21 @@ export interface UiStrings {
   trayEnabledDescription: string;
   traySelectUnread: string;
   traySelectUnreadDescription: string;
-  // Waarom de kleur van het tray-icoon er nog niet is. Een regel in beeld en geen
-  // schakelaar die niets doet.
   trayColourTodo: string;
   windowGroup: string;
   restrictMinWindowSize: string;
   restrictMinWindowSizeDescription: string;
 
-  // Downloads.
   saveAsDialog: string;
   saveAsDialogDescription: string;
   openFolderWhenDone: string;
   openFolderWhenDoneDescription: string;
   downloadFolder: string;
   downloadFolderDescription: string;
-  downloadFolderDefault: string; // staat er alleen zolang de gebruiker niets koos
+  downloadFolderDefault: string;
   change: string;
-  mailDropGroup: string; // de kop boven de map voor gesleepte mail
+  mailDropGroup: string;
 
-  // Talen.
   spellchecker: string;
   spellcheckerDescription: string;
   spellcheckerUnavailable: string;
@@ -100,7 +84,6 @@ export interface UiStrings {
   spellcheckerChosen: (count: number) => string;
   spellcheckerSystemNote: string;
 
-  // Phishing Protection.
   confirmExternalLinks: string;
   confirmExternalLinksDescription: string;
   trustedHosts: string;
@@ -108,31 +91,24 @@ export interface UiStrings {
   trustedHostsEmpty: string;
   trustedHostRemove: (host: string) => string;
 
-  // Bijwerken.
   autoCheckUpdates: string;
   autoCheckUpdatesDescription: string;
   notifyUpdates: string;
   notifyUpdatesDescription: string;
 
-  // Geavanceerd.
   miscellaneous: string;
   hardwareAcceleration: string;
   hardwareAccelerationDescription: string;
   restartRequired: string;
 
-  // De tab Gmail: ingrepen in Gmail's eigen pagina.
   gmailComposeGroup: string;
   gmailInboxGroup: string;
   gmailHideInboxFooter: string;
   gmailHideInboxFooterDescription: string;
   gmailComposeNewWindow: string;
   gmailComposeNewWindowDescription: string;
-  // Dat een ingreep in Gmail's pagina kan omvallen als Google iets omgooit. Hoort
-  // erbij te staan: als een schakelaar niets doet is dat de waarschijnlijke reden, en
-  // dan weet je dat het niet aan jou ligt.
   gmailTweakFragile: string;
 
-  // De tab Google Apps.
   gaOpenInApp: string;
   gaOpenInAppDescription: string;
   gaAlwaysNewWindow: string;
@@ -151,7 +127,6 @@ export interface UiStrings {
   gaPin: (name: string) => string;
   gaUnpin: (name: string) => string;
 
-  // De tab Download History.
   dhEmpty: string;
   dhFile: string;
   dhSize: string;
@@ -166,9 +141,6 @@ export interface UiStrings {
   dhClearConfirm: string;
   dhBytes: (n: number) => string;
 
-  // Het geluidje bij een melding. De namen horen bij de tonen die de app zelf maakt
-  // (renderer/lib/notification-sound.ts); `soundSystem` is de keuze "laat het
-  // besturingssysteem zijn eigen geluid spelen", en dat is de stand van nu.
   soundChoice: string;
   soundChoiceDescription: string;
   soundSystem: string;
@@ -181,11 +153,9 @@ export interface UiStrings {
   volumeLabel: (percent: number) => string;
   volumeDescription: string;
 
-  // De rij die er eerst niet was: het opstelvenster sluiten na verzenden.
   gmailCloseCompose: string;
   gmailCloseComposeDescription: string;
 
-  // De tab Verification Codes.
   vcAutoCopy: string;
   vcAutoCopyDescription: string;
   vcConfidence: string;
@@ -196,20 +166,12 @@ export interface UiStrings {
   vcMarkReadDescription: string;
   vcDelete: string;
   vcDeleteDescription: string;
-  // De enige onomkeerbare instelling in de app krijgt een eigen waarschuwing.
   vcDeleteWarning: string;
-  // Voor wie dit werkt. Niet elk account kan het: het lezen van een bericht gaat via
-  // de Gmail-API, en die verbinding hebben alleen accounts die daarvoor gekoppeld zijn.
   vcNotWiredYet: string;
 
-  // Accounts, de nieuwe kaart. `addShort` is het opschrift op de pil rechtsboven —
-  // `addAccountLabel` is de volledige zin en te breed voor een pil. `renameAccount`
-  // is de naam van het potlood: dat mag niet `accountLabelField` zijn, want dan
-  // hoort een schermlezer twee dingen met dezelfde naam op één kaart.
   addShort: string;
   renameAccount: string;
 
-  // Meldingen, de nieuwe blokken.
   notificationContent: string;
   showSender: string;
   showSenderDescription: string;
@@ -237,11 +199,7 @@ export interface UiStrings {
   quietHoursDescription: string;
   from: string;
   to: string;
-  // De schakelaars per account staan in Meldingen en niet bij Accounts: Accounts
-  // gaat over wie er meedoet, Meldingen over wat je bereikt. De korte sleutel is
-  // de kolomkop in het rooster, de `*Title` de volledige tekst — die is de
-  // toegankelijke naam van het vakje en de tooltip van de kolom.
-  perAccountNotifications: string; // de kop van het blok met het rooster
+  perAccountNotifications: string;
   mailToggle: string;
   mailToggleTitle: string;
   calendarToggle: string;
@@ -252,14 +210,12 @@ export interface UiStrings {
   soundToggleTitle: string;
   persistToggle: string;
   persistToggleTitle: string;
-  // Wat er in een cel staat die voor dat account niet bestaat — een account
-  // zonder agenda. Alleen voor een schermlezer; in beeld staat er een streepje.
   toggleNotApplicable: string;
 
-  updates: string; // de naam van de rij met de updatestatus en zijn knoppen
+  updates: string;
   versionPrefix: string;
   updateNow: string;
-  updateReady: string; // the topbar button that appears once an update is downloaded
+  updateReady: string;
   restartInstall: string;
   checkForUpdates: string;
   checking: string;
@@ -271,43 +227,37 @@ export interface UiStrings {
   updError: (message: string) => string;
   updDev: string;
 
-  changelogVersionPrefix: string; // e.g. "Version" — shown before the number in each entry
+  changelogVersionPrefix: string;
   showOlder: string;
   hideOlder: string;
   changelogEmpty: string;
-  changelogCategory: (heading: string) => string; // localizes a known "### Category" label
+  changelogCategory: (heading: string) => string;
 
-  accountLabelField: string; // de naam van het naamveld in een accountkaart
-  accountColor: string; // de naam van de groep kleurstaaltjes
-  colorName: (hex: string) => string; // de naam van één staaltje, voor een schermlezer
+  accountLabelField: string;
+  accountColor: string;
+  colorName: (hex: string) => string;
   removeAccount: string;
-  removeConfirmBefore: string; // text before the styled "+" in the confirm box
+  removeConfirmBefore: string;
   removeConfirmAfter: string;
   remove: string;
   cancel: string;
-  // De rij met de zoek-opnieuw-knop. `redetectLabel` is de naam van de rij en
-  // `redetect` de tekst op de knop erin; de rij mag niet `navAccounts` gebruiken,
-  // want dat woord staat al als kop boven de sectie.
   redetectLabel: string;
   redetect: string;
   redetectDescription: string;
   noAccounts: string;
-  accountsFootnoteBefore: string; // text before the styled "+" in the footnote
+  accountsFootnoteBefore: string;
   accountsFootnoteAfter: string;
 
   addAccountTooltip: string;
   addAccountLabel: string;
   addDelegatedLabel: string;
-  delegatedTooltipSuffix: string; // appended to a delegated tab's tooltip, explaining its marker
+  delegatedTooltipSuffix: string;
   delegatedSuggestionsHeading: string;
   delegatedScanning: string;
   delegatedNoneFound: string;
   settingsTooltip: string;
 }
 
-// Maps a known changelog category heading (English or Dutch, any case) to a
-// canonical key, so both language variants can relabel it. Unknown headings
-// (or the implicit empty heading) return null and render without a label.
 function categoryKey(heading: string): 'added' | 'fixed' | 'changed' | 'removed' | 'security' | null {
   switch (heading.trim().toLowerCase()) {
     case 'added':
@@ -346,10 +296,6 @@ const CATEGORY_RENE: Record<string, string> = {
   security: 'Veilig',
 };
 
-// De zes tinten die een account kan krijgen, in woorden. Een staaltje zonder
-// naam is voor een schermlezer een knop zonder inhoud, en "#4285F4" wordt niet
-// als een kleur voorgelezen. Onbekende waarden geven de hex terug: beter iets dan
-// niets, en de lijst kan zonder schade uitgebreid worden.
 type ColorKey = 'blue' | 'red' | 'green' | 'yellow' | 'purple' | 'teal';
 
 const COLOR_KEYS: Record<string, ColorKey> = {

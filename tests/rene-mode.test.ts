@@ -1,3 +1,5 @@
+// Rene mode: the key sequence that unlocks it, its zoom constants and its strings.
+
 import { describe, it, expect } from 'vitest';
 import { advanceReneSequence, RENE_SEQUENCE } from '../renderer/app/settings-utils';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from '../electron/rene';
@@ -23,7 +25,6 @@ describe('advanceReneSequence', () => {
   });
 
   it('a wrong key that is ArrowUp restarts the match instead of dropping it', () => {
-    // ↑ ↓ ↑ ↓ ← → a b — the second ↑ begins a fresh attempt that completes.
     expect(
       feed(['ArrowUp', 'ArrowDown', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'a', 'b']),
     ).toBe(RENE_SEQUENCE.length);

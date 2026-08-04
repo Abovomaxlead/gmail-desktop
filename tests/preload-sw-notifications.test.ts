@@ -1,10 +1,9 @@
+// Google Calendar fires reminders through ServiceWorkerRegistration.showNotification,
+// which Electron never displays; the shim reroutes them to window.Notification.
+
 import { describe, expect, it, vi } from 'vitest';
 import { rerouteServiceWorkerNotifications } from '../electron/preload';
 
-// Google Calendar fires event reminders via ServiceWorkerRegistration.showNotification
-// (a "persistent" notification). Electron never displays those, and they bypass the
-// app's window.Notification gate. The reroute helper replaces showNotification with a
-// shim that constructs the (wrapped, gated) window.Notification instead.
 describe('rerouteServiceWorkerNotifications', () => {
   function setup() {
     const constructed: Array<{ title: string; options?: NotificationOptions }> = [];

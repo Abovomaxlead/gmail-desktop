@@ -10,9 +10,16 @@ import type {
 } from '../MailDropModal';
 import { labelKind, type LabelKind } from '../label-kind';
 
-// Eigen pagina, alleen voor de modal die bovenóp Gmail in een eigen view wordt
-// getoond. Bewust géén gedeelde pagina met de zijbalk: die moest dan aan een
-// vlag herkennen in welke view ze draaide, en dat kwam niet aan.
+// The mail-drop modal, on its own page because it is shown in its own view on top of
+// Gmail; sharing a page with the bar meant recognising from a flag which view it was
+// running in, and that did not hold up. Copying takes visibly long - a search and then
+// an insert per message per account - so the modal runs through phases: picking,
+// copying, confirming when mail already sits at the destination, done. 'check' looks
+// first and asks, 'new' skips what is there, 'all' adds it anyway. Labels are fetched
+// again per drag, since this view survives between drags and which accounts are
+// possible targets depends on where you dragged from. The transparent background is
+// set in the rendered html rather than from an effect - one frame with an opaque
+// background flashes Gmail away.
 
 interface Label {
   id: string;
@@ -24,9 +31,6 @@ interface AccountLabels {
   error?: string;
 }
 
-// Het kopiëren duurt zichtbaar lang — eerst een zoekopdracht en dan een insert
-// per bericht per account — dus de modal loopt door standen: kiezen, bezig,
-// eventueel bevestigen als er al mail staat, en klaar.
 type Phase =
   | { kind: 'picking' }
   | { kind: 'copying'; phase: 'check' | 'copy'; done: number; total: number; email: string }
@@ -36,16 +40,12 @@ type Phase =
 export default function MailDropModalPage() {
   const [items, setItems] = useState<MailDropItem[]>([]);
   const [accounts, setAccounts] = useState<AccountLabels[] | null>(null);
-  // Aangevinkte labels per account: e-mailadres -> label-ids.
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
 
   useEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
-    // Labels komen van de Gmail API, per gekoppeld account. Bij elke sleep
-    // opnieuw: deze view blijft bestaan tussen sleeps door, en welke accounts
-    // een doel zijn hangt af van waar je uit sleept.
     const loadLabels = () => {
       setAccounts(null);
       void bridge
@@ -53,19 +53,12 @@ export default function MailDropModalPage() {
         .then(({ accounts: a }) => setAccounts(a))
         .catch(() => setAccounts([]));
     };
-    // Ophalen én luisteren: het main-proces kan de items al gestuurd hebben
-    // voordat deze pagina klaar was met laden.
     void bridge.getMailDropPreview().then(({ items: i }) => {
       if (i.length > 0) setItems(i);
     });
-    // De eerste push hoort bij de sleep die deze view net opende; daar zijn de
-    // labels hieronder al voor opgehaald. Pas een vólgende sleep vraagt om een
-    // nieuwe lijst.
     let seenPreview = false;
     bridge.onMailDropPreview(({ items: i }) => {
       setItems(i);
-      // Een nieuwe sleep terwijl de modal nog een oude uitkomst toont: terug
-      // naar kiezen, anders kopieer je met één klik de vorige mail nog eens.
       setPicked({});
       setPhase({ kind: 'picking' });
       if (seenPreview) loadLabels();
@@ -95,11 +88,8 @@ export default function MailDropModalPage() {
     .filter((t) => t.labelIds.length > 0);
   const pickedCount = targets.reduce((s, t) => s + t.labelIds.length, 0);
 
-  // Wat er te kopiëren valt: de berichten die de sleep daadwerkelijk opleverde.
   const savedCount = items.reduce((s, i) => s + i.saved, 0);
 
-  // 'check' kijkt eerst en vraagt; 'new' slaat over wat er al staat; 'all' zet
-  // alles er alsnog bij.
   const copy = async (mode: MailDropCopyMode = 'check') => {
     const bridge = window.desktop;
     if (!bridge || targets.length === 0) return;
@@ -136,15 +126,11 @@ export default function MailDropModalPage() {
     }
   };
 
-  // Van label-id naar de naam die de gebruiker heeft aangevinkt, zodat de
-  // waarschuwing de map noemt en niet een intern id.
   const labelName = (email: string, labelId: string) =>
     accounts?.find((a) => a.email === email)?.labels.find((l) => l.id === labelId)?.name ?? labelId;
 
   return (
     <>
-      {/* Moet in de opgemaakte html staan, niet pas na een effect: zodra
-          Chromium één frame een dichte achtergrond tekent, flitst Gmail weg. */}
       <style>{'html,body{background:transparent}'}</style>
 
       <div
@@ -215,9 +201,6 @@ export default function MailDropModalPage() {
                           return (
                             <label
                               key={label.id}
-                              // Een aangevinkte bestemming krijgt een eigen vlak:
-                              // waar de mail heen gaat moet je kunnen zien zonder
-                              // de vinkjes af te lopen.
                               className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm transition ${
                                 on
                                   ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
@@ -257,8 +240,6 @@ export default function MailDropModalPage() {
               </button>
             ) : phase.kind === 'confirm' ? (
               <div className="flex shrink-0 items-center gap-2">
-                {/* Annuleren gaat terug naar het kiezen in plaats van te sluiten:
-                    meestal wil je dan één label uitvinken en de rest wél doen. */}
                 <button
                   onClick={() => setPhase({ kind: 'picking' })}
                   className="rounded-lg px-4 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
@@ -271,9 +252,6 @@ export default function MailDropModalPage() {
                 >
                   Alles kopiëren
                 </button>
-                {/* De gewone keuze staat vooraan en is de blauwe knop: wat er al
-                    staat overslaan en alleen de nieuwe mail erbij zetten. Weg
-                    als er niets nieuws is — dan is er niets te doen. */}
                 {phase.newCount > 0 && (
                   <button
                     onClick={() => void copy('new')}
@@ -312,8 +290,6 @@ function Status({
 }) {
   if (phase.kind === 'copying') {
     const doing = phase.phase === 'check' ? 'Controleren' : 'Kopiëren';
-    // Vóór de eerste voortgangstik is het totaal nog niet bekend; dan alleen
-    // zeggen wat er gebeurt in plaats van "0 van 0".
     const text =
       phase.total > 0
         ? `${doing}: ${phase.done} van ${phase.total} — ${phase.email}`
@@ -354,8 +330,6 @@ function Status({
   );
 }
 
-// Eén vorm per soort bestemming. Materials iconen, zodat ze hetzelfde lezen als
-// wat Gmail er zelf naast zet.
 const ICON_PATH: Record<LabelKind, string> = {
   inbox:
     'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z',
@@ -365,9 +339,6 @@ const ICON_PATH: Record<LabelKind, string> = {
   user: 'M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z',
 };
 
-// Kleur per soort, niet per label: het gaat erom dat een postvak niet op een
-// eigen map lijkt. Elke vorm heeft een eigen tint, ook al zijn ster en
-// belangrijk in Gmail allebei geel.
 const ICON_COLOR: Record<LabelKind, string> = {
   inbox: 'text-blue-600 dark:text-blue-400',
   starred: 'text-amber-500 dark:text-amber-400',
@@ -389,8 +360,6 @@ function LabelIcon({ id, className = '' }: { id: string; className?: string }) {
       viewBox="0 0 24 24"
       fill="currentColor"
       role="img"
-      // Geen aria-hidden: het soort bestemming staat nergens anders, dus dit
-      // icoon draagt informatie. De <title> is meteen de tooltip.
       className={`${ICON_COLOR[kind]} ${className}`}
       style={{ height: 15, width: 15, flexShrink: 0 }}
     >
@@ -400,9 +369,6 @@ function LabelIcon({ id, className = '' }: { id: string; className?: string }) {
   );
 }
 
-// Wat er al in het doellabel staat. Het punt is dubbele mail voorkomen, dus
-// noem wélke labels het betreft en welke berichten — anders is "toch kopiëren?"
-// een vraag zonder houvast.
 function DuplicateWarning({
   duplicates,
   newCount,
@@ -456,8 +422,6 @@ function DuplicateWarning({
   );
 }
 
-// Per account wat het geworden is. Een fout hier is de enige plek waar de
-// gebruiker leest waarom een postvak leeg bleef.
 function CopyReport({ result }: { result: MailDropCopyResult }) {
   if (result.error) {
     return <p className="text-sm text-red-600 dark:text-red-500">{result.error}</p>;

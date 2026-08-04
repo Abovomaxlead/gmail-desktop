@@ -1,20 +1,15 @@
+// Pops an OS menu for the tab bar. The choices and labels are built in the renderer
+// (plus-menu.ts, tab-menu.ts); only the native work sits here. On Windows
+// 'menu-will-close' fires before the click of the chosen item, so a dismissal is
+// reported after a short grace period or every choice would count as aborted. The
+// menu is never positioned by us: page CSS pixels and window points diverge at the
+// 200% zoom of Rene mode.
 import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron';
 import { hasClickableItem, type NativeMenuItem } from '../renderer/lib/native-menu';
 import { menuIcon } from './menu-icons';
 
-// Het openen van een OS-menu voor de balk. De keuzelogica en de teksten zitten in
-// de renderer (plus-menu.ts, tab-menu.ts); hier staat alleen het native werk, net
-// zoals context-menu.ts planContextMenu van attachContextMenu scheidt.
-
-// Electron stuurt 'menu-will-close' op Windows vóór de klik van het gekozen item.
-// Meteen "weggeklikt" antwoorden zou dus elke keuze als afgebroken bestempelen;
-// even wachten laat de klik voorgaan. Wie echt wegklikt merkt de vertraging niet,
-// want dan gebeurt er hoe dan ook niets.
 const DISMISS_GRACE_MS = 100;
 
-// Geen coördinaten: het menu komt op de cursor, zoals elk OS-menu. Zelf plaatsen
-// zou betekenen dat we CSS-pixels van de pagina naar vensterpunten omrekenen, en
-// die twee lopen in Rene-modus (200% zoom op deze webContents) uiteen.
 export function popupNativeMenu(
   win: BrowserWindow,
   items: readonly NativeMenuItem[],
@@ -40,7 +35,6 @@ export function popupNativeMenu(
     });
 
     const menu = Menu.buildFromTemplate(template);
-    // Zonder dit blijft de belofte hangen bij wegklikken, en daarmee het menu zelf.
     menu.once('menu-will-close', () => setTimeout(() => settle(null), DISMISS_GRACE_MS));
     menu.popup({ window: win });
   });

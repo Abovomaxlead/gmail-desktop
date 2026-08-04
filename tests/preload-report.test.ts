@@ -1,3 +1,5 @@
+// Computing the unread count in the page and reporting it to main.
+
 import { describe, it, expect, vi } from 'vitest';
 import { computeAndReport } from '../electron/preload';
 import { IPC } from '../electron/ipc';

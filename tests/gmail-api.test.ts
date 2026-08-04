@@ -1,3 +1,5 @@
+// The Gmail API helpers: URLs, request bodies and response parsing.
+
 import { describe, it, expect } from 'vitest';
 import {
   parseLabels,
@@ -141,9 +143,6 @@ describe('threads urls', () => {
     expect(threadsListUrl('L1', 'abc')).toContain('&pageToken=abc');
   });
 
-  // threads.get kent geen format=raw — alleen full/metadata/minimal. Vragen we
-  // daar toch "raw", dan antwoordt Google met een 400 en levert de labelsleep
-  // niets op. De bron komt daarom van messages.get.
   it('asks the thread only for its message ids', () => {
     expect(threadMessagesUrl('t1')).toBe(
       'https://gmail.googleapis.com/gmail/v1/users/me/threads/t1?format=minimal',
@@ -204,7 +203,6 @@ describe('parseMessageRaw', () => {
   });
 
   it('survives the url-safe alphabet', () => {
-    // Bytes die in gewoon base64 een '+' en een '/' opleveren.
     const bin = Buffer.from([0xfb, 0xff, 0xbf]);
     expect(parseMessageRaw({ raw: bin.toString('base64url') })).toEqual(bin);
   });
@@ -232,7 +230,6 @@ describe('searchInLabelUrl', () => {
     expect(url.pathname).toBe('/gmail/v1/users/me/messages');
     expect(url.searchParams.get('q')).toBe('rfc822msgid:a@b.nl');
     expect(url.searchParams.get('labelIds')).toBe('L1');
-    // Bestaat-of-niet is genoeg; de rest van de treffers hoeven we niet.
     expect(url.searchParams.get('maxResults')).toBe('1');
   });
 
@@ -245,7 +242,6 @@ describe('searchInLabelUrl', () => {
 describe('parseHasMessage', () => {
   it('is true only when Gmail actually found something', () => {
     expect(parseHasMessage({ messages: [{ id: 'm1' }] })).toBe(true);
-    // Een zoekopdracht zonder treffers laat `messages` weg, hij komt niet leeg terug.
     expect(parseHasMessage({ resultSizeEstimate: 0 })).toBe(false);
     expect(parseHasMessage({ messages: [] })).toBe(false);
     expect(parseHasMessage(null)).toBe(false);
@@ -455,8 +451,6 @@ describe('inbox unread', () => {
     );
   });
 
-  // Threads, niet messages: de titel van de webview telt ook gesprekken, dus zo
-  // verspringt het getal niet op het moment dat de dekking wisselt.
   it('reads the unread thread count', () => {
     expect(parseUnreadThreads({ id: 'INBOX', threadsUnread: 7, messagesUnread: 12 })).toBe(7);
   });

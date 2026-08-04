@@ -1,3 +1,5 @@
+// The plan for the bar's plus menu.
+
 import { describe, it, expect } from 'vitest';
 import {
   planPlusMenu,
@@ -9,8 +11,6 @@ import {
 } from '../renderer/app/plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../renderer/lib/native-menu';
 
-// Herkenbare, korte teksten: de test gaat over wélke regel er staat, niet over de
-// vertaling ervan.
 const S: PlusMenuStrings = {
   addAccountLabel: 'add-account',
   addDelegatedLabel: 'add-delegated',
@@ -33,8 +33,6 @@ describe('planPlusMenu', () => {
     ]);
   });
 
-  // Er is altijd iets te kiezen, dus dit menu gaat altijd open — anders dan het
-  // rechtsklikmenu op een tabblad.
   it('is always openable', () => {
     for (const items of [plan(), plan({ scanning: true }), plan({ scanDone: true })]) {
       expect(hasClickableItem(items)).toBe(true);
@@ -55,15 +53,11 @@ describe('planPlusMenu', () => {
     expect(labels(plan({ scanDone: true }))).toEqual(['add-account', 'add-delegated', 'none-found']);
   });
 
-  // Zolang er gezocht wordt is "niets gevonden" nog niet waar, en een oude vondst
-  // hoort niet als vers resultaat te blijven staan.
   it('shows the scanning line rather than earlier results or the empty line', () => {
     const items = plan({ scanning: true, scanDone: true, suggestions: [{ email: 'a@x.nl' }] });
     expect(labels(items)).toEqual(['add-account', 'add-delegated', 'scanning']);
   });
 
-  // De id's van de vaste twee mogen niet met het voorvoegsel van een suggestie
-  // botsen, anders zou een adres als "add-account" de verkeerde actie starten.
   it('keeps a suggestion id apart from the fixed actions', () => {
     const id = suggestionId('add-account');
     expect(id).not.toBe(PLUS_ADD_ACCOUNT);

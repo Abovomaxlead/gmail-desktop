@@ -1,3 +1,5 @@
+// The tray menu and its labels, and whether closing hides the window.
+
 import { describe, it, expect, vi } from 'vitest';
 import {
   shouldHideOnClose,
@@ -37,7 +39,6 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
   };
 }
 
-// Flatten a template into a label->item map (recurses one level into submenus).
 function byLabel(items: any[]): Record<string, any> {
   const out: Record<string, any> = {};
   for (const it of items) if (typeof it.label === 'string') out[it.label] = it;

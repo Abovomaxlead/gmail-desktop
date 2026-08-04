@@ -1,3 +1,5 @@
+// The settings navigation: its groups, its sections and the attention dot.
+
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_SECTION,
@@ -10,9 +12,6 @@ import {
 const quiet = { dnd: false, updateReady: false };
 
 describe('SETTINGS_GROUPS', () => {
-  // De drie groepen zijn een uitspraak over wat waar hoort: een logboek, de
-  // voorkeuren, en wat er over de app te lezen valt. De haarlijnen in de kolom
-  // volgen hieruit, dus als deze indeling schuift schuift het ontwerp mee.
   it('splits the column into a log, the preferences, and what there is to read', () => {
     expect(SETTINGS_GROUPS.map((g) => [...g])).toEqual([
       ['download-history'],
@@ -34,10 +33,6 @@ describe('SETTINGS_GROUPS', () => {
     ]);
   });
 
-  // In de middelste groep staat Algemeen vooraan (daar kom je het vaakst) en
-  // Geavanceerd achteraan; wat ertussen zit staat op alfabet. Dat is de regel, en
-  // hij is hier opgeschreven omdat er anders bij elke nieuwe sectie geraden wordt
-  // waar hij hoort.
   it('keeps the middle group alphabetical between General and Advanced', () => {
     const middle = [...SETTINGS_GROUPS[1]];
     expect(middle[0]).toBe('general');
@@ -52,9 +47,6 @@ describe('SETTINGS_GROUPS', () => {
 });
 
 describe('SETTINGS_SECTIONS', () => {
-  // De platte lijst is de rij waarin de pijltjestoetsen lopen, en hij wordt uit de
-  // groepen afgeleid. Deze test houdt vast dát hij dat is: een tweede, met de hand
-  // bijgehouden lijst zou stil uit elkaar kunnen lopen met de kolom in beeld.
   it('is the groups in order, flattened', () => {
     expect(SETTINGS_SECTIONS).toEqual(SETTINGS_GROUPS.flat());
   });
@@ -70,8 +62,6 @@ describe('needsAttention', () => {
     for (const s of SETTINGS_SECTIONS) expect(needsAttention(s, quiet)).toBe(false);
   });
 
-  // Dit is het hele punt van de puntjes: je wil zien dat je meldingen uit staan
-  // zonder de sectie te openen, want dat is precies wat je zou vergeten.
   it('marks notifications while do-not-disturb is on', () => {
     expect(needsAttention('notifications', { ...quiet, dnd: true })).toBe(true);
   });
@@ -80,7 +70,6 @@ describe('needsAttention', () => {
     expect(needsAttention('notifications', { ...quiet, dndUntil: 1 })).toBe(true);
   });
 
-  // Bij Bijwerken en niet bij Over: daar staat de knop die de update uitvoert.
   it('marks updates when an update is waiting to be installed', () => {
     expect(needsAttention('updates', { ...quiet, updateReady: true })).toBe(true);
     expect(needsAttention('about', { ...quiet, updateReady: true })).toBe(false);
@@ -97,10 +86,6 @@ describe('needsAttention', () => {
   });
 });
 
-// De weg van de voorkeuren naar het puntje. De test hierboven op `dndUntil` was
-// dode code: het paneel gaf dat veld niet door, dus een demping vanuit het
-// tray-menu — het waarschijnlijkste van de twee gevallen — gaf nooit een puntje.
-// Deze groep houdt die weg vast, en niet alleen het eindstuk.
 describe('attentionFrom', () => {
   it('has nothing to report before the preferences have arrived', () => {
     const a = attentionFrom(undefined, undefined);
@@ -113,16 +98,12 @@ describe('attentionFrom', () => {
     expect(needsAttention('notifications', a)).toBe(true);
   });
 
-  // Het geval waarvoor het puntje bestaat: je zet in het tray-menu een uur stil,
-  // opent daarna de instellingen, en ziet dat je meldingen uit staan.
   it('marks notifications for a timed snooze set from the tray', () => {
     const a = attentionFrom({ dnd: false, dndUntil: 4_000_000_000_000 }, 'idle');
     expect(a.dndUntil).toBe(4_000_000_000_000);
     expect(needsAttention('notifications', a)).toBe(true);
   });
 
-  // Het hoofdproces wist een verlopen demping zelf (`refreshNotifyAllowed`) en
-  // stuurt de voorkeuren dan opnieuw. Zolang het veld weg is, is het puntje weg.
   it('stops marking notifications once the main process has cleared the snooze', () => {
     const a = attentionFrom({ dnd: false, dndUntil: undefined }, 'idle');
     expect(needsAttention('notifications', a)).toBe(false);

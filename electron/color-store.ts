@@ -1,3 +1,7 @@
+// Per-account tab colour, kept in colors.json. Read on every call rather than cached,
+// so an unreadable or hand-edited file degrades to "no colour set" instead of
+// failing.
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 

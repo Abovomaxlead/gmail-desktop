@@ -1,3 +1,5 @@
+// Tracking when an account's view has finished warming up.
+
 import { describe, it, expect } from 'vitest';
 import { WarmupTracker, WARMUP_CAP_MS, WARMUP_SETTLE_MS } from '../electron/view-warmup';
 
@@ -15,7 +17,6 @@ describe('WarmupTracker', () => {
   it('waits out the settle margin after the title lands, then cools', () => {
     const t = new WarmupTracker();
     t.begin('u0', 1000);
-    // De titel slaat om terwijl de lijst nog kan tekenen: nog niet koelen.
     expect(t.verdict('u0', LOADED, 2000)).toBe('wait');
     expect(t.verdict('u0', LOADED, 2000 + WARMUP_SETTLE_MS - 1)).toBe('wait');
     expect(t.verdict('u0', LOADED, 2000 + WARMUP_SETTLE_MS)).toBe('cool');
@@ -24,9 +25,7 @@ describe('WarmupTracker', () => {
   it('remembers the ready moment even if the title changes back', () => {
     const t = new WarmupTracker();
     t.begin('u0', 1000);
-    t.verdict('u0', LOADED, 2000); // klaar gemeld
-    // Gmail zet de titel tijdens een navigatie soms kort terug; de nazak-marge
-    // loopt vanaf het eerste klaar-signaal en niet opnieuw.
+    t.verdict('u0', LOADED, 2000);
     expect(t.verdict('u0', BARE, 2000 + WARMUP_SETTLE_MS)).toBe('cool');
   });
 
@@ -47,7 +46,6 @@ describe('WarmupTracker', () => {
     const t = new WarmupTracker();
     expect(t.begin('u0', 1000)).toBe(true);
     expect(t.begin('u0', 5000)).toBe(false);
-    // De bovengrens loopt vanaf de eerste keer, dus de tweede poging schuift niets op.
     expect(t.verdict('u0', BARE, 1000 + WARMUP_CAP_MS)).toBe('cool');
   });
 

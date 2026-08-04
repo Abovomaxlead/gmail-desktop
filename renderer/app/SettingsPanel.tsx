@@ -24,12 +24,12 @@ import { WhatsNewSection } from './settings/WhatsNewSection';
 import { DEFAULT_SECTION, attentionFrom, type SettingsSection } from './settings/nav';
 import { NOTICE } from './settings/tokens';
 
-// De naam van een sectie: in de kolom én als kop erboven. Eén naam per sectie, en
-// daarom één sleutel per sectie — zie de opmerking bij `nav*` in `strings.ts`.
-//
-// Een `switch` en geen object met de secties als sleutels: dan klaagt de compiler
-// zodra er een sectie in `nav.ts` bij komt zonder naam hier, in plaats van een
-// naamloos item in de kolom te zetten.
+// The settings panel: the shell plus one section. Which section is open lives here
+// and is deliberately not persisted, sectionLabel is a switch so the compiler
+// catches a section without a name, and a section without a `case` below falls
+// through to the empty note. Also home to the Rene key sequence, which only
+// listens while the panel is mounted and never consumes the key it sees.
+
 function sectionLabel(section: SettingsSection, S: UiStrings): string {
   switch (section) {
     case 'download-history':
@@ -65,9 +65,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
   }
 }
 
-// Het instellingenpaneel is de schil plus één sectie. Alle opmaak zit in
-// `settings/`; hier staat wat er tussen de secties gedeeld is: welke sectie open
-// is, welke component daarbij hoort, en het Rene-easteregg.
 export function SettingsPanel({
   profiles,
   onClose,
@@ -100,35 +97,12 @@ export function SettingsPanel({
   isDefaultMail: boolean;
   onSetDefaultMail: (v: boolean) => void;
 }) {
-  // Algemeen staat vooraan omdat je daar het vaakst komt. De keuze leeft alleen
-  // zolang het paneel open is: bij de volgende keer openen wil je weer bovenaan
-  // beginnen, niet in de sectie waar je vorige week iets zocht.
   const [section, setSection] = useState<SettingsSection>(DEFAULT_SECTION);
 
   const rene = prefs?.reneMode === true;
   const S = getStrings(rene);
-  // De Rene-stand kiest de taal van het hele paneel, dus ook die van de
-  // changelog. Eén bron: `prefs.reneMode` hierboven, en `WhatsNewSection` leidt er
-  // niets zelf uit af.
   const uiLang: 'en' | 'nl' = rene ? 'nl' : 'en';
 
-  // Het Rene-easteregg (↑ ↓ ← → a b) werkt alleen hier: deze luisteraar bestaat
-  // zolang het instellingenpaneel gemonteerd is. Toetsen in een tekstveld tellen
-  // niet — daar zijn pijltjes en letters gewoon tekst bewerken.
-  //
-  // De navigatiekolom in de schil gebruikt óók ↑ en ↓, en de reeks begint met
-  // precies die twee. Dat botst niet, en dat is geen toeval:
-  //  * deze luisteraar hangt op `window` in de *capture*-fase, dus hij ziet elke
-  //    toets voordat welk element in het paneel dan ook hem in handen krijgt —
-  //    ook als de kolom ooit `stopPropagation()` zou gaan doen;
-  //  * hij kijkt alléén mee: geen `preventDefault()`, geen `stopPropagation()`.
-  //    De toets reist dus ongeschonden door naar de kolom, die hem gewoon
-  //    afhandelt. De `preventDefault()` van de kolom stopt op zijn beurt alleen
-  //    het scrollen van de browser en niet het doorgeven van de toets.
-  // Het zijn dus een waarnemer en een verbruiker, en niet twee verbruikers die
-  // om dezelfde toets vechten. Dat ↑ gevolgd door ↓ de kolom terugbrengt op de
-  // sectie waar hij stond, en dat ← → a b daar niets doen, is een prettige
-  // bijkomstigheid: de hele reeks laat de navigatie precies zoals hij was.
   const seqProgress = useRef(0);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -151,11 +125,6 @@ export function SettingsPanel({
       sectionLabel={(s) => sectionLabel(s, S)}
       active={section}
       onSelect={setSection}
-      // Een puntje bij Meldingen als je meldingen uit staan, en bij Bijwerken als
-      // er een update op je wacht. Het samenstellen staat in `nav.ts` en is daar
-      // getest: "meldingen uit" is niet alleen de schakelaar in dit paneel maar
-      // ook een tijdelijke demping uit het tray-menu (`dndUntil`), en juist dat
-      // tweede geval is waarvoor je een puntje wil zien.
       attention={attentionFrom(prefs?.notifications, update.state)}
       attentionLabel={S.settingsAttention}
       onClose={onClose}
@@ -163,11 +132,6 @@ export function SettingsPanel({
       escLabel={S.escKey}
       banner={rene ? <div className={NOTICE}>{S.reneBanner}</div> : undefined}
     >
-      {/* De secties die iets bevatten. De rest van de kolom staat in de `default`
-          hieronder: een kop met één regel eronder dat er nog niets is ingericht.
-          Dat is met opzet geen lijst met uitzonderingen — een sectie krijgt inhoud
-          door hier een `case` te worden, en tot die tijd is hij er wel en doet hij
-          niets, precies zoals hij in de kolom staat. */}
       {(() => {
         switch (section) {
           case 'general':
@@ -182,9 +146,6 @@ export function SettingsPanel({
               />
             );
           case 'accounts':
-            // `prefs` erbij zodat de pillen op een accountkaart de echte stand van
-            // dat account tonen. Zonder deze prop laat de sectie ze weg in plaats van
-            // te gokken, en dan zie je op de kaart niet wat je bij Meldingen zette.
             return (
               <AccountsSection S={S} profiles={profiles} prefs={prefs} onRedetect={onRedetect} />
             );
@@ -206,9 +167,6 @@ export function SettingsPanel({
             return <PhishingSection S={S} prefs={prefs} />;
           case 'advanced':
             return <AdvancedSection S={S} prefs={prefs} />;
-          // Meldingen krijgt de accounts erbij: de schakelaars per account staan
-          // daar, want daar ga je kijken als je je afvraagt wat je bereikt.
-          // Accounts houdt wie een account is.
           case 'notifications':
             return (
               <NotificationsSection

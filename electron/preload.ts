@@ -1,3 +1,12 @@
+// Preload for the Gmail and Calendar views: reports unread counts and the signed-in
+// identity, gates and re-routes the page's notifications, applies the Gmail tweak CSS
+// and installs the mail-drop strip. Everything above the Electron block at the bottom
+// is Node-safe so it can be unit-tested. Gmail is not our page, so anything found in it
+// is matched by shape, never by translated text, and all user-facing wording arrives
+// from main — which is why a notification click resolves its thread from options.body
+// and not from the text shown. Notification.permission must stay a live getter or Gmail
+// freezes it at "default"; window.open must return a stub, since null reads as a popup
+// blocker. The drop strip has to live in <body> to render at all.
 import { parseUnreadCount } from './unread-parser';
 import {
   IPC,
@@ -36,9 +45,6 @@ export function computeAndReport(
 export function extractIdentity(
   doc: { querySelectorAll(sel: string): ArrayLike<any> },
 ): { email: string; name: string; avatarUrl: string } | null {
-  // Locale-independent: the Google account button is an <a> whose aria-label
-  // contains the signed-in email (an @-address) and which holds the avatar <img>.
-  // (The old `aria-label^="Google Account"` match broke for non-English Gmail UIs.)
   const anchors = Array.from(doc.querySelectorAll('a[aria-label]'));
   let anchor: any = null;
   for (const a of anchors) {
@@ -52,8 +58,8 @@ export function extractIdentity(
   const label: string = anchor.getAttribute('aria-label') || '';
   const email = (label.match(/[^\s()]+@[^\s()]+\.[^\s()]+/) || [''])[0];
   const name = label
-    .replace(/^[^:]*:\s*/, '') // strip any leading "Xxx:" prefix (any language)
-    .replace(/\s*\(.*\)\s*$/, '') // strip trailing "(email)"
+    .replace(/^[^:]*:\s*/, '')
+    .replace(/\s*\(.*\)\s*$/, '')
     .trim();
   const img = anchor.querySelector('img');
   const avatarUrl: string = (img && img.getAttribute('src')) || '';
@@ -61,19 +67,12 @@ export function extractIdentity(
   return { email, name, avatarUrl };
 }
 
-// Gmail's new-mail notifications carry no thread id (tag = account email, data
-// = null) and Gmail's own click handler never opens the message inside the
-// wrapper (verified: it runs but no-ops even with user activation). The inbox
-// list DOM marks each row's subject span with data-legacy-thread-id, so the
-// notification body (= subject) identifies the thread to open. Rows are
-// newest-first; the first match is the message that fired the notification.
 export function findThreadIdBySubject(
   doc: { querySelectorAll(sel: string): ArrayLike<any> },
   subject: string,
 ): string | null {
   const wanted = (subject || '').trim();
   if (!wanted) return null;
-  // Gmail may ellipsize long subjects in the notification body.
   const ellipsized = /(…|\.\.\.)$/.test(wanted);
   const prefix = wanted.replace(/(…|\.\.\.)$/, '');
   for (const el of Array.from(doc.querySelectorAll('[data-legacy-thread-id]'))) {
@@ -85,11 +84,6 @@ export function findThreadIdBySubject(
   return null;
 }
 
-// Google Calendar fires event reminders through ServiceWorkerRegistration.
-// showNotification ("persistent" notifications), which Electron never displays
-// (electron/electron#13041) and which would bypass the notify-allowed gate and
-// click routing below. Reroute them through window.Notification — resolved at
-// call time so the gated wrapper installed later is the one that runs.
 export function rerouteServiceWorkerNotifications(
   swRegProto:
     | { showNotification?: (title: string, options?: NotificationOptions) => Promise<void> }
@@ -98,7 +92,6 @@ export function rerouteServiceWorkerNotifications(
 ): void {
   if (!swRegProto || typeof swRegProto.showNotification !== 'function') return;
   swRegProto.showNotification = function (title: string, options?: NotificationOptions) {
-    // `actions` (and only it) is rejected by the non-persistent constructor.
     const { actions: _actions, ...rest } = (options ?? {}) as NotificationOptions & {
       actions?: unknown;
     };
@@ -107,10 +100,6 @@ export function rerouteServiceWorkerNotifications(
   };
 }
 
-// Apply the main-process gate's styling to the options the page passed.
-// `requireInteraction` is the web API's name for "don't auto-dismiss"; Electron
-// maps it to timeoutType 'never', which on Windows becomes a scenario="reminder"
-// toast that stays up until the user closes it.
 export function notificationOptionsFor(
   state: NotifyState,
   options?: NotificationOptions,
@@ -125,27 +114,12 @@ export function notificationOptionsFor(
   };
 }
 
-// De titel van een melding uit de pagina, met "toon de afzender niet" erop
-// toegepast. Main stuurt de vervangende tekst mee in plaats van een vlaggetje: de
-// tekst die de gebruiker leest hoort niet in dit bestand te staan, dat in Gmail's
-// eigen pagina wordt geïnjecteerd en geen taal kent. Staat er niets in de stand,
-// dan komt de titel van de pagina er ongewijzigd door.
 export function notificationTitleFor(state: NotifyState, title: string): string {
   return typeof state.hiddenSender === 'string' ? state.hiddenSender : title;
 }
 
-// Waaraan Gmail's Opstellen-knop te herkennen is. `gh="cm"` is Gmail's eigen haak
-// op die knop en staat er al jaren — het is een attribuut dat Google zelf gebruikt
-// om erbij te komen, en dus stabieler dan een versleutelde klassenaam. De tweede
-// kandidaat is de knop op zijn toegankelijke naam, voor het geval het attribuut ooit
-// verdwijnt; die is taalafhankelijk en daarom niet de eerste keus.
-//
-// Los en geëxporteerd zodat de vergelijking te testen is zonder een pagina, en zodat
-// de selectors op één regel staan in plaats van in een klikhandler.
 export const COMPOSE_BUTTON_SELECTOR = '[gh="cm"], div[role="button"][gh="cm"]';
 
-// Is er op Opstellen geklikt? Loopt omhoog vanaf het aangeklikte element, want de
-// klik landt op een `<span>` of `<div>` binnen de knop en niet op de knop zelf.
 export function isComposeClick(
   target: { closest?: (selector: string) => unknown } | null | undefined,
 ): boolean {
@@ -153,31 +127,14 @@ export function isComposeClick(
   return target.closest(COMPOSE_BUTTON_SELECTOR) != null;
 }
 
-// Het id van het ene `<style>`-element waar de opmaak uit de Gmail-tab in staat.
-// Vast en herkenbaar: dit element is van ons en staat in een pagina die van Google
-// is, dus het moet terug te vinden zijn — door de app om het bij te werken, en door
-// een mens die zich afvraagt waar die regel vandaan komt.
 export const TWEAK_STYLE_ID = 'gmail-desktop-tweaks';
 
-// Wat een document minimaal moet kunnen om de opmaak te dragen. Een eigen, kleine
-// interface in plaats van `Document`, zodat dit te testen is zonder een browser: de
-// preload-tests draaien in Node en geven hier een nagemaakt document in.
 export interface TweakStyleHost {
   getElementById(id: string): { textContent: string | null; remove(): void } | null;
   createElement(tag: string): { id: string; textContent: string | null };
   head: { appendChild(el: unknown): void } | null;
 }
 
-// Zet de opmaak in de pagina, of haal hem weg.
-//
-// Bijwerken van hetzelfde element in plaats van een nieuw element erbij: Gmail is
-// één pagina die nooit herlaadt, dus bij elke omgezette schakelaar zou er anders
-// een `<style>` bijkomen en zouden de oude regels blijven gelden. Wie zijn logo weer
-// zichtbaar maakte zou het niet terugzien.
-//
-// Een lege tekst haalt het element weg en laat er geen leeg omhulsel staan: "niets
-// aangepast" hoort ook in de DOM niets te zijn, anders is bij het opsporen van een
-// probleem niet te zien of de app iets deed.
 export function applyTweakCss(doc: TweakStyleHost, css: string): void {
   const existing = doc.getElementById(TWEAK_STYLE_ID);
   if (!css) {
@@ -188,7 +145,7 @@ export function applyTweakCss(doc: TweakStyleHost, css: string): void {
     existing.textContent = css;
     return;
   }
-  if (!doc.head) return; // pagina nog niet zo ver; de volgende push zet hem alsnog
+  if (!doc.head) return;
   const el = doc.createElement('style');
   el.id = TWEAK_STYLE_ID;
   el.textContent = css;
@@ -203,11 +160,6 @@ export function isEditableTarget(
   return tag === 'input' || tag === 'textarea' || el.isContentEditable === true;
 }
 
-// The main process denies window.open calls it handles itself (in-app
-// navigation, external browser, or the duplicate popup right after a handled
-// notification click). A denied window.open returns null, which Gmail reads as
-// a popup blocker and alerts. Substitute a harmless window-like stub — the
-// open WAS handled, just not as a new renderer window.
 export function wrapWindowOpen(original: typeof window.open): typeof window.open {
   return function (...args: Parameters<typeof window.open>) {
     const w = original(...args);
@@ -222,8 +174,6 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
   };
 }
 
-// Hangt de dropzone in de Gmail-pagina en geeft terug hoe je het resultaat van
-// een drop toont. Alleen aanroepen als er een document is.
 function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult) => void {
   const style = document.createElement('style');
   style.textContent = DROPZONE_CSS;
@@ -232,17 +182,13 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
   zone.textContent = DROPZONE_LABEL;
   zone.setAttribute('data-state', 'idle');
 
-  // In <body>, niet in <html>: een element dat naast <body> hangt krijgt geen
-  // plek in de renderboom en blijft dus onzichtbaar, hoe hoog de z-index ook is.
   const host = document.body ?? document.documentElement;
   const attach = () => {
     if (!host.contains(style)) host.appendChild(style);
     if (!host.contains(zone)) host.appendChild(zone);
   };
   attach();
-  // Gmail's SPA vervangt soms hele takken van de DOM; dan hangen we 'm terug.
   new MutationObserver(attach).observe(host, { childList: true });
-  // Zichtbaar in devtools (Ctrl+Shift+I) of de dropzone überhaupt geïnstalleerd is.
   console.info('[gmail-desktop] dropzone geïnstalleerd in', host.tagName);
 
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -254,21 +200,11 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
     setState('idle');
   };
 
-  // Muisknop ingedrukt op een conversatierij: onthoud welke, maar toon nog
-  // niets — een gewone klik is geen sleep.
   let pressThreadId: string | null = null;
   let pressLabel: string | null = null;
   let pressAt: Point | null = null;
   let dragging = false;
 
-  // Gmail tekent tijdens het slepen een eigen kaartje dat de cursor volgt ("Een
-  // gesprek verplaatsen"). Dat verschijnt als nieuw element in de pagina zodra
-  // de sleep begint. Onze strip zit één laag onder het maximum, dus wat Gmail
-  // erbij zet kan die laatste laag krijgen en blijft zichtbaar boven de strip.
-  //
-  // Alleen tijdens de sleep en alleen voor wat er in díe tijd bijkomt; de oude
-  // waarde gaat er achteraf weer op. Op "er komt een zwevend element bij" en
-  // niet op een klassenaam: Gmail's klassenamen zijn vervormd en veranderen.
   const lifted: Array<{ el: HTMLElement; previous: string }> = [];
   let liftObserver: MutationObserver | null = null;
 
@@ -310,31 +246,17 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
       if (e.button !== 0) return;
       const target = e.target as unknown as DragNode | null;
       pressThreadId = threadIdFromDragTarget(target);
-      // Een label uit de linkernavigatie: geen conversatierij, dus alleen kijken
-      // als er geen thread-id onder de cursor zat.
       pressLabel = pressThreadId ? null : labelFromDragTarget(target);
       pressAt = { x: e.clientX, y: e.clientY };
       dragging = false;
-      // Slepen over tekst selecteert die tekst, en die selectie blijft na het
-      // loslaten staan. Druk je daarna nóg eens op diezelfde, nu geselecteerde
-      // tekst en beweeg je, dan begint Chromium zijn eigen sleep van de
-      // selectie — en zodra dat gebeurt houden de mousemove-events op en
-      // verschijnt onze strip nooit meer. Dat treft precies het label dat je
-      // net versleepte, en niet de labels ernaast. Selectie weg bij het
-      // indrukken, dus elke sleep begint weer schoon.
       if (pressThreadId || pressLabel) {
         window.getSelection()?.removeAllRanges();
-        // Nu al kijken, niet pas als de sleep de drempel haalt: Gmail zet zijn
-        // kaartje neer op zijn eigen moment en dat kan eerder zijn.
         liftDragChrome();
       }
     },
     true,
   );
 
-  // Vangnet voor hetzelfde: begint Chromium tóch een eigen sleep (een <a> in de
-  // navigatie is vanzelf sleepbaar), dan hier afbreken. Zonder dit stopt de
-  // gebeurtenissenstroom waar de strip op draait.
   document.addEventListener(
     'dragstart',
     (e) => {
@@ -386,13 +308,10 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
         return;
       }
       if (!threadId) {
-        // Geen sleep, of niet boven de strip losgelaten. Een lopende opslag mag
-        // hier niet door weggepoetst worden.
         if (!saving) reset();
         return;
       }
       const threadIds = threadIdsForDrag(threadId, selectedThreadIds(document));
-      // Onderwerpen nú vastleggen: na het opslaan kan de lijst al ververst zijn.
       const items = itemsForDrag(threadIds, threadSubjects(document));
       saving = true;
       zone.textContent = items.length > 1 ? `${items.length} gesprekken opslaan…` : 'Bezig met opslaan…';
@@ -416,9 +335,7 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
   };
 }
 
-// Electron-only wiring. Guarded so the module is importable under plain Node (tests).
 if (typeof document !== 'undefined') {
-  // Lazy require avoids bundling issues and keeps the top of the module Node-safe.
   const { ipcRenderer } = require('electron') as typeof import('electron');
 
   let notifyState: NotifyState = { show: true, silent: false, persist: false };
@@ -426,10 +343,6 @@ if (typeof document !== 'undefined') {
     notifyState = state;
   });
 
-  // Wat de Gmail-tab van deze pagina vraagt. Main stuurt het bij elke wijziging en
-  // bij elke (her)laad; hier wordt het alleen uitgevoerd. De laatste stand wordt
-  // onthouden zodat de opmaak ook staat als `<head>` er nog niet was toen hij
-  // binnenkwam — dan zet `DOMContentLoaded` hem alsnog.
   let tweaks: GmailTweakState = { css: '', composeInNewWindow: false };
   const putTweakCss = () => applyTweakCss(document as unknown as TweakStyleHost, tweaks.css);
   ipcRenderer.on(IPC.GMAIL_TWEAKS, (_e: unknown, state: unknown) => {
@@ -444,13 +357,6 @@ if (typeof document !== 'undefined') {
     document.addEventListener('DOMContentLoaded', putTweakCss, { once: true });
   }
 
-  // Opstellen in een eigen venster. Gmail's Opstellen-knop opent een overlay in
-  // dezelfde pagina — er is geen `window.open` om af te vangen — dus dit gaat langs
-  // de klik zelf, in de capture-fase, vóórdat Gmail's eigen handler hem ziet.
-  //
-  // Vindt hij de knop niet, dan gebeurt er niets bijzonders en opent Gmail zijn
-  // overlay zoals altijd. Dat is de goede kant om in om te vallen: de instelling
-  // werkt dan stil niet, in plaats van dat Opstellen helemaal kapot is.
   document.addEventListener(
     'click',
     (e) => {
@@ -464,7 +370,6 @@ if (typeof document !== 'undefined') {
     true,
   );
 
-  // Install before page scripts run so Gmail never sees a null window.open.
   window.open = wrapWindowOpen(window.open.bind(window));
 
   const report = () =>
@@ -476,14 +381,12 @@ if (typeof document !== 'undefined') {
     if (titleEl) {
       new MutationObserver(report).observe(titleEl, { childList: true });
     }
-    // Fallback: Gmail sometimes replaces the title element wholesale.
     setInterval(report, 5000);
 
     const Original = window.Notification;
     if (Original) {
       const Wrapped = function (this: Notification, title: string, options?: NotificationOptions) {
         if (!notifyState.show) {
-          // Return a harmless stub so Gmail's code doesn't throw; nothing is shown.
           return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
         }
         const n = new Original(
@@ -491,19 +394,11 @@ if (typeof document !== 'undefined') {
           notificationOptionsFor(notifyState, options),
         );
         n.addEventListener('click', () => {
-          // Resolve the clicked thread at click time (the row exists by then).
-          // Let op: `options?.body` en niet de tekst die uiteindelijk in de melding
-          // stond. Staat "toon het onderwerp niet" aan, dan is die vervangen door een
-          // neutrale regel, en daarmee is geen gesprek terug te vinden — het
-          // onderwerp van de pagina is wat in de berichtenlijst staat.
           const threadId = findThreadIdBySubject(document, options?.body ?? '');
           ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId ?? undefined);
         });
         return n;
       } as unknown as typeof Notification;
-      // Delegate `permission` live via a getter — copying it once freezes it at
-      // 'default', so Gmail would think notifications are disabled forever and
-      // never fire one. The getter always reflects the real granted state.
       Object.defineProperty(Wrapped, 'permission', {
         configurable: true,
         get: () => Original.permission,
@@ -517,13 +412,11 @@ if (typeof document !== 'undefined') {
       () => window.Notification,
     );
 
-    // De agenda-view draait dezelfde preload maar heeft geen berichtenlijst.
     if (location.hostname === 'mail.google.com') {
       const showResult = installDropzone((p) => ipcRenderer.send(IPC.MAIL_DROP, p));
       ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e: unknown, r: MailDropResult) => showResult(r));
     }
 
-    // Poll for the signed-in identity and report it once found.
     let identityTries = 0;
     const identityTimer = setInterval(() => {
       identityTries += 1;

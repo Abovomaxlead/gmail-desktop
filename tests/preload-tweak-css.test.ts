@@ -1,9 +1,8 @@
+// Applying the Gmail tweak stylesheet to a document.
+
 import { describe, it, expect } from 'vitest';
 import { applyTweakCss, TWEAK_STYLE_ID, type TweakStyleHost } from '../electron/preload';
 
-// Een nagemaakt document met precies wat `applyTweakCss` aanraakt. De echte preload
-// draait in Gmail's pagina; deze tests draaien in Node, en daarom neemt de functie
-// het document als argument in plaats van naar het globale te grijpen.
 function fakeDoc(opts?: { noHead?: boolean }) {
   const nodes = new Map<string, { id: string; textContent: string | null; remove(): void }>();
   const appended: unknown[] = [];
@@ -43,10 +42,6 @@ describe('applyTweakCss', () => {
     expect(doc.appended).toHaveLength(1);
   });
 
-  // Dit is de bug die de functie voorkomt: Gmail is één pagina die nooit herlaadt,
-  // dus bij elke omgezette schakelaar zou er anders een `<style>` bijkomen en zouden
-  // de oude regels blijven gelden. Wie zijn logo weer zichtbaar maakte, zou het niet
-  // terugzien.
   it('updates the same element instead of adding another one', () => {
     const doc = fakeDoc();
     applyTweakCss(doc, 'a{display:none}');
@@ -55,8 +50,6 @@ describe('applyTweakCss', () => {
     expect(doc.getElementById(TWEAK_STYLE_ID)?.textContent).toBe('b{display:none}');
   });
 
-  // "Niets aangepast" hoort ook in de DOM niets te zijn: een leeg omhulsel maakt bij
-  // het opsporen van een probleem onduidelijk of de app iets deed.
   it('removes the element when the css is empty', () => {
     const doc = fakeDoc();
     applyTweakCss(doc, 'a{display:none}');
@@ -70,8 +63,6 @@ describe('applyTweakCss', () => {
     expect(doc.appended).toHaveLength(0);
   });
 
-  // Komt de opmaak binnen voordat `<head>` bestaat, dan mag dat geen fout geven: de
-  // preload zet hem bij DOMContentLoaded alsnog.
   it('waits instead of throwing when there is no head yet', () => {
     const doc = fakeDoc({ noHead: true });
     expect(() => applyTweakCss(doc, 'a{display:none}')).not.toThrow();

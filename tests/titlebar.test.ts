@@ -1,3 +1,5 @@
+// The custom title bar: theme, overlay options, window background and platform support.
+
 import { describe, it, expect } from 'vitest';
 import {
   isDarkTheme,
@@ -21,8 +23,6 @@ describe('isDarkTheme', () => {
 });
 
 describe('overlayOptions', () => {
-  // Zonder dit staan de vensterknoppen donker-op-donker of licht-op-licht zodra
-  // je van thema wisselt.
   it('gives a dark bar dark colours and a light bar light ones', () => {
     const dark = overlayOptions('dark', false, false);
     const light = overlayOptions('light', true, false);
@@ -31,7 +31,6 @@ describe('overlayOptions', () => {
   });
 
   it('matches the renderer background, so the bar and the buttons are one surface', () => {
-    // De balk gebruikt Tailwind's neutral-100 (licht) en neutral-950 (donker).
     expect(overlayOptions('light', false, false).color).toBe('#f5f5f5');
     expect(overlayOptions('dark', false, false).color).toBe('#0a0a0a');
   });
@@ -40,17 +39,12 @@ describe('overlayOptions', () => {
     expect(overlayOptions('light', false, false).height).toBe(TOPBAR_HEIGHT);
   });
 
-  // De hoogte van de overlay is in vensterpixels en zoomt niet mee met de
-  // renderer. Zonder dit hangen de knoppen 40px hoog in een balk van 80px.
   it('doubles for Rene mode, which zooms the renderer to 200%', () => {
     expect(overlayOptions('light', false, true).height).toBe(TOPBAR_HEIGHT * 2);
   });
 });
 
 describe('windowBackground', () => {
-  // Dit is wat je ziet vóórdat de renderer voor het eerst tekent. Stond het vast
-  // op de donkere kleur, dan begon een licht thema met een zwarte balk -- in
-  // ontwikkelmodus seconden lang, want de devserver moet eerst compileren.
   it('follows the theme instead of always being dark', () => {
     expect(windowBackground('light', false)).toBe('#f5f5f5');
     expect(windowBackground('dark', false)).toBe('#0a0a0a');
@@ -58,8 +52,6 @@ describe('windowBackground', () => {
     expect(windowBackground('system', true)).toBe('#0a0a0a');
   });
 
-  // Zelfde kleur als de balk zelf, anders zie je bij het opstarten een naad
-  // tussen het venster en de balk die eroverheen komt.
   it('matches the bar it sits behind', () => {
     expect(windowBackground('light', false)).toBe(overlayOptions('light', false, false).color);
     expect(windowBackground('dark', false)).toBe(overlayOptions('dark', false, false).color);
@@ -72,8 +64,6 @@ describe('supportsOverlay', () => {
     expect(supportsOverlay('darwin')).toBe(true);
   });
 
-  // Er wordt onder WSL ontwikkeld. Daar houden we het native frame, en een
-  // blinde setTitleBarOverlay-aanroep zou de app laten omvallen.
   it('is not available on Linux', () => {
     expect(supportsOverlay('linux')).toBe(false);
   });
@@ -84,9 +74,6 @@ describe('supportsOverlayUpdate', () => {
     expect(supportsOverlayUpdate('win32')).toBe(true);
   });
 
-  // Het verschil met supportsOverlay: macOS neemt de constructor-optie wél aan,
-  // maar kent win.setTitleBarOverlay niet. Eén gedeelde guard zou daar bij elke
-  // themawissel een TypeError geven.
   it('accepts the option on macOS but refuses the update', () => {
     expect(supportsOverlay('darwin')).toBe(true);
     expect(supportsOverlayUpdate('darwin')).toBe(false);

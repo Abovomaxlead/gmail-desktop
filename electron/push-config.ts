@@ -1,11 +1,9 @@
-// Waar de relay staat en naar welk Pub/Sub-topic Gmail moet publiceren. Staat er
-// niet allebei iets, dan blijft push uit en werkt de app precies zoals eerst —
-// dat is de toestand op elke machine waar deze regels niet in de config staan.
-//
-// De config zelf staat bij de OAuth-gegevens in userData en niet in de repo: de
-// repo is publiek en de topicnaam bevat het GCP-project. Omgevingsvariabelen
-// gaan voor, zodat je tegen een lokale relay kunt testen zonder het bestand aan
-// te raken.
+// Where the relay is and which Pub/Sub topic Gmail publishes to. With either value
+// missing, push stays off and the app behaves exactly as before. Environment
+// variables win over the file, which lives beside the OAuth data in userData and not
+// in this public repo, since the topic name contains the GCP project. A plain ws://
+// url is rejected unless it is loopback: the first frame we send carries a live
+// Google access token, and unencrypted that may only travel to this machine.
 export interface PushConfig {
   relayUrl: string;
   pushTopic: string;
@@ -14,21 +12,14 @@ export interface PushConfig {
 const WS_SCHEME = /^wss?:\/\//i;
 const PLAIN_SCHEME = /^ws:\/\//i;
 
-// Over `ws://` gaat het eerste frame dat we sturen — met een levend Google
-// access token erin — onversleuteld over de lijn. Dat mag alleen naar deze
-// machine zelf; dat is precies wat het lokaal uitproberen uit de spec nodig heeft
-// (`ws://localhost:8099`), en alles daarbuiten hoort `wss://` te zijn.
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '::1']);
 
 function isLoopback(url: string): boolean {
   try {
-    // URL geeft een IPv6-host terug MET de blokhaken uit de url ('[::1]', niet
-    // '::1'); die strippen we hier, in plaats van de blokhaken ook in de
-    // LOOPBACK-set te zetten, zodat die set gewoon de kale hostnamen blijft.
     const hostname = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, '');
     return LOOPBACK.has(hostname);
   } catch {
-    return false; // onleesbare url: dan is dit zeker geen bewust lokale test
+    return false;
   }
 }
 
@@ -43,8 +34,6 @@ export function parsePushConfig(raw: unknown, env: NodeJS.ProcessEnv): PushConfi
   const relayUrl = pick(env.GMAIL_PUSH_RELAY_URL, file.relayUrl);
   const pushTopic = pick(env.GMAIL_PUSH_TOPIC, file.pushTopic);
   if (!relayUrl || !pushTopic) return null;
-  // Een http-url zou pas bij het verbinden stuk gaan, met een foutmelding die
-  // niets over de oorzaak zegt. Hier weigeren is duidelijker.
   if (!WS_SCHEME.test(relayUrl)) return null;
   if (PLAIN_SCHEME.test(relayUrl) && !isLoopback(relayUrl)) return null;
   return { relayUrl, pushTopic };

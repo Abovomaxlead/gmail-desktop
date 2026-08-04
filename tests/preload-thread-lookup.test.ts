@@ -1,11 +1,9 @@
+// Gmail's new-mail notification carries no thread id, so the thread to open is found
+// by matching the notification body against the inbox rows' subject spans, newest first.
+
 import { describe, expect, it } from 'vitest';
 import { findThreadIdBySubject } from '../electron/preload';
 
-// Gmail's new-mail notification carries no thread id (tag is just the account
-// email, data is null), but the inbox list DOM marks each row's subject span
-// with data-legacy-thread-id. Matching the notification body (= subject) against
-// those spans gives the thread to open on click. Rows are newest-first, so the
-// first match is the message that just fired the notification.
 type FakeEl = { text: string; id: string };
 function doc(rows: FakeEl[]) {
   return {
@@ -22,7 +20,7 @@ describe('findThreadIdBySubject', () => {
     const d = doc([
       { text: 'Weekly report', id: 'aaa' },
       { text: 'Notificatieklik test', id: 'bbb' },
-      { text: 'Notificatieklik test', id: 'ccc' }, // older thread, same subject
+      { text: 'Notificatieklik test', id: 'ccc' },
     ]);
     expect(findThreadIdBySubject(d, 'Notificatieklik test')).toBe('bbb');
   });

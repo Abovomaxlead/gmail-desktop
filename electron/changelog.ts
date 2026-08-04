@@ -1,18 +1,20 @@
-// Parses the repo's CHANGELOG.md (Keep-a-Changelog style, bilingual) into
-// structured data for the "What's new" section in Settings. Pure and
-// dependency-free so it can be unit-tested and reused in main + renderer.
+// Parses the repo's CHANGELOG.md (Keep-a-Changelog style, bilingual) into structured
+// data for the "What's new" section in Settings. Pure and dependency-free so it can
+// be unit-tested and reused in main + renderer. Content under a version with no
+// explicit "###" heading becomes an entry with an empty heading, and versions that
+// end up with nothing displayable are dropped.
 
 export type Lang = 'en' | 'nl' | 'unknown';
 
 export interface ChangelogEntry {
-  heading: string; // the "### Category" text, or '' for prose directly under a version
+  heading: string;
   lang: Lang;
   items: string[];
 }
 
 export interface ChangelogVersion {
-  version: string; // e.g. "0.1.9" or "0.1.1 – 0.1.4"
-  date: string; // e.g. "2026-07-08", or '' when the header carries no date
+  version: string;
+  date: string;
   entries: ChangelogEntry[];
 }
 
@@ -33,9 +35,6 @@ function headingLang(heading: string): Lang {
   return 'unknown';
 }
 
-// Splits "## " content into a version label and an optional date.
-// "[0.1.9] — 2026-07-08" -> { version: '0.1.9', date: '2026-07-08' }
-// "[0.1.1] – [0.1.4]"    -> { version: '0.1.1 – 0.1.4', date: '' }
 function parseHeader(text: string): { version: string; date: string } {
   const first = text.match(/^\[([^\]]+)\]/);
   if (!first) return { version: text.trim(), date: '' };
@@ -72,7 +71,7 @@ export function parseChangelog(markdown: string): ChangelogVersion[] {
       entry = null;
       continue;
     }
-    if (!version) continue; // title + intro before the first version
+    if (!version) continue;
 
     if (line.startsWith('### ')) {
       flushEntry();
@@ -86,7 +85,6 @@ export function parseChangelog(markdown: string): ChangelogVersion[] {
       continue;
     }
 
-    // Any content under a version with no explicit "###" gets an implicit entry.
     if (!entry) entry = { heading: '', lang: 'unknown', items: [] };
 
     const bullet = line.match(/^\s*[-*]\s+(.*)$/);
@@ -94,13 +92,12 @@ export function parseChangelog(markdown: string): ChangelogVersion[] {
       flushItem();
       item = bullet[1].trim();
     } else if (item !== null) {
-      item = `${item} ${line.trim()}`; // wrapped continuation line
+      item = `${item} ${line.trim()}`;
     } else {
-      item = line.trim(); // start of a prose paragraph
+      item = line.trim();
     }
   }
   flushEntry();
 
-  // Drop versions that ended up with no displayable content at all.
   return versions.filter((v) => v.entries.length > 0);
 }

@@ -1,3 +1,5 @@
+// The popup shown after a manual update check.
+
 import { describe, it, expect } from 'vitest';
 import { updateCheckPopup } from '../electron/update-popup';
 

@@ -1,3 +1,5 @@
+// Applying an unread total to the taskbar badge.
+
 import { describe, it, expect, vi } from 'vitest';
 import { applyBadge } from '../electron/badge-controller';
 

@@ -1,13 +1,19 @@
+// Decides which of the messages Gmail's history reports deserve a notification.
+// Deduped, because the same message can appear in several history records, and left
+// in Gmail's own order so notifications arrive by arrival time. Gmail's PROMOTIONS
+// and SOCIAL tabs never notify; PERSONAL, UPDATES and FORUMS do.
+//
+// The whole notification rule, in one place: notify only mail that arrived while this
+// account was covered by push. That single comparison covers three cases. At startup
+// coverage begins at the first successful watch, so the backlog stays quiet. After a
+// short break the mail is newer than that moment and notifies, which is what catch-up
+// is for. And after a handover the moment moves with it, so the gap stays quiet
+// because the webview already reported that mail.
+
 import type { HistoryMessage } from './gmail-api';
 
-// Gmail's tabbladen. Een nieuwsbrief onder Reclame of een melding van een sociaal
-// netwerk is geen mail waarvoor je je werk onderbreekt. De andere categorieën
-// (PERSONAL, UPDATES, FORUMS) melden wel: daar zit echte post tussen.
 export const SKIP_LABELS = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL'];
 
-// Welke van de toegevoegde berichten een melding verdienen. Ontdubbeld, want
-// hetzelfde bericht kan in meerdere history-records opduiken, en in de volgorde
-// die Gmail geeft, zodat de meldingen op tijd van aankomst binnenkomen.
 export function notifiableIds(added: HistoryMessage[]): string[] {
   const out: string[] = [];
   for (const message of added) {
@@ -18,15 +24,6 @@ export function notifiableIds(added: HistoryMessage[]): string[] {
   return out;
 }
 
-// De hele meldingsregel van het ontwerp, op één plek:
-//
-//   Meld alleen mail die binnenkwam terwijl dit account door push gedekt was.
-//
-// Dat dekt drie gevallen met één vergelijking. Bij het opstarten begint de
-// dekking pas als de eerste watch lukt, dus de achterstand zwijgt. Na een korte
-// breuk is de mail nieuwer dan dat moment en meldt hij gewoon — precies waar de
-// catch-up voor is. En na een teruggave en overname schuift het moment mee, dus
-// het storingsvenster zwijgt: de webview heeft die mail toen al gemeld.
 export function shouldNotify(internalDate: number, coveredSince: number | null): boolean {
   if (coveredSince === null) return false;
   return internalDate >= coveredSince;

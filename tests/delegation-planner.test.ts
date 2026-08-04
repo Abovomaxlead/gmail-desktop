@@ -1,3 +1,5 @@
+// Planning which delegated mailboxes to open.
+
 import { describe, it, expect } from 'vitest';
 import { planDelegated } from '../electron/delegation-planner';
 

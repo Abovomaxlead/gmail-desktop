@@ -1,3 +1,5 @@
+// Classifying Google URLs: in-app, federated login, attachments.
+
 import { describe, it, expect } from 'vitest';
 import {
   mailUrl,
@@ -37,7 +39,6 @@ describe('google urls', () => {
         'https://mail.google.com/mail/u/0/?ui=2&ik=abc&view=lg&permmsgid=msg-f:123&th=456',
       ),
     ).toBe(true);
-    // Different authuser slot, same reader.
     expect(
       isFullMessageViewUrl('https://mail.google.com/mail/u/2/?ui=2&view=lg&permmsgid=msg-f:9'),
     ).toBe(true);
@@ -45,7 +46,6 @@ describe('google urls', () => {
 
   it('does not treat ordinary Gmail or other views as the full-message reader', () => {
     expect(isFullMessageViewUrl('https://mail.google.com/mail/u/0/#inbox/abc')).toBe(false);
-    // "Show original" is a different standalone view (view=om), not view=lg.
     expect(isFullMessageViewUrl('https://mail.google.com/mail/u/0/?ui=2&view=om')).toBe(false);
     expect(isFullMessageViewUrl('https://calendar.google.com/calendar/u/0/r?view=lg')).toBe(false);
     expect(isFullMessageViewUrl('not a url')).toBe(false);
@@ -120,11 +120,9 @@ describe('isAttachmentUrl', () => {
         'https://mail.google.com/mail/u/0/?ui=2&ik=abc&attid=0.1&permmsgid=msg-f:1&th=2&view=att&disp=safe&realattid=f_x&zw',
       ),
     ).toBe(true);
-    // Download disposition, and a different authuser slot.
     expect(
       isAttachmentUrl('https://mail.google.com/mail/u/3/?ui=2&ik=abc&view=att&disp=attd&th=2'),
     ).toBe(true);
-    // Inline preview disposition.
     expect(isAttachmentUrl('https://mail.google.com/mail/u/0/?view=att&disp=inline&th=2')).toBe(true);
   });
 
@@ -138,10 +136,8 @@ describe('isAttachmentUrl', () => {
 
   it('leaves other Gmail views and surfaces alone', () => {
     expect(isAttachmentUrl('https://mail.google.com/mail/u/0/#inbox/abc')).toBe(false);
-    // The full-message reader and "show original" are pages, not attachments.
     expect(isAttachmentUrl('https://mail.google.com/mail/u/0/?ui=2&view=lg&th=2')).toBe(false);
     expect(isAttachmentUrl('https://mail.google.com/mail/u/0/?ui=2&view=om&th=2')).toBe(false);
-    // A Drive-hosted attachment stays a Drive surface url.
     expect(isAttachmentUrl('https://drive.google.com/file/d/abc/view')).toBe(false);
     expect(isAttachmentUrl('https://example.com/?view=att')).toBe(false);
     expect(isAttachmentUrl('not a url')).toBe(false);

@@ -1,3 +1,5 @@
+// Merging a delegation scan into the stored list of delegated mailboxes.
+
 import { describe, it, expect } from 'vitest';
 import { mergeScan } from '../electron/delegated-store';
 

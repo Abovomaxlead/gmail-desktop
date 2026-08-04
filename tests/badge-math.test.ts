@@ -1,3 +1,5 @@
+// Summing per-account unread counts into one badge total.
+
 import { describe, it, expect } from 'vitest';
 import { totalUnread } from '../electron/badge-math';
 

@@ -1,10 +1,8 @@
-// Een handvol verzoeken tegelijk in plaats van één voor één. Een labelsleep is
-// tweehonderd keer hetzelfde verzoek; achter elkaar duurt dat minuten, allemaal
-// tegelijk loopt tegen Gmail's quotum aan.
-//
-// De uitkomsten staan in de volgorde van de invoer, ook al komen ze door elkaar
-// binnen: de bestandsnamen van een labelsleep zijn genummerd, dus die volgorde
-// mag niet van het toeval afhangen.
+// A handful of requests at a time instead of one by one: a label drag is hundreds of
+// identical requests, which takes minutes in sequence and hits Gmail's quota all at
+// once. Results come back in input order even though they finish out of order,
+// because a label drag's filenames are numbered.
+
 export async function mapLimit<T, R>(
   items: T[],
   limit: number,

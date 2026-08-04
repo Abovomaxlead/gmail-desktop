@@ -1,10 +1,9 @@
+// How the gate pushed from main styles a page notification: `silent` drops the sound,
+// `persist` maps to requireInteraction so the toast waits to be dismissed.
+
 import { describe, expect, it } from 'vitest';
 import { notificationOptionsFor } from '../electron/preload';
 
-// The gate pushed from main (NotifyState) styles the notifications Gmail and
-// Calendar fire from the page. `silent` drops the sound; `persist` maps to the
-// web API's requireInteraction, which Electron turns into timeoutType 'never'
-// (a scenario="reminder" toast on Windows) so the toast waits to be dismissed.
 describe('notificationOptionsFor', () => {
   const base: NotificationOptions = { body: 'New mail from Ada' };
 

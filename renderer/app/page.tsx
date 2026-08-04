@@ -16,6 +16,18 @@ import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 
+// The page that carries the bar and the settings panel: all state and all IPC live
+// here, the drawing lives in Topbar and SettingsPanel. The Prefs, UpdateState and
+// DownloadRecord shapes are copied from electron/ rather than imported, because an
+// `import type` from the main process pulls Electron into this page's bundle.
+//
+// A provisional tab comes from the remembered bar (accounts.json) before detection
+// has recovered its address; main does not know its session slot and cannot open one,
+// so such a tab is never marked active, and a click on it is remembered by lowercased
+// address until detection confirms the account. An app that opens outside the app must
+// not move the active tab: doing so once left the bar pointing at a tab with no view
+// behind it, a blank window.
+
 export interface Profile {
   key: string;
   kind: 'authuser' | 'delegated';
@@ -27,11 +39,6 @@ export interface Profile {
   hasCalendar: boolean;
   order?: number;
   label?: string;
-  // Een tab uit de onthouden balk (accounts.json): main tekent hem al voordat de
-  // detectie het adres heeft teruggevonden, zodat de balk niet leeg begint. Zo'n
-  // rij heeft nog geen postvak — main kent het sessieslot niet en weigert hem te
-  // openen — dus wijst de balk hem niet als actief aan en klikt hij niet weg.
-  // Verder is het een gewoon tabblad: hij hoort er te staan zoals hij er stond.
   provisional?: boolean;
 }
 export type { Surface };
@@ -75,11 +82,6 @@ export interface Prefs {
   launchMinimized: boolean;
   theme: 'system' | 'light' | 'dark';
   notificationOpen: 'app' | 'window';
-  // `dndUntil` is epoch-ms en komt alleen uit het hoofdproces: het tray-menu zet
-  // een tijdelijke demping ("30 minuten stil") en `prefs-store` bewaart hem, en
-  // het hoofdproces ruimt hem zelf op als hij verlopen is. Het paneel leest hem
-  // wel (het puntje bij Meldingen) maar schrijft hem niet — daarom staat het
-  // veld hier en niet in de argumenten van `setNotifications` hieronder.
   notifications: {
     dnd: boolean;
     dndUntil?: number;
@@ -93,11 +95,6 @@ export interface Prefs {
   };
   accounts: Record<string, AccountPref>;
   mailDrop: { folder: string };
-  // De blokken per tab van het instellingenpaneel. Dezelfde vorm als in
-  // `electron/prefs-store.ts`; die is de bron, dit is de kopie die de renderer
-  // nodig heeft. Ze staan hier nog een keer om dezelfde reden als `UpdateState`:
-  // een `import type` uit het hoofdproces trekt Electron in de bundel van de
-  // pagina.
   appearance: {
     showUnreadBadges: boolean;
     tray: { enabled: boolean; selectUnreadOnClick: boolean; color: 'system' | 'light' | 'dark' };
@@ -136,7 +133,6 @@ export interface Prefs {
   reneMode: boolean;
 }
 
-/** Eén regel in het logboek van downloads. Spiegelt `DownloadRecord` in electron/ipc.ts. */
 export interface DownloadRecord {
   filename: string;
   path: string;
@@ -148,7 +144,6 @@ export interface DownloadRecord {
 
 export type DownloadClickAction = 'show-in-folder' | 'open-file' | 'nothing';
 
-/** Eén taal die Chromium's spellingcontrole kent, met een leesbare naam. */
 export interface SpellcheckLanguage {
   code: string;
   label: string;
@@ -166,7 +161,6 @@ interface DesktopBridge {
   setColor(email: string, color: string): void;
   removeAccount(email: string): void;
   toggleSettings(open: boolean): void;
-  // Laat main een echt OS-menu openen; levert het gekozen id of null.
   popupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onSettingsForceClose(cb: () => void): void;
   onSettingsForceOpen(cb: () => void): void;
@@ -176,8 +170,6 @@ interface DesktopBridge {
   onUpdateStatus(cb: (status: UpdateStatus) => void): void;
   setAutoStart(v: boolean): void;
   setLaunchMinimized(v: boolean): void;
-  // Eén zetter per tab, met een patch. Zie de opmerking bij `setAppearance` in
-  // `electron/prefs-store.ts` voor waarom niet één per veld.
   setAppearance(patch: {
     showUnreadBadges?: boolean;
     tray?: { enabled?: boolean; selectUnreadOnClick?: boolean };
@@ -268,15 +260,11 @@ function displayName(p: Profile): string {
   return (p.label && p.label.trim()) || p.name || p.email;
 }
 
-// De pagina die de balk en het instellingenpaneel draagt: hier zit alle staat en
-// alle IPC, het tekenwerk zit in Topbar en SettingsPanel. Heette Sidebar toen de
-// navigatie nog een kolom links was.
 export default function AppShell() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // Gevuld zodra een sleep is opgeslagen; null = geen modal.
   const [dropItems, setDropItems] = useState<MailDropItem[] | null>(null);
   const [update, setUpdate] = useState<UpdateStatus>({ state: 'idle' });
   const [prefs, setPrefs] = useState<Prefs | null>(null);
@@ -285,9 +273,6 @@ export default function AppShell() {
   const [scanDone, setScanDone] = useState(false);
   const S = getStrings(prefs?.reneMode === true);
   const [isDefaultMail, setIsDefaultMail] = useState(false);
-  // Het account dat de gebruiker aanklikte toen het nog een voorlopige tab was.
-  // Onthouden op het adres — het enige dat stabiel is, want de sleutel van een
-  // voorlopige tab verdwijnt zodra het echte tabblad hem vervangt.
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   useEffect(() => {
@@ -295,12 +280,6 @@ export default function AppShell() {
     if (!bridge) return;
     bridge.onProfilesChanged((list) => {
       setProfiles(list);
-      // Keep the active selection valid: re-derive if the active profile vanished.
-      // Alleen een bevestigd tabblad kan het actieve zijn: main toont het postvak
-      // van het slot waar hij zelf mee begon, en een voorlopige tab aanwijzen zou
-      // een naam boven dat postvak zetten die we alleen maar vermoeden. Zolang er
-      // niets bevestigd is licht er dus niets op — en zodra de eerste bevestiging
-      // landt, wordt die alsnog gekozen.
       setActive((cur) => {
         if (cur && list.some((p) => p.key === cur.key && !p.provisional)) return cur;
         const first = list.find((p) => !p.provisional);
@@ -321,17 +300,11 @@ export default function AppShell() {
     bridge.onDefaultMailStatus(setIsDefaultMail);
   }, []);
 
-  // De menu's van de balk zijn OS-menu's van het main-proces: die staan boven de
-  // native Gmail-views, dus hoeft er niets weggeduwd en teruggezet te worden.
   const popupMenu = useCallback(
     async (items: NativeMenuItem[]) => (await window.desktop?.popupMenu(items)) ?? null,
     [],
   );
 
-  // De onthouden klik afhandelen. Zodra het account bevestigd is gaat hij open, en
-  // is het adres uit de balk verdwenen (detectie vond het niet terug, dus bestaat
-  // het niet meer) dan vergeten we hem — anders zou hij blijven wachten op een
-  // account dat nooit komt.
   useEffect(() => {
     if (!pendingEmail) return;
     const row = profiles.find((p) => p.email.toLowerCase() === pendingEmail);
@@ -339,7 +312,7 @@ export default function AppShell() {
       setPendingEmail(null);
       return;
     }
-    if (row.provisional) return; // nog niet bevestigd: blijven wachten
+    if (row.provisional) return;
     setPendingEmail(null);
     setActive({ key: row.key, surface: 'mail' });
     window.desktop?.switchSurface(row.key, 'mail');
@@ -360,34 +333,14 @@ export default function AppShell() {
     }
   }, [prefs?.theme]);
 
-  // Een klik op een voorlopige tab wordt onthouden en uitgevoerd zodra detectie dat
-  // account bevestigt — meestal een halve seconde later. Bewust niet alvast
-  // oplichten: dan zou de balk een account aanwijzen dat niet op het scherm staat,
-  // en dat is precies de verwarring die we vermijden. De sprong komt dus iets later
-  // dan bij een gewoon tabblad, maar de klik gaat niet verloren. Altijd naar de
-  // post: een voorlopige tab heeft geen andere surface om naartoe te gaan
-  // (`hasCalendar` staat uit tot de identiteit vaststaat).
   function open(key: string, surface: Surface) {
     if (settingsOpen) setSettingsOpen(false);
     const row = profiles.find((p) => p.key === key);
     if (row?.provisional) {
-      // Kleinletters aan beide kanten: het onthouden adres komt uit accounts.json en
-      // het bevestigde uit de Gmail-pagina, en die hoeven niet dezelfde hoofdletters
-      // te gebruiken. Zonder dit zou de onthouden klik stilletjes wegvallen.
       setPendingEmail(row.email.toLowerCase());
       return;
     }
-    setPendingEmail(null); // een gewone klik overstemt een onthouden klik
-    // Gaat deze app buiten de app open, dan verschuift het actieve tabblad níet.
-    //
-    // Dit was een echte fout: de balk zette zijn tabblad meteen om, main opende
-    // alleen de browser (er hoort geen weergave bij een app die je in je browser
-    // wilde), en dan wees de balk een tabblad aan waar niets achter zat — een wit
-    // venster. Nu blijft staan wat er stond: je post.
-    //
-    // De vraag "waar gaat deze app open" staat in `renderer/lib/google-apps.ts` en
-    // wordt door main met dezelfde functie gestled, zodat de balk en het hoofdproces
-    // niet op een ander antwoord kunnen uitkomen.
+    setPendingEmail(null);
     const target =
       surface === 'mail' || !prefs
         ? 'in-app'
@@ -421,7 +374,6 @@ export default function AppShell() {
     setSettingsOpen(false);
     window.desktop?.toggleSettings(false);
   }
-  // Topbar houdt de sleeptoestand zelf bij, dus komen beide adressen mee.
   function reorder(fromEmail: string, toEmail: string) {
     if (fromEmail === toEmail) return;
     const emails = profiles.map((p) => p.email);
@@ -432,7 +384,6 @@ export default function AppShell() {
     window.desktop?.setAccountOrder(emails);
   }
 
-  // Only suggest delegates we don't already have as a profile.
   const freshSuggestions = suggestions.filter(
     (s) => !profiles.some((p) => p.email.toLowerCase() === s.email.toLowerCase()),
   );
@@ -461,12 +412,6 @@ export default function AppShell() {
         onReorder={reorder}
       />
 
-      {/* Het instellingenpaneel vult het gebied onder de balk. Main verbergt de
-          Gmail-views al zodra het opengaat, dus het staat nergens achter.
-          Het paneel hangt hier rechtstreeks in de kolom, zonder tussen-div: het
-          heeft zelf `flex-1` én `h-screen`, en alleen als flex-kind wint flex-1
-          en blijft het paneel 40px korter dan het venster in plaats van er onderuit
-          te lopen. */}
       {settingsOpen && (
         <SettingsPanel
           profiles={profiles}

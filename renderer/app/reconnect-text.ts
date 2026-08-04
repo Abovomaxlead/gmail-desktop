@@ -1,12 +1,9 @@
-// De tekst van de herverbind-melding, apart en puur zodat er een test op kan.
-// Dat is nodig omdat deze melding niet weg te klikken is: staat er iets in dat
-// niet waar is, dan kijkt de gebruiker daar tot de volgende versie naar.
-//
-// 'expired' = het token is weg of niet meer te verversen; dan werkt het
-// verplaatsen van mail niet meer. 'push' = het token werkt prima, maar mist de
-// scope die push nodig heeft of is door de relay geweigerd; dan werkt alles
-// behalve de meldingen en de API-teller. Die twee dezelfde tekst geven betekent
-// dat één van de twee een onwaarheid te lezen krijgt.
+// Text for the reconnect notice, kept pure so a test can hold it to account: the
+// notice cannot be dismissed, so a sentence that is not true stays on screen until
+// the next release. 'expired' means the token is gone and moving mail stops working;
+// 'push' means the token still works but lacks the scope push needs, so only the
+// notifications and the unread counter are affected. A mixed list may only say what
+// is true for every account in it.
 
 export type ReconnectReason = 'expired' | 'push';
 
@@ -36,7 +33,6 @@ export function reconnectHeading(accounts: ReconnectAccount[]): ReconnectHeading
         : 'Verbind opnieuw om mail te kunnen verplaatsen.',
     };
   }
-  // Gemengd: alleen zeggen wat voor elk account in de lijst waar is.
   return {
     title: `${accounts.length} accounts opnieuw verbinden`,
     sub: 'Verbind opnieuw voor het verplaatsen van mail en voor meldingen.',

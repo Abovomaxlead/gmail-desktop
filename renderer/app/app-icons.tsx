@@ -1,7 +1,7 @@
-// Icons for the Google app surfaces in the sidebar's waffle flyout: the
-// official product icons (embedded PNGs, see lib/app-icon-data.ts), rendered
-// the same way as the calendar icon. Only the waffle trigger itself is a local
-// glyph so it inherits the sidebar's theme colors.
+// Icons for the Google app surfaces in the sidebar's waffle flyout: the official
+// product icons (embedded PNGs, see lib/app-icon-data.ts). Only the waffle trigger
+// itself is a local glyph, so it inherits the sidebar's theme colours. Mail and
+// calendar are pinned with their own visuals and never render through APP_ICONS.
 import type { FC } from 'react';
 import type { Surface } from '../lib/surfaces';
 import { APP_ICON_DATA_URIS } from '../lib/app-icon-data';
@@ -11,7 +11,6 @@ interface IconProps {
 }
 
 export function WaffleIcon({ className = '' }: IconProps) {
-  // 3×3 dot grid ("waffle"), filled dots read better than stroked at 20px.
   const cells = [5, 12, 19];
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -27,8 +26,6 @@ function productIcon(surface: Surface): FC<IconProps> {
   };
 }
 
-// Icon per app surface for the waffle flyout. Mail/calendar are pinned in the
-// sidebar with their own visuals and never render through this map.
 export const APP_ICONS: Partial<Record<Surface, FC<IconProps>>> = {
   drive: productIcon('drive'),
   docs: productIcon('docs'),

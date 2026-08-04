@@ -1,3 +1,5 @@
+// The per-account unread count store.
+
 import { describe, it, expect } from 'vitest';
 import { UnreadStore } from '../electron/unread-store';
 import { totalUnread } from '../electron/badge-math';
@@ -14,7 +16,6 @@ describe('UnreadStore', () => {
     const s = new UnreadStore();
     s.report('u0', 5);
     expect(totalUnread(s.snapshot())).toBe(5);
-    // A discarded/torn-down mail view reports 0; its count must leave the total.
     s.report('u0', 0);
     expect(totalUnread(s.snapshot())).toBe(0);
     expect('u0' in s.snapshot()).toBe(false);

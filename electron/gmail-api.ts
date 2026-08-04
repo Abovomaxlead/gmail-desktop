@@ -1,19 +1,21 @@
-// Gmail API, alleen wat we nodig hebben. De pure delen (url's, antwoorden lezen)
-// staan hier zodat ze te testen zijn; `electron` wordt lui geladen in de functies
-// die het netwerk op gaan.
+// Gmail API, only what we need. The pure parts (URLs, reading responses) live here so
+// they are testable and `electron` is loaded lazily inside the functions that go on
+// the network. This is the one file that knows what a request to Gmail looks like,
+// which is why `requestJson` stays private.
+//
+// Traps worth knowing. `messages.insert` uses the upload endpoint with a multipart body,
+// so labels ride along in the metadata and the ceiling is 50 MB instead of a few;
+// `internalDateSource=dateHeader` is required or the copy lands under today's date, and
+// the boundary is randomised then checked against the message. Only `messages.get`
+// understands `format=raw` — `threads.get` answers 400 — so a thread costs two steps,
+// and Gmail encodes `raw` as base64url. Trashing uses `/trash`, never `DELETE`, to stay
+// reversible for thirty days. Duplicate detection matches the RFC822 Message-ID via
+// `rfc822msgid:`, the only id stable across mailboxes.
 
 import { randomBytes } from 'node:crypto';
 
 export const LABELS_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/labels';
 
-// messages.insert zet een bestaand bericht in een postvak zonder het te
-// versturen — precies wat kopiëren naar een ander account is. Via het
-// upload-endpoint met een multipart-body, want dan mogen de labels mee in de
-// metadata én is de bovengrens 50 MB in plaats van de paar MB die een
-// base64-in-json-verzoek aankan.
-//
-// internalDateSource=dateHeader: zonder dat staat de kopie in het andere
-// postvak op vandaag in plaats van op de oorspronkelijke datum.
 export const INSERT_URL =
   'https://gmail.googleapis.com/upload/gmail/v1/users/me/messages' +
   '?uploadType=multipart&internalDateSource=dateHeader';
@@ -23,12 +25,8 @@ export interface GmailLabel {
   name: string;
 }
 
-// Systeemlabels waar je een bericht zinnig in kunt zetten. De rest van Gmail's
-// systeemlabels is geen doel om naartoe te kopiëren: CATEGORY_* zijn de tabbladen
-// van het postvak, en DRAFT/SENT/SPAM/TRASH/UNREAD zijn statussen.
 const SYSTEM_TARGETS = new Set(['INBOX', 'STARRED', 'IMPORTANT']);
 
-// Netter dan Gmail's schreeuwletters voor de labels die we wél tonen.
 const SYSTEM_NAMES: Record<string, string> = {
   INBOX: 'Postvak IN',
   STARRED: 'Met sterren',
@@ -39,9 +37,6 @@ export interface RawLabel extends GmailLabel {
   type: string;
 }
 
-// Alles wat het antwoord bevat, ongefilterd. parseLabels hieronder houdt er de
-// labels uit over waar je iets naartoe kunt kopiëren; voor het opzoeken van een
-// gesleept label heb je juist de hele lijst nodig.
 export function parseAllLabels(json: unknown): RawLabel[] {
   const raw = (json as { labels?: unknown })?.labels;
   if (!Array.isArray(raw)) return [];
@@ -55,10 +50,6 @@ export function parseAllLabels(json: unknown): RawLabel[] {
   return out;
 }
 
-// Gmail's url schrijft het label zoals het heet, inclusief het pad van een
-// genesteld label ("Klanten/2026"). Eerst letterlijk zoeken; pas als dat niets
-// oplevert hoofdletterongevoelig, want twee labels die alleen in hoofdletters
-// verschillen mogen niet door elkaar lopen.
 export function findLabelId(labels: RawLabel[], name: string): string | null {
   const want = (name ?? '').trim();
   if (!want) return null;
@@ -75,7 +66,6 @@ export function parseLabels(json: unknown): GmailLabel[] {
     if (!isUser && !SYSTEM_TARGETS.has(l.id)) continue;
     out.push({ id: l.id, name: isUser ? l.name : SYSTEM_NAMES[l.id] ?? l.name });
   }
-  // Systeemlabels bovenaan in een vaste orde, daarna de eigen labels op naam.
   const rank = (l: GmailLabel) => {
     const i = [...SYSTEM_TARGETS].indexOf(l.id);
     return i === -1 ? SYSTEM_TARGETS.size : i;
@@ -85,16 +75,12 @@ export function parseLabels(json: unknown): GmailLabel[] {
   );
 }
 
-// Per gekoppeld account de labels, of waarom ze er niet zijn.
 export interface AccountLabels {
   email: string;
   labels: GmailLabel[];
   error?: string;
 }
 
-// Zodat de aanroeper 401 ("token afgekeurd") kan onderscheiden van de rest. Een
-// token kan door Google ingetrokken zijn terwijl onze eigen klok zegt dat het nog
-// geldig is; dan is verversen de juiste reactie, niet de fout doorgeven.
 export class GmailHttpError extends Error {
   constructor(
     message: string,
@@ -149,11 +135,6 @@ export async function fetchLabelId(accessToken: string, name: string): Promise<s
   return findLabelId(parseAllLabels(await requestJson(LABELS_URL, accessToken)), name);
 }
 
-// Een gesleept label leegruimen ging tot nu toe door Gmail's lijstweergave in
-// een verborgen view te bladeren en de onderwerp-spans uit te lezen. Met een
-// token kan het rechtstreeks: één lijstverzoek per honderd gesprekken en één
-// verzoek per gesprek voor de originelen, in plaats van seconden wachten per
-// pagina tot de lijst is omgeklapt.
 export const THREADS_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/threads';
 
 export function threadsListUrl(labelId: string, pageToken?: string): string {
@@ -172,16 +153,10 @@ export function parseThreadList(json: unknown): { threadIds: string[]; nextPageT
   return typeof next === 'string' && next ? { threadIds, nextPageToken: next } : { threadIds };
 }
 
-// Alleen `messages.get` kent format=raw; `threads.get` niet — die accepteert
-// enkel full/metadata/minimal en antwoordt op "raw" met een 400. Een gesprek
-// kost daarom twee stappen: eerst welke berichten erin zitten, dan per bericht
-// de bron. `minimal` omdat we van de thread niets anders nodig hebben dan die
-// id's.
 export function threadMessagesUrl(threadId: string): string {
   return `${THREADS_URL}/${encodeURIComponent(threadId)}?format=minimal`;
 }
 
-// De berichten in het gesprek, in de volgorde die Gmail geeft (oudste eerst).
 export function parseThreadMessageIds(json: unknown): string[] {
   const raw = (json as { messages?: unknown })?.messages;
   if (!Array.isArray(raw)) return [];
@@ -196,19 +171,11 @@ export function messageRawUrl(messageId: string): string {
   return `${MESSAGES_URL}/${encodeURIComponent(messageId)}?format=raw`;
 }
 
-// De RFC822-bron van één bericht. Gmail codeert `raw` als base64url.
 export function parseMessageRaw(json: unknown): Buffer | null {
   const raw = (json as { raw?: unknown })?.raw;
   return typeof raw === 'string' && raw ? Buffer.from(raw, 'base64url') : null;
 }
 
-/**
- * De RFC822-bron van één bericht, opgehaald en al.
- *
- * Bestaat zodat `requestJson` privé kan blijven: dat is de enige plek die weet hoe
- * een verzoek aan Gmail eruitziet, en een aanroeper buiten dit bestand hoort dat niet
- * over te nemen.
- */
 export async function fetchMessageRaw(
   accessToken: string,
   messageId: string,
@@ -216,9 +183,6 @@ export async function fetchMessageRaw(
   return parseMessageRaw(await requestJson(messageRawUrl(messageId), accessToken));
 }
 
-// Beide vragen het gmail.modify-recht (zie SCOPES in google-oauth.ts). Ze staan
-// hier en niet in main omdat elke andere aanroep naar Gmail ook hier staat: één
-// bestand dat weet hoe een verzoek aan Gmail eruitziet.
 export function messageModifyUrl(messageId: string): string {
   return `${MESSAGES_URL}/${encodeURIComponent(messageId)}/modify`;
 }
@@ -226,7 +190,6 @@ export function messageTrashUrl(messageId: string): string {
   return `${MESSAGES_URL}/${encodeURIComponent(messageId)}/trash`;
 }
 
-/** Haal het UNREAD-label van een bericht af. */
 export async function markMessageRead(accessToken: string, messageId: string): Promise<void> {
   await requestJson(messageModifyUrl(messageId), accessToken, {
     method: 'POST',
@@ -235,13 +198,6 @@ export async function markMessageRead(accessToken: string, messageId: string): P
   });
 }
 
-/**
- * Verplaats een bericht naar de prullenbak.
- *
- * `/trash` en niet `DELETE /messages/{id}`. Die tweede is definitief; deze is
- * dertig dagen terug te draaien. Achter een herkenner die zich kan vergissen hoort
- * geen knop die niets terugneemt.
- */
 export async function trashMessage(accessToken: string, messageId: string): Promise<void> {
   await requestJson(messageTrashUrl(messageId), accessToken, {
     method: 'POST',
@@ -250,13 +206,7 @@ export async function trashMessage(accessToken: string, messageId: string): Prom
   });
 }
 
-// Of een bericht al in een label staat. De Message-ID uit de header is het
-// enige dat een bericht over postvakken heen identificeert: dezelfde mail heeft
-// in elk account een ander Gmail-id, maar dezelfde Message-ID. Gmail kan er zelf
-// op zoeken met rfc822msgid:, dus dat scheelt ons het inlezen van het andere
-// postvak.
 export function messageIdQuery(messageId: string): string {
-  // Zonder punthaken: die horen bij de header, niet bij de zoekterm.
   return `rfc822msgid:${(messageId ?? '').trim().replace(/^<+|>+$/g, '')}`;
 }
 
@@ -274,8 +224,6 @@ export function parseHasMessage(json: unknown): boolean {
   return Array.isArray(raw) && raw.length > 0;
 }
 
-// False bij een bericht zonder Message-ID: dan valt er niets te vergelijken en
-// is "waarschijnlijk een duplicaat" een slechtere gok dan gewoon kopiëren.
 export async function messageExistsInLabel(
   accessToken: string,
   messageId: string,
@@ -285,8 +233,6 @@ export async function messageExistsInLabel(
   return parseHasMessage(await requestJson(searchInLabelUrl(messageId, labelId), accessToken));
 }
 
-// De gesprekken in een label, tot `max`. `capped` zegt of Gmail er nog meer
-// had — stil afkappen leest als "alles opgehaald".
 export async function listLabelThreadIds(
   accessToken: string,
   labelId: string,
@@ -305,8 +251,6 @@ export async function listLabelThreadIds(
   return { threadIds, capped: false };
 }
 
-// De bron van elk bericht in het gesprek. Binnen één gesprek achter elkaar: dat
-// zijn er een paar, en de aanroeper draait al meerdere gesprekken tegelijk.
 export async function fetchThreadRaw(accessToken: string, threadId: string): Promise<Buffer[]> {
   const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
   const out: Buffer[] = [];
@@ -317,19 +261,11 @@ export async function fetchThreadRaw(accessToken: string, threadId: string): Pro
   return out;
 }
 
-// --- Push: watch, history, metadata, teller -------------------------------
-//
-// Gmail meldt zelf wanneer er iets verandert, via Pub/Sub. De melding bevat geen
-// mail: alleen een historyId. Wat er veranderd is komt daarna uit history.list.
-
 export const WATCH_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/watch';
 export const STOP_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/stop';
 export const PROFILE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
 export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/history';
 
-// Alleen INBOX: wat daarbuiten gebeurt hoeft geen melding en geen teller. Staat
-// het ooit toch nodig te zijn (zie het openstaande punt in de spec over gelezen
-// markeren), dan is dit de enige plek die verandert.
 export function watchBody(topicName: string): string {
   return JSON.stringify({
     topicName,
@@ -366,8 +302,6 @@ export function historyListUrl(startHistoryId: string, pageToken?: string): stri
     labelId: 'INBOX',
     maxResults: '500',
   });
-  // Alleen toegevoegde berichten: label-verschuivingen zijn voor de teller, en
-  // die halen we los op bij het INBOX-label zelf.
   q.append('historyTypes', 'messageAdded');
   if (pageToken) q.set('pageToken', pageToken);
   return `${HISTORY_URL}?${q.toString()}`;
@@ -421,7 +355,7 @@ export interface MessageMeta {
   threadId: string;
   from: string;
   subject: string;
-  internalDate: number; // epoch ms; bepaalt of dit bericht nog meldingswaardig is
+  internalDate: number;
 }
 
 export function parseMessageMeta(json: unknown): MessageMeta | null {
@@ -433,8 +367,6 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
   };
   const id = stringFrom(raw?.id);
   const internalDate = numberFrom(raw?.internalDate);
-  // Zonder id valt er niets te openen en zonder aankomsttijd kunnen we niet
-  // beslissen of het een melding waard is. De rest mag ontbreken.
   if (!id || internalDate === null) return null;
   const headers = Array.isArray(raw?.payload?.headers) ? raw!.payload!.headers : [];
   const header = (name: string): string => {
@@ -458,8 +390,6 @@ export function labelGetUrl(labelId: string): string {
   return `${LABELS_URL}/${encodeURIComponent(labelId)}`;
 }
 
-// threadsUnread en niet messagesUnread: de paginatitel van de webview telt ook
-// gesprekken, dus zo verspringt het getal niet zodra de dekking van bron wisselt.
 export function parseUnreadThreads(json: unknown): number | null {
   return numberFrom((json as { threadsUnread?: unknown })?.threadsUnread);
 }
@@ -477,8 +407,6 @@ export async function watchMailbox(
   );
 }
 
-// Netjes afmelden als een account weggaat, anders blijft Gmail nog tot een week
-// naar het topic publiceren voor een client die er niet meer is.
 export async function stopWatch(accessToken: string): Promise<void> {
   await requestJson(STOP_URL, accessToken, {
     method: 'POST',
@@ -510,9 +438,6 @@ export async function fetchInboxUnread(accessToken: string): Promise<number | nu
   return parseUnreadThreads(await requestJson(labelGetUrl('INBOX'), accessToken));
 }
 
-// De scheidingsreeks mag nergens in het bericht voorkomen; anders leest Google
-// midden in een bijlage een nieuw onderdeel. Willekeurig én gecontroleerd, want
-// een .eml kan van alles bevatten — ook iets dat op onze boundary lijkt.
 export function pickBoundary(
   raw: Buffer,
   rand: () => string = () => randomBytes(16).toString('hex'),
@@ -521,14 +446,9 @@ export function pickBoundary(
     const candidate = `gmd-${rand()}`;
     if (!raw.includes(candidate)) return candidate;
   }
-  // Acht keer achter elkaar een botsing kan alleen als `rand` niet willekeurig
-  // is. Dan liever een lange, vaste reeks dan een stuk bericht opofferen.
   return `gmd-boundary-${raw.length}-fallback`;
 }
 
-// multipart/related zoals Google's upload-endpoint het wil: eerst de metadata
-// als json, dan het bericht ruw. Ruw en niet base64: message/rfc822 is een
-// binair onderdeel, dus de bytes gaan er ongemoeid in.
 export function multipartBody(raw: Buffer, labelIds: string[], boundary: string): Buffer {
   const head = Buffer.from(
     `--${boundary}\r\n` +
@@ -546,10 +466,6 @@ export function parseInsertedId(json: unknown): string | null {
   return typeof id === 'string' && id ? id : null;
 }
 
-// Zet één bericht in het postvak van `accessToken`, onder de gegeven labels.
-// Geeft het id in dat postvak terug — handig in het log om een kopie terug te
-// vinden. Gooit GmailHttpError bij een afgekeurd token, zodat de aanroeper kan
-// verversen en het nog eens kan proberen.
 export async function insertMessage(
   accessToken: string,
   raw: Buffer,

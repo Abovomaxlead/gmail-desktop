@@ -1,3 +1,5 @@
+// The Gmail history-id store.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -50,8 +52,6 @@ describe('HistoryStore', () => {
     expect(new HistoryStore(file).get('nobody@x.nl')).toBeUndefined();
   });
 
-  // Een halfgeschreven bestand mag de app niet ophouden: opnieuw ijken kost één
-  // verzoek, vastlopen kost alle meldingen.
   it('treats an unreadable file as empty', () => {
     const broken = join(dir, 'broken.json');
     writeFileSync(broken, '{ this is not json', 'utf8');

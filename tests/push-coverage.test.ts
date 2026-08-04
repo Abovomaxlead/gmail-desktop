@@ -1,7 +1,8 @@
+// Which accounts a push watch covers, and until when.
+
 import { describe, it, expect } from 'vitest';
 import { PushCoverage } from '../electron/push-coverage';
 
-// Vaste klok: de tests gaan over welk moment onthouden wordt, niet over tijd.
 const at = (t: { now: number }) => new PushCoverage(() => t.now);
 
 describe('PushCoverage', () => {
@@ -22,14 +23,12 @@ describe('PushCoverage', () => {
   it('reports whether the coverage actually changed', () => {
     const c = new PushCoverage(() => 500);
     expect(c.cover('a@x.nl')).toBe(true);
-    expect(c.cover('a@x.nl')).toBe(false); // al gedekt: niets te doen
+    expect(c.cover('a@x.nl')).toBe(false);
     expect(c.drop('a@x.nl')).toBe(true);
     expect(c.drop('a@x.nl')).toBe(false);
   });
 
   it('keeps the original moment while coverage holds', () => {
-    // Anders zou een tweede geslaagde watch het venster verschuiven en zou mail
-    // die er tussenin kwam alsnog stil blijven.
     const t = { now: 500 };
     const c = at(t);
     c.cover('a@x.nl');
@@ -39,8 +38,6 @@ describe('PushCoverage', () => {
   });
 
   it('moves the moment forward after coverage was lost and taken back', () => {
-    // Tijdens de storing meldde de webview; die mail mag de catch-up niet
-    // nog een keer melden.
     const t = { now: 500 };
     const c = at(t);
     c.cover('a@x.nl');

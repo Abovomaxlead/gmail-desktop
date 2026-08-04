@@ -1,3 +1,5 @@
+// The preferences store: defaults, the patch per tab, and its file on disk.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -43,13 +45,12 @@ describe('PrefsStore', () => {
     const store = new PrefsStore(file);
     store.setAccount('a@b.com', { badgeCount: false });
     expect(store.getAll().accounts['a@b.com'].badgeCount).toBe(false);
-    // A fresh instance reading the same file sees it too.
     expect(new PrefsStore(file).getAccount('a@b.com').badgeCount).toBe(false);
   });
 
   it('tolerates a corrupt file by returning defaults', () => {
     const store = new PrefsStore(file);
-    store.setTheme('dark'); // create the file
+    store.setTheme('dark');
     require('node:fs').writeFileSync(file, '{not json', 'utf8');
     expect(new PrefsStore(file).getAll()).toEqual(DEFAULT_PREFS);
   });
@@ -65,7 +66,7 @@ describe('PrefsStore', () => {
 
   it('ignores a non-boolean stored reneMode', () => {
     const store = new PrefsStore(file);
-    store.setTheme('dark'); // create the file
+    store.setTheme('dark');
     const fs = require('node:fs');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     raw.reneMode = 'yes';
@@ -73,9 +74,6 @@ describe('PrefsStore', () => {
     expect(new PrefsStore(file).getAll().reneMode).toBe(false);
   });
 
-  // Geminimaliseerd starten staat los van zelf opstarten: je kan de app met de
-  // hand starten en hem toch klein willen beginnen. De test houdt vast dat het
-  // twee velden zijn en niet één.
   it('defaults launchMinimized to false and round-trips it without touching autoStart', () => {
     const store = new PrefsStore(file);
     expect(store.getAll().launchMinimized).toBe(false);
@@ -90,7 +88,7 @@ describe('PrefsStore', () => {
 
   it('ignores a non-boolean stored launchMinimized', () => {
     const store = new PrefsStore(file);
-    store.setTheme('dark'); // create the file
+    store.setTheme('dark');
     const fs = require('node:fs');
     const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
     raw.launchMinimized = 'sure';
@@ -118,7 +116,7 @@ describe('PrefsStore', () => {
 
   it('ignores a non-numeric dndUntil on disk', () => {
     const store = new PrefsStore(file);
-    store.setTheme('dark'); // create the file
+    store.setTheme('dark');
     require('node:fs').writeFileSync(
       file,
       JSON.stringify({ notifications: { dnd: false, dndUntil: 'soon', quietHours: { enabled: false, start: '18:00', end: '08:00' } } }),

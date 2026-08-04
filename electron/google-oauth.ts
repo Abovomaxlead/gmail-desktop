@@ -1,37 +1,27 @@
-import { createHash, randomBytes } from 'node:crypto';
-
-// OAuth voor de Gmail API. Staat los van de inlog van de Gmail-views: die
-// werken op Google's sessiecookies, dit levert een access token. Het een is niet
-// in het ander om te zetten. Wat we wél delen is de sessiepartitie waarin de
-// consent-pagina wordt getoond, zodat de gebruiker daar al is ingelogd.
+// OAuth for the Gmail API. Separate from the Gmail views' sign-in: those run on
+// Google's session cookies, this yields an access token, and neither converts into the
+// other. They only share the session partition the consent page is shown in.
 //
-// De flow is die voor een desktop-app: authorization code + PKCE, met een
-// loopback-redirect. Google's secret voor een desktop-client geldt niet als
-// vertrouwelijk (hij zit onvermijdelijk in de app), en PKCE is wat de
-// uitwisseling beschermt.
+// Desktop-app flow: authorization code + PKCE with a loopback redirect, the only
+// redirect Google allows for desktop clients — the port is arbitrary and nothing
+// listens, because the navigation to it is intercepted. `access_type=offline` with
+// `prompt=consent` is required or a second run returns no refresh token, and a refresh
+// response never carries a new refresh token, so the original must be kept.
+//
+// Changing SCOPES invalidates every stored token, since `hasScopes` compares against
+// this list. userinfo.email is not for Gmail but for the push relay, which maps a
+// connection to an account via tokeninfo — without it the relay closes with 4401.
+
+import { createHash, randomBytes } from 'node:crypto';
 
 export interface OAuthConfig {
   clientId: string;
   clientSecret: string;
 }
 
-// Lezen om de originele berichten op te halen (format=raw), labels te kunnen
-// opsommen en de history te volgen; insert om een bericht in een ánder postvak te
-// zetten. Allebei "restricted" scopes: zonder Google-verificatie werkt dit alleen
-// voor accounts die als testgebruiker staan aangemerkt.
-//
-// userinfo.email hoort niet bij Gmail maar bij de push-relay: die koppelt een
-// verbinding aan een account via het e-mailadres uit tokeninfo, en met alleen
-// Gmail-scopes geeft tokeninfo dat adres niet terug. Zonder deze scope sluit de
-// relay elke verbinding met 4401.
 export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.insert',
-  // Marking a message read and moving one to the bin, for the verification-code
-  // feature. Adding this scope invalidates every stored token: `hasScopes` compares
-  // against this list, so an account linked before this line existed no longer counts
-  // as connected and has to give consent again. That is deliberate and was asked for
-  // — a narrower scope that can label and trash does not exist.
   'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
@@ -39,9 +29,6 @@ export const SCOPES = [
 export const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
-// Loopback is de enige redirect die Google voor desktop-clients toestaat. De
-// poort mag alles zijn en hoeft niet geregistreerd te worden; we vangen de
-// navigatie ernaartoe zelf op, dus er hoeft ook niets te luisteren.
 export const REDIRECT_URI = 'http://127.0.0.1:47813/oauth2callback';
 
 export interface Pkce {
@@ -69,8 +56,6 @@ export function authUrl(opts: {
     scope: (opts.scopes ?? SCOPES).join(' '),
     code_challenge: opts.challenge,
     code_challenge_method: 'S256',
-    // offline + consent: anders krijgen we bij een tweede keer geen refresh
-    // token en is de koppeling na een uur weer weg.
     access_type: 'offline',
     prompt: 'consent',
     include_granted_scopes: 'true',
@@ -79,8 +64,6 @@ export function authUrl(opts: {
   return `${AUTH_ENDPOINT}?${q.toString()}`;
 }
 
-// Herkent de redirect na de consent-pagina. Geeft null terug voor elke andere
-// url, zodat de aanroeper gewoon door kan laten navigeren.
 export function parseCallback(url: string): { code?: string; error?: string } | null {
   if (!url.startsWith(REDIRECT_URI)) return null;
   let params: URLSearchParams;
@@ -118,12 +101,10 @@ export function refreshBody(cfg: OAuthConfig, refreshToken: string): string {
 export interface StoredToken {
   accessToken: string;
   refreshToken: string;
-  expiresAt: number; // epoch ms
+  expiresAt: number;
   scopes: string[];
 }
 
-// Google stuurt bij een verversing géén nieuwe refresh token mee; die van de
-// eerste keer blijft geldig en moet dus bewaard worden.
 export function applyTokenResponse(
   previous: StoredToken | null,
   json: {
@@ -139,7 +120,6 @@ export function applyTokenResponse(
   if (!refreshToken) {
     return { error: 'geen refresh token; opnieuw toestemming geven met prompt=consent' };
   }
-  // Een minuut marge: liever te vroeg verversen dan een verzoek verliezen.
   const lifetime = (json.expires_in ?? 3600) * 1000;
   return {
     accessToken: json.access_token,

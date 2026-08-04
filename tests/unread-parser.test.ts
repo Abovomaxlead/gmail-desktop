@@ -1,3 +1,5 @@
+// Reading the unread count out of the Gmail page title.
+
 import { describe, it, expect } from 'vitest';
 import { mailboxTitleLoaded, parseUnreadCount } from '../electron/unread-parser';
 
@@ -17,10 +19,6 @@ describe('parseUnreadCount', () => {
     expect(parseUnreadCount('Inbox (3) - (spam) - Gmail')).toBe(3);
   });
 
-  // Gmail schrijft de teller in de taal van de gebruiker, en vanaf duizend zet
-  // die er een scheidingsteken in: "(1.324)" in het Nederlands, "(1,324)" in het
-  // Engels. Werd daar niet op gelezen, dan viel elk postvak met duizend of meer
-  // ongelezen berichten terug op 0 — precies de accounts waar de teller ertoe doet.
   it('reads a grouped thousands count in any locale', () => {
     expect(parseUnreadCount('Inbox (1.324) - user@gmail.com - Gmail')).toBe(1324);
     expect(parseUnreadCount('Inbox (1,324) - user@gmail.com - Gmail')).toBe(1324);
@@ -34,9 +32,6 @@ describe('parseUnreadCount', () => {
     expect(parseUnreadCount('Inbox (1324) - user@gmail.com - Gmail')).toBe(1324);
   });
 
-  // Een scheidingsteken dat geen groep van drie afsluit is geen duizendtal. Zo'n
-  // titel maakt Gmail niet, en er stilzwijgend een getal van bakken zou een
-  // verzonnen teller op de badge zetten.
   it('does not read a separator that groups no thousands', () => {
     expect(parseUnreadCount('Inbox (1.5) - user@gmail.com - Gmail')).toBe(0);
   });
@@ -60,7 +55,6 @@ describe('mailboxTitleLoaded', () => {
     expect(mailboxTitleLoaded('Choose an account')).toBe(false);
   });
   it('rejects a Gmail-suffixed title without an address', () => {
-    // De vorm zonder adres is wat Gmail tijdens het opstarten kort laat staan.
     expect(mailboxTitleLoaded('Inbox - Gmail')).toBe(false);
   });
   it('returns false for null/undefined/empty', () => {

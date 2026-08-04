@@ -1,11 +1,9 @@
+// A window.open the main process denies returns null, which Gmail reports as a blocked
+// popup, so the wrapper hands back a harmless stub instead.
+
 import { describe, expect, it, vi } from 'vitest';
 import { wrapWindowOpen } from '../electron/preload';
 
-// The main process denies window.open calls it handles itself (open-in-app
-// navigation, external browser, or the duplicate popup right after a handled
-// notification click). A denied window.open returns null, which Gmail treats
-// as a popup blocker and alerts ("Helaas! Een pop-upblokkering…"). The wrapper
-// substitutes a harmless stub so page code sees a window-like object.
 describe('wrapWindowOpen', () => {
   it('returns the real window when the open is allowed', () => {
     const real = { name: 'real' };

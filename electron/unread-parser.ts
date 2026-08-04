@@ -1,18 +1,9 @@
-// Gmail zet de ongelezen-teller tussen haakjes in de paginatitel, geschreven in
-// de taal van de gebruiker. Vanaf duizend groepeert die de duizendtallen, en het
-// scheidingsteken verschilt per locale: "(1.324)" in het Nederlands, "(1,324)"
-// in het Engels, "(1 324)" in het Frans of Russisch (een vaste of smalle spatie),
-// "(1'324)" in het Zwitsers-Duits.
-//
-// Daarom worden hier twee vormen herkend: een reeks cijfers zonder meer, of
-// groepen van precies drie cijfers achter een scheidingsteken. Die eis van drie
-// is er met opzet — hij houdt "(1.5)" buiten de deur, dat anders als 15 gelezen
-// zou worden en een verzonnen teller op de badge zou zetten.
-//
-// Punt en komma staan er allebei in, en welke van de twee het duizendtal scheidt
-// verschilt per taal. Onderscheiden hoeft niet: bij een groep van drie cijfers
-// is het hoe dan ook een scheidingsteken en nooit een decimaal, want een
-// ongelezen-teller is een geheel getal.
+// Reads the unread count out of Gmail's page title, and tells whether that title has
+// the shape it only takes once a mailbox is really loaded. Both go by shape, never by
+// text, since folder names are translated and the address and suffix are not. From a
+// thousand up Gmail groups the digits with a separator that differs per locale (".",
+// ",", a normal or narrow space, an apostrophe), so a group must be exactly three
+// digits: that is what keeps "(1.5)" from being read as 15.
 const GROUP_SEP = "[.,\\u0020\\u00A0\\u202F\\u2009'\\u2019]";
 const COUNT = new RegExp(`\\((\\d{1,3}(?:${GROUP_SEP}\\d{3})+|\\d+)\\)`);
 const SEPS = new RegExp(GROUP_SEP, 'g');
@@ -21,19 +12,10 @@ export function parseUnreadCount(title: string | null | undefined): number {
   if (!title) return 0;
   const match = title.match(COUNT);
   if (!match) return 0;
-  // De scheidingstekens eruit: alleen de cijfers vormen het getal.
   const n = parseInt(match[1].replace(SEPS, ''), 10);
   return Number.isFinite(n) ? n : 0;
 }
 
-// Of de paginatitel de vorm heeft die Gmail pas aanneemt als het postvak echt
-// staat: "<map> (<n>) - <adres> - Gmail". Daarvoor is de titel kaal ("Gmail"),
-// een inlogpagina, of het achtervoegsel zonder adres.
-//
-// Bewust getoetst op vorm en niet op tekst: de mapnaam is vertaald, het adres en
-// het achtervoegsel niet. Dit leest dezelfde bron als parseUnreadCount, waar de
-// app toch al aan hangt — een selector op Gmail's berichtenlijst zou nauwkeuriger
-// zijn maar een nieuw breukvlak met Google's interne markup openen.
 export function mailboxTitleLoaded(title: string | null | undefined): boolean {
   if (!title) return false;
   if (!/\s-\sGmail\s*$/.test(title)) return false;

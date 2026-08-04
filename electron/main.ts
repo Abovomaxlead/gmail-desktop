@@ -1,3 +1,22 @@
+// The Electron main process: window and tray, per-account views and sessions, account
+// detection, notifications, downloads, drag-to-save, Gmail-API sync and every IPC
+// handler. The pure decisions live in the small modules beside this file.
+//
+// Ordering that breaks if moved: disableHardwareAcceleration and the WSL
+// software-rendering switch must run before app 'ready' (hence the throwaway PrefsStore
+// up there, and no inverse call to re-enable); the 'session-created' and context-menu
+// hooks must be registered before createWindow; the nativeTheme listener is registered
+// once at startup, not in createWindow, which runs again after a notification click and
+// would leak a listener each time; and setAppUserModelId is required or Windows
+// silently drops Gmail's notifications.
+//
+// Other traps: DownloadItem.getStartTime() returns seconds, not milliseconds;
+// accounts.json is never written empty, as empty usually means detection has confirmed
+// nothing yet; a view left at setVisible(false) counts as occluded and Gmail then never
+// builds its message list, hence the one-off warm-up; each account has exactly one
+// unread source at a time (labels.get under push, page title otherwise) or the number
+// oscillates; and reveal/open accept only paths already in the download log.
+
 import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, Notification, nativeTheme } from 'electron';
 import { join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
@@ -124,50 +143,23 @@ import { startPushManager } from './push-manager';
 import { createSyncRunner } from './push-sync';
 import { findVerificationCode, subjectSuggestsCode } from './verification-code';
 
-// WSL/WSLg has no usable GPU stack: Electron's GPU process fails to initialize
-// and WSLg falls back to RDP "copy mode", leaving a black/degraded window. Force
-// software rendering there so the dev window actually shows. Must be called
-// before app 'ready'. No effect on the shipped Windows/macOS build.
 if (process.platform === 'linux' && /microsoft|WSL/i.test(release())) {
   app.disableHardwareAcceleration();
 }
 
-// Chromium start een AudioContext gedempt tot het document een echte klik heeft
-// gehad. Voor de balk is dat een probleem dat je niet ziet aankomen: een klik ín
-// Gmail telt niet als klik voor het document van de balk — dat zijn twee aparte
-// documenten — dus iemand die een uur alleen in zijn postvak klikt heeft een balk die
-// nooit is aangeraakt, en dan valt het meldingsgeluidje stil weg.
-//
-// Deze schakelaar haalt die eis weg. Dat is hier te verdedigen: de app speelt alleen
-// geluid dat de gebruiker zelf heeft aangezet, bij een melding waar hij om vroeg. Er
-// gaat niets automatisch spelen wat hij niet heeft ingesteld.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-// Hardwareversnelling uitzetten als de gebruiker daarom vroeg (Geavanceerd). Moet
-// vóór 'ready', en dus vóórdat `prefs` bestaat — die wordt in createWindow gemaakt.
-// Daarom hier een eigen, wegwerpbare lezer: `PrefsStore` houdt geen staat vast, het
-// leest het bestand bij elke aanroep. `app.getPath('userData')` mag al vóór 'ready'.
-//
-// Alleen uitzetten, nooit aanzetten: versnelling ís aan tenzij je hem afzet, en er
-// bestaat geen omgekeerde aanroep. Vandaar dat dit een `if` is en geen `else`.
 try {
   const early = new PrefsStore(join(app.getPath('userData'), 'prefs.json')).getAll();
   if (early.advanced.hardwareAcceleration === false) app.disableHardwareAcceleration();
 } catch {
-  // Geen voorkeuren te lezen (eerste start, of een stuk bestand): dan blijft de
-  // versnelling aan, en dat is de stand waarin de app al jaren opkomt.
 }
 
-// De ondergrens van de vensterbreedte. Staat hier en niet als los getal in
-// createWindow, omdat `applyMinWindowSize` hem ook nodig heeft als de gebruiker de
-// grens weer aanzet zonder de app te herstarten.
 const MIN_WINDOW_WIDTH = 800;
 
 const RENDERER_DIST = join(__dirname, '..', 'renderer', 'out');
 const CHANGELOG_PATH = join(__dirname, '..', 'CHANGELOG.md');
 
-// Read + parse the shipped CHANGELOG.md on demand. Returns [] if it's missing
-// or unreadable so the "What's new" section simply hides rather than erroring.
 function loadChangelog(): ChangelogVersion[] {
   try {
     return parseChangelog(readFileSync(CHANGELOG_PATH, 'utf8'));
@@ -177,15 +169,11 @@ function loadChangelog(): ChangelogVersion[] {
 }
 const PRELOAD_PATH = join(__dirname, 'preload.js');
 const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
-// De preload van een opstelvenster. Alleen gebruikt als "sluit na verzenden" aan
-// staat; zie `openComposeWindow` voor waarom hij er anders niet aan gaat.
 const COMPOSE_PRELOAD_PATH = join(__dirname, 'compose-preload.js');
-// Bundled app icon. Resolves to <project>/assets/icon.png in dev and to
-// app.asar/assets/icon.png when packaged (assets/** is in electron-builder files).
 const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
 const OAUTH_CONFIG_PATH = join(app.getPath('userData'), 'google-oauth.json');
-const PROBE_TIMEOUT_MS = 16000; // > preload identity poll window (~15s) so slow accounts aren't missed
+const PROBE_TIMEOUT_MS = 16000;
 
 let mainWindow: BrowserWindow | null = null;
 let manager: ProfileViewManager | null = null;
@@ -196,69 +184,43 @@ let prefs: PrefsStore | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
 let settingsPanelOpen = false;
-let dropOverlay: OverlayView | null = null; // eigen view waarin de kopieermodal leeft
-let lastDropPreview: MailDropPreviewItem[] = []; // laatste drop, zodat de modal het ook kan ophalen
-// Eén weggeschreven bericht uit de laatste sleep. Het pad, want het kopiëren
-// leest de bytes daarvandaan terug in plaats van ze in het geheugen te houden:
-// een labelsleep van tweehonderd gesprekken met bijlagen is zo honderden
-// megabytes. De Message-ID om te herkennen of hij aan de andere kant al staat,
-// het onderwerp om dat te kunnen melden.
+let dropOverlay: OverlayView | null = null;
+let lastDropPreview: MailDropPreviewItem[] = [];
 interface SavedRef {
   file: string;
   messageId: string;
   subject: string;
 }
 let lastDropSaved: SavedRef[] = [];
-// Het account waaruit gesleept is. Dat account als kopieerdoel aanbieden zou
-// alleen maar een duplicaat in hetzelfde postvak opleveren.
 let lastDropSource = '';
 let oauthTokens: OAuthStore | null = null;
 let history: HistoryStore | null = null;
-// Het logboek van downloads. Kan nog null zijn wanneer een sessie zich meldt: die
-// hook loopt via `app.on('session-created')` en dat kan vóór `createWindow()` zijn.
-// Vandaar `downloadHistory?.add(...)` op de aanroepplek.
 let downloadHistory: DownloadHistoryStore | null = null;
 const coverage = new PushCoverage();
 let pushManager: { stop(): void; refresh(): void } | null = null;
-// Eén runner per account: die coalesceert samenvallende syncs voor dat account.
 const syncRunners = new Map<string, { run(): Promise<void> }>();
-let reconnectBanner: OverlayView | null = null; // blijvende melding voor accounts zonder werkende koppeling
+let reconnectBanner: OverlayView | null = null;
 let reconnectAccounts: ReconnectAccount[] = [];
-let updateRequested = false; // user pressed "Update now" → auto-install once downloaded
-let pendingTrayUpdateCheck = false; // a check started from the tray → announce the result in a popup
+let updateRequested = false;
+let pendingTrayUpdateCheck = false;
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
-let notifiedUpdateVersion: string | null = null; // last version we showed a notification for this session
-let lastCheckBackground = false; // was the in-flight update check a background one?
-let pendingMailto: string | null = null; // a mailto arrived before an inbox was live
+let notifiedUpdateVersion: string | null = null;
+let lastCheckBackground = false;
+let pendingMailto: string | null = null;
 
 const SESSION_PARTITION = 'persist:google';
 
 const profiles: Profile[] = [];
 const seenEmails = new Set<string>();
-const unread = new UnreadStore(); // per-account unread counts, keyed by accountKey
+const unread = new UnreadStore();
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
 let probingIndex: number | null = null;
-// Index of a *visible* probe (the "+ add account" flow) awaiting identity, vs
-// the hidden auto-detect probes. Lets us keep a freshly added account on screen
-// and restore a real view if the add is cancelled/duplicate.
 let visibleProbe: number | null = null;
 let detectionStarted = false;
-// De laatst bekende eigen accounts (accounts.json). Alleen om de balk meteen te
-// kunnen tekenen: zolang een adres hierin staat en detectie het niet heeft
-// teruggevonden, is het een herinnering en geen account. Een adres verdwijnt uit
-// deze lijst zodra het bevestigd is (dan staat er een echt tabblad) of zodra
-// detectie is uitgelopen (dan bestaat het niet meer).
 let cachedAccounts: CachedAccount[] = [];
 let accountCache: AccountCacheStore | null = null;
 let accountCacheLoaded = false;
-// De plek die elk onthouden adres in de balk had. Anders dan `cachedAccounts`
-// blijft dit de hele sessie staan, ook na het uitlopen van detectie: het bevestigde
-// account erft de plek van de tab die het vervangt, dus staat de balk vanaf het
-// eerste beeld goed en verschuift er niets meer.
 let seedOrder = new Map<string, number>();
-// Voorvoegsel voor de sleutel van een voorlopige tab. Bewust anders dan `u<n>` en
-// `d:<adres>`: zo kan een verborgen detectieprobe (die wél op `u<n>` meldt) nooit
-// zijn ongelezen-teller of melding op een onthouden tab afleveren.
 const SEED_KEY_PREFIX = 'seed:';
 const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
@@ -274,11 +236,6 @@ function registerAppProtocol(): void {
   });
 }
 
-// --- account identity helpers ---
-// The view layer and IPC now route by accountKey; the authuser detection state
-// machine and the (unchanged) renderer still speak integer index. All accounts
-// are authuser today — delegated mailboxes arrive with the later tasks and
-// carry their own ref — so index <-> key is a clean bijection here.
 const authRef = (index: number): AccountRef => ({ kind: 'authuser', index });
 const keyOf = (p: Profile): string => accountKey(p.ref);
 const keyOfIndex = (index: number): string => accountKey(authRef(index));
@@ -288,7 +245,6 @@ const idxOfKey = (key: string): number | null => {
   return parsed.kind === 'authuser' ? parsed.index : null;
 };
 
-// Stable-ish color for a delegated mailbox (no authuser index to key off).
 function colorForEmail(email: string): string {
   let h = 0;
   for (let i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) | 0;
@@ -306,14 +262,12 @@ function delegatedProfileFor(d: StoredDelegate): Profile {
     ref,
     kind: 'delegated',
     email: d.email,
-    name: d.email, // no reliable display name from the switcher; email is honest
+    name: d.email,
     avatarUrl: '',
     color: colors?.get(d.email) ?? colorForEmail(d.email),
   };
 }
 
-// Add sidebar profiles for every persisted delegated mailbox not already present
-// (and not user-removed). Idempotent: skips emails already held as a profile.
 function loadDelegatedProfiles(): void {
   if (!delegated) return;
   const fresh: Profile[] = [];
@@ -328,26 +282,20 @@ function loadDelegatedProfiles(): void {
   if (fresh.length > 0) {
     pushProfiles();
     syncCalendarViews();
-    // Ook een gedelegeerd postvak hoort er te staan zonder eerst een klik.
     for (const profile of fresh) warmAccount(profile);
   }
 }
 
-// Scan the /u/0 account switcher (hidden view) for delegated mailboxes.
-// Best-effort (scrapes Google's ogs widget) — returns [] on any failure.
 async function scanSwitcherEntries(): Promise<Array<{ email: string; mailUrl: string }>> {
   if (!manager) return [];
   const raw = await manager.scrapeSwitcher(keyOfIndex(0), SWITCHER_SCRAPE_JS).catch(() => []);
   return parseDelegatedEntries(raw).map((e) => ({ email: e.email, mailUrl: e.mailUrl }));
 }
 
-// New delegates from the switcher not already owned, removed, or present.
 function suggestableDelegates(
   entries: Array<{ email: string; mailUrl: string }>,
   respectRemoved: boolean,
 ): Array<{ email: string; mailUrl: string }> {
-  // Launch auto-suggest respects removals (don't nag); on-demand add does not,
-  // so a previously-removed delegate can be re-added (which clears its removal).
   const removedKeys = respectRemoved ? (removed?.list().map((e) => `d:${e.toLowerCase()}`) ?? []) : [];
   return planDelegated(entries, [...seenEmails], removedKeys)
     .filter((e) => !profiles.some((p) => p.email.toLowerCase() === e.email))
@@ -355,7 +303,6 @@ function suggestableDelegates(
 }
 
 async function scanDelegatedSuggestions(): Promise<Array<{ email: string; mailUrl: string }>> {
-  // On-demand add: show all discoverable delegates, including previously removed.
   return suggestableDelegates(await scanSwitcherEntries(), false);
 }
 
@@ -363,26 +310,21 @@ function pushDelegatedSuggestions(suggestions: Array<{ email: string; mailUrl: s
   mainWindow?.webContents.send(IPC.DELEGATED_SUGGESTIONS, { suggestions });
 }
 
-// On launch: re-scan the switcher (hidden), refresh persisted /d/ URLs whose
-// opaque token rotated (so stored mailboxes keep opening), and offer any newly
-// discovered delegates as suggestions. Health check: a scan that finds fewer
-// than we already hold is treated as "scrape probably broke" — we keep the
-// store intact and skip refresh/suggestions rather than act on the emptiness.
 let delegatedScanStarted = false;
 async function refreshAndSuggestDelegated(): Promise<void> {
   if (!delegated || !manager) return;
   const entries = await scanSwitcherEntries();
   const stored = delegated.list();
-  if (entries.length < stored.length) return; // likely broken scrape — don't touch anything
+  if (entries.length < stored.length) return;
   const freshByEmail = new Map(entries.map((e) => [e.email.toLowerCase(), e.mailUrl]));
   let changed = false;
   for (const d of stored) {
     const fresh = freshByEmail.get(d.email.toLowerCase());
     if (!fresh || fresh === d.mailUrl) continue;
-    delegated.upsert({ ...d, mailUrl: fresh }); // refresh the rotated token
+    delegated.upsert({ ...d, mailUrl: fresh });
     const p = profiles.find((x) => x.kind === 'delegated' && x.email.toLowerCase() === d.email.toLowerCase());
     if (p && p.ref.kind === 'delegated') {
-      for (const s of SURFACES) manager.discardView(keyOf(p), s); // drop stale views; reload fresh on next show
+      for (const s of SURFACES) manager.discardView(keyOf(p), s);
       p.ref = { ...p.ref, mailUrl: fresh };
       changed = true;
     }
@@ -391,24 +333,18 @@ async function refreshAndSuggestDelegated(): Promise<void> {
   if (entries.length > 0) pushDelegatedSuggestions(suggestableDelegates(entries, true));
 }
 
-// Register a delegated mailbox (from click-through pick or an accepted
-// suggestion): persist it, clear any prior removal, surface it, and show it.
 function addDelegatedMailbox(email: string, mailUrl: string): void {
   if (!delegated) return;
   const e = email.trim().toLowerCase();
   if (!e || !mailUrl) return;
-  if (profiles.some((p) => p.email.toLowerCase() === e)) return; // already have it
-  removed?.remove(e); // an explicit add un-hides a previously removed mailbox
-  const entry: StoredDelegate = { email: e, mailUrl, calendarUrl: null }; // calendar probe: Task 9
+  if (profiles.some((p) => p.email.toLowerCase() === e)) return;
+  removed?.remove(e);
+  const entry: StoredDelegate = { email: e, mailUrl, calendarUrl: null };
   delegated.upsert(entry);
-  loadDelegatedProfiles(); // adds the profile + pushes to the sidebar
+  loadDelegatedProfiles();
   showAccount({ kind: 'delegated', email: e, mailUrl, calendarUrl: null }, 'mail');
 }
 
-// Eén rij in de tabbalk. Dit is wat er over IPC.PROFILES_CHANGED gaat: de stabiele
-// `key` waarop de zijbalk routeert, de `kind`, of er een agenda-surface is, de
-// voorkeuren per account, en een afgeleide `index` (authuser-slot, -1 als er geen
-// is) die index-gebaseerde helpers als het opstelvenster nog gebruiken.
 interface TabRow {
   key: string;
   kind: AccountRef['kind'];
@@ -420,9 +356,6 @@ interface TabRow {
   hasCalendar: boolean;
   order?: number;
   label?: string;
-  // Gezet op een tab die uit accounts.json komt en door detectie nog niet is
-  // bevestigd. Main opent er niets mee en rekent er niets aan toe; het staat mee
-  // in de payload zodat de zijbalk hem desgewenst apart kan tonen.
   provisional?: boolean;
 }
 
@@ -438,10 +371,6 @@ function decorate(list: Profile[]): TabRow[] {
       avatarUrl: p.avatarUrl,
       color: p.color,
       hasCalendar: surfacesForRef(p.ref).includes('calendar'),
-      // Een bevestigd account erft de plek die zijn voorlopige tab had, zodat de
-      // balk niet verschuift op het moment dat detectie landt. Staat het adres niet
-      // in de onthouden balk (een gedelegeerd postvak, of een nieuw account), dan
-      // valt sortByOrder terug op de index zoals altijd.
       order: ap.order ?? seedOrder.get(p.email.toLowerCase()),
       label: ap.label,
     };
@@ -452,17 +381,14 @@ function decorate(list: Profile[]): TabRow[] {
   }).map((c) => {
     const ap = prefs?.getAccount(c.email) ?? {};
     return {
-      // Een sleutel die nergens anders kan voorkomen: geen view, teller, melding
-      // of kopieerdoel kan er per ongeluk op uitkomen, want al die paden lopen
-      // langs `profiles` en daar staat een voorlopig account niet in.
       key: seedKey(c.email),
       kind: 'authuser',
-      index: -1, // geen sessieslot: dat is niet bewaard en wordt niet gegokt
+      index: -1,
       email: c.email,
       name: c.name,
       avatarUrl: c.avatarUrl,
       color: colors?.get(c.email) ?? c.color,
-      hasCalendar: false, // zonder bevestigde identiteit is er geen surface om te openen
+      hasCalendar: false,
       order: ap.order ?? seedOrder.get(c.email),
       label: ap.label,
       provisional: true,
@@ -472,47 +398,26 @@ function decorate(list: Profile[]): TabRow[] {
 }
 function pushProfiles(): void {
   const rows = decorate([...profiles]);
-  // Voorlopige tabs gaan mee: de balk staat daardoor vanaf het eerste beeld
-  // compleet. De zijbalk mag er niets mee opstarten — zie `provisional` daar.
   mainWindow?.webContents.send(IPC.PROFILES_CHANGED, rows);
   saveAccountCache(rows);
-  // De lijst is veranderd: opnieuw kijken of elk eigen account nog gekoppeld is.
-  // Dit is ook de eerste controle na het opstarten — er valt niets te controleren
-  // zolang er nog geen account bekend is.
   scheduleOAuthHealthCheck();
 }
 function pushUnread(): void {
   mainWindow?.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
 }
-// De cache is precies wat de balk aan eigen accounts laat zien, in die volgorde:
-// dan staat de balk bij de volgende start meteen goed. Gedelegeerde postbussen
-// gaan niet mee — die hebben hun eigen bestand, met een echte URL erin.
 function saveAccountCache(rows: TabRow[]): void {
   if (!accountCache) return;
   const own = rows.filter((r) => r.kind === 'authuser');
-  // Nooit een lege lijst wegschrijven. Leeg betekent hier bijna altijd "detectie
-  // heeft nog niets bevestigd" (opstarten, of uitgelogd bij Google), en dan zou dit
-  // precies het bestand wissen dat de balk de volgende keer moet vullen. Het enige
-  // geval waarin de lijst écht leeg hoort te zijn — de gebruiker haalt zijn laatste
-  // account weg — gaat via removeAccount, dat het adres gericht verwijdert.
   if (own.length === 0) return;
   accountCache.save(
     own.map((r) => ({ email: r.email, name: r.name, avatarUrl: r.avatarUrl, color: r.color })),
   );
 }
-// Detectie is uitgelopen: verder zoeken levert niets meer op. Alles wat we uit de
-// cache tekenden en niet is bevestigd, bestaat in deze sessie niet — weghalen, en
-// het bestand gelijktrekken met wat er werkelijk staat. Zonder dit zou een account
-// dat de gebruiker elders heeft uitgelogd bij elke start terugkomen.
 function settleDetection(): void {
   probingIndex = null;
   cachedAccounts = [];
   pushProfiles();
 }
-// Accounts the user has opted out of the taskbar badge — any account (owned or
-// delegated) whose badgeCount pref is off. accountCountVisible is the same
-// predicate the account tab reads (renderer/lib/badge-visibility.ts), so the
-// tab and the taskbar total can never disagree about which accounts count.
 function excludedBadgeKeys(): Set<string> {
   const keys = new Set<string>();
   for (const p of profiles) {
@@ -527,10 +432,6 @@ function excludedBadgeKeys(): Set<string> {
   }
   return keys;
 }
-// Reflect the current unread total on the OS badge. On Windows the taskbar overlay
-// icon is cleared explicitly when nothing is unread, since app.setBadgeCount's own
-// 0-clear doesn't stick if the window was hidden to the tray when unread dropped —
-// leaving a stale number until the next visible update.
 function refreshBadge(): void {
   applyBadge(unread.snapshot(), (n) => app.setBadgeCount(n), excludedBadgeKeys(), () => {
     if (process.platform === 'win32') mainWindow?.setOverlayIcon(null, '');
@@ -552,34 +453,25 @@ function clearProbeTimer(): void {
 
 function probe(index: number): void {
   probingIndex = index;
-  manager?.ensureView(authRef(index), 'mail', false); // hidden probe; identity arrives via onIdentity
+  manager?.ensureView(authRef(index), 'mail', false);
   clearProbeTimer();
-  // Never auto-discard index 0: it is the visible primary/login view and may take
-  // arbitrarily long to sign in. Only forward probes (1+) get the discard timeout.
   if (index > 0) {
     probeTimer = setTimeout(() => {
-      // No identity within the timeout: no account at this index. Discard and stop.
       manager?.discardView(keyOfIndex(index), 'mail');
       probeTimer = null;
-      settleDetection(); // hier eindigt de reeks: wat nog voorlopig is, bestaat niet
+      settleDetection();
     }, PROBE_TIMEOUT_MS);
   }
 }
 
 function onIdentity(index: number, identity: { email: string; name: string; avatarUrl: string }): void {
-  // Ignore re-fired identity for an already-registered index: Gmail's SPA re-runs the
-  // preload identity poll on full navigations, which would otherwise abort an in-flight
-  // probe timer and spuriously advance/leak views.
   if (profiles.some((p) => authIdx(p) === index)) return;
 
   const email = identity?.email;
   const isVisibleAdd = visibleProbe === index;
 
-  // Explicit "+"-add of a previously removed account un-hides it again.
   if (isVisibleAdd && email && removed!.has(email)) removed!.remove(email);
 
-  // A hidden detect/redetect probe that lands on a removed account: skip it but
-  // keep scanning later indexes (authuser indexes are contiguous).
   if (!isVisibleAdd && email && removed!.has(email)) {
     clearProbeTimer();
     probingIndex = null;
@@ -593,10 +485,6 @@ function onIdentity(index: number, identity: { email: string; name: string; avat
   clearProbeTimer();
   probingIndex = null;
   if (decision.register && identity.email) {
-    // Toevoegen via de "+" gaat alleen door als de Gmail-koppeling lukt, dus
-    // vóór het registreren — anders zou het account er al staan en weer
-    // weggehaald moeten worden. Delegated mailboxen komen hier niet langs; die
-    // worden apart geregistreerd en hebben geen koppeling nodig.
     if (isVisibleAdd) {
       visibleProbe = null;
       void addAccountAfterConsent(index, identity, decision.stop);
@@ -604,35 +492,24 @@ function onIdentity(index: number, identity: { email: string; name: string; avat
     }
     registerAccount(index, identity);
     if (manager?.activeKey() == null) {
-      // Nothing visible yet (e.g. the primary account was removed/skipped):
-      // surface the first account we successfully register.
       switchSurface(index, 'mail');
     }
   } else if (index > 0) {
-    manager?.discardView(keyOfIndex(index), 'mail'); // duplicate/empty probe view
+    manager?.discardView(keyOfIndex(index), 'mail');
     if (isVisibleAdd) {
-      // Add cancelled or a duplicate account: fall back to a real view so the
-      // user isn't left staring at a torn-down blank surface.
       visibleProbe = null;
       if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
     }
   }
   if (!decision.stop) probe(index + 1);
-  // Stoppen ná een leesbaar adres betekent: de reeks is uit (dubbel account of de
-  // bovengrens), en dan heeft detectie alles gezien. Stoppen zonder adres betekent
-  // alleen dat we déze pagina niet konden lezen; dat zegt niets over wat er verder
-  // staat en mag dus niet gelden als "detectie is langsgeweest".
   else if (identity?.email) settleDetection();
 }
 
-// Zet een gedetecteerd authuser-account in de zijbalk.
 function registerAccount(
   index: number,
   identity: { email: string; name: string; avatarUrl: string },
 ): void {
   seenEmails.add(identity.email);
-  // If this same mailbox was showing as a delegated entry, the owned authuser
-  // account supersedes it (same inbox) — drop the delegated duplicate.
   const dup = profiles.findIndex(
     (p) => p.kind === 'delegated' && p.email.toLowerCase() === identity.email.toLowerCase(),
   );
@@ -655,18 +532,9 @@ function registerAccount(
   refreshNotifyAllowed();
   startPush();
   syncCalendarViews();
-  // Detectie heeft de view al aangemaakt, maar bedekt: laat hem zijn postvak
-  // opbouwen zodat dit tabblad er straks meteen staat.
   warmAccount(profile);
 }
 
-// Een account dat met de "+" is toegevoegd komt er alleen in als de koppeling
-// met de Gmail API lukt: zonder token kan het straks geen mail ontvangen uit een
-// ander postvak, en dan is het account in deze app niets waard.
-//
-// Uitzondering: staat er geen client-id/secret in userData, dan is de koppeling
-// helemaal niet ingesteld en zou blokkeren betekenen dat je geen enkel account
-// meer kunt toevoegen. Dan gaat het toevoegen gewoon door.
 async function addAccountAfterConsent(
   index: number,
   identity: { email: string; name: string; avatarUrl: string },
@@ -680,7 +548,6 @@ async function addAccountAfterConsent(
   if (needsConsent) {
     const result = await connectAccount(mainWindow!, SESSION_PARTITION, cfg!, oauthTokens!, email);
     if (!result.ok) {
-      // Niet toevoegen: view weg, terug naar een bestaand account.
       manager?.discardView(keyOfIndex(index), 'mail');
       if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
       if (Notification.isSupported()) {
@@ -702,32 +569,20 @@ async function addAccountAfterConsent(
 }
 
 function removeAccount(email: string): void {
-  removed!.add(email); // persist so detection skips it from now on
-  // Ook uit de onthouden balk, anders staat de tab bij de volgende start weer even
-  // op het scherm voordat `removed` hem eruit filtert.
+  removed!.add(email);
   accountCache?.remove(email);
-  // Netjes afmelden, anders blijft Gmail nog tot een week publiceren voor een
-  // client die er niet meer is. Bewust het opgeslagen access token en géén
-  // accessTokenFor: die zou een verlopen token verlengen, en verlengen is precies
-  // wat je niet wil voor een postvak dat de gebruiker net weggooide. Is het token
-  // verlopen, dan mislukt dit en verloopt de watch binnen een week zelf — dat is
-  // goedkoper dan een nieuwe token voor een verwijderd account.
   const stopToken = oauthTokens?.get(email)?.accessToken;
   if (stopToken) void stopWatch(stopToken).catch(() => undefined);
   history?.remove(email);
   coverage.forget(email);
   syncRunners.delete(email);
-  // Het account gaat eruit, dus de API-toegang ook: een token laten staan voor
-  // een postvak dat je niet meer in de app hebt is een geheim zonder doel.
   oauthTokens?.remove(email);
   const profile = profiles.find((p) => p.email === email);
   if (!profile) {
-    // Geen profiel betekent: de gebruiker sloot een voorlopige tab. Er is niets af
-    // te breken, maar de balk moet wel opnieuw — `removed` filtert hem nu weg.
     pushProfiles();
     return;
   }
-  if (profile.kind === 'delegated') delegated?.remove(email); // stop persisting it
+  if (profile.kind === 'delegated') delegated?.remove(email);
   const wasActive = manager?.activeKey() === keyOf(profile);
   profiles.splice(profiles.indexOf(profile), 1);
   seenEmails.delete(email);
@@ -736,32 +591,16 @@ function removeAccount(email: string): void {
   pushProfiles();
   pushUnread();
   refreshBadge();
-  // Nu het token weg is en het account uit de lijst: de verbinding voor dit adres
-  // moet dicht, anders blijft de relay pushen voor een account dat de gebruiker
-  // net verwijderd heeft. Hierna, want refresh() leest de lijst opnieuw.
   startPush();
   if (wasActive && profiles[0]) showAccount(profiles[0].ref, 'mail');
 }
 
-// Show an account's surface (creates the view lazily) and re-gate notifications.
 function showAccount(ref: AccountRef, surface: Surface): void {
   manager?.show(ref, surface);
-  // A first switch to an app surface just created its view; gate it right away
-  // (the app surfaces never notify in v1) instead of on the next 60s tick.
   refreshNotifyAllowed();
-  // Bewust géén startPush(): van view wisselen verandert de accountlijst niet.
-  // Het kostte een synchrone readFileSync + JSON.parse bij elke wisseling, ook
-  // voor iedereen zonder push, en een eerder definitief geweigerd account opende
-  // bij elke wisseling opnieuw een relay-socket met een echte users.watch erachter.
-  // De plekken waar de lijst wél verandert (registreren, verwijderen,
-  // hertoestemming, voorkeuren) roepen het zelf aan.
-  flushPendingMailto(); // an inbox is now live — run any queued mailto
+  flushPendingMailto();
 }
 
-// Welke view op dit moment de zichtbare is. Voor een tussendoortje dat zelf even
-// een andere view nodig heeft (de scan van de accountwisselaar hieronder), zodat
-// het de gebruiker daarna terugzet waar hij was. De manager houdt de actieve
-// surface niet als los gegeven bij, dus vragen we het hem per surface.
 function activeView(): { ref: AccountRef; surface: Surface } | null {
   const m = manager;
   const key = m?.activeKey();
@@ -771,9 +610,6 @@ function activeView(): { ref: AccountRef; surface: Surface } | null {
   return p && surface ? { ref: p.ref, surface } : null;
 }
 
-// Picks the authuser index to compose from for an incoming mailto. One account →
-// that account; several → a native chooser (labels from prefs/name/email); none
-// or cancelled → null.
 function chooseComposeAccount(): number | null {
   const authusers = profiles.filter((p) => p.ref.kind === 'authuser');
   if (authusers.length === 0) return null;
@@ -791,8 +627,6 @@ function chooseComposeAccount(): number | null {
   return chosen === cancelId ? null : authIdx(authusers[chosen]);
 }
 
-// Focuses the window, then composes from the chosen account. If no account/mail
-// view is ready yet (e.g. cold start still logging in), queues until one is.
 function dispatchMailto(mailtoUrl: string): void {
   const fields = parseMailto(mailtoUrl);
   if (!fields) return;
@@ -808,31 +642,26 @@ function dispatchMailto(mailtoUrl: string): void {
   }
   const index = chooseComposeAccount();
   if (index == null) return;
-  // Langs `openComposeWindow`, zodat een mailto:-venster dezelfde stand volgt als een
-  // venster dat je met de Opstellen-knop opent: sluiten na verzenden hoort niet af te
-  // hangen van waar het venster vandaan kwam.
   openComposeWindow(index, fields);
 }
 
 function flushPendingMailto(): void {
   if (!pendingMailto) return;
-  if (manager?.activeKey() == null) return; // still not ready
+  if (manager?.activeKey() == null) return;
   const url = pendingMailto;
   pendingMailto = null;
   dispatchMailto(url);
 }
-// Authuser convenience used by the index-based detection state machine.
 function switchSurface(index: number, surface: Surface): void {
   showAccount(authRef(index), surface);
 }
 
 function startDetection(): void {
-  switchSurface(0, 'mail'); // visible; user logs in; onIdentity(0,...) drives the rest
+  switchSurface(0, 'mail');
 }
 
 function redetect(): void {
   clearProbeTimer();
-  // Tear down a probe view still in flight so repeated re-detects don't orphan hidden views.
   if (probingIndex !== null && !profiles.some((p) => authIdx(p) === probingIndex)) {
     manager?.discardView(keyOfIndex(probingIndex), 'mail');
   }
@@ -842,9 +671,6 @@ function redetect(): void {
 }
 
 function addAccount(): void {
-  // Unlike redetect (hidden probe), open Google's add-session flow in a *visible*
-  // view so the user can sign into a brand-new account. onIdentity registers it
-  // once Gmail loads. No discard timer here — signing in can take a while.
   clearProbeTimer();
   if (probingIndex !== null && !profiles.some((p) => authIdx(p) === probingIndex)) {
     manager?.discardView(keyOfIndex(probingIndex), 'mail');
@@ -867,8 +693,6 @@ function scheduleSaveBounds(): void {
   saveBoundsTimer = setTimeout(saveWindowBounds, 400);
 }
 
-// The shortcut always acts on the currently active view (queried from the
-// manager), so the originating account identity isn't needed here.
 function handleInput(input: KeyInput): void {
   const action = resolveShortcut(input);
   if (!action) return;
@@ -883,7 +707,7 @@ function handleInput(input: KeyInput): void {
     const active = activeKey ? idxOfKey(activeKey) : null;
     if (active != null) openComposeWindow(active);
   } else if (action.type === 'zoom') {
-    if (prefs?.getAll().reneMode) return; // Rene mode pins everything at 200%
+    if (prefs?.getAll().reneMode) return;
     const activeKey = manager?.activeKey();
     if (activeKey == null) return;
     const current = manager!.getActiveZoomLevel();
@@ -895,10 +719,6 @@ function handleInput(input: KeyInput): void {
   }
 }
 
-// De overlay met de echte vensterknoppen moet meelopen met het thema en met de
-// zoom van Rene-modus. Anders staan de knoppen donker-op-donker na een
-// themawissel, of 40px hoog in een balk van 80px. Een andere guard dan bij het
-// aanmaken van het venster: bijwerken kan alleen op Windows.
 function applyTitleBarOverlay(): void {
   if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
   if (!supportsOverlayUpdate(process.platform)) return;
@@ -908,9 +728,6 @@ function applyTitleBarOverlay(): void {
   );
 }
 
-// Rene mode: zoom the topbar renderer and every Gmail/Calendar view to 200%
-// (or restore factor 1 and each account's own stored zoom), then relayout so
-// the content view clears the now-taller topbar.
 function applyReneZoom(): void {
   if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
   const on = prefs.getAll().reneMode;
@@ -922,35 +739,14 @@ function applyReneZoom(): void {
   manager?.relayout();
 }
 
-// Wat er in plaats van de afzender of het onderwerp komt te staan als de gebruiker
-// die niet in een melding wil zien. Het veld blijft weg zolang de schakelaar aan
-// staat, want `NotifyState` leest `undefined` als "laat staan wat er stond" — zo
-// hoeft de preload geen vlaggetje én een tekst te krijgen.
-//
-// Engels en niet uit `strings.ts`: alle tekst die main zelf in een melding zet is
-// dat (zie `maybeNotifyUpdate`). De Rene-stand kleurt het instellingenpaneel, niet
-// de meldingen van het besturingssysteem.
 const NOTIFY_HIDDEN_SENDER = 'New email';
 const NOTIFY_HIDDEN_SUBJECT = 'You have new mail.';
-// Het eigen geluidje van de app bij een melding, als de gebruiker er een koos.
-//
-// Het spelen gebeurt in de balk-renderer en niet hier: het hoofdproces heeft geen
-// audio, en er worden geen audiobestanden meegebundeld — de tonen worden gemaakt
-// (zie renderer/lib/notification-sound.ts). Main zegt alleen wélke, en hoe hard.
-//
-// Is er geen naam gekozen, dan gebeurt hier niets en speelt Windows zijn eigen
-// meldingsgeluid, precies zoals daarvoor. `silent` op de melding blijft dus de
-// hoofdschakelaar: staat geluid uit, dan wordt dit niet aangeroepen.
-//
-// Tegen samenvallende meldingen zit een korte poort: tien mailtjes tegelijk zouden
-// tien tonen over elkaar heen spelen, en dat klinkt als een storing in plaats van
-// als post.
 let lastSoundAt = 0;
 const SOUND_GAP_MS = 1500;
 function playNotificationSound(p: Prefs): void {
   if (p.notifications.sound === false) return;
   const name = p.notifications.soundName;
-  if (!name) return; // leeg = het geluid van het systeem, daar doen wij niets aan
+  if (!name) return;
   const now = Date.now();
   if (now - lastSoundAt < SOUND_GAP_MS) return;
   lastSoundAt = now;
@@ -969,8 +765,6 @@ function refreshNotifyAllowed(): void {
   if (!prefs) return;
   let p = prefs.getAll();
   const now = new Date();
-  // Auto-expire a timed snooze on the minute tick so the gate reopens and the
-  // tray label/checkbox don't keep showing a time that's already passed.
   if (p.notifications.dndUntil && now.getTime() >= p.notifications.dndUntil) {
     prefs.setNotifications({ ...p.notifications, dndUntil: undefined });
     p = prefs.getAll();
@@ -989,13 +783,8 @@ function refreshNotifyAllowed(): void {
   }
 }
 
-// De teller zoals de API hem geeft. Null betekent: onbekend gebleven, dan blijft
-// staan wat er stond.
 function reportApiUnread(email: string, count: number | null): void {
   if (count === null) return;
-  // Spiegelbeeld van de guard in de webview-callback: viel de dekking weg tussen het
-  // opvragen en het terugkomen van dit getal, dan is de paginatitel weer eigenaar en
-  // zou dit een seconden oud getal over een verser zetten.
   if (!coverage.has(email)) return;
   const profile = profiles.find((p) => p.email === email);
   if (!profile) return;
@@ -1006,35 +795,24 @@ function reportApiUnread(email: string, count: number | null): void {
 
 function startNotifyTimer(): void {
   if (notifyTimer) return;
-  // Quiet-hours boundaries only change on the minute; re-evaluate each minute.
   notifyTimer = setInterval(refreshNotifyAllowed, 60_000);
 }
 
-// Bij het opstarten hoefde je vroeger elk account één keer aan te klikken voordat
-// het postvak inlaadde: de mailview bestond al (detectie maakt hem aan), maar stond
-// op setVisible(false) en gold daarmee als bedekt, en dan bouwt Gmail zijn
-// berichtenlijst niet op. Elk account krijgt daarom eenmalig een warmloop buiten
-// het venster, waarna de view weer koelt — zie view-warmup.ts en warm()/cool().
 const warmup = new WarmupTracker();
 let warmupTimer: ReturnType<typeof setInterval> | null = null;
 
 function warmAccount(profile: Profile): void {
   if (!manager) return;
   const key = keyOf(profile);
-  // Het actieve account laadt al in beeld; daar is niets voor te laden.
   if (manager.isShowing(key, 'mail')) return;
-  if (!warmup.begin(key, Date.now())) return; // al bezig of al geweest
+  if (!warmup.begin(key, Date.now())) return;
   manager.warm(profile.ref, 'mail');
   if (!warmupTimer) warmupTimer = setInterval(tickWarmup, 1000);
 }
 
-// Leest per lopende warmloop de paginatitel uit — het enige signaal dat zegt of
-// het postvak echt staat — en koelt wat klaar is of zijn bovengrens haalt.
 function tickWarmup(): void {
   const now = Date.now();
   for (const key of warmup.pending()) {
-    // Geen manager meer (venster afgebroken): dan komt er ook geen titel, en loopt
-    // elke warmloop op zijn bovengrens af. Zo stopt deze timer altijd zichzelf.
     if (warmup.verdict(key, manager?.titleOf(key, 'mail') ?? null, now) !== 'cool') continue;
     manager?.cool(key, 'mail');
     warmup.finish(key);
@@ -1045,9 +823,6 @@ function tickWarmup(): void {
   }
 }
 
-// Keep a hidden calendar view alive for each account with calendar reminders
-// enabled, so Google Calendar fires its native reminders in the background.
-// Views for disabled accounts are torn down (unless currently shown) to free memory.
 function syncCalendarViews(): void {
   if (!prefs || !manager) return;
   for (const profile of profiles) {
@@ -1058,22 +833,13 @@ function syncCalendarViews(): void {
       manager.discardView(keyOf(profile), 'calendar');
     }
   }
-  refreshNotifyAllowed(); // push flags to any newly created calendar views
+  refreshNotifyAllowed();
 }
 
-// Lege pref = de standaardmap. PrefsStore kent `app` niet, dus dat wordt hier
-// opgelost.
 function mailDropFolder(): string {
   return prefs?.getAll().mailDrop.folder || join(app.getPath('documents'), 'Gmail Desktop', 'Mail');
 }
 
-// Een mail is naar de dropzone gesleept: haal via Gmail's eigen
-// "origineel weergeven"-pagina de RFC822-bron van elk bericht in de
-// conversatie op, schrijf die weg als .eml en log er een regel bij.
-// Slaat één conversatie op. Geeft terug hoeveel berichten er gevonden zijn
-// (`total`), hoeveel er daadwerkelijk zijn weggeschreven (`count`) en wat er
-// terechtkwam (`saved` — daar leest het kopiëren uit terug), plus een reden als
-// er niets van terechtkwam. Logregels schrijft hij zelf.
 async function saveOneThread(
   ts: string,
   account: string,
@@ -1083,12 +849,9 @@ async function saveOneThread(
   ik: string,
 ): Promise<{ count: number; total: number; error?: string; saved: SavedRef[] }> {
   const failed = (error: string, total = 0) => {
-    // Het log is best-effort: is de map onschrijfbaar, dan blijft alleen de
-    // melding in de strip over.
     try {
       appendLog(root, [{ ts, account, threadId, error }]);
     } catch {
-      /* map niet schrijfbaar */
     }
     return { count: 0, total, error, saved: [] };
   };
@@ -1101,14 +864,7 @@ async function saveOneThread(
   }
   const fetched = result.messages;
   if (fetched.length === 0) {
-    // Geen enkele download-link in Gmail's origineel-weergeven-pagina. Meestal
-    // omdat Gmail het bericht daar niet kent (een concept bijvoorbeeld) en de
-    // pagina in plaats daarvan een uitleg toont — die uitleg is een betere
-    // foutmelding dan wat wij zelf kunnen verzinnen, en staat al in de taal van
-    // de gebruiker.
     const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
-    // Een échte om-pagina zonder herkende link is een heel ander geval: dan is
-    // de tekst lang en zegt hij niets. Bewaar die pagina om te onderzoeken.
     const kortEnDuidelijk = uitleg.length > 0 && uitleg.length <= 300;
     if (!kortEnDuidelijk) {
       const dump = join(root, `diagnose-om-${threadId}.html`);
@@ -1116,7 +872,6 @@ async function saveOneThread(
         mkdirSync(root, { recursive: true });
         writeFileSync(dump, result.page.html, 'utf8');
       } catch {
-        /* map niet schrijfbaar */
       }
       return failed(
         `Geen origineel gevonden (HTTP ${result.page.status}, ${result.page.html.length} tekens — pagina bewaard als ${dump})`,
@@ -1157,7 +912,6 @@ async function saveOneThread(
   try {
     appendLog(root, [...records, ...failedRecords]);
   } catch {
-    /* map niet schrijfbaar; de bestanden staan er wel */
   }
   return {
     count: ok.length,
@@ -1166,8 +920,6 @@ async function saveOneThread(
   };
 }
 
-// writeThread/writeLabel geven de paden in dezelfde volgorde terug als de
-// berichten die ze kregen, dus die twee zijn per index aan elkaar te knopen.
 function savedRefs(root: string, files: string[], messages: SavedMessage[]): SavedRef[] {
   return messages.map((m, i) => ({
     file: join(root, files[i]),
@@ -1176,25 +928,12 @@ function savedRefs(root: string, files: string[], messages: SavedMessage[]): Sav
   }));
 }
 
-// Hoeveel duplicaatcontroles tegelijk. Zoeken kost Gmail vijf eenheden per
-// verzoek; bij een labelsleep zijn dit er honderden en achter elkaar duurt dat
-// te lang om voor een ja-of-nee-vraag op te wachten.
 const DUPLICATE_CHECK_LIMIT = 8;
 
-// Welke berichten al in een doellabel staan. Herkenning op de Message-ID uit de
-// header: dezelfde mail heeft in elk postvak een ander Gmail-id, maar dezelfde
-// Message-ID.
-//
-// Een mislukte controle telt als "geen duplicaat": de vraag stellen op grond van
-// een verzoek dat niet doorkwam is erger dan hem niet stellen, en het kopiëren
-// erna meldt een echte storing alsnog.
 async function findDuplicates(
   cfg: OAuthConfig,
   targets: MailDropCopyTarget[],
   saved: SavedRef[],
-  // Het eigen totaal, niet dat van het kopiëren: controleren is één verzoek per
-  // label, kopiëren één per account. Die twee tellingen lopen uiteen zodra er
-  // meer dan één label per account is aangevinkt.
   onProgress: (done: number, total: number, email: string) => void,
 ): Promise<DuplicateHit[]> {
   if (!oauthTokens) return [];
@@ -1206,9 +945,8 @@ async function findDuplicates(
 
   const checks: Array<{ email: string; labelId: string; ref: SavedRef }> = [];
   for (const t of targets) {
-    if (!tokens.has(t.email)) continue; // geen token: het kopiëren meldt dat zo meteen
+    if (!tokens.has(t.email)) continue;
     for (const labelId of t.labelIds) {
-      // Alleen berichten met een Message-ID; zonder valt niets te vergelijken.
       for (const ref of saved) if (ref.messageId.trim()) checks.push({ email: t.email, labelId, ref });
     }
   }
@@ -1219,7 +957,6 @@ async function findDuplicates(
     try {
       exists = await messageExistsInLabel(tokens.get(c.email)!, c.ref.messageId, c.labelId);
     } catch {
-      // Zie boven: bij twijfel niet vragen.
     }
     onProgress((done += 1), checks.length, c.email);
     return exists
@@ -1234,9 +971,6 @@ async function findDuplicates(
   return hits.filter((h) => h !== null);
 }
 
-// De uitslag van de laatste controle, zodat "Alleen nieuwe kopiëren" niet
-// dezelfde honderden zoekopdrachten nog eens doet. Hoort bij één sleep en één
-// set doelen; verandert er iets, dan is de sleutel anders en zoeken we opnieuw.
 let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
 let dropSerial = 0;
 
@@ -1244,9 +978,6 @@ function scanKey(targets: MailDropCopyTarget[]): string {
   return `${dropSerial}|${JSON.stringify(targets)}`;
 }
 
-// Toont de modal in een eigen view bovenóp Gmail. Die view is precies zo groot
-// als het modalvenster, dus Gmail blijft eromheen zichtbaar en de Gmail-views
-// worden nooit verborgen. Zie overlay-view.ts.
 function openDropPreview(items: MailDropPreviewItem[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (!dropOverlay) {
@@ -1261,9 +992,6 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
   dropOverlay.open({ items });
 }
 
-// Client-id en -secret staan in userData, niet in de repo: de repo is publiek en
-// dit hoort daar niet in te belanden. Bij elke aanroep opnieuw gelezen, zodat je
-// het bestand kunt neerzetten zonder de app te herstarten.
 function oauthConfig(): OAuthConfig | null {
   try {
     const raw = JSON.parse(readFileSync(OAUTH_CONFIG_PATH, 'utf8'));
@@ -1271,47 +999,28 @@ function oauthConfig(): OAuthConfig | null {
       return { clientId: raw.clientId, clientSecret: raw.clientSecret };
     }
   } catch {
-    // Bestand ontbreekt of is onleesbaar: dan is de koppeling simpelweg niet
-    // ingesteld, en dan blokkeert het toevoegen van een account niet.
   }
   return null;
 }
 
-// Uit hetzelfde bestand als de client-id, en net als daar bij elke aanroep
-// opnieuw gelezen: zo kun je de relay-regels neerzetten zonder te herstarten.
 function pushConfig(): PushConfig | null {
   try {
     return parsePushConfig(JSON.parse(readFileSync(OAUTH_CONFIG_PATH, 'utf8')), process.env);
   } catch {
-    // Bestand ontbreekt of is onleesbaar: dan is push simpelweg niet ingesteld.
     return parsePushConfig(null, process.env);
   }
 }
 
-// De controle hangt aan wijzigingen in de accountlijst: zo loopt hij zodra het
-// eerste account bekend is, in plaats van na een vaste wachttijd. Tijdens de
-// detectie registreren accounts één voor één, dus even wachten tot het stil is —
-// anders gaat hij vier keer achter elkaar langs dezelfde lijst.
 let healthTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleOAuthHealthCheck(): void {
   if (healthTimer) clearTimeout(healthTimer);
   healthTimer = setTimeout(() => void checkOAuthHealth(), 1500);
 }
 
-// Accounts waarvan het verversen van het token is mislukt. Alleen zo weten we of
-// een koppeling echt weg is: dat blijkt pas als Google het refresh token weigert
-// (in testmodus na zeven dagen).
 const refreshFailures = new Set<string>();
 
-// Accounts waarvan de relay het token definitief heeft geweigerd (4401, ook na
-// een verse verversing). Push staat voor die accounts uit tot er nieuwe
-// toestemming is, en de melding is het enige dat dat vertelt. Weer leeg zodra
-// hertoestemming binnen is.
 const pushRefusals = new Set<string>();
 
-// Kijkt van elk eigen account of de koppeling nog werkt, en toont of verbergt de
-// melding. Draait bij het opstarten en daarna periodiek; een geldig token wordt
-// alleen aangeraakt als het bijna verlopen is.
 async function checkOAuthHealth(): Promise<void> {
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
@@ -1319,9 +1028,7 @@ async function checkOAuthHealth(): Promise<void> {
   const ownEmails = profiles.filter((p) => p.kind === 'authuser').map((p) => p.email);
   for (const email of ownEmails) {
     const token = oauthTokens.get(email);
-    if (!token) continue; // heeft geen token: telt hieronder al mee
-    // Alleen echt verversen als het nodig is; accessTokenFor doet dat zelf en
-    // geeft null terug als het mislukt.
+    if (!token) continue;
     const fresh = await accessTokenFor(cfg, oauthTokens, email);
     if (fresh) refreshFailures.delete(email);
     else refreshFailures.add(email);
@@ -1331,10 +1038,6 @@ async function checkOAuthHealth(): Promise<void> {
     ownEmails,
     hasToken: (e) => oauthTokens!.get(e) !== undefined,
     refreshFailed: (e) => refreshFailures.has(e),
-    // Een ontbrekende scope is alleen een probleem voor push. Staat push niet
-    // ingesteld, dan werkt de app precies zoals eerst en is er niets om over te
-    // melden — anders kreeg iedereen na deze update een blijvende melding over
-    // iets dat op zijn machine helemaal niet bestaat.
     pushConfigured: pushConfig() !== null,
     missingScopes: (e) => {
       const token = oauthTokens!.get(e);
@@ -1345,8 +1048,6 @@ async function checkOAuthHealth(): Promise<void> {
   showReconnectBanner(needing);
 }
 
-// De melding blijft staan tot elk account weer verbonden is: er zit geen
-// sluitknop op. Verdwijnt van zelf zodra de lijst leeg is.
 function showReconnectBanner(accounts: ReconnectAccount[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (accounts.length === 0) {
@@ -1370,11 +1071,6 @@ function showReconnectBanner(accounts: ReconnectAccount[]): void {
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// Somt de conversaties in een label op door Gmail's eigen lijstweergave te
-// bladeren in een verborgen view. Er is geen API voor: dit leest dezelfde
-// onderwerp-spans als de losse sleep. Stopt zodra een pagina niets nieuws meer
-// oplevert (Gmail toont bij een te hoog paginanummer de laatste pagina opnieuw)
-// of bij MAX_THREADS.
 async function collectLabelThreads(
   ref: AccountRef,
   authuser: string,
@@ -1391,8 +1087,6 @@ async function collectLabelThreads(
         const hash = new URL(labelListUrl(authuser, label, page)).hash;
         await wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => null);
       }
-      // Wachten tot de lijst er staat — en bij het bladeren tot hij écht is
-      // verwisseld, anders lezen we de vorige pagina nog een keer.
       let pageThreads: LabelThread[] = [];
       for (let tries = 0; tries < 25; tries++) {
         await delay(400);
@@ -1413,21 +1107,14 @@ async function collectLabelThreads(
   return { threads, capped };
 }
 
-// Eén gesprek uit een labelsleep, met wat eruit kwam of waarom niet.
 interface CollectedThread {
   thread: LabelThread;
   messages: SavedMessage[];
   error?: string;
 }
 
-// Hoeveel gesprekken tegelijk bij de API. Gmail rekent threads.get als tien
-// eenheden en staat er 250 per seconde toe, dus vijf tegelijk zit daar ruim
-// onder terwijl het wel het verschil maakt tussen tien seconden en een minuut.
 const THREAD_FETCH_LIMIT = 5;
 
-// De gesprekken van een label via de Gmail API. Null betekent: hier niet te
-// doen — geen koppeling, token afgekeurd, of dit label bestaat niet onder deze
-// naam. Dan blijft het bladeren door Gmail's eigen lijstweergave over.
 async function collectLabelViaApi(
   account: string,
   label: string,
@@ -1438,8 +1125,6 @@ async function collectLabelViaApi(
   if (!first) return null;
   let token: string = first;
 
-  // Eén keer verversen als Google het token alsnog afkeurt; daarna is opnieuw
-  // toestemming geven het enige dat rest en gaan we terug naar de oude weg.
   let mayRefresh = true;
   const refreshed = async (e: unknown): Promise<boolean> => {
     if (!mayRefresh || !(e instanceof GmailHttpError) || e.status !== 401) return false;
@@ -1475,8 +1160,6 @@ async function collectLabelViaApi(
         headers: parseHeaders(raw.toString('utf8')),
       }));
       return {
-        // Het onderwerp komt uit het bericht zelf en niet uit de lijst, dus het
-        // klopt ook als Gmail de rij inmiddels anders toont.
         thread: { threadId, subject: messages[0]?.headers.subject || NO_SUBJECT },
         messages,
         error: messages.length === 0 ? 'Geen bericht in dit gesprek' : undefined,
@@ -1502,7 +1185,6 @@ async function collectLabelViaApi(
   return { collected, capped: list.capped };
 }
 
-// Een hele labelsleep: alle gesprekken ophalen en in één map wegschrijven.
 async function saveLabel(
   ts: string,
   account: string,
@@ -1517,14 +1199,10 @@ async function saveLabel(
     try {
       appendLog(root, [{ ts, account, threadId: '', label, error }]);
     } catch {
-      /* map niet schrijfbaar */
     }
     return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [] };
   };
 
-  // Liefst via de API: dat is één verzoek per gesprek in plaats van seconden
-  // wachten per pagina tot Gmail's lijstweergave is omgeklapt. Lukt dat niet
-  // (geen koppeling, gedelegeerd postvak), dan de oude weg.
   const viaApi = await collectLabelViaApi(account, label);
   let collected: CollectedThread[];
   let capped: boolean;
@@ -1538,8 +1216,6 @@ async function saveLabel(
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
 
-    // Alles eerst ophalen, dan in één keer wegschrijven: writeLabel maakt één map
-    // en nummert de bestanden over de gesprekken heen door.
     collected = [];
     for (const thread of scraped.threads) {
       try {
@@ -1585,7 +1261,6 @@ async function saveLabel(
     };
   }
 
-  // Logregels in dezelfde volgorde als de weggeschreven bestanden.
   const records: LogRecord[] = [];
   let fileIndex = 0;
   for (const c of collected) {
@@ -1623,7 +1298,6 @@ async function saveLabel(
   try {
     appendLog(root, records);
   } catch {
-    /* map niet schrijfbaar; de bestanden staan er wel */
   }
 
   const items = collected.map((c) => ({
@@ -1649,10 +1323,7 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
   const root = mailDropFolder();
   const items = payload?.items ?? [];
   if (items.length === 0 && !payload?.label) return;
-  // Een nieuwe sleep vervangt de vorige: de modal die zo opengaat hoort bij
-  // déze mail, niet bij wat er de vorige keer is opgeslagen.
   lastDropSaved = [];
-  // Andere mail, dus de uitslag van de vorige duplicaatcontrole zegt niets meer.
   dropSerial += 1;
   lastDropSource = account;
   if (!payload.ik) {
@@ -1660,7 +1331,6 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
     try {
       appendLog(root, items.map(({ threadId }) => ({ ts, account, threadId, error })));
     } catch {
-      /* map niet schrijfbaar */
     }
     manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error });
     openDropPreview(
@@ -1671,7 +1341,6 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
     return;
   }
 
-  // Een gesleept label: main zoekt zelf op wat erin zit en zet alles in één map.
   if (payload.label) {
     const profile = profiles.find((p) => keyOf(p) === acctKey);
     if (!profile) return;
@@ -1696,8 +1365,6 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
     return;
   }
 
-  // Eén voor één: Gmail's origineel-weergeven-pagina is geen API, dus liever
-  // netjes achter elkaar dan een handvol gelijktijdige requests.
   const done: MailDropPreviewItem[] = [];
   let count = 0;
   let total = 0;
@@ -1716,14 +1383,9 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
       ? { ok: false, count: 0, total, error: lastError ?? 'Niets opgeslagen' }
       : { ok: true, count, total },
   );
-  // Pas nu de modal: hij toont wat er daadwerkelijk is opgeslagen, niet wat we
-  // van plan waren.
   openDropPreview(done);
 }
 
-// Let op dist-electron/preload.js en herlaadt de views bij een nieuwe versie.
-// esbuild schrijft het bestand soms in meerdere gebeurtenissen, dus even wachten
-// tot het stil is voordat we herladen.
 function watchPreloadForReload(): void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -1732,38 +1394,20 @@ function watchPreloadForReload(): void {
       timer = setTimeout(() => manager?.reloadAll(), 250);
     });
   } catch {
-    // Bestand bestaat nog niet of het platform kan niet kijken — dan gewoon niet.
   }
 }
 
-// Wat er moet gebeuren als een melding wordt aangeklikt. Getild uit de callback
-// die aan ProfileViewManager gaat, zodat de meldingen die de app zelf maakt
-// (push) er precies hetzelfde in kunnen: één gedrag, één plek.
 function activateNotification(accountKey: string, surface: Surface, threadId?: string): void {
   const idx = idxOfKey(accountKey);
-  // The main window may have been torn down (some setups actually destroy it
-  // on close rather than hiding to the tray) while hidden views still fire
-  // events. Rebuild it so a notification click brings the app back instead of
-  // crashing on a destroyed window. Skip while quitting (don't resurrect).
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (isQuitting) return;
     detectionStarted = false;
     createWindow();
     return;
   }
-  // Een melding uit een view die bij geen enkel tabblad hoort — een verborgen
-  // detectieprobe — mag geen account activeren: welk postvak op dat slot staat is
-  // nog niet vastgesteld, dus zou de app een onbevestigd postvak openen onder de
-  // naam die de balk daar toont.
   if (!profiles.some((p) => keyOf(p) === accountKey)) return;
-  // The app opens the clicked thread itself; Gmail's own click handler may
-  // fire window.open with the same thread right after — suppress that
-  // (genuine pop-out windows are exempted in windowOpenAction).
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
   const windowMode = prefs?.getAll().notificationOpen === 'window';
-  // "Open in a new window" mode: open the thread in the mail view so Gmail's
-  // own pop-out button exists, then trigger it for a focused reading window.
-  // Fall back to a full thread window if the button can't be found.
   if (threadId && surface === 'mail' && windowMode) {
     manager?.openMailThread(accountKey, threadId);
     void manager?.popOutThread(accountKey).then((ok) => {
@@ -1781,19 +1425,11 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
     mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
   }
   if (idx != null) switchSurface(idx, surface);
-  // "In the app" mode: also open the clicked thread in that mail view.
   if (threadId && surface === 'mail') manager?.openMailThread(accountKey, threadId);
 }
 
-// Een melding voor één nieuw bericht, langs dezelfde weg als die van de webview:
-// zelfde geluid- en blijven-staan-voorkeuren, en dezelfde klikbehandeling. De
-// gate zelf is hierboven al gedaan — notificationsAllowed geldt ook voor push,
-// alleen dan zonder de pushCovered-vlag, want die dooft juist de webview.
 function notifyNewMail(email: string, meta: MessageMeta): void {
   if (!prefs || !Notification.isSupported()) return;
-  // Spiegelbeeld van de guard in reportApiUnread: viel de dekking weg tussen de
-  // history-doorloop en dit moment, dan meldt de webview alweer zelf en zou dit
-  // een tweede melding voor hetzelfde bericht zijn.
   if (!coverage.has(email)) return;
   const profile = profiles.find((p) => p.email === email);
   if (!profile) return;
@@ -1805,31 +1441,16 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
     title: hidden.hiddenSender ?? (displayName(meta.from) || email),
     body: hidden.hiddenSubject ?? (meta.subject || NO_SUBJECT),
     silent: notificationSilent(p, email, 'mail'),
-    // Blijven staan tot de gebruiker hem wegklikt, als dat aanstaat.
     timeoutType: notificationPersist(p, email) ? 'never' : 'default',
   });
   n.on('click', () => activateNotification(keyOf(profile), 'mail', meta.threadId));
   n.show();
-  // Het eigen geluidje erbij, als er een gekozen is. `silent` hierboven houdt Windows
-  // stil; zonder deze regel zou een gekozen toon nooit klinken.
   if (!notificationSilent(p, email, 'mail')) playNotificationSound(p);
 }
 
-// De berichten waarvoor al een code is afgehandeld. Push kan een stuk geschiedenis
-// opnieuw aanbieden nadat een sync mislukte, en zonder dit zou dezelfde mail een
-// tweede keer naar de prullenbak gaan of een verlopen code opnieuw op het klembord
-// zetten. Alleen in het geheugen: na een herstart is de mail al gelezen en komt hij
-// niet meer als nieuw langs. Begrensd, want een set die de hele dag groeit is een lek.
 const handledCodeIds = new Set<string>();
 const HANDLED_CODE_LIMIT = 500;
 
-// Een verificatiecode uit een net binnengekomen bericht op het klembord zetten, en
-// daarna doen wat de gebruiker vroeg met de mail.
-//
-// De volgorde is de goedkoopste eerst: staat het kopiëren uit, dan gebeurt er niets.
-// Daarna beslist het onderwerp of het de moeite is om de body op te halen — dat is
-// één HTTP-verzoek per bericht en de meeste post is geen code. Zie
-// `subjectSuggestsCode` voor waarom die poort ruimer is dan de herkenner zelf.
 async function handleVerificationCode(
   email: string,
   meta: MessageMeta,
@@ -1847,14 +1468,9 @@ async function handleVerificationCode(
       vc.confidence,
     );
     if (!code) return;
-    // Eerst het klembord, en pas daarna de mail aanraken. Lukt het markeren of het
-    // weggooien niet, dan heb je in elk geval je code — de omgekeerde volgorde zou een
-    // mail kunnen weggooien voor een code die nooit ergens terechtkwam.
     clipboard.writeText(code);
     handledCodeIds.add(meta.id);
     if (handledCodeIds.size > HANDLED_CODE_LIMIT) {
-      // De oudste helft eruit. Een `Set` houdt inzetvolgorde, dus dit is de oudste
-      // helft en niet een willekeurige.
       for (const id of [...handledCodeIds].slice(0, HANDLED_CODE_LIMIT / 2)) {
         handledCodeIds.delete(id);
       }
@@ -1862,25 +1478,16 @@ async function handleVerificationCode(
     if (vc.markRead) await withToken((token) => markMessageRead(token, meta.id));
     if (vc.deleteAfter) await withToken((token) => trashMessage(token, meta.id));
   } catch (e) {
-    // Stil falen, met een regel in de log. Dit loopt op de achtergrond bij elke nieuwe
-    // mail: een dialoog of een melding bij een mislukt verzoek zou de gebruiker
-    // lastigvallen over iets waar hij niet om vroeg, en er is niets aan te doen
-    // behalve de volgende mail afwachten. Ontbreekt het gmail.modify-recht nog, dan
-    // komt hij hier ook langs — het kopiëren is dan al gelukt.
     console.warn(`[codes] kon geen code afhandelen voor ${email}:`, e);
   }
 }
 
-// Eén runner per account, zodat samenvallende syncs voor hetzelfde account
-// gecoalesceerd worden en die van verschillende accounts elkaar niet ophouden.
 function syncRunnerFor(email: string): { run(): Promise<void> } | null {
   const existing = syncRunners.get(email);
   if (existing) return existing;
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens || !history) return null;
 
-  // Elke aanroep vraagt opnieuw een token: tussen twee syncs kan er een uur
-  // zitten en dan is het oude verlopen.
   const withToken = async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
     const token = await accessTokenFor(cfg, oauthTokens!, email);
     if (!token) throw new Error('geen token');
@@ -1915,10 +1522,6 @@ function syncRunnerFor(email: string): { run(): Promise<void> } | null {
     onOutcome: (outcome) => {
       reportApiUnread(email, outcome.unread);
       for (const meta of outcome.notify) notifyNewMail(email, meta);
-      // Naast de melding en niet erin: `notifyNewMail` haakt af bij niet-storen, bij
-      // stille uren en bij een account waarvoor meldingen uit staan. Een gedempt
-      // account zou dan stil geen codes meer kopiëren, en dat is geen gevolg dat
-      // iemand achter een demping verwacht.
       for (const meta of outcome.notify) void handleVerificationCode(email, meta, withToken);
     },
     onError: (e) => console.warn(`[push] sync mislukte voor ${email}:`, e),
@@ -1927,9 +1530,6 @@ function syncRunnerFor(email: string): { run(): Promise<void> } | null {
   return runner;
 }
 
-// Welke accounts push kán dekken: eigen accounts met een token dat de vereiste
-// scopes heeft. Een gedelegeerd postvak heeft geen eigen token en blijft dus de
-// webview gebruiken.
 function pushableEmails(): string[] {
   if (!oauthTokens) return [];
   return profiles
@@ -1947,7 +1547,7 @@ function startPush(): void {
     return;
   }
   const config = pushConfig();
-  if (!config) return; // niet ingesteld: alles blijft zoals het was
+  if (!config) return;
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens) return;
 
@@ -1955,11 +1555,6 @@ function startPush(): void {
     config,
     accounts: pushableEmails,
     accessToken: (email) => accessTokenFor(cfg, oauthTokens!, email),
-    // Voor de ene herkansing na een 4401. Bewust forceRefresh en niet
-    // accessTokenFor: die laatste geeft het opgeslagen token terug zolang onze
-    // eigen klok zegt dat het nog geldig is, en dat is precies het token dat net
-    // geweigerd is. Het verse token wordt opgeslagen, dus de nieuwe handdruk
-    // pakt het via de gewone weg op.
     refreshToken: async (email) => {
       const fresh = await forceRefresh(cfg, oauthTokens!, email);
       if (fresh) refreshFailures.delete(email);
@@ -1980,23 +1575,12 @@ function startPush(): void {
     onCoverage: (email, covered) => {
       if (covered) {
         coverage.cover(email);
-        // Push werkt weer voor dit account, dus een eerdere weigering is
-        // geschiedenis en de melding erover moet weg. Kan ook zonder dat de
-        // gebruiker op "Verbind" drukte: elke refresh() laat een geweigerd
-        // account het opnieuw proberen.
         if (pushRefusals.delete(email)) scheduleOAuthHealthCheck();
       } else coverage.drop(email);
-      // De webview moet meteen weten of hij mag melden, en de teller wisselt
-      // van eigenaar.
       refreshNotifyAllowed();
     },
     onFatal: (email, code) => {
       console.warn(`[push] push definitief uit voor ${email} (code ${code})`);
-      // 4401 betekent: Google keurde dit token af, en de manager heeft het al één
-      // keer met een vers token overgedaan. Alleen nieuwe toestemming helpt nog,
-      // en dus moet de gebruiker het weten: zonder deze regel valt push stil en
-      // vertelt niets het, want het token bestaat, ververst prima en heeft zijn
-      // scopes — de gezondheidscontrole ziet er van zichzelf niets aan.
       if (code === 4401) {
         pushRefusals.add(email);
         void checkOAuthHealth();
@@ -2005,11 +1589,6 @@ function startPush(): void {
   });
 }
 
-// Of dit de eerste keer is dat er een venster wordt gebouwd in deze procesgang.
-// `createWindow` wordt ook later nog aangeroepen — na een klik op een melding
-// terwijl het venster gesloten was, en via 'activate' op macOS — en dan is het
-// venster gevraagd, niet gestart. Alleen bij het opstarten mag hij geminimaliseerd
-// beginnen.
 let firstWindow = true;
 
 function createWindow(): void {
@@ -2019,10 +1598,6 @@ function createWindow(): void {
     { width: stored.width, height: stored.height, x: stored.x, y: stored.y },
     screen.getAllDisplays().map((d) => ({ bounds: d.bounds })),
   );
-  // De topbar ís de titelbalk: Electron tekent de echte vensterknoppen als
-  // overlay bovenop onze balk. Alleen op Windows en macOS — op Linux houden we
-  // het native frame omdat er onder WSL ontwikkeld wordt en de app daar niet mag
-  // omvallen, niet omdat de overlay er zou ontbreken.
   const frameless = supportsOverlay(process.platform)
     ? {
         titleBarStyle: 'hidden' as const,
@@ -2040,29 +1615,13 @@ function createWindow(): void {
     y: bounds.y,
     backgroundColor: windowBackground(prefs.getAll().theme, nativeTheme.shouldUseDarkColors),
     icon: ICON_PATH,
-    // Een bodem voor de vensterbreedte, tenzij de gebruiker hem bij Weergave
-    // uitzet. Zonder deze grens is het venster smaller te slepen dan de balk
-    // aankan: onder ongeveer 236px klapt de reservering van de tabstrook naar nul
-    // en schuift het tandwiel onder de vensterknoppen-overlay, waar niets meer aan
-    // te klikken is. 800px is ruim boven die grens en is ook wat Gmail zelf nodig
-    // heeft voor een bruikbare inbox.
     minWidth: prefs.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_WIDTH,
     ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
   if (stored.maximized) mainWindow.maximize();
-  // Geminimaliseerd starten. Ná `maximize()`, zodat het venster op zijn volle maat
-  // terugkomt zodra je het uit de taakbalk haalt: de twee standen bijten elkaar
-  // niet, minimaliseren onthoudt waar het venster naar terug hoort.
-  //
-  // `minimize()` en niet `show: false` in de opties hierboven: een venster dat
-  // nooit is getoond staat ook niet in de taakbalk, en dan is de app gestart zonder
-  // dat er iets is om op te klikken. Geminimaliseerd is klein, niet weg.
   if (firstWindow && prefs.getAll().launchMinimized) mainWindow.minimize();
   firstWindow = false;
-  // Re-assert the badge when the window returns to the taskbar: an overlay clear
-  // issued while hidden to the tray doesn't stick, so Windows would otherwise show
-  // a stale count on restore until the next unread update.
   mainWindow.on('show', refreshBadge);
   mainWindow.on('restore', refreshBadge);
   colors = new ColorStore(join(app.getPath('userData'), 'colors.json'));
@@ -2072,9 +1631,6 @@ function createWindow(): void {
   downloadHistory = new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json'));
   delegated = new DelegatedStore(join(app.getPath('userData'), 'delegated.json'));
   accountCache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
-  // Eén keer per proces inlezen. Wordt het venster later opnieuw opgebouwd (een
-  // aangeklikte melding kan dat doen), dan is detectie al langs geweest en zou
-  // opnieuw inlezen accounts terugzetten die toen juist zijn afgevallen.
   if (!accountCacheLoaded) {
     accountCacheLoaded = true;
     cachedAccounts = accountCache.list();
@@ -2084,10 +1640,6 @@ function createWindow(): void {
     mainWindow,
     PRELOAD_PATH,
     (accountKey, count) => {
-      // Eén bron per account. Is het account door push gedekt, dan komt de
-      // teller uit labels.get en zou de paginatitel hem alleen overschrijven —
-      // twee bronnen die om hetzelfde getal vechten laten het heen en weer
-      // springen. Bij een teruggave van de dekking neemt de titel het weer over.
       const email = profiles.find((p) => keyOf(p) === accountKey)?.email;
       if (email && coverage.has(email)) return;
       unread.report(accountKey, count);
@@ -2118,27 +1670,20 @@ function createWindow(): void {
   if (DEV_URL) void mainWindow.loadURL(DEV_URL);
   else void mainWindow.loadURL('app://bundle/');
 
-  // Ontwikkelmodus: `npm run dev` bouwt de preload bij elke wijziging opnieuw.
-  // Een preload wordt alleen bij een navigatie ingelezen, dus herladen we de
-  // views zodra het bestand verandert. Scheelt een herstart van de hele app.
   if (DEV_URL) watchPreloadForReload();
 
-  // De controle hangt aan de accountlijst (zie scheduleOAuthHealthCheck), dus hij
-  // loopt zodra het eerste account bekend is. Daarnaast periodiek, want een
-  // refresh token kan verlopen terwijl de app gewoon open staat.
   setInterval(() => void checkOAuthHealth(), 5 * 60 * 1000);
 
   mainWindow.webContents.on('did-finish-load', () => {
-    loadDelegatedProfiles(); // surface persisted delegated mailboxes immediately
-    pushProfiles(); // re-push on any (re)load so the sidebar repopulates
+    loadDelegatedProfiles();
+    pushProfiles();
     pushPrefs();
     pushDefaultMailStatus();
     if (!delegatedScanStarted) {
       delegatedScanStarted = true;
-      // Delay so the /u/0 mail view is loaded before we scrape its switcher.
       setTimeout(() => void refreshAndSuggestDelegated(), 7000);
     }
-    applyReneZoom(); // a (re)load resets the renderer's zoom factor
+    applyReneZoom();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
     if (!detectionStarted) {
       detectionStarted = true;
@@ -2169,12 +1714,10 @@ function createWindow(): void {
 function sendUpdate(status: Record<string, unknown>): void {
   lastUpdateStatus = { ...status, currentVersion: app.getVersion() };
   mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);
-  refreshTray(); // keep the tray's update label in sync with each status transition
+  refreshTray();
   maybeShowTrayUpdatePopup();
 }
 
-// Bring the window forward and open the Settings panel (where the update section
-// lives). Used by the tray "Check for updates" item.
 function openSettingsPanel(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -2185,8 +1728,6 @@ function openSettingsPanel(): void {
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
 }
 
-// Tray "Check for updates": open settings so the user sees the update section,
-// then run the check and announce the terminal result in a small popup.
 function checkForUpdateFromTray(): void {
   openSettingsPanel();
   pendingTrayUpdateCheck = true;
@@ -2196,7 +1737,7 @@ function checkForUpdateFromTray(): void {
 function maybeShowTrayUpdatePopup(): void {
   if (!pendingTrayUpdateCheck) return;
   const popup = updateCheckPopup(lastUpdateStatus as { state: string });
-  if (!popup) return; // still checking/downloading — wait for a terminal result
+  if (!popup) return;
   pendingTrayUpdateCheck = false;
   if (!mainWindow || mainWindow.isDestroyed()) return;
   void dialog
@@ -2217,8 +1758,6 @@ function maybeShowTrayUpdatePopup(): void {
     });
 }
 
-// Update / autostart / snooze actions are factored out so both the IPC handlers
-// (settings UI) and the tray menu invoke the exact same logic.
 function checkForUpdate(opts?: { background?: boolean }): void {
   lastCheckBackground = opts?.background === true;
   if (!app.isPackaged) return sendUpdate({ state: 'dev' });
@@ -2227,12 +1766,7 @@ function checkForUpdate(opts?: { background?: boolean }): void {
     .checkForUpdates()
     .catch((err) => sendUpdate({ state: 'error', message: String(err?.message || err) }));
 }
-// Show a clickable OS notification for a background-discovered new version, at
-// most once per version per session. Clicking it opens the Settings update
-// section. Manual checks don't reach here as "background", so they stay quiet.
 function maybeNotifyUpdate(version: string): void {
-  // De schakelaar bij Bijwerken staat vóór alle andere regels: wie zegt dat hij niet
-  // gestoord wil worden over updates, hoort ook de eerste niet te krijgen.
   if (prefs?.getAll().updates.notify === false) return;
   if (
     !shouldNotifyUpdate({
@@ -2268,26 +1802,15 @@ function setAutoStart(v: boolean): void {
   pushPrefs();
   refreshTray();
 }
-// Geminimaliseerd starten: alleen wegschrijven en terugmelden. Er is niets aan
-// Windows door te geven — `createWindow` leest deze stand bij de volgende start.
 function setLaunchMinimized(v: boolean): void {
   prefs!.setLaunchMinimized(v);
   pushPrefs();
 }
-// De mailto:-standaard aan of uit. Windows onthoudt dit in het register; de app
-// leest de stand terug met `isDefaultProtocolClient` en stuurt hem naar het
-// paneel, want de gebruiker kan hem ook buiten deze app om omzetten.
-//
-// Uitzetten haalt alleen weg wat deze app zelf heeft geschreven. Windows kiest
-// daarna zelf weer een handler, en dat is precies wat "niet meer de standaard"
-// hoort te betekenen.
 function setDefaultMail(v: boolean): void {
   if (v) app.setAsDefaultProtocolClient('mailto');
   else app.removeAsDefaultProtocolClient('mailto');
   pushDefaultMailStatus();
 }
-// minutes: a positive number sets a timed snooze; null mutes indefinitely
-// ("until I turn it back on"); 0 clears any active mute.
 function setSnooze(minutes: number | null): void {
   if (!prefs) return;
   const n = prefs.getAll().notifications;
@@ -2302,19 +1825,9 @@ function clearSnooze(): void {
   setSnooze(0);
 }
 
-// Een klik op het tray-icoon. Standaard hetzelfde als "Open": het venster naar
-// voren. Staat "spring naar ongelezen" aan, dan gaat hij naar het eerste account
-// waar post op je wacht — de volgorde van de balk, dus het account dat vooraan
-// staat wint. Is er niets ongelezen, dan gebeurt het gewone: het venster komt op.
-//
-// `activateNotification` zonder gesprek doet precies dat werk al (venster naar
-// voren, instellingen dicht, naar dat postvak), dus dit is geen tweede weg naar
-// hetzelfde — het is dezelfde weg.
 function openFromTrayIcon(): void {
   if (prefs?.getAll().appearance.tray.selectUnreadOnClick === true) {
     const counts = unread.snapshot();
-    // `profiles` is de bevestigde lijst van main; een voorlopige tab uit de
-    // onthouden balk staat hier niet in, dus daar hoeft niet op gefilterd te worden.
     const target = profiles.find((p) => (counts[keyOf(p)] ?? 0) > 0);
     if (target) {
       activateNotification(keyOf(target), 'mail');
@@ -2354,9 +1867,6 @@ function refreshTray(): void {
   if (tray) updateTrayMenu(tray, getTrayState());
 }
 
-// Het tray-icoon aan of uit zetten, naar de stand in Weergave. Weghalen en opnieuw
-// aanmaken en niet verbergen: een Tray heeft geen "verberg" — je houdt hem of je
-// vernietigt hem, en een achtergebleven object houdt het icoon in de balk.
 function applyTraySetting(): void {
   const want = prefs?.getAll().appearance.tray.enabled !== false;
   if (want && !tray) {
@@ -2367,25 +1877,9 @@ function applyTraySetting(): void {
     tray.destroy();
     tray = null;
   }
-  // Bestaat de tray al, dan hoeft hij niet opnieuw gebouwd te worden voor een andere
-  // kleur: het icoon is te vervangen op de tray die er staat.
   if (want && tray) tray.setImage(trayImage());
 }
 
-// Het icoon voor de systeembalk, in de kleur die bij Weergave staat.
-//
-// 'light' en 'dark' vragen om een monochroom icoon, en dat komt niet uit een tweede
-// bestand in assets/: het logo wordt hier omgekleurd. Electron's `nativeImage` heeft
-// de PNG al gedecodeerd, dus `toBitmap()` geeft de pixels (BGRA) en
-// `createFromBitmap` maakt er weer een icoon van. De vórm blijft dus precies het
-// logo — alleen de kleur gaat eruit.
-//
-// De doorzichtigheid blijft staan en alleen de kleurkanalen worden gezet. Dat is
-// waarom dit werkt zonder de vorm te kennen: de alfalaag ís de vorm.
-//
-// "light" betekent een licht icoon (voor een donkere balk) en "dark" een donker icoon
-// (voor een lichte balk) — dat is hoe elk ander programma die twee woorden gebruikt,
-// en het omgekeerde raden zou de keuze onbruikbaar maken.
 function trayImage(): Electron.NativeImage {
   const { nativeImage } = require('electron') as typeof import('electron');
   let image = nativeImage.createFromPath(ICON_PATH);
@@ -2397,30 +1891,20 @@ function trayImage(): Electron.NativeImage {
   const { width, height } = image.getSize();
   const bitmap = image.toBitmap();
   for (let i = 0; i < bitmap.length; i += 4) {
-    // Volledig doorzichtige pixels ongemoeid laten: die hebben geen kleur, en ze een
-    // kleur geven maakt van een rand een blok zodra iets die alfa later afrondt.
     if (bitmap[i + 3] === 0) continue;
-    bitmap[i] = level; // B
-    bitmap[i + 1] = level; // G
-    bitmap[i + 2] = level; // R
+    bitmap[i] = level;
+    bitmap[i + 1] = level;
+    bitmap[i + 2] = level;
   }
   return nativeImage.createFromBitmap(bitmap, { width, height });
 }
 
-// De ondergrens van de vensterbreedte, naar de stand in Weergave. Zie de opmerking
-// bij `minWidth` in createWindow voor waarom die grens er is; uit betekent 0, en dan
-// mag de gebruiker het venster kleiner slepen dan de balk aankan.
 function applyMinWindowSize(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const on = prefs?.getAll().appearance.restrictMinWindowSize !== false;
   mainWindow.setMinimumSize(on ? MIN_WINDOW_WIDTH : 0, 0);
 }
 
-// Eén melding zoals hij er echt uit komt: dezelfde tekstkeuzes (afzender,
-// onderwerp) en hetzelfde geluid als een echte, zodat de knop laat zien wat je
-// hebt ingesteld en niet wat de standaard is. Hij gaat wél langs de demping niet:
-// je vraagt er zelf om, en een testknop die niets doet omdat je stille uren aan
-// staan lijkt stuk.
 function showTestNotification(): void {
   if (!Notification.isSupported() || !prefs) return;
   const p = prefs.getAll();
@@ -2430,20 +1914,12 @@ function showTestNotification(): void {
     body: hidden.hiddenSubject ?? 'This is what a notification looks like.',
     silent: p.notifications.sound === false,
   }).show();
-  // De testknop hoort ook het gekozen geluidje te laten horen — dat is de helft van
-  // waarom je hem indrukt. De poort tegen samenvallende tonen wordt hier omzeild: je
-  // vraagt er zelf om, en twee keer drukken moet twee keer klinken.
   if (p.notifications.sound !== false && p.notifications.soundName) {
     lastSoundAt = 0;
     playNotificationSound(p);
   }
 }
 
-// De opmaak die de Gmail-tab vraagt naar elke mailweergave. Eén tekst voor alle
-// accounts: het zijn keuzes over hoe Gmail eruitziet, niet over wie je bent.
-//
-// De omzetting van voorkeuren naar CSS staat in gmail-tweaks.ts en is puur, zodat de
-// selectors op één plek staan en te testen zijn. Hier staat alleen wanneer hij gaat.
 function pushGmailTweaks(): void {
   if (!prefs || !manager) return;
   const g = prefs.getAll().gmail;
@@ -2453,17 +1929,6 @@ function pushGmailTweaks(): void {
   });
 }
 
-// Waar een Google-app opengaat: in de app, in een eigen venster, of in de browser.
-// De keuze zelf staat in google-apps-open.ts en is puur; hier staat wat elk van de
-// drie antwoorden betekent.
-//
-// Dit hangt aan de klik van de gebruiker (het IPC-bericht uit de balk) en níet in
-// `showAccount`. Dat is met opzet: `showAccount` is óók het pad van de detectie en
-// van een klik op een melding, en een tak daarbinnen zou de aanmeldprobe één
-// verbouwing verwijderd houden van "en nu opent hij in je browser".
-//
-// Mail blijft altijd in de app: "open in de browser" toegepast op het postvak zou de
-// app van zichzelf wegsturen.
 function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
   if (surface === 'mail' || !prefs) {
     showAccount(ref, surface);
@@ -2475,17 +1940,8 @@ function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
     return;
   }
   const url = SURFACE_CONFIG[surface].url(ref);
-  // Langs dezelfde poort als elke andere link die de app verlaat, en niet
-  // rechtstreeks `shell.openExternal`: anders slaat dit de vraag uit Phishing
-  // Protection over, en dan is er één weg naar buiten die de regel niet volgt.
   if (target === 'external') {
     openExternalGuarded(url);
-    // En daarna blijft staan wat er stond. Zonder deze twee regels kon het venster
-    // leeg achterblijven: er wordt geen weergave voor deze app gemaakt (dat is het
-    // hele punt van "in de browser"), en als er op dat moment niets zichtbaar was —
-    // of als de aanroeper net iets had verborgen — was er ook niets om naar terug te
-    // vallen. Expliciet de post van dit account weer tonen is het antwoord dat de
-    // gebruiker verwacht: je vroeg om een app in je browser, niet om je postvak weg.
     const visible = activeView();
     if (!visible) showAccount(ref, 'mail');
     return;
@@ -2493,16 +1949,10 @@ function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
   openGoogleAppWindow(url, ref, surface);
 }
 
-// Een Google-app in een eigen venster. Zelfde vorm als het opstelvenster: op de
-// gedeelde Google-sessie, met de linkafhandeling eraan, zodat een link uit een
-// document dezelfde weg naar buiten neemt als een link uit een mail.
 function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): void {
   const email = profiles.find((p) => accountKey(p.ref) === accountKey(ref))?.email ?? '';
   const account = email ? prefs?.getAccount(email) : undefined;
   const g = prefs?.getAll().googleApps;
-  // De naam van het account in de titelbalk, als dat aan staat en er meer dan één
-  // account is. Bij één account zegt het niets — er is niets om het van te
-  // onderscheiden — en dan is de naam van de app zelf de nuttigere titel.
   const label = (account?.label || email || '').trim();
   const showLabel = g?.showAccountLabel !== false && profiles.length > 1 && label;
   const title = showLabel
@@ -2512,17 +1962,12 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
     width: 1100,
     height: 800,
     title,
-    // De kleur van het account als achtergrond van het venster tijdens het laden:
-    // dat is het enige moment waarop een venster een vlak is in plaats van een
-    // pagina, en dus de enige plek waar een kleur iets kan zeggen zonder over
-    // Google's eigen opmaak heen te gaan. Staat de keuze uit, dan wit.
     backgroundColor:
       g?.showAccountColor !== false && profiles.find((p) => p.email === email)?.color
         ? profiles.find((p) => p.email === email)!.color
         : '#ffffff',
     webPreferences: { partition: 'persist:google', contextIsolation: true },
   });
-  // Gmail zet zijn eigen titel; zonder dit is de accountnaam na het laden weg.
   win.on('page-title-updated', (e) => {
     if (showLabel) e.preventDefault();
   });
@@ -2530,53 +1975,24 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
   void win.loadURL(url);
 }
 
-// De gebruiker klikte op Opstellen terwijl "in een eigen venster" aan staat. De
-// preload heeft die klik tegengehouden, dus als hier niets gebeurt komt er geen
-// opstelvenster — vandaar dat een onbekend account niet stil wordt genegeerd maar
-// alsnog het gewone venster krijgt.
 function openComposeForAccount(accountKey: string): void {
   const idx = idxOfKey(accountKey);
   if (idx == null) return;
   openComposeWindow(idx);
 }
 
-// Een opstelvenster, met of zonder de meekijkende preload.
-//
-// De preload gaat er alleen aan als "sluit na verzenden" aan staat. Dat is geen
-// zuinigheid: die preload injecteert een klikluisteraar in een pagina van Google, en
-// dat hoort niet te gebeuren als de gebruiker er niets aan heeft. Staat de stand uit,
-// dan is het venster precies wat het altijd was.
 function openComposeWindow(index: number, fields?: MailtoFields): void {
   const closeAfterSend = prefs?.getAll().gmail.closeComposeAfterSend === true;
   const win = openCompose(index, fields, closeAfterSend ? COMPOSE_PRELOAD_PATH : undefined);
   if (!closeAfterSend) return;
   win.webContents.on('ipc-message', (_e, channel) => {
     if (channel !== IPC.COMPOSE_SENT) return;
-    // Even wachten voordat het venster dichtgaat: de klik is net doorgegeven aan
-    // Gmail, en die moet zijn verzoek nog de deur uit krijgen. Meteen sluiten zou de
-    // pagina afbreken vóórdat de mail weg is — dan is de instelling geen gemak maar
-    // een manier om post te verliezen.
     setTimeout(() => {
       if (!win.isDestroyed()) win.close();
     }, 1500);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Phishing Protection: de vraag vóór een link de app verlaat.
-// ---------------------------------------------------------------------------
-
-// Elke link die naar de browser gaat komt hier langs (zie `setExternalOpener` in
-// external-links.ts). Staat de bescherming uit of is de host vertrouwd, dan gaat
-// hij zonder tussenstap door — dat is de standaard en het pad dat vandaag al loopt.
-//
-// De vraag zet de hostnaam apart en groot bovenaan, want dát is wat je moet lezen:
-// bij een phishinglink is de zichtbare tekst betrouwbaar en de bestemming niet. Het
-// hele adres staat eronder, afgekapt op 200 tekens — een tracking-URL van drie
-// regels maakt een dialoogvenster onleesbaar en voegt niets toe aan de beslissing.
-//
-// Het vinkje is de enige manier waarop de lijst met vertrouwde hosts groeit: je
-// vult hem terwijl je werkt, en niet door in de instellingen adressen te typen.
 function openExternalGuarded(url: string): void {
   const p = prefs?.getAll();
   if (!p || !needsLinkConfirm(url, p.phishing)) {
@@ -2588,9 +2004,6 @@ function openExternalGuarded(url: string): void {
   const shown = url.length > 200 ? `${url.slice(0, 200)}…` : url;
   const box = {
     type: 'question' as const,
-    // `noLink` houdt het bij gewone knoppen: zonder dat maakt Windows van de
-    // eerste knop een link-achtige tekst, en dan is niet te zien welke van de twee
-    // de gevaarlijke is.
     noLink: true,
     buttons: ['Open link', 'Cancel'],
     defaultId: 1,
@@ -2609,37 +2022,19 @@ function openExternalGuarded(url: string): void {
     }
     void shell.openExternal(url);
   };
-  // Met een venster erbij is het een modaal blad boven de app; zonder venster (de
-  // app leeft dan alleen in de tray) een los dialoogvenster.
   if (parent) void dialog.showMessageBox(parent, box).then(done);
   else void dialog.showMessageBox(box).then(done);
 }
 
-// ---------------------------------------------------------------------------
-// Downloads.
-// ---------------------------------------------------------------------------
-
-// Staat dit pad in het logboek van downloads?
-//
-// De poort voor de twee kanalen die een bestand in de verkenner laten zien of laten
-// openen. Zonder deze controle zou de renderer elk pad op de schijf mogen aanwijzen,
-// en `shell.openPath` op een willekeurig pad is precies zo gevaarlijk als het klinkt.
-// Het logboek is door de app zelf geschreven, en daarmee de enige toegestane herkomst.
 function knownDownloadPath(path: string): boolean {
   return downloadHistory?.all().some((r) => r.path === path) === true;
 }
 
-// De map waar een download heen gaat. Leeg in de voorkeuren = de downloadmap van
-// het besturingssysteem; dezelfde afspraak als bij de map voor gesleepte mail.
 function downloadFolder(): string {
   const chosen = prefs?.getAll().downloads.folder?.trim();
   return chosen || app.getPath('downloads');
 }
 
-// Alle sessies die de app heeft gemaakt. Elk account heeft zijn eigen partitie, dus
-// er is niet één sessie om iets op in te stellen — en een nieuw account maakt er
-// tijdens het draaien nog een bij. `app.on('session-created')` vangt ze allemaal,
-// ook de standaardsessie.
 const sessions = new Set<Electron.Session>();
 
 function attachSessionHandlers(s: Electron.Session): void {
@@ -2649,9 +2044,6 @@ function attachSessionHandlers(s: Electron.Session): void {
   s.on('will-download', (_e, item) => {
     const d = prefs?.getAll().downloads;
     if (!d) return;
-    // Niets zetten = Chromium vraagt zelf waar het bestand heen moet. Dat is
-    // precies wat "Show Save As Dialog Before Downloading" belooft, dus die stand
-    // is een `return` en geen eigen dialoog.
     if (!d.saveAsDialog) {
       const dir = downloadFolder();
       try {
@@ -2659,23 +2051,15 @@ function attachSessionHandlers(s: Electron.Session): void {
         const name = uniqueFileName(item.getFilename(), (c) => existsSync(join(dir, c)));
         item.setSavePath(join(dir, name));
       } catch {
-        // Map niet te maken of niet beschrijfbaar: laat Chromium het vragen in
-        // plaats van de download te laten mislukken op een pad dat niet kan.
       }
     }
     item.once('done', (_ev, state) => {
       const path = item.getSavePath();
-      // `getStartTime()` geeft secondes met decimalen sinds epoch, niet milliseconden.
-      // Zonder de ×1000 komt elke download in 1970 te staan. Bij een afbreking vóórdat
-      // er een pad was kan hij 0 zijn; dan is "nu" het eerlijkste antwoord, want de
-      // store verzint zelf geen tijd.
       const started = item.getStartTime();
       downloadHistory?.add({
         filename: item.getFilename(),
         path,
         url: item.getURL(),
-        // Ontvangen bytes en niet het totaal: dat laatste is 0 als de server geen
-        // Content-Length gaf, en bij een afbreking is wat er staat wat er staat.
         bytes: item.getReceivedBytes() || item.getTotalBytes(),
         startedAt: started > 0 ? Math.round(started * 1000) : Date.now(),
         state,
@@ -2700,8 +2084,6 @@ function notifyDownloadDone(
     body: filename,
     silent: prefs?.getAll().notifications.sound === false,
   });
-  // Alleen een klik als er iets te openen is: een mislukte download heeft geen
-  // bestand, en een melding die op een klik niets doet leest als een fout.
   if (done && path && onClick !== 'nothing') {
     n.on('click', () => {
       if (onClick === 'open-file') void shell.openPath(path);
@@ -2711,15 +2093,6 @@ function notifyDownloadDone(
   n.show();
 }
 
-// ---------------------------------------------------------------------------
-// Spellingcontrole.
-// ---------------------------------------------------------------------------
-
-// De taal van het systeem blijft er altijd bij staan: de instelling heet "extra
-// talen naast de systeemtaal", dus het zetten van een extra taal mag de taal waarin
-// je meestal schrijft niet vervangen. Chromium wil exacte codes uit zijn eigen
-// lijst, dus de systeemtaal wordt daarin opgezocht — eerst precies ('nl-NL'), dan op
-// het voorvoegsel ('nl'), want de lijst kent niet elke landvariant.
 function spellcheckLanguagesFor(s: Electron.Session, extra: readonly string[]): string[] {
   const available = s.availableSpellCheckerLanguages;
   const locale = app.getLocale();
@@ -2737,8 +2110,6 @@ function applySpellcheckTo(s: Electron.Session): void {
   try {
     s.setSpellCheckerLanguages(spellcheckLanguagesFor(s, extra));
   } catch {
-    // Een code die Chromium tussen twee versies laat vallen mag de app niet
-    // omgooien; de rest van de talen staat dan gewoon aan.
   }
 }
 
@@ -2746,10 +2117,6 @@ function applySpellcheck(): void {
   for (const s of sessions) applySpellcheckTo(s);
 }
 
-// De lijst waaruit het instellingenpaneel kan kiezen, met een leesbare naam per
-// code. `Intl.DisplayNames` geeft die naam in de taal van de gebruiker; kan hij een
-// code niet plaatsen, dan is de code zelf het label — beter een code dan een leeg
-// item.
 function spellcheckOptions(): { code: string; label: string }[] {
   const s = session.defaultSession;
   let names: Intl.DisplayNames | null = null;
@@ -2763,15 +2130,8 @@ function spellcheckOptions(): { code: string; label: string }[] {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-// ---------------------------------------------------------------------------
-// Bijwerken: zelf kijken, of niet.
-// ---------------------------------------------------------------------------
-
 let updateTimer: ReturnType<typeof setInterval> | null = null;
 
-// Zet de periodieke controle aan of uit naar de stand bij Bijwerken. Wordt bij het
-// opstarten aangeroepen en opnieuw zodra de gebruiker de schakelaar omzet, zodat
-// uitzetten meteen werkt in plaats van pas na een herstart.
 function applyAutoUpdateCheck(): void {
   const on = app.isPackaged && prefs?.getAll().updates.autoCheck !== false;
   if (on && !updateTimer) {
@@ -2786,7 +2146,7 @@ function applyAutoUpdateCheck(): void {
 }
 
 function setupUpdater(): void {
-  autoUpdater.autoDownload = false; // download only when the user asks
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
   autoUpdater.on('update-available', (info) => {
@@ -2806,12 +2166,7 @@ function setupUpdater(): void {
 }
 
 function setupNotifications(): void {
-  // Windows shows/attributes native notifications by AppUserModelID; without it
-  // Gmail's desktop notifications silently don't appear.
   if (process.platform === 'win32') app.setAppUserModelId('com.gmaildesktop.app');
-  // Grant notification (and related) permissions for the shared Google session.
-  // Only trusted Google domains ever load in these views, so a blanket grant is
-  // safe here and is what lets Gmail's HTML5 notifications actually fire.
   const ses = session.fromPartition(SESSION_PARTITION);
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(true));
   ses.setPermissionCheckHandler(() => true);
@@ -2820,29 +2175,15 @@ function setupNotifications(): void {
 function registerIpc(): void {
   ipcMain.on(IPC.SWITCH_SURFACE, (_e, arg: { key: string; surface: Surface }) => {
     const p = profiles.find((x) => keyOf(x) === arg.key);
-    // Alleen een bevestigd account heeft een `ref` en dus een postvak om te openen.
-    // Een voorlopige tab bewust niet: de sessie-index is niet bewaard, dus er is
-    // geen URL die we mogen bouwen, en gokken zou het verkeerde postvak onder de
-    // verkeerde naam openen. Detectie is al onderweg; zodra dit adres bevestigd is
-    // staat er een echt tabblad dat wél opengaat.
     if (!p) return;
     openSurfaceForAccount(p.ref, arg.surface);
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
-  // Zoek gedelegeerde postbussen in de accountwisselaar. Het uitlezen daarvan
-  // heeft de mailview van /u0 getekend nodig, dus staat die er even bij, en
-  // daarna zetten we de gebruiker terug waar hij was. Vroeger eindigde dit met
-  // hideAll(), zodat het uitklapmenu (nu met resultaten) vrij bleef; dat menu is
-  // een OS-menu geworden en staat toch al bovenop, dus hideAll() zou hier alleen
-  // een leeg venster achterlaten.
   ipcMain.on(IPC.ADD_DELEGATED, () => {
     const before = activeView();
     manager?.show(authRef(0), 'mail');
     void scanDelegatedSuggestions().then((s) => {
-      // Niet terugzetten als de gebruiker er zelf iets van gemaakt heeft: een
-      // tabblad aangeklikt (dan is /u0 mail niet meer de actieve view) of de
-      // instellingen geopend (die verbergt de views met opzet).
       if (before && !settingsPanelOpen && manager?.isShowing(keyOfIndex(0), 'mail')) {
         showAccount(before.ref, before.surface);
       }
@@ -2856,8 +2197,6 @@ function registerIpc(): void {
     colors!.set(arg.email, arg.color);
     const p = profiles.find((x) => x.email === arg.email);
     if (p) p.color = arg.color;
-    // Ook zonder profiel pushen: een voorlopige tab leest zijn kleur uit
-    // colors.json en moet de nieuwe kleur meteen laten zien.
     pushProfiles();
   });
   ipcMain.on(IPC.REMOVE_ACCOUNT, (_e, arg: { email: string }) => removeAccount(arg.email));
@@ -2869,11 +2208,6 @@ function registerIpc(): void {
     if (arg.open) manager?.hideAll();
     else manager?.showActive();
   });
-  // De uitklapmenu's van de balk ("+" en het rechtsklikmenu op een tabblad). Een
-  // menu dat de balkpagina zelf tekent valt achter de Gmail-view — die is een
-  // native laag erboven — dus opent main hier een echt OS-menu, dat boven alles
-  // staat. De renderer stuurt de teksten mee en krijgt het gekozen id terug; er
-  // valt niets weg te duwen en dus ook niets terug te zetten.
   ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[]) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return null;
@@ -2881,23 +2215,14 @@ function registerIpc(): void {
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_LAUNCH_MINIMIZED, (_e, v: boolean) => setLaunchMinimized(v));
-  // De patch-zetters. Elk kanaal doet drie dingen in dezelfde orde: wegschrijven,
-  // het gevolg meteen toepassen, en de nieuwe voorkeuren terugsturen zodat het
-  // paneel ziet wat er staat. Dat laatste is niet ceremonieel — de vertrouwde-host-
-  // lijst en de gekozen downloadmap veranderen ook buiten het paneel om.
   ipcMain.on(IPC.SET_APPEARANCE, (_e, patch: AppearancePatch) => {
     if (!prefs) return;
     prefs.setAppearance(patch ?? {});
-    // Alleen doen wat er in de patch zat: `applyTraySetting` bouwt een tray op of
-    // breekt hem af, en dat hoort niet te gebeuren omdat er een vinkje over
-    // ongelezen getallen omging.
-    // Ook bij een kleurwijziging: `applyTraySetting` zet het icoon opnieuw op de tray
-    // die er al staat, dus dat is één aanroep voor beide gevallen.
     if (patch?.tray?.enabled !== undefined || patch?.tray?.color !== undefined) applyTraySetting();
     if (patch?.restrictMinWindowSize !== undefined) applyMinWindowSize();
     if (patch?.showUnreadBadges !== undefined) {
       refreshBadge();
-      pushUnread(); // de tabbladen lezen dezelfde stand
+      pushUnread();
     }
     pushPrefs();
   });
@@ -2926,23 +2251,17 @@ function registerIpc(): void {
   ipcMain.on(IPC.SET_ADVANCED, (_e, patch: unknown) => {
     if (!prefs) return;
     prefs.setAdvanced((patch ?? {}) as Parameters<PrefsStore['setAdvanced']>[0]);
-    // Geen toepassing hier: hardwareversnelling wordt vóór 'ready' gelezen. Het
-    // paneel zegt erbij dat het na een herstart geldt.
     pushPrefs();
   });
   ipcMain.on(IPC.SET_NOTIFICATION_EXTRAS, (_e, patch: unknown) => {
     if (!prefs) return;
     prefs.setNotificationExtras((patch ?? {}) as Parameters<PrefsStore['setNotificationExtras']>[0]);
-    // De webviews krijgen de nieuwe teksten en de geluidsstand meteen: zonder dit
-    // blijft de melding uit Gmail zelf de oude tekst tonen tot de volgende minuuttik.
     refreshNotifyAllowed();
     pushPrefs();
   });
   ipcMain.on(IPC.SET_GMAIL, (_e, patch: unknown) => {
     if (!prefs) return;
     prefs.setGmail((patch ?? {}) as Parameters<PrefsStore['setGmail']>[0]);
-    // De opmaak gaat meteen naar elke open mailweergave: dit hoort zichtbaar te zijn
-    // op het moment dat je de schakelaar omzet, niet na een herlaad.
     pushGmailTweaks();
     pushPrefs();
   });
@@ -2975,10 +2294,6 @@ function registerIpc(): void {
     downloadHistory?.clear();
     mainWindow?.webContents.send(IPC.DOWNLOAD_HISTORY_CHANGED);
   });
-  // Beide alleen voor een pad dat in het logboek staat. Een willekeurig pad uit de
-  // renderer openen zou van deze twee kanalen een manier maken om elk bestand op de
-  // schijf te laten uitvoeren; het logboek is de lijst die de app zelf heeft
-  // geschreven, en dus de enige toegestane herkomst.
   ipcMain.on(IPC.DOWNLOAD_HISTORY_REVEAL, (_e, path: unknown) => {
     if (typeof path === 'string' && knownDownloadPath(path)) shell.showItemInFolder(path);
   });
@@ -2986,18 +2301,12 @@ function registerIpc(): void {
     if (typeof path === 'string' && knownDownloadPath(path)) void shell.openPath(path);
   });
   ipcMain.on(IPC.SET_DEFAULT_MAIL, (_e, v: boolean) => setDefaultMail(v === true));
-  // De modal-pagina kan geladen zijn nádat het main-proces de items al stuurde;
-  // daarom haalt ze het bij het opstarten ook zelf op.
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => ({ items: lastDropPreview }));
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => {
     dropOverlay?.close();
   });
-  // Labels van elk gekoppeld account, voor de kopieermodal. Per account apart
-  // gemeld: ontbreekt er één token, dan blijven de andere kolommen bruikbaar.
   ipcMain.handle(IPC.LABELS_GET, async () => {
     const cfg = oauthConfig();
-    // Het bronaccount niet aanbieden: een kopie in hetzelfde postvak is een
-    // duplicaat, en verplaatsen binnen één account doet Gmail zelf al.
     const own = profiles.filter(
       (p) => p.kind === 'authuser' && (!lastDropSource || p.email !== lastDropSource),
     );
@@ -3014,11 +2323,6 @@ function registerIpc(): void {
       try {
         accounts.push({ email: p.email, labels: await fetchLabels(token) });
       } catch (e) {
-        // 401 betekent dat Google het token afkeurt, ook als het volgens onze
-        // klok nog geldig is (bijvoorbeeld ingetrokken via een andere app met
-        // dezelfde client-id). Eerst verversen en het nog eens proberen; lukt dat
-        // niet, dan is opnieuw toestemming geven het enige dat rest en zetten we
-        // dit account in de herverbind-melding.
         const unauthorized = e instanceof GmailHttpError && e.status === 401;
         const fresh = unauthorized ? await forceRefresh(cfg, oauthTokens, p.email) : null;
         if (fresh) {
@@ -3042,10 +2346,6 @@ function registerIpc(): void {
     }
     return { accounts };
   });
-  // Het eigenlijke kopiëren: elk .eml van de laatste sleep in het postvak van
-  // elk gekozen account zetten, onder de daar aangevinkte labels. Eén insert per
-  // bericht per account — de labels gaan mee in datzelfde verzoek, anders zou
-  // elk label een eigen kopie opleveren.
   ipcMain.handle(
     IPC.MAIL_DROP_COPY,
     async (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) => {
@@ -3076,9 +2376,6 @@ function registerIpc(): void {
     const progress = (phase: 'check' | 'copy', email: string, of = total) =>
       dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, { phase, done, total: of, email });
 
-    // Bij 'all' gaat alles erbij en hoeft er niets opgezocht te worden. Anders
-    // eerst kijken wat er al staat: bij 'check' om het te kunnen vragen, bij
-    // 'new' om precies die berichten over te slaan.
     let index = new Set<string>();
     if (mode !== 'all') {
       const key = scanKey(targets);
@@ -3128,8 +2425,6 @@ function registerIpc(): void {
       let over = 0;
       let lastError: string | undefined;
       for (const { file, messageId } of files) {
-        // Alleen de labels waar hij nog niet staat. Bij 'all' is de index leeg,
-        // dus dan blijven het gewoon alle gekozen labels.
         const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
         if (labelIds.length === 0) {
           over += 1;
@@ -3148,9 +2443,6 @@ function registerIpc(): void {
           continue;
         }
         try {
-          // Een 401 betekent dat Google het token afkeurt, ook als onze klok
-          // zegt dat het nog geldig is. Eén keer verversen en opnieuw; blijft
-          // het mislukken, dan is opnieuw toestemming geven het enige dat rest.
           let id: string | null;
           try {
             id = await insertMessage(token, raw, labelIds);
@@ -3196,8 +2488,6 @@ function registerIpc(): void {
         copied: ok,
         skipped: over,
         total: files.length,
-        // Overgeslagen berichten zijn geen fout: de rest is af zodra alles
-        // wat nog niet bestond geschreven is.
         error: ok + over < files.length ? (lastError ?? 'Niet alles gekopieerd') : undefined,
       });
     }
@@ -3205,7 +2495,6 @@ function registerIpc(): void {
     try {
       appendLog(root, records);
     } catch {
-      /* map niet schrijfbaar; de kopieën staan er wel */
     }
     return {
       ok: copied > 0 || skipped > 0,
@@ -3222,20 +2511,11 @@ function registerIpc(): void {
     if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) {
       return { ok: false, error: 'Koppeling niet ingesteld' };
     }
-    // Opnieuw toestemming vragen; het oude, geweigerde token staat de nieuwe
-    // uitwisseling niet in de weg.
     const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
     if (!result.ok) return result;
     refreshFailures.delete(arg.email);
-    // Het nieuwe token is nog nergens geweigerd; blijft deze staan, dan blijft de
-    // melding staan voor een probleem dat net is opgelost.
     pushRefusals.delete(arg.email);
-    // Opnieuw langs de hele lijst: misschien was dit de laatste en kan de melding
-    // helemaal weg.
     void checkOAuthHealth();
-    // Het nieuwe token heeft de e-mailscope, dus dit account is nu pushbaar. Zonder
-    // deze aanroep vraagt niemand daar opnieuw om en lijkt push pas na een herstart
-    // te werken.
     startPush();
     return { ok: true };
   });
@@ -3253,12 +2533,9 @@ function registerIpc(): void {
   });
   ipcMain.on(IPC.MAIL_DROP_FOLDER_OPEN, () => {
     const dir = mailDropFolder();
-    // De map bestaat pas na de eerste drop; maak hem aan zodat Verkenner iets
-    // te openen heeft.
     try {
       mkdirSync(dir, { recursive: true });
     } catch {
-      /* niet aan te maken; openPath meldt het zelf */
     }
     void shell.openPath(dir);
   });
@@ -3273,11 +2550,11 @@ function registerIpc(): void {
     if ('notifyPersist' in arg) patch.notifyPersist = arg.notifyPersist;
     prefs!.setAccount(arg.email, patch);
     pushProfiles();
-    pushPrefs(); // keep the settings UI's per-account toggles in sync with what was stored
+    pushPrefs();
     refreshNotifyAllowed();
     startPush();
     syncCalendarViews();
-    refreshBadge(); // reflect a badgeCount change immediately
+    refreshBadge();
   });
   ipcMain.on(IPC.SET_ACCOUNT_ORDER, (_e, arg: { emails: string[] }) => {
     prefs!.setOrder(arg.emails);
@@ -3286,14 +2563,10 @@ function registerIpc(): void {
   ipcMain.on(
     IPC.SET_NOTIFICATIONS,
     (_e, arg: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } }) => {
-      // Het paneel stuurt nooit `dndUntil` mee — dat veld is van de tray. Zonder
-      // `mergeNotificationsFromPanel` overschrijft `setNotifications` de hele
-      // opgeslagen waarde, en verdwijnt een lopende snooze zodra je alleen de
-      // stille uren aanpast.
       prefs!.setNotifications(mergeNotificationsFromPanel(prefs!.getAll().notifications, arg));
       pushPrefs();
       refreshNotifyAllowed();
-      refreshTray(); // a settings-driven DND change should re-label the tray too
+      refreshTray();
     },
   );
   ipcMain.on(IPC.SET_THEME, (_e, theme: 'system' | 'light' | 'dark') => {
@@ -3313,8 +2586,6 @@ function registerIpc(): void {
   ipcMain.handle(IPC.CHANGELOG_GET, () => loadChangelog());
 }
 
-// Single-instance: closing the window keeps the process alive in the tray, so a
-// second launch must focus the existing window instead of starting a duplicate.
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
@@ -3329,69 +2600,38 @@ if (!gotTheLock) {
   });
 }
 
-// macOS delivers mailto: via this event (both cold and while running); register
-// it before whenReady so a launch-time URL isn't missed. dispatchMailto queues
-// itself if the app isn't ready yet.
 app.on('open-url', (event, url) => {
   event.preventDefault();
   dispatchMailto(url);
 });
 
 app.whenReady().then(() => {
-  if (!gotTheLock) return; // a primary instance is already running
-  Menu.setApplicationMenu(null); // drop the default File/Edit/View… menu bar
-  // One hook covers every webContents the app ever creates — sidebar, Gmail and
-  // Calendar views, compose and pop-out windows — so right-click works the same
-  // everywhere. Registered before createWindow so the first ones are included.
+  if (!gotTheLock) return;
+  Menu.setApplicationMenu(null);
   app.on('web-contents-created', (_e, wc) => {
     attachContextMenu(wc, () => (prefs?.getAll().reneMode ? LABELS_RENE : LABELS_NORMAL));
   });
-  // Elk account heeft zijn eigen sessie, en er komt er een bij zodra je een account
-  // toevoegt. Deze hook vangt ze allemaal — ook de standaardsessie — en hangt er de
-  // downloadafhandeling en de spellingcontrole aan. Vóór createWindow, zodat de
-  // sessies van het eerste venster erbij zitten.
   app.on('session-created', (s) => attachSessionHandlers(s));
   attachSessionHandlers(session.defaultSession);
-  // Vanaf nu gaat elke link die de app verlaat langs de vraag uit Phishing
-  // Protection. Staat die uit — de standaard — dan is het pad hetzelfde als eerst.
   setExternalOpener(openExternalGuarded);
   registerAppProtocol();
   setupNotifications();
   registerIpc();
-  // Hier stond `app.setAsDefaultProtocolClient('mailto')`, bij elke start. Dat
-  // maakte de schakelaar bij Algemeen zinloos: je zette hem uit, en de volgende
-  // keer dat de app opkwam claimde hij de mailto:-standaard weer terug. Wie de
-  // standaard al is blijft het — het register houdt die keuze vast, en er wordt
-  // hier niets weggehaald. Alleen de gebruiker zet hem nog om.
-  // Bij thema "system" verandert de kleur zonder dat de gebruiker iets doet.
-  // Hier, niet in createWindow: dat venster wordt soms opnieuw opgebouwd (na een
-  // notificatieklik op een gesloten venster, of via 'activate'), en elke keer een
-  // extra listener op de globale nativeTheme is een lek. Draait vóór het eerste
-  // venster bestaat, wat mag: applyTitleBarOverlay doet niets zonder venster.
   nativeTheme.on('updated', () => applyTitleBarOverlay());
   createWindow();
   const initialMailto = extractMailtoFromArgv(process.argv);
-  if (initialMailto) pendingMailto = initialMailto; // flushed once an inbox is live
+  if (initialMailto) pendingMailto = initialMailto;
   startNotifyTimer();
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
-  // Het tray-icoon naar de stand bij Weergave, in plaats van altijd. Staat hij uit,
-  // dan blijft `tray` null en doet `refreshTray` niets — de app leeft dan alleen in
-  // het venster.
   applyTraySetting();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-  // Auto-update from GitHub Releases (packaged builds only; no-op in dev).
   setupUpdater();
-  // Zelf kijken of er een nieuwe versie is, tenzij de gebruiker dat bij Bijwerken
-  // heeft uitgezet. `applyAutoUpdateCheck` doet ook de eerste controle, zodat het
-  // aanzetten van de schakelaar niet op de eerste tik van het halfuur hoeft te
-  // wachten.
   applyAutoUpdateCheck();
 });
 
 app.on('window-all-closed', () => {
-  // Kept running in the tray; quit only via the tray menu.
 });
 app.on('before-quit', () => {
   isQuitting = true;

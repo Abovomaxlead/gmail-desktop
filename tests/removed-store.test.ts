@@ -1,3 +1,5 @@
+// The store of accounts the user removed.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { RemovedStore } from '../electron/removed-store';
 import { mkdtempSync, rmSync } from 'node:fs';

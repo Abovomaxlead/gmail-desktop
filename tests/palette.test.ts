@@ -1,3 +1,5 @@
+// The account colour picked per index.
+
 import { describe, it, expect } from 'vitest';
 import { PALETTE, colorForIndex } from '../electron/palette';
 

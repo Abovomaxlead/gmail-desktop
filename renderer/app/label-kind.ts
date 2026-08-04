@@ -1,9 +1,6 @@
-// Wat voor soort bestemming een label is. Bepaalt welk icoon en welke kleur de
-// keuzelijst toont, zodat je in één oogopslag ziet of je in het postvak, bij de
-// sterren of in een eigen map droppt.
-//
-// Op het id en niet op de naam: Gmail's systeemlabels heten in elke taal anders,
-// maar hun id ligt vast.
+// What kind of destination a label is, which decides the icon and colour the picker
+// shows. Keyed on the id and not the name: Gmail's system labels are called something
+// different in every language, but their ids are fixed.
 export type LabelKind = 'inbox' | 'starred' | 'important' | 'user';
 
 export function labelKind(id: string): LabelKind {

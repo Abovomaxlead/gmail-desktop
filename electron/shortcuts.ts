@@ -1,3 +1,5 @@
+// Maps a key event from a view into an app action. Ctrl/Cmd+Shift+I is the only way
+// to open devtools on a Gmail page, so it stays.
 export interface KeyInput {
   type: string;
   key: string;
@@ -17,8 +19,6 @@ export function resolveShortcut(input: KeyInput): Action | null {
   const mod = input.control || input.meta;
   if (!mod) return null;
   const key = input.key.toLowerCase();
-  // Ctrl/Cmd+Shift+I opent de devtools van de actieve view — zonder dat is er
-  // geen enkele manier om in de Gmail-pagina te kijken als er iets misgaat.
   if (input.shift && key === 'i') return { type: 'devtools' };
   if (key === 'n') return { type: 'compose' };
   if (key === '0') return { type: 'zoom', dir: 'reset' };

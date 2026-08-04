@@ -1,19 +1,14 @@
+// Access tokens and forced refreshes. oauth-flow.ts requires `electron` lazily inside
+// postForm, which vi.mock cannot reach, so the test fills Node's CJS cache instead.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { accessTokenFor, forceRefresh } from '../electron/oauth-flow';
 import type { OAuthConfig, StoredToken } from '../electron/google-oauth';
 import type { OAuthStore } from '../electron/oauth-store';
 
-// oauth-flow.ts laadt `electron` lui met require() binnen postForm, zodat de module
-// onder Vitest importeerbaar blijft. vi.mock grijpt alleen de ESM-importgraaf en dus
-// niet die require; het CJS-cachevakje van Node vullen wel. Daarmee is de enige
-// Electron-afhankelijkheid van dit bestand weg te nemen zonder de module te
-// verbouwen, en kan de rest gewoon getest worden.
 const ELECTRON_ID = require.resolve('electron');
 let realElectron: NodeJS.Module | undefined;
 
-// Levert het antwoord op het lopende tokenverzoek af. Als functie, zodat de test
-// zelf bepaalt wat er tussen het verzoek en het antwoord gebeurt — daar zit het
-// gedrag dat we willen vastleggen.
 let respond: ((json: unknown) => void) | null = null;
 
 type Handler = (...args: unknown[]) => void;
@@ -66,8 +61,6 @@ const expired = (): StoredToken => ({
   scopes: ['a'],
 });
 
-// Duck-typed store: alleen get/set/remove worden hier geraakt, en de test wil zien
-// welke schrijfacties er langskomen.
 function fakeStore(initial: Record<string, StoredToken>) {
   const map = new Map(Object.entries(initial));
   const written: string[] = [];
@@ -95,7 +88,6 @@ describe('accessTokenFor', () => {
   it('schrijft niets terug als het account tijdens de verlenging verwijderd is', async () => {
     const { store, map, written } = fakeStore({ 'a@x.nl': expired() });
     const pending = accessTokenFor(cfg, store, 'a@x.nl', NOW);
-    // De gebruiker verwijdert het account terwijl het tokenverzoek onderweg is.
     store.remove('a@x.nl');
     respond!({ access_token: 'nieuw', expires_in: 3600 });
     await expect(pending).resolves.toBeNull();

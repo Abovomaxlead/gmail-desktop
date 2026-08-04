@@ -1,3 +1,5 @@
+// Which accounts need reconnecting, why, and the size of the reconnect banner.
+
 import { describe, it, expect } from 'vitest';
 import { accountsNeedingReconnect, bannerBounds } from '../electron/oauth-health';
 
@@ -57,35 +59,24 @@ describe('accountsNeedingReconnect — scopes', () => {
     expect(accountsNeedingReconnect(base)).toEqual([]);
   });
 
-  // Zonder dit werkt push na de scope-uitbreiding bij niemand: de relay sluit
-  // elke verbinding met 4401 en er is niets dat het vertelt.
   it('asks to reconnect an account whose token predates a new scope', () => {
     expect(accountsNeedingReconnect({ ...base, missingScopes: () => true })).toEqual([
       push('a@x.nl'),
     ]);
   });
 
-  // De kern van Important 3: op een machine zonder relayUrl/pushTopic is een
-  // ontbrekende push-scope geen probleem — er is geen push. Zonder deze grens
-  // kreeg élke bestaande installatie na de update een blijvende, niet weg te
-  // klikken melding over iets dat daar niet bestaat en ook niet stuk is.
   it('says nothing about a missing scope when push is not configured at all', () => {
     expect(
       accountsNeedingReconnect({ ...base, pushConfigured: false, missingScopes: () => true }),
     ).toEqual([]);
   });
 
-  // Idem voor een weigering van de relay: zonder push is er geen relay.
   it('says nothing about a refused token when push is not configured', () => {
     expect(
       accountsNeedingReconnect({ ...base, pushConfigured: false, pushRefused: () => true }),
     ).toEqual([]);
   });
 
-  // Important 2: een 4401 die ook na een verse verversing blijft, is de enige
-  // manier waarop de gebruiker hoort dat push stilstaat — het token bestaat, het
-  // ververst prima en de scopes zitten erin, dus de rest van de controle ziet er
-  // niets aan.
   it('asks to reconnect an account the relay refused for good', () => {
     expect(accountsNeedingReconnect({ ...base, pushRefused: () => true })).toEqual([push('a@x.nl')]);
   });

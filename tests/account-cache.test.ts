@@ -1,3 +1,5 @@
+// The remembered account bar (accounts.json): parsing, seeding and ordering.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -57,9 +59,6 @@ describe('parseCachedAccounts', () => {
     });
   });
 
-  // Dit is de hele hazard-beslissing in één test: de sessie-index (/mail/u/2/)
-  // hoort bij Google's browsersessie en niet bij het account, dus staat hij niet in
-  // de cache. Ook niet als iemand hem er met de hand in zet.
   it('drops any field beyond what a tab draws, an index included', () => {
     const parsed = parseCachedAccounts([{ ...a('a@x.nl'), index: 2, unread: 7, mailUrl: 'https://m/' }]);
     expect(Object.keys(parsed[0]).sort()).toEqual(['avatarUrl', 'color', 'email', 'name']);
@@ -109,9 +108,6 @@ describe('rememberedOrder', () => {
     ]);
   });
 
-  // Een bevestigd account erft de plek van de voorlopige tab die het vervangt. Het
-  // adres komt dan uit de Gmail-pagina, dus mag de hoofdletter niet uitmaken —
-  // anders valt het terug op zijn index en verschuift de balk juist wél.
   it('matches an address whatever its casing', () => {
     expect(rememberedOrder([a('A@X.nl')]).get('a@x.nl')).toBe(0);
   });
