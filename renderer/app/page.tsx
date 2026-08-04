@@ -71,6 +71,7 @@ export interface AccountPref {
 export interface Prefs {
   window: { width: number; height: number; x?: number; y?: number; maximized: boolean };
   autoStart: boolean;
+  launchMinimized: boolean;
   theme: 'system' | 'light' | 'dark';
   notificationOpen: 'app' | 'window';
   // `dndUntil` is epoch-ms en komt alleen uit het hoofdproces: het tray-menu zet
@@ -109,6 +110,7 @@ interface DesktopBridge {
   installUpdate(): void;
   onUpdateStatus(cb: (status: UpdateStatus) => void): void;
   setAutoStart(v: boolean): void;
+  setLaunchMinimized(v: boolean): void;
   onPrefsChanged(cb: (prefs: Prefs) => void): void;
   setAccountPref(arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }): void;
   setAccountOrder(emails: string[]): void;
@@ -116,7 +118,7 @@ interface DesktopBridge {
   setTheme(theme: 'system' | 'light' | 'dark'): void;
   setNotificationOpen(v: 'app' | 'window'): void;
   setReneMode(v: boolean): void;
-  setDefaultMail(): void;
+  setDefaultMail(v: boolean): void;
   isOverlay: boolean;
   onMailDropPreview(cb: (arg: { items: MailDropItem[] }) => void): void;
   closeMailDropPreview(): void;
@@ -343,9 +345,10 @@ export default function AppShell() {
           onInstallUpdate={() => window.desktop?.installUpdate()}
           prefs={prefs}
           onSetAutoStart={(v) => window.desktop?.setAutoStart(v)}
+          onSetLaunchMinimized={(v) => window.desktop?.setLaunchMinimized(v)}
           onSetNotifications={(a) => window.desktop?.setNotifications(a)}
           isDefaultMail={isDefaultMail}
-          onSetDefaultMail={() => window.desktop?.setDefaultMail()}
+          onSetDefaultMail={(v) => window.desktop?.setDefaultMail(v)}
         />
       )}
     </div>

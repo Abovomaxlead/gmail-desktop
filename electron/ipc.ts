@@ -19,6 +19,7 @@ export const IPC = {
   UPDATE_DOWNLOAD: 'update:download', // send() — download + auto-install the update
   UPDATE_INSTALL: 'update:install', // send() — restart into an already-downloaded update
   SET_AUTO_START: 'prefs:auto-start', // send(boolean)
+  SET_LAUNCH_MINIMIZED: 'prefs:launch-minimized', // send(boolean) — start het venster geminimaliseerd
   SET_ACCOUNT_PREF: 'prefs:account', // send({email, label?, notify?})
   SET_ACCOUNT_ORDER: 'prefs:order', // send({emails: string[]})
   SET_NOTIFICATIONS: 'prefs:notifications', // send({dnd, quietHours})
@@ -26,7 +27,7 @@ export const IPC = {
   SET_THEME: 'prefs:theme', // send('system'|'light'|'dark')
   SET_NOTIFICATION_OPEN: 'prefs:notification-open', // send('app'|'window')
   SET_RENE_MODE: 'prefs:rene-mode', // send(boolean) — settings-page easter egg toggle
-  SET_DEFAULT_MAIL: 'mail:set-default', // send() — (re)claim the OS mailto: default
+  SET_DEFAULT_MAIL: 'mail:set-default', // send(boolean) — claim of afstaan van de OS mailto:-standaard
   LABELS_GET: 'gmail:labels-get', // invoke() -> {accounts: AccountLabels[]} — labels van elk gekoppeld account
   OAUTH_RECONNECT_GET: 'oauth:reconnect-get', // invoke() -> {accounts: ReconnectAccount[]} — de melding haalt zelf op
   OAUTH_RECONNECT: 'oauth:reconnect', // invoke({email}) -> {ok, error?} — opnieuw toestemming vragen

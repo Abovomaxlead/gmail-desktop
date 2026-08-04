@@ -73,6 +73,31 @@ describe('PrefsStore', () => {
     expect(new PrefsStore(file).getAll().reneMode).toBe(false);
   });
 
+  // Geminimaliseerd starten staat los van zelf opstarten: je kan de app met de
+  // hand starten en hem toch klein willen beginnen. De test houdt vast dat het
+  // twee velden zijn en niet één.
+  it('defaults launchMinimized to false and round-trips it without touching autoStart', () => {
+    const store = new PrefsStore(file);
+    expect(store.getAll().launchMinimized).toBe(false);
+    store.setAutoStart(true);
+    store.setLaunchMinimized(true);
+    const back = new PrefsStore(file).getAll();
+    expect(back.launchMinimized).toBe(true);
+    expect(back.autoStart).toBe(true);
+    store.setLaunchMinimized(false);
+    expect(new PrefsStore(file).getAll().autoStart).toBe(true);
+  });
+
+  it('ignores a non-boolean stored launchMinimized', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark'); // create the file
+    const fs = require('node:fs');
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    raw.launchMinimized = 'sure';
+    fs.writeFileSync(file, JSON.stringify(raw), 'utf8');
+    expect(new PrefsStore(file).getAll().launchMinimized).toBe(false);
+  });
+
   it('deep-merges stored notifications over defaults', () => {
     const store = new PrefsStore(file);
     store.setNotifications({ dnd: true, quietHours: { enabled: true, start: '22:00', end: '07:00' } });

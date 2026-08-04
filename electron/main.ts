@@ -1836,6 +1836,13 @@ function startPush(): void {
   });
 }
 
+// Of dit de eerste keer is dat er een venster wordt gebouwd in deze procesgang.
+// `createWindow` wordt ook later nog aangeroepen — na een klik op een melding
+// terwijl het venster gesloten was, en via 'activate' op macOS — en dan is het
+// venster gevraagd, niet gestart. Alleen bij het opstarten mag hij geminimaliseerd
+// beginnen.
+let firstWindow = true;
+
 function createWindow(): void {
   prefs = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
   const stored = prefs.getAll().window;
@@ -1874,6 +1881,15 @@ function createWindow(): void {
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
   if (stored.maximized) mainWindow.maximize();
+  // Geminimaliseerd starten. Ná `maximize()`, zodat het venster op zijn volle maat
+  // terugkomt zodra je het uit de taakbalk haalt: de twee standen bijten elkaar
+  // niet, minimaliseren onthoudt waar het venster naar terug hoort.
+  //
+  // `minimize()` en niet `show: false` in de opties hierboven: een venster dat
+  // nooit is getoond staat ook niet in de taakbalk, en dan is de app gestart zonder
+  // dat er iets is om op te klikken. Geminimaliseerd is klein, niet weg.
+  if (firstWindow && prefs.getAll().launchMinimized) mainWindow.minimize();
+  firstWindow = false;
   // Re-assert the badge when the window returns to the taskbar: an overlay clear
   // issued while hidden to the tray doesn't stick, so Windows would otherwise show
   // a stale count on restore until the next unread update.
@@ -2077,6 +2093,24 @@ function setAutoStart(v: boolean): void {
   pushPrefs();
   refreshTray();
 }
+// Geminimaliseerd starten: alleen wegschrijven en terugmelden. Er is niets aan
+// Windows door te geven — `createWindow` leest deze stand bij de volgende start.
+function setLaunchMinimized(v: boolean): void {
+  prefs!.setLaunchMinimized(v);
+  pushPrefs();
+}
+// De mailto:-standaard aan of uit. Windows onthoudt dit in het register; de app
+// leest de stand terug met `isDefaultProtocolClient` en stuurt hem naar het
+// paneel, want de gebruiker kan hem ook buiten deze app om omzetten.
+//
+// Uitzetten haalt alleen weg wat deze app zelf heeft geschreven. Windows kiest
+// daarna zelf weer een handler, en dat is precies wat "niet meer de standaard"
+// hoort te betekenen.
+function setDefaultMail(v: boolean): void {
+  if (v) app.setAsDefaultProtocolClient('mailto');
+  else app.removeAsDefaultProtocolClient('mailto');
+  pushDefaultMailStatus();
+}
 // minutes: a positive number sets a timed snooze; null mutes indefinitely
 // ("until I turn it back on"); 0 clears any active mute.
 function setSnooze(minutes: number | null): void {
@@ -2213,10 +2247,8 @@ function registerIpc(): void {
     return popupNativeMenu(win, items);
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
-  ipcMain.on(IPC.SET_DEFAULT_MAIL, () => {
-    app.setAsDefaultProtocolClient('mailto');
-    pushDefaultMailStatus();
-  });
+  ipcMain.on(IPC.SET_LAUNCH_MINIMIZED, (_e, v: boolean) => setLaunchMinimized(v));
+  ipcMain.on(IPC.SET_DEFAULT_MAIL, (_e, v: boolean) => setDefaultMail(v === true));
   // De modal-pagina kan geladen zijn nádat het main-proces de items al stuurde;
   // daarom haalt ze het bij het opstarten ook zelf op.
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => ({ items: lastDropPreview }));
@@ -2580,7 +2612,11 @@ app.whenReady().then(() => {
   registerAppProtocol();
   setupNotifications();
   registerIpc();
-  app.setAsDefaultProtocolClient('mailto');
+  // Hier stond `app.setAsDefaultProtocolClient('mailto')`, bij elke start. Dat
+  // maakte de schakelaar bij Algemeen zinloos: je zette hem uit, en de volgende
+  // keer dat de app opkwam claimde hij de mailto:-standaard weer terug. Wie de
+  // standaard al is blijft het — het register houdt die keuze vast, en er wordt
+  // hier niets weggehaald. Alleen de gebruiker zet hem nog om.
   // Bij thema "system" verandert de kleur zonder dat de gebruiker iets doet.
   // Hier, niet in createWindow: dat venster wordt soms opnieuw opgebouwd (na een
   // notificatieklik op een gesloten venster, of via 'activate'), en elke keer een

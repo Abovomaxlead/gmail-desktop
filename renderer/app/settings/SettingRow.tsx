@@ -1,23 +1,17 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { HINT } from './tokens';
 
 // Eén regel in het instellingenpaneel: naam links, control rechts. Elke
 // instelling gebruikt deze rij, zodat alle controls op dezelfde lijn eindigen en
 // de blik langs de rechterkant naar beneden kan lopen.
 //
-// De haarlijn tússen rijen zit hier niet in. De rij weet niet of hij de laatste
-// is, dus de kaart eromheen zet die lijn met een divide op de container:
-//
-//   <div className="divide-y divide-black/[0.08] rounded-xl bg-white px-4
-//                   dark:divide-white/[0.08] dark:bg-neutral-900">
-//     <SettingRow …/><SettingRow …/>
-//   </div>
-//
-// Zo krijgt de laatste rij vanzelf geen rand, en hoeft er nergens geteld te
-// worden. Let op de haakjes: `divide-black/8` bestaat niet in Tailwind 3 (de
-// standaardschaal gaat per 5), `divide-black/[0.08]` wel — zonder haakjes valt
-// de lijn stil weg.
+// Er zit geen haarlijn tussen twee rijen. Die staat alleen tussen twee *groepen*
+// (zie `SettingsGroup`), en dat is een keuze over wat de lijn moet zeggen: rijen
+// binnen een groep gaan over hetzelfde ding en horen als blok te lezen, terwijl
+// een groep ergens anders over gaat. Een lijn onder elke rij maakt van vijf
+// instellingen een tabel met vijf onderwerpen.
 export function SettingRow({
   label,
   description,
@@ -34,24 +28,32 @@ export function SettingRow({
   children: ReactNode;
   htmlFor?: string;
 }) {
-  // min-h-[44px]: een rij met bijtekst en een rij zonder zijn even hoog, dus de
-  // controls blijven op een vast raster staan in plaats van te verspringen zodra
-  // er een regel uitleg bij komt. Het is ook de ondergrens voor iets dat je met
-  // een muis of vinger moet raken.
-  const shape = 'flex min-h-[44px] items-center justify-between gap-4 py-2.5';
+  // `items-start` en niet `items-center`: bij een bijtekst van twee regels hoort
+  // de schakelaar naast de náám te staan en niet halverwege de uitleg. De control
+  // en de eerste regel tekst zijn allebei 20px hoog (`leading-5` links,
+  // `h-5` rechts), dus ze staan op precies dezelfde lijn.
+  // `gap-10` is 40px, en dat is de leegte die de uitleg van de control scheidt. Er
+  // staat geen bovengrens op de breedte van de tekst: de kolom is al 560px breed en
+  // niet meer, dus de regel kan nergens te lang worden. Met een maat van 46 tekens
+  // erop brak de uitleg halverwege de beschikbare ruimte af en stond er een gat van
+  // 150px in elke rij.
+  const shape = 'flex items-start justify-between gap-10 py-3';
 
   const text = (
-    <span className="flex min-w-0 flex-col gap-0.5">
-      <span className="text-[13.5px] font-medium leading-tight">{label}</span>
-      {description && (
-        <span className="text-xs font-normal leading-snug text-neutral-500">{description}</span>
-      )}
+    <span className="flex min-w-0 flex-col">
+      <span className="text-[13.5px] font-medium leading-5">{label}</span>
+      {description && <span className={`mt-1 ${HINT}`}>{description}</span>}
     </span>
   );
 
   // shrink-0: de control geeft nooit ruimte terug aan de tekst — een half
   // afgeknipt selectievakje is erger dan een afgekapte naam.
-  const control = <span className="flex shrink-0 items-center gap-2">{children}</span>;
+  //
+  // `min-h-5` en niet `h-5`: 20px is de hoogte van een schakelaar en van de eerste
+  // regel tekst links, dus die twee staan op één lijn. Een rij met een knop of een
+  // keuzelijst erin is hoger, en met een vaste hoogte zou die buiten de rij vallen
+  // en over de rij eronder heen liggen.
+  const control = <span className="flex min-h-5 shrink-0 items-center gap-2">{children}</span>;
 
   // Met `htmlFor` is de naam een echt label en schakelt een klik op de naam de
   // control om; dat is bij een aan/uit-schakelaar de helft van het doelgebied.

@@ -3,8 +3,10 @@
 import type { AccountPref, Prefs, Profile } from '../page';
 import { isCompleteTime } from '../settings-utils';
 import type { UiStrings } from '../strings';
+import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
-import { BLOCK_TITLE, CARD, CHECKBOX, FIELD, HAIRLINE, PANEL, SECTION_TITLE } from './tokens';
+import { Switch } from './Switch';
+import { BLOCK_TITLE, CHECKBOX, DIVIDER, FIELD, HAIRLINE, PANEL } from './tokens';
 
 // De tijdvelden dragen `tabular-nums`: een tijd is een getal, en een getal dat
 // van 09:59 naar 10:00 springt hoort niet ook nog van breedte te veranderen.
@@ -123,20 +125,16 @@ export function NotificationsSection({
   const columns = toggleColumns(S);
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className={SECTION_TITLE}>{S.sectionNotifications}</h2>
-
-      <div className={CARD}>
+    <Section title={S.navNotifications}>
+      <SettingsGroup>
         <SettingRow label={S.dnd} description={S.dndDescription} htmlFor="setting-dnd">
-          <input
+          <Switch
             id="setting-dnd"
-            type="checkbox"
             checked={!!prefs?.notifications.dnd}
-            onChange={(e) => {
+            onChange={(v) => {
               if (!prefs) return;
-              onSetNotifications({ dnd: e.target.checked, quietHours: prefs.notifications.quietHours });
+              onSetNotifications({ dnd: v, quietHours: prefs.notifications.quietHours });
             }}
-            className={CHECKBOX}
           />
         </SettingRow>
 
@@ -145,18 +143,16 @@ export function NotificationsSection({
           description={S.quietHoursDescription}
           htmlFor="setting-quiet-hours"
         >
-          <input
+          <Switch
             id="setting-quiet-hours"
-            type="checkbox"
             checked={!!quiet?.enabled}
-            onChange={(e) => {
+            onChange={(v) => {
               if (!prefs) return;
               onSetNotifications({
                 dnd: prefs.notifications.dnd,
-                quietHours: { ...prefs.notifications.quietHours, enabled: e.target.checked },
+                quietHours: { ...prefs.notifications.quietHours, enabled: v },
               });
             }}
-            className={CHECKBOX}
           />
         </SettingRow>
 
@@ -221,7 +217,26 @@ export function NotificationsSection({
             className={TIME}
           />
         </SettingRow>
-      </div>
+
+        {/* Wat een klik op een melding doet. Het stond bij Algemeen, en dat was
+            de verkeerde plek: je komt hier kijken als een melding iets deed wat je
+            niet verwachtte, niet daar. */}
+        <SettingRow
+          label={S.notificationOpenLabel}
+          description={S.notificationOpenDescription}
+          htmlFor="setting-notification-open"
+        >
+          <select
+            id="setting-notification-open"
+            value={prefs?.notificationOpen ?? 'app'}
+            onChange={(e) => window.desktop?.setNotificationOpen(e.target.value as 'app' | 'window')}
+            className={FIELD}
+          >
+            <option value="app">{S.openInApp}</option>
+            <option value="window">{S.openInWindow}</option>
+          </select>
+        </SettingRow>
+      </SettingsGroup>
 
       {/* Het rooster: één rij per account, één kolom per instelling. Vijf keer
           dezelfde vijf schakelaars onder elkaar met een naam per stuk is een muur;
@@ -229,8 +244,11 @@ export function NotificationsSection({
           de luidruchtige is. Een echte tabel en geen rooster van divs: de kop van
           de kolom en de naam van de rij zijn dan voor een schermlezer de context
           van het vakje, zonder dat er per cel een zin in elkaar gezet wordt. */}
-      <div className="flex flex-col gap-2">
-        <h3 id={MATRIX_TITLE_ID} className={BLOCK_TITLE}>
+      {/* De kop van deze groep is ook de naam van de tabel (`aria-labelledby` op
+          de tabel wijst hierheen), dus hij staat hier met een id op en niet via de
+          `title`-prop van de groep: die maakt een kop zonder id. */}
+      <SettingsGroup>
+        <h3 id={MATRIX_TITLE_ID} className={`${BLOCK_TITLE} mb-3`}>
           {S.perAccountNotifications}
         </h3>
 
@@ -271,7 +289,7 @@ export function NotificationsSection({
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-black/[0.08] dark:divide-white/[0.08]">
+              <tbody className={`divide-y ${DIVIDER}`}>
                 {profiles.map((p) => {
                   const account = prefs?.accounts?.[p.email];
                   return (
@@ -330,7 +348,7 @@ export function NotificationsSection({
             </table>
           </div>
         )}
-      </div>
-    </section>
+      </SettingsGroup>
+    </Section>
   );
 }

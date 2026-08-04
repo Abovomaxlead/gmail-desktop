@@ -6,22 +6,61 @@ import { advanceReneSequence, RENE_SEQUENCE } from './settings-utils';
 import { getStrings, type UiStrings } from './strings';
 import { AboutSection } from './settings/AboutSection';
 import { AccountsSection } from './settings/AccountsSection';
+import { AppearanceSection } from './settings/AppearanceSection';
+import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { NotificationsSection } from './settings/NotificationsSection';
+import { EmptyNote, Section } from './settings/Section';
 import { SettingsShell } from './settings/SettingsShell';
-import { attentionFrom, type SettingsSection } from './settings/nav';
+import { UpdatesSection } from './settings/UpdatesSection';
+import { WhatsNewSection } from './settings/WhatsNewSection';
+import { DEFAULT_SECTION, attentionFrom, type SettingsSection } from './settings/nav';
 import { NOTICE } from './settings/tokens';
 
-// De namen in de navigatiekolom. Aparte, korte sleutels: in de kolom is ruimte
-// voor één woord, in de sectiekop erboven voor een hele naam.
+// De naam van een sectie: in de kolom én als kop erboven. Eén naam per sectie, en
+// daarom één sleutel per sectie — zie de opmerking bij `nav*` in `strings.ts`.
+//
+// Een `switch` en geen object met de secties als sleutels: dan klaagt de compiler
+// zodra er een sectie in `nav.ts` bij komt zonder naam hier, in plaats van een
+// naamloos item in de kolom te zetten.
 function sectionLabel(section: SettingsSection, S: UiStrings): string {
   switch (section) {
+    case 'download-history':
+      return S.navDownloadHistory;
     case 'general':
       return S.navGeneral;
-    case 'notifications':
-      return S.navNotifications;
     case 'accounts':
       return S.navAccounts;
+    case 'appearance':
+      return S.navAppearance;
+    case 'blocker':
+      return S.navBlocker;
+    case 'downloads':
+      return S.navDownloads;
+    case 'gmail':
+      return S.navGmail;
+    case 'google-apps':
+      return S.navGoogleApps;
+    case 'languages':
+      return S.navLanguages;
+    case 'notifications':
+      return S.navNotifications;
+    case 'phishing-protection':
+      return S.navPhishingProtection;
+    case 'saved-searches':
+      return S.navSavedSearches;
+    case 'unified-inbox':
+      return S.navUnifiedInbox;
+    case 'updates':
+      return S.navUpdates;
+    case 'verification-codes':
+      return S.navVerificationCodes;
+    case 'advanced':
+      return S.navAdvanced;
+    case 'license':
+      return S.navLicense;
+    case 'whats-new':
+      return S.navWhatsNew;
     case 'about':
       return S.navAbout;
   }
@@ -29,7 +68,7 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
 
 // Het instellingenpaneel is de schil plus één sectie. Alle opmaak zit in
 // `settings/`; hier staat wat er tussen de secties gedeeld is: welke sectie open
-// is, de opgeslagen-melding, en het Rene-easteregg.
+// is, welke component daarbij hoort, en het Rene-easteregg.
 export function SettingsPanel({
   profiles,
   onClose,
@@ -40,6 +79,7 @@ export function SettingsPanel({
   onInstallUpdate,
   prefs,
   onSetAutoStart,
+  onSetLaunchMinimized,
   onSetNotifications,
   isDefaultMail,
   onSetDefaultMail,
@@ -53,22 +93,23 @@ export function SettingsPanel({
   onInstallUpdate: () => void;
   prefs: Prefs | null;
   onSetAutoStart: (v: boolean) => void;
+  onSetLaunchMinimized: (v: boolean) => void;
   onSetNotifications: (arg: {
     dnd: boolean;
     quietHours: { enabled: boolean; start: string; end: string };
   }) => void;
   isDefaultMail: boolean;
-  onSetDefaultMail: () => void;
+  onSetDefaultMail: (v: boolean) => void;
 }) {
   // Algemeen staat vooraan omdat je daar het vaakst komt. De keuze leeft alleen
   // zolang het paneel open is: bij de volgende keer openen wil je weer bovenaan
   // beginnen, niet in de sectie waar je vorige week iets zocht.
-  const [section, setSection] = useState<SettingsSection>('general');
+  const [section, setSection] = useState<SettingsSection>(DEFAULT_SECTION);
 
   const rene = prefs?.reneMode === true;
   const S = getStrings(rene);
   // De Rene-stand kiest de taal van het hele paneel, dus ook die van de
-  // changelog. Eén bron: `prefs.reneMode` hierboven, en `AboutSection` leidt er
+  // changelog. Eén bron: `prefs.reneMode` hierboven, en `WhatsNewSection` leidt er
   // niets zelf uit af.
   const uiLang: 'en' | 'nl' = rene ? 'nl' : 'en';
 
@@ -106,96 +147,81 @@ export function SettingsPanel({
     return () => window.removeEventListener('keydown', onKey, true);
   }, [rene]);
 
-  // "Opgeslagen ✓": knippert zodra het hoofdproces bijgewerkte voorkeuren
-  // terugstuurt (het wegschrijven is dan al gebeurd), en als er op Bewaren wordt
-  // gedrukt.
-  const [savedFlash, setSavedFlash] = useState(false);
-  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const firstPrefs = useRef(true);
-  const flashSaved = () => {
-    setSavedFlash(true);
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-    flashTimer.current = setTimeout(() => setSavedFlash(false), 2000);
-  };
-  useEffect(() => {
-    if (!prefs) return;
-    if (firstPrefs.current) {
-      firstPrefs.current = false;
-      return;
-    }
-    flashSaved();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefs]);
-  useEffect(() => () => {
-    if (flashTimer.current) clearTimeout(flashTimer.current);
-  }, []);
-
-  // Elke control legt zichzelf meteen vast; Bewaren maakt daarnaast een
-  // label-wijziging af die nog in het veld staat (die gaat normaal op blur of
-  // Enter) en bevestigt zichtbaar dat er niets openstaat.
-  const saveNow = () => {
-    (document.activeElement as HTMLElement | null)?.blur?.();
-    flashSaved();
-  };
-
   return (
     <SettingsShell
-      title={S.settingsTitle}
       sectionLabel={(s) => sectionLabel(s, S)}
       active={section}
       onSelect={setSection}
-      // Een puntje bij Meldingen als je meldingen uit staan, en bij Over als er
-      // een update op je wacht. Het samenstellen staat in `nav.ts` en is daar
+      // Een puntje bij Meldingen als je meldingen uit staan, en bij Bijwerken als
+      // er een update op je wacht. Het samenstellen staat in `nav.ts` en is daar
       // getest: "meldingen uit" is niet alleen de schakelaar in dit paneel maar
       // ook een tijdelijke demping uit het tray-menu (`dndUntil`), en juist dat
       // tweede geval is waarvoor je een puntje wil zien.
       attention={attentionFrom(prefs?.notifications, update.state)}
       attentionLabel={S.settingsAttention}
-      saved={savedFlash}
-      onSave={saveNow}
       onClose={onClose}
-      saveLabel={S.save}
-      savedLabel={S.saved}
       closeLabel={S.close}
-      // De strook was geel: een vierde tint in een paneel dat er drie toestaat
-      // (identiteit, de knop die een update uitvoert, gevaar). Zie `NOTICE` in
-      // `tokens.ts` voor waarom hij nu grijs is en waar die keuze staat.
+      escLabel={S.escKey}
       banner={rene ? <div className={NOTICE}>{S.reneBanner}</div> : undefined}
     >
-      {section === 'general' && (
-        <GeneralSection
-          S={S}
-          prefs={prefs}
-          isDefaultMail={isDefaultMail}
-          onSetAutoStart={onSetAutoStart}
-          onSetDefaultMail={onSetDefaultMail}
-        />
-      )}
-      {/* Meldingen krijgt de accounts erbij: de schakelaars per account staan
-          daar, want daar ga je kijken als je je afvraagt wat je bereikt. Accounts
-          houdt wie een account is, en heeft `prefs` daarom niet meer nodig — het
-          label, de kleur en de avatar staan al in het profiel. */}
-      {section === 'notifications' && (
-        <NotificationsSection
-          S={S}
-          prefs={prefs}
-          profiles={profiles}
-          onSetNotifications={onSetNotifications}
-        />
-      )}
-      {section === 'accounts' && (
-        <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />
-      )}
-      {section === 'about' && (
-        <AboutSection
-          S={S}
-          uiLang={uiLang}
-          update={update}
-          onCheckUpdate={onCheckUpdate}
-          onDownloadUpdate={onDownloadUpdate}
-          onInstallUpdate={onInstallUpdate}
-        />
-      )}
+      {/* De secties die iets bevatten. De rest van de kolom staat in de `default`
+          hieronder: een kop met één regel eronder dat er nog niets is ingericht.
+          Dat is met opzet geen lijst met uitzonderingen — een sectie krijgt inhoud
+          door hier een `case` te worden, en tot die tijd is hij er wel en doet hij
+          niets, precies zoals hij in de kolom staat. */}
+      {(() => {
+        switch (section) {
+          case 'general':
+            return (
+              <GeneralSection
+                S={S}
+                prefs={prefs}
+                isDefaultMail={isDefaultMail}
+                onSetAutoStart={onSetAutoStart}
+                onSetLaunchMinimized={onSetLaunchMinimized}
+                onSetDefaultMail={onSetDefaultMail}
+              />
+            );
+          case 'accounts':
+            return <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />;
+          case 'appearance':
+            return <AppearanceSection S={S} prefs={prefs} />;
+          case 'downloads':
+            return <DownloadsSection S={S} />;
+          // Meldingen krijgt de accounts erbij: de schakelaars per account staan
+          // daar, want daar ga je kijken als je je afvraagt wat je bereikt.
+          // Accounts houdt wie een account is.
+          case 'notifications':
+            return (
+              <NotificationsSection
+                S={S}
+                prefs={prefs}
+                profiles={profiles}
+                onSetNotifications={onSetNotifications}
+              />
+            );
+          case 'updates':
+            return (
+              <UpdatesSection
+                S={S}
+                update={update}
+                onCheckUpdate={onCheckUpdate}
+                onDownloadUpdate={onDownloadUpdate}
+                onInstallUpdate={onInstallUpdate}
+              />
+            );
+          case 'whats-new':
+            return <WhatsNewSection S={S} uiLang={uiLang} />;
+          case 'about':
+            return <AboutSection S={S} update={update} />;
+          default:
+            return (
+              <Section title={sectionLabel(section, S)}>
+                <EmptyNote>{S.sectionEmpty}</EmptyNote>
+              </Section>
+            );
+        }
+      })()}
     </SettingsShell>
   );
 }

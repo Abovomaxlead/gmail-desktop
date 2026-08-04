@@ -55,6 +55,30 @@ to [Semantic Versioning](https://semver.org/).
   rusten, dus het kost geen geheugen dat de hele dag warm blijft — een tabblad dat
   je na lange tijd aanklikt kan zichzelf nog even bijwerken.
 
+### Gewijzigd
+- **De instellingen zijn opnieuw ingericht.** Een kolom met negentien secties in
+  drie groepen — wat je hebt gehaald, de voorkeuren zelf, en wat er over de app te
+  lezen valt — naast één wit vlak met de sectie erin. De Bewaren-knop is weg: elke
+  instelling legt zichzelf al meteen vast, dus de knop deed niets. Sluiten staat nu
+  in de hoek van het vlak, met Esc eronder, en Esc werkt ook echt. De aan/uit-
+  vakjes zijn schakelaars geworden.
+- **Instellingen staan waar je ze zoekt.** Het thema staat bij Weergave, de map
+  voor gesleepte mail bij Downloads, en wat een klik op een melding doet bij
+  Meldingen in plaats van bij Algemeen. Bijwerken en "Wat is er nieuw" zijn eigen
+  secties in plaats van blokken onder Over — het puntje dat zegt dat er een update
+  klaarstaat, staat nu bij Bijwerken.
+- **De standaard-mailclient is een schakelaar en geen knop.** Je kan hem nu ook
+  weer uitzetten. Daarvoor claimde de app de mailto:-standaard bij elke start
+  opnieuw, waardoor uitzetten geen zin had; dat doet hij niet meer. Wie de
+  standaard al is blijft het — er wordt bij het opstarten niets weggehaald.
+- **Nieuw: geminimaliseerd starten.** Bij Algemeen → Opstarten. De app komt dan op
+  in de taakbalk in plaats van in beeld. Staat los van zelf opstarten, dus het
+  werkt ook als je hem met de hand start.
+- **Elf secties staan er wel maar doen nog niets** (Wat je hebt gehaald, Wat weg
+  mag, Gmail, Google-dingen, Talen, Nepmail, Bewaarde zoekjes, Alles bij elkaar,
+  Codes, De regels, Voor knutselaars). Ze zeggen dat er nog niets in staat in plaats
+  van te doen alsof.
+
 ### Opgelost
 - **Hetzelfde label twee keer slepen lukte niet.** Na de eerste sleep bleef de
   labelnaam geselecteerd, en dan begon Chromium bij de volgende poging zijn eigen
@@ -119,6 +143,30 @@ to [Semantic Versioning](https://semver.org/).
   you click it. The view is then allowed to rest again, so nothing stays warm all
   day taking up memory — a tab you click after a long while may still bring itself
   up to date.
+
+### Changed
+- **Settings have been laid out again.** A column of nineteen sections in three
+  groups — what you have downloaded, the preferences themselves, and what there is
+  to read about the app — beside a single white surface holding the section. The
+  Save button is gone: every setting already writes itself the moment you change it,
+  so the button did nothing. Closing now sits in the corner of that surface with Esc
+  under it, and Esc really does close it. The on/off boxes are switches now.
+- **Settings sit where you look for them.** The theme is under Appearance, the
+  folder for dragged mail under Downloads, and what a click on a notification does
+  under Notifications instead of General. Updates and What's New are their own
+  sections rather than blocks under About — the dot that says an update is waiting
+  now sits on Updates.
+- **The default mail client is a switch, not a button.** You can turn it back off
+  now. The app used to reclaim the mailto: default on every start, which made
+  turning it off pointless; it no longer does. If you already are the default you
+  stay it — nothing is removed at startup.
+- **New: launch minimized.** Under General → Startup. The app comes up in the
+  taskbar instead of on screen. Independent of launching at login, so it works when
+  you start it by hand too.
+- **Eleven sections are there but do nothing yet** (Download History, Blocker,
+  Gmail, Google Apps, Languages, Phishing Protection, Saved Searches, Unified Inbox,
+  Verification Codes, License, Advanced). They say there is nothing to set rather
+  than pretending otherwise.
 
 ### Fixed
 - **Dragging the same label twice did not work.** After the first drag the label's

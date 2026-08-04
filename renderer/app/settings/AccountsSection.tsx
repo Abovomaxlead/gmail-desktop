@@ -3,16 +3,9 @@
 import { useState } from 'react';
 import type { Profile } from '../page';
 import type { UiStrings } from '../strings';
+import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
-import {
-  BUTTON,
-  CARD,
-  DANGER_BUTTON,
-  DANGER_PANEL,
-  FOCUS_RING,
-  PANEL,
-  SECTION_TITLE,
-} from './tokens';
+import { BUTTON, DANGER_BUTTON, DANGER_PANEL, FOCUS_RING, HINT, PANEL } from './tokens';
 
 // De zes tinten die een account kan hebben. Dezelfde lijst als in het oude
 // paneel; dit is de kleur die in dit paneel zegt van wie iets is.
@@ -72,14 +65,17 @@ export function AccountsSection({
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
 
   return (
-    <section className="flex flex-col gap-4">
-      <h2 className={SECTION_TITLE}>{S.sectionAccounts}</h2>
+    <Section title={S.navAccounts}>
+      {/* Eén groep met alle accountkaarten erin, `gap-3` ertussen. De kaarten zijn
+          geen instellingsrijen maar dingen, dus ze staan los van elkaar in plaats
+          van als lijst tegen elkaar aan. */}
+      <SettingsGroup>
+        <div className="flex flex-col gap-3">
+          {profiles.length === 0 && (
+            <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
+          )}
 
-      {profiles.length === 0 && (
-        <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
-      )}
-
-      {profiles.map((p) => {
+          {profiles.map((p) => {
         const showImg = p.avatarUrl && !brokenAvatars[p.avatarUrl];
         const delegated = p.kind === 'delegated';
 
@@ -216,10 +212,12 @@ export function AccountsSection({
               </div>
             )}
           </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      </SettingsGroup>
 
-      <div className={CARD}>
+      <SettingsGroup>
         {/* Een eigen sleutel en niet `navAccounts`: die staat al als kop boven
             deze sectie, en een rij die net zo heet als het kopje erboven ("Wie
             doet mee?" onder "Wie doet mee?") zegt niet wat de rij doet. */}
@@ -228,13 +226,17 @@ export function AccountsSection({
             {S.redetect}
           </button>
         </SettingRow>
-      </div>
 
-      <p className="max-w-prose text-xs leading-relaxed text-neutral-500">
-        {S.accountsFootnoteBefore}
-        <span className="font-medium text-neutral-900 dark:text-neutral-100">+</span>
-        {S.accountsFootnoteAfter}
-      </p>
-    </section>
+        {/* De voetnoot hoort bij de rij erboven — hij legt uit waar accounts
+            vandaan komen, en dat is het antwoord op de vraag die je stelt als je
+            net op "nog een keer zoeken" hebt gedrukt. Daarom staat hij in dezelfde
+            groep en niet los onderaan de sectie. */}
+        <p className={`mt-1 max-w-[46ch] leading-relaxed ${HINT}`}>
+          {S.accountsFootnoteBefore}
+          <span className="font-medium text-neutral-900 dark:text-neutral-100">+</span>
+          {S.accountsFootnoteAfter}
+        </p>
+      </SettingsGroup>
+    </Section>
   );
 }

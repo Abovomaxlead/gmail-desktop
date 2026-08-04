@@ -1,56 +1,53 @@
 'use client';
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react';
-import { SETTINGS_SECTIONS, needsAttention, type AttentionInput, type SettingsSection } from './nav';
-import { HAIRLINE, SURFACE_FOCUS_RING } from './tokens';
+import {
+  SETTINGS_GROUPS,
+  SETTINGS_SECTIONS,
+  needsAttention,
+  type AttentionInput,
+  type SettingsSection,
+} from './nav';
+import { HAIRLINE, SURFACE, SURFACE_FOCUS_RING } from './tokens';
 
 // Vaste id's zodat het tabblad en het paneel naar elkaar kunnen wijzen zonder dat
 // er tekst voor nodig is. Er staat er nooit meer dan één op het scherm.
 const PANEL_ID = 'settings-section-panel';
 const tabId = (section: SettingsSection) => `settings-tab-${section}`;
 
-// De ruimte links van de inhoud: 32px, net als `px-8` op de inhoud zelf, plus de
-// 208px van de kolom. De kop draagt hem niet — die staat op `px-6`, waarmee de
-// paneeltitel op dezelfde lijn staat als de tekst van de navigatie-items
-// (208px-kolom met `p-3` en items met `px-3`: ook 24px). Zie de opmerking bij het
-// inhoudsgebied voor waarom dat de goede as is.
-const CONTENT_PAD = 'px-8 py-7';
-
-// De schil van het instellingenpaneel: kop, navigatiekolom, inhoud. Alle tekst
-// komt binnen als prop — dit bestand kent geen enkel woord Nederlands of Engels
-// dat de gebruiker ziet.
+// De schil van het instellingenpaneel: een navigatiekolom op het grijze vlak, en
+// daarnaast één wit vlak met de sectie erin. Alle tekst komt binnen als prop — dit
+// bestand kent geen enkel woord Nederlands of Engels dat de gebruiker ziet.
 //
-// Het vlak is neutral-100/neutral-950, precies de kleur van de balk van 40px
-// erboven. Daardoor is er geen naad op de plek waar de balk ophoudt: paneel en
-// balk zijn één vlak.
+// Er is geen kop met een titel en geen Bewaren-knop meer. Beide zijn weg om
+// dezelfde reden: ze zeiden niets. De titel van het paneel stond boven de titel
+// van de sectie ("Instellingen" boven "Algemeen") en de knop legde niets vast wat
+// niet al vastlag — elke control schrijft zichzelf meteen weg. Wat ervoor in de
+// plaats komt is de enige knop die er echt hoort: sluiten, in de hoek van het
+// witte vlak, met de toets die hetzelfde doet eronder.
 export function SettingsShell({
-  title,
   sectionLabel,
   active,
   onSelect,
   attention,
   attentionLabel,
-  saved,
-  onSave,
   onClose,
-  saveLabel,
-  savedLabel,
   closeLabel,
+  escLabel,
   banner,
   children,
 }: {
-  title: string;
   sectionLabel(s: SettingsSection): string;
   active: SettingsSection;
   onSelect(s: SettingsSection): void;
   attention: AttentionInput;
   attentionLabel: string;
-  saved: boolean;
-  onSave(): void;
   onClose(): void;
-  saveLabel: string;
-  savedLabel: string;
   closeLabel: string;
+  // Het opschrift onder de sluitknop: de naam van de toets die hetzelfde doet.
+  // Komt als tekst binnen omdat de toets in de ene taal "Esc" heet en in de andere
+  // ook — maar het is tekst op het scherm, en die staat in `strings.ts`.
+  escLabel: string;
   banner?: ReactNode;
   children: ReactNode;
 }) {
@@ -70,10 +67,35 @@ export function SettingsShell({
     if (scroller.current) scroller.current.scrollTop = 0;
   }, [active]);
 
+  // Sluiten legt eerst neer wat er nog in een veld staat. De naam van een account
+  // wordt op blur weggeschreven, en zonder deze blur verdwijnt het paneel met de
+  // cursor er nog in — dan is de wijziging weg zonder dat er iets misging.
+  const close = () => {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    onClose();
+  };
+
+  // Esc sluit het paneel, en dat staat onder de sluitknop op het scherm. De
+  // luisteraar hangt op `window` en niet op het vlak: de focus kan in de
+  // navigatiekolom staan, in een veld, of nergens, en de toets hoort in alle drie
+  // de gevallen te werken.
+  //
+  // Niet in de capture-fase: een control die Esc zelf gebruikt (een openstaande
+  // keuzelijst sluit ermee) mag hem eerst hebben en het doorgeven stoppen. Zo
+  // klapt één keer Esc de lijst dicht en de tweede het paneel.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
+
   const step = (delta: number) => {
     const from = SETTINGS_SECTIONS.indexOf(active);
     if (from < 0) return;
-    // Rondlopen: bij vier secties is doorschieten naar de eerste sneller dan
+    // Rondlopen: doorschieten naar de eerste is sneller dan negentien keer
     // terugtellen, en een pijltje dat niets doet voelt als een kapotte toets.
     const to = (from + delta + SETTINGS_SECTIONS.length) % SETTINGS_SECTIONS.length;
     onSelect(SETTINGS_SECTIONS[to]);
@@ -86,8 +108,8 @@ export function SettingsShell({
   };
 
   const onNavKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    // preventDefault: anders scrollt het paneel óók, en dan verschuift de inhoud
-    // van de sectie die je net verliet.
+    // preventDefault: anders scrollt de kolom óók, en dan verschuift de lijst
+    // onder de focus die net verplaatst is.
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       step(1);
@@ -104,154 +126,143 @@ export function SettingsShell({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
-      {/* De kop en de eventuele strook eronder scrollen niet mee: de titel en de
-          knoppen staan altijd op dezelfde plek. Eén haarlijn onder het hele
-          blok, waar de haarlijn van de navigatiekolom op uitkomt. */}
-      {/* De haarlijn komt uit `tokens.ts`, net als in de secties: één plek waar
-          staat wat 8% zwart-op-wit is, in plaats van hier nog een keer. */}
-      <div className={`shrink-0 border-b ${HAIRLINE}`}>
-        <header className="flex items-center justify-between gap-4 px-6 py-4">
-          <h1 className="truncate text-[20px] font-semibold tracking-tight">{title}</h1>
-          <div className="flex shrink-0 items-center gap-2">
-            {/* De opgeslagen-melding staat naast de knop en niet in plaats van de
-                knop: hij is twee seconden zichtbaar, en een knop die twee
-                seconden verdwijnt en terugkomt springt. Met opacity in plaats van
-                een conditie blijft de breedte gelijk en verschuiven de knoppen
-                niet. Grijs, niet groen — in dit paneel betekent kleur precies
-                één ding, en dat is van welk account iets is.
-
-                Deze staat er alleen om gezien te worden: hij is `aria-hidden`, en
-                de melding voor een schermlezer staat eronder. Een `aria-live` op
-                déze tekst deed niets, want de tekst verandert nooit — alleen de
-                doorzichtigheid — en een levend gebied meldt alleen wat er
-                verandert. */}
-            <span
-              aria-hidden
-              className={`text-xs font-medium text-neutral-500 transition-opacity duration-300 motion-reduce:transition-none ${
-                saved ? 'opacity-100' : 'opacity-0'
-              }`}
-            >
-              {savedLabel}
-            </span>
-            {/* Dezelfde bevestiging, voor wie het paneel hoort in plaats van
-                ziet. Onzichtbaar, en daardoor vrij om leeg te zijn als er niets
-                te melden is: zo staat er bij het opslaan tekst waar eerst niets
-                stond, en dát is de verandering die een `aria-live` voorleest. Een
-                los element en geen tweede rol op de zichtbare tekst, omdat die
-                zijn breedte moet houden — anders verschuiven de knoppen ernaast
-                elke keer dat er iets wordt opgeslagen. */}
-            <span role="status" aria-live="polite" className="sr-only">
-              {saved ? savedLabel : ''}
-            </span>
-            {/* De enige plek in het paneel met een accentkleur: de ene knop die
-                iets vastlegt. */}
-            <button
-              type="button"
-              onClick={onSave}
-              className={`rounded-lg bg-blue-600 px-3.5 py-1.5 text-[13px] font-medium text-white transition hover:bg-blue-500 motion-reduce:transition-none ${SURFACE_FOCUS_RING}`}
-            >
-              {saveLabel}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className={`rounded-lg bg-neutral-200 px-3.5 py-1.5 text-[13px] font-medium text-neutral-900 transition hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 motion-reduce:transition-none ${SURFACE_FOCUS_RING}`}
-            >
-              {closeLabel}
-            </button>
+    <div className="flex min-h-0 flex-1 overflow-hidden bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
+      {/* Navigatiekolom: w-60 is 240px, en de kolom staat op het grijze vlak
+          zonder eigen kaart of rand — het witte vlak ernaast is de scheiding.
+          Negentien secties passen op een venster van standaardhoogte; op een
+          korter venster scrollt de kolom, en daarom staat de `overflow-y-auto`
+          erop. */}
+      <nav
+        role="tablist"
+        aria-orientation="vertical"
+        onKeyDown={onNavKeyDown}
+        className="flex w-60 shrink-0 flex-col overflow-y-auto px-4 py-4"
+      >
+        {SETTINGS_GROUPS.map((group, gi) => (
+          // De haarlijn tussen twee groepen, en niets erboven bij de eerste. De
+          // groepen staan in `nav.ts`, want ze zijn een uitspraak over wat waar
+          // hoort en niet over opmaak.
+          <div
+            key={gi}
+            className={`flex flex-col gap-0.5 ${gi > 0 ? `mt-2 border-t pt-2 ${HAIRLINE}` : ''}`}
+          >
+            {group.map((section) => {
+              const isActive = section === active;
+              // De plek in de platte lijst, want daar lopen de pijltjes over en
+              // daar staan de refs op. Een teller over de groepen heen zou
+              // hetzelfde doen, maar dan staat de waarheid over de volgorde op
+              // twee plekken.
+              const i = SETTINGS_SECTIONS.indexOf(section);
+              return (
+                <button
+                  key={section}
+                  ref={(el) => {
+                    items.current[i] = el;
+                  }}
+                  id={tabId(section)}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={PANEL_ID}
+                  // Rovende tabindex: één keer Tab brengt je in de kolom, daarna
+                  // wissel je met de pijltjes. Tab nog eens en je bent bij de
+                  // instellingen zelf in plaats van bij het tweede sectiekopje.
+                  tabIndex={isActive ? 0 : -1}
+                  onClick={() => onSelect(section)}
+                  className={`flex min-h-[32px] items-center gap-2 rounded-md px-3 py-1.5 text-left text-[13px] transition motion-reduce:transition-none ${SURFACE_FOCUS_RING} ${
+                    isActive
+                      ? 'bg-black/[0.06] font-medium text-neutral-900 dark:bg-white/10 dark:text-neutral-100'
+                      : 'font-normal text-neutral-500 hover:bg-black/[0.04] hover:text-neutral-900 dark:hover:bg-white/5 dark:hover:text-neutral-100'
+                  }`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{sectionLabel(section)}</span>
+                  {/* Het puntje: hier staat iets dat je wilde weten zonder ernaar
+                      te zoeken. 6px, en het enige blauw in de kolom. Het bolletje
+                      zelf is aria-hidden — een vorm zegt niets — en de tekst
+                      ernaast staat in `sr-only`: onzichtbaar, maar wel gewone
+                      tekst binnen de knop, dus hij hangt achter de sectienaam in
+                      de naam van het tabblad ("Notifications, …"). Staat er geen
+                      aandachtspunt, dan staat er niets: een puntje dat altijd
+                      wordt voorgelezen en dan "nee" zegt is erger dan geen
+                      puntje. */}
+                  {needsAttention(section, attention) && (
+                    <>
+                      <span className="sr-only">{attentionLabel}</span>
+                      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
+                    </>
+                  )}
+                </button>
+              );
+            })}
           </div>
-        </header>
-        {/* Een strook over de volle breedte onder de kop. De inhoud brengt zijn
-            eigen opmaak mee; hier staat alleen waar hij hangt. */}
-        {banner && <div className="px-6 pb-4">{banner}</div>}
-      </div>
+        ))}
+      </nav>
 
-      <div className="flex min-h-0 flex-1">
-        {/* Navigatiekolom: w-52 is 208px. Scrollt niet — vier secties passen
-            altijd, en een kolom die meebeweegt met de inhoud verliest juist het
-            overzicht dat hij moet geven. */}
-        <nav
-          role="tablist"
-          aria-orientation="vertical"
-          onKeyDown={onNavKeyDown}
-          className={`flex w-52 shrink-0 flex-col gap-0.5 overflow-hidden border-r p-3 ${HAIRLINE}`}
-        >
-          {SETTINGS_SECTIONS.map((section, i) => {
-            const isActive = section === active;
-            return (
-              <button
-                key={section}
-                ref={(el) => {
-                  items.current[i] = el;
-                }}
-                id={tabId(section)}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={PANEL_ID}
-                // Rovende tabindex: één keer Tab brengt je in de kolom, daarna
-                // wissel je met de pijltjes. Tab nog eens en je bent bij de
-                // instellingen zelf in plaats van bij het tweede sectiekopje.
-                tabIndex={isActive ? 0 : -1}
-                onClick={() => onSelect(section)}
-                className={`flex min-h-[30px] items-center gap-2 rounded-md px-3 py-1.5 text-left text-[13px] font-medium transition motion-reduce:transition-none ${SURFACE_FOCUS_RING} ${
-                  isActive
-                    ? 'bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100 dark:shadow-none'
-                    : 'text-neutral-500 hover:bg-black/5 hover:text-neutral-900 dark:hover:bg-white/5 dark:hover:text-neutral-100'
-                }`}
+      {/* Het witte vlak, met een marge van 16px langs de drie randen die het niet
+          met de kolom deelt. Die marge is wat het vlak tot een vlak maakt: zonder
+          hem is het gewoon de rechterhelft van het venster. */}
+      <div className="min-h-0 flex-1 pb-4 pr-4 pt-4">
+        <div className={`relative flex h-full min-h-0 flex-col overflow-hidden ${SURFACE}`}>
+          {/* Sluiten staat in de hoek van het vlak en scrollt niet mee: het is de
+              uitgang, en die hoort altijd op dezelfde plek te zijn. Eronder de
+              naam van de toets die hetzelfde doet — aria-hidden, want voor een
+              schermlezer is de knop al "sluiten" en "ESC" eronder zou daar als
+              tweede woord in de naam bij komen. */}
+          <div className="absolute right-5 top-5 z-10 flex flex-col items-center gap-1">
+            <button
+              type="button"
+              onClick={close}
+              aria-label={closeLabel}
+              title={closeLabel}
+              className={`flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-neutral-600 transition hover:bg-neutral-200 hover:text-neutral-900 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700 dark:hover:text-neutral-100 motion-reduce:transition-none ${SURFACE_FOCUS_RING} focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                aria-hidden
+                className="h-3.5 w-3.5"
               >
-                <span className="min-w-0 flex-1 truncate">{sectionLabel(section)}</span>
-                {/* Het puntje: hier staat iets dat je wilde weten zonder ernaar
-                    te zoeken. 6px, en het enige blauw buiten de opslaan-knop.
-                    Het bolletje zelf is aria-hidden — een vorm zegt niets — en de
-                    tekst ernaast staat in `sr-only`: onzichtbaar, maar wel gewone
-                    tekst binnen de knop, dus hij hangt achter de sectienaam in de
-                    naam van het tabblad ("Meldingen, …"). Staat er geen
-                    aandachtspunt, dan staat er niets: een puntje dat altijd wordt
-                    voorgelezen en dan "nee" zegt is erger dan geen puntje. */}
-                {needsAttention(section, attention) && (
-                  <>
-                    <span className="sr-only">{attentionLabel}</span>
-                    <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600" />
-                  </>
-                )}
-              </button>
-            );
-          })}
-        </nav>
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
+            </button>
+            <span aria-hidden className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">
+              {escLabel}
+            </span>
+          </div>
 
-        {/* De inhoud scrollt, de rest niet. max-w-[720px] zodat een rij niet
-            meters breed wordt op een groot venster en de controls rechts op een
-            voorspelbare plek blijven. Geen overgang bij het wisselen van sectie:
-            dat doe je één keer per bezoek, en een animatie maakt het alleen
-            langzamer.
-
-            De 720px staan links tegen de kolom aan en niet gecentreerd. Met
-            `mx-auto` erop stond de sectietitel op een venster van 1920px op 736px
-            van de linkerrand en de paneeltitel op 24px: twee koppen van 20px/600
-            op assen die niets met elkaar te maken hebben, met een leegte van een
-            halve meter tussen de kolom en de inhoud. Nu is het één trap naar
-            rechts — de paneeltitel staat op de as van de navigatie-items (beide
-            24px), en de sectietitel begint direct naast de haarlijn van de kolom.
-            De overgebleven ruimte valt rechts, waar ze leegte is en geen kloof.
-            Dat is ook wat elk ander instellingenpaneel met een kolom doet, en de
-            reden is dezelfde: een gecentreerde kolom naast een vastgezette kolom
-            leest als een fout, niet als een keuze. */}
-        {/* tabIndex=0: het vlak is scrollbaar, en een sectie die tekst is in
-            plaats van knoppen (Over, met de changelog erin) heeft niets waar de
-            focus in kan landen — zonder dit is die met het toetsenbord niet te
-            scrollen. De ring staat naar binnen: een ring met offset om een vlak
-            van deze maat loopt over de haarlijn van de kolom heen. */}
-        <div
-          ref={scroller}
-          id={PANEL_ID}
-          role="tabpanel"
-          aria-labelledby={tabId(active)}
-          tabIndex={0}
-          className="min-w-0 flex-1 overflow-y-auto outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
-        >
-          <div className={`w-full max-w-[720px] ${CONTENT_PAD}`}>{children}</div>
+          {/* De inhoud scrollt, het vlak eromheen niet.
+              tabIndex=0: het vlak is scrollbaar, en een sectie die tekst is in
+              plaats van knoppen (Wat is er nieuw, met de changelog erin) heeft
+              niets waar de focus in kan landen — zonder dit is die met het
+              toetsenbord niet te scrollen. De ring staat naar binnen en volgt de
+              ronding van het vlak, anders steekt hij door de hoeken. */}
+          <div
+            ref={scroller}
+            id={PANEL_ID}
+            role="tabpanel"
+            aria-labelledby={tabId(active)}
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-y-auto rounded-2xl outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-blue-600"
+          >
+            {/* Een kolom van 560px, gecentreerd in het vlak. Dat is een andere
+                keuze dan in het paneel met de kop erboven, en de reden is dat de
+                titel van de sectie nu de bovenste tekst ín dit vlak is: er is geen
+                tweede kop meer die op de as van de navigatie staat, en dus ook geen
+                as om tegenaan te lijnen. Wat overblijft is één kolom tekst in een
+                wit vlak, en die hoort in het midden. */}
+            <div className="mx-auto w-full max-w-[560px] px-8 py-10">
+              {/* Een melding boven de sectie over de volle kolombreedte — nu
+                  alleen de Rene-strook. Hij staat binnen de scroll en niet erboven:
+                  het is een mededeling en geen tweede kop, en een strook die
+                  blijft staan terwijl de inhoud eronder wegschuift trekt meer
+                  aandacht dan hij verdient. */}
+              {banner && <div className="mb-8">{banner}</div>}
+              {children}
+            </div>
+          </div>
         </div>
       </div>
     </div>

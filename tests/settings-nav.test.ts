@@ -1,13 +1,70 @@
 import { describe, it, expect } from 'vitest';
-import { SETTINGS_SECTIONS, attentionFrom, needsAttention } from '../renderer/app/settings/nav';
+import {
+  DEFAULT_SECTION,
+  SETTINGS_GROUPS,
+  SETTINGS_SECTIONS,
+  attentionFrom,
+  needsAttention,
+} from '../renderer/app/settings/nav';
 
 const quiet = { dnd: false, updateReady: false };
 
+describe('SETTINGS_GROUPS', () => {
+  // De drie groepen zijn een uitspraak over wat waar hoort: een logboek, de
+  // voorkeuren, en wat er over de app te lezen valt. De haarlijnen in de kolom
+  // volgen hieruit, dus als deze indeling schuift schuift het ontwerp mee.
+  it('splits the column into a log, the preferences, and what there is to read', () => {
+    expect(SETTINGS_GROUPS.map((g) => [...g])).toEqual([
+      ['download-history'],
+      [
+        'general',
+        'accounts',
+        'appearance',
+        'blocker',
+        'downloads',
+        'gmail',
+        'google-apps',
+        'languages',
+        'notifications',
+        'phishing-protection',
+        'saved-searches',
+        'unified-inbox',
+        'updates',
+        'verification-codes',
+        'advanced',
+      ],
+      ['license', 'whats-new', 'about'],
+    ]);
+  });
+
+  // In de middelste groep staat Algemeen vooraan (daar kom je het vaakst) en
+  // Geavanceerd achteraan; wat ertussen zit staat op alfabet. Dat is de regel, en
+  // hij is hier opgeschreven omdat er anders bij elke nieuwe sectie geraden wordt
+  // waar hij hoort.
+  it('keeps the middle group alphabetical between General and Advanced', () => {
+    const middle = [...SETTINGS_GROUPS[1]];
+    expect(middle[0]).toBe('general');
+    expect(middle[middle.length - 1]).toBe('advanced');
+    const between = middle.slice(1, -1);
+    expect(between).toEqual([...between].sort());
+  });
+
+  it('has no section in two groups at once', () => {
+    expect(new Set(SETTINGS_SECTIONS).size).toBe(SETTINGS_SECTIONS.length);
+  });
+});
+
 describe('SETTINGS_SECTIONS', () => {
-  // Algemeen eerst omdat je daar het vaakst komt; Over laatst omdat je daar
-  // alleen komt als je iets zoekt.
-  it('lists the four sections in display order', () => {
-    expect(SETTINGS_SECTIONS).toEqual(['general', 'notifications', 'accounts', 'about']);
+  // De platte lijst is de rij waarin de pijltjestoetsen lopen, en hij wordt uit de
+  // groepen afgeleid. Deze test houdt vast dát hij dat is: een tweede, met de hand
+  // bijgehouden lijst zou stil uit elkaar kunnen lopen met de kolom in beeld.
+  it('is the groups in order, flattened', () => {
+    expect(SETTINGS_SECTIONS).toEqual(SETTINGS_GROUPS.flat());
+  });
+
+  it('opens on the section you visit most', () => {
+    expect(DEFAULT_SECTION).toBe('general');
+    expect(SETTINGS_SECTIONS).toContain(DEFAULT_SECTION);
   });
 });
 
@@ -26,15 +83,20 @@ describe('needsAttention', () => {
     expect(needsAttention('notifications', { ...quiet, dndUntil: 1 })).toBe(true);
   });
 
-  it('marks about when an update is waiting to be installed', () => {
-    expect(needsAttention('about', { ...quiet, updateReady: true })).toBe(true);
+  // Bij Bijwerken en niet bij Over: daar staat de knop die de update uitvoert.
+  it('marks updates when an update is waiting to be installed', () => {
+    expect(needsAttention('updates', { ...quiet, updateReady: true })).toBe(true);
+    expect(needsAttention('about', { ...quiet, updateReady: true })).toBe(false);
   });
 
   it('does not mark a section for another section\'s reason', () => {
-    expect(needsAttention('general', { dnd: true, updateReady: true })).toBe(false);
-    expect(needsAttention('accounts', { dnd: true, updateReady: true })).toBe(false);
+    const both = { dnd: true, updateReady: true };
+    for (const s of SETTINGS_SECTIONS) {
+      if (s === 'notifications' || s === 'updates') continue;
+      expect(needsAttention(s, both)).toBe(false);
+    }
     expect(needsAttention('notifications', { ...quiet, updateReady: true })).toBe(false);
-    expect(needsAttention('about', { ...quiet, dnd: true })).toBe(false);
+    expect(needsAttention('updates', { ...quiet, dnd: true })).toBe(false);
   });
 });
 
@@ -69,17 +131,17 @@ describe('attentionFrom', () => {
     expect(needsAttention('notifications', a)).toBe(false);
   });
 
-  it('marks about while an update is waiting, in both of its states', () => {
+  it('marks updates while an update is waiting, in both of its states', () => {
     for (const state of ['available', 'downloaded'] as const) {
       const a = attentionFrom({ dnd: false }, state);
-      expect(needsAttention('about', a)).toBe(true);
+      expect(needsAttention('updates', a)).toBe(true);
     }
   });
 
-  it('does not mark about while it is only looking or downloading', () => {
+  it('does not mark updates while it is only looking or downloading', () => {
     for (const state of ['idle', 'checking', 'downloading', 'not-available', 'error', 'dev'] as const) {
       const a = attentionFrom({ dnd: false }, state);
-      expect(needsAttention('about', a)).toBe(false);
+      expect(needsAttention('updates', a)).toBe(false);
     }
   });
 });

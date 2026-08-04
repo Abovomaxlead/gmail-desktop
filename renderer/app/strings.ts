@@ -7,30 +7,51 @@ export interface UiStrings {
   // which separator groups the thousands in an unread count (1.324 vs 1,324).
   numberLocale: string;
 
-  settingsTitle: string;
-  save: string;
-  saved: string;
   close: string;
+  // Het opschrift onder de sluitknop: de naam van de toets die hetzelfde doet.
+  escKey: string;
   reneBanner: string;
 
-  // De namen in de navigatiekolom. Kort, want ze staan naast elkaar in een kolom
-  // van 208px; de kop bóven een sectie gebruikt de langere `section*`-sleutels.
+  // De namen in de navigatiekolom. Ze zijn óók de kop boven de sectie zelf: er is
+  // één naam per sectie, en die staat op twee plekken hetzelfde. Twee sleutels per
+  // sectie leverde twee namen voor hetzelfde ding op ("Algemeen" in de kolom,
+  // "Algemeen" erboven), en bij negentien secties is dat negentien kansen om uit
+  // elkaar te lopen. Kort houden blijft nodig: de kolom is 240px.
+  navDownloadHistory: string;
   navGeneral: string;
-  navNotifications: string;
   navAccounts: string;
+  navAppearance: string;
+  navBlocker: string;
+  navDownloads: string;
+  navGmail: string;
+  navGoogleApps: string;
+  navLanguages: string;
+  navNotifications: string;
+  navPhishingProtection: string;
+  navSavedSearches: string;
+  navUnifiedInbox: string;
+  navUpdates: string;
+  navVerificationCodes: string;
+  navAdvanced: string;
+  navLicense: string;
+  navWhatsNew: string;
   navAbout: string;
   // Het puntje in de navigatie heeft geen vorm die iets zegt, dus staat er voor
   // een schermlezer tekst achter de sectienaam: "Notifications, needs your
   // attention". Formuleer zo dat het achter een sectienaam voorleesbaar blijft.
   settingsAttention: string;
+  // Wat er in een sectie staat waar nog niets is ingericht. Eén tekst voor alle
+  // lege secties: het is dezelfde mededeling, en per sectie een eigen formulering
+  // zou suggereren dat er per sectie iets anders aan de hand is.
+  sectionEmpty: string;
 
-  sectionGeneral: string;
+  defaultMailClient: string;
+  defaultMailClientDescription: string;
+  startup: string; // de kop van de groep met de opstartkeuzes
   autoStart: string;
   autoStartDescription: string;
-  setDefaultMail: string;
-  setDefaultMailHint: string;
-  isDefaultMail: string;
-  notDefaultMail: string;
+  launchMinimized: string;
+  launchMinimizedDescription: string;
   mailDropFolder: string;
   mailDropHint: string;
   mailDropChoose: string;
@@ -39,6 +60,7 @@ export interface UiStrings {
   dropSubtitle: (ok: number, messages: number) => string;
   dropSavedCount: (messages: number) => string;
   theme: string;
+  themeDescription: string;
   themeSystem: string;
   themeLight: string;
   themeDark: string;
@@ -47,7 +69,6 @@ export interface UiStrings {
   openInApp: string;
   openInWindow: string;
 
-  sectionNotifications: string;
   dnd: string;
   dndDescription: string;
   quietHours: string;
@@ -73,7 +94,6 @@ export interface UiStrings {
   // zonder agenda. Alleen voor een schermlezer; in beeld staat er een streepje.
   toggleNotApplicable: string;
 
-  sectionAbout: string;
   updates: string; // de naam van de rij met de updatestatus en zijn knoppen
   versionPrefix: string;
   updateNow: string;
@@ -89,14 +109,12 @@ export interface UiStrings {
   updError: (message: string) => string;
   updDev: string;
 
-  sectionWhatsNew: string;
   changelogVersionPrefix: string; // e.g. "Version" — shown before the number in each entry
   showOlder: string;
   hideOlder: string;
   changelogEmpty: string;
   changelogCategory: (heading: string) => string; // localizes a known "### Category" label
 
-  sectionAccounts: string;
   accountLabelField: string; // de naam van het naamveld in een accountkaart
   accountColor: string; // de naam van de groep kleurstaaltjes
   colorName: (hex: string) => string; // de naam van één staaltje, voor een schermlezer
@@ -206,25 +224,41 @@ function colorKey(hex: string): ColorKey | null {
 export const STRINGS_NORMAL: UiStrings = {
   numberLocale: 'en-US',
 
-  settingsTitle: 'Settings',
-  save: 'Save',
-  saved: 'Saved ✓',
   close: 'Close',
+  escKey: 'Esc',
   reneBanner: '🤓 Rene mode is on! Everything is big and easy.',
 
+  navDownloadHistory: 'Download History',
   navGeneral: 'General',
-  navNotifications: 'Notifications',
   navAccounts: 'Accounts',
-  navAbout: 'About',
+  navAppearance: 'Appearance',
+  navBlocker: 'Blocker',
+  navDownloads: 'Downloads',
+  navGmail: 'Gmail',
+  navGoogleApps: 'Google Apps',
+  navLanguages: 'Languages',
+  navNotifications: 'Notifications',
+  navPhishingProtection: 'Phishing Protection',
+  navSavedSearches: 'Saved Searches',
+  navUnifiedInbox: 'Unified Inbox',
+  navUpdates: 'Updates',
+  navVerificationCodes: 'Verification Codes',
+  navAdvanced: 'Advanced',
+  navLicense: 'License',
+  navWhatsNew: "What's New",
+  navAbout: 'About Gmail Desktop',
   settingsAttention: 'needs your attention',
+  sectionEmpty: 'Nothing to set here yet.',
 
-  sectionGeneral: 'General',
-  autoStart: 'Start Gmail Desktop when I sign in',
-  autoStartDescription: 'The app opens on its own when you sign in to Windows.',
-  setDefaultMail: 'Set as default mail app',
-  setDefaultMailHint: 'Windows may ask you to confirm the change.',
-  isDefaultMail: 'This is your default mail app',
-  notDefaultMail: 'Not your default mail app',
+  defaultMailClient: 'Default Mail Client',
+  defaultMailClientDescription:
+    'Set Gmail Desktop as the default mail client to handle email links and related protocols.',
+  startup: 'Startup',
+  autoStart: 'Launch at Login',
+  autoStartDescription:
+    'Enable this option to automatically start the application when you log into your computer.',
+  launchMinimized: 'Launch Minimized',
+  launchMinimizedDescription: 'Enable this option to start the application in a minimized state.',
   mailDropFolder: 'Saved mail folder',
   mailDropHint:
     'Mail you drag into the strip at the top of Gmail is saved here as .eml, with a log.jsonl next to it',
@@ -234,6 +268,7 @@ export const STRINGS_NORMAL: UiStrings = {
   dropSubtitle: (ok, m) => `${ok} saved — ${m} ${m === 1 ? 'message' : 'messages'} written to disk`,
   dropSavedCount: (m) => `${m} ${m === 1 ? 'message' : 'messages'} saved`,
   theme: 'Theme',
+  themeDescription: 'Follow Windows, or keep the app light or dark whatever Windows does.',
   themeSystem: 'System',
   themeLight: 'Light',
   themeDark: 'Dark',
@@ -243,7 +278,6 @@ export const STRINGS_NORMAL: UiStrings = {
   openInApp: 'Open in the app',
   openInWindow: 'Open in a new window',
 
-  sectionNotifications: 'Notifications',
   dnd: 'Do not disturb (mute all)',
   dndDescription: 'No notifications and no sounds for any account until you turn this off.',
   quietHours: 'Quiet hours',
@@ -263,7 +297,6 @@ export const STRINGS_NORMAL: UiStrings = {
   persistToggleTitle: 'Keep notifications on screen until you dismiss them',
   toggleNotApplicable: 'Not available for this account',
 
-  sectionAbout: 'About & updates',
   updates: 'Updates',
   versionPrefix: 'Version',
   updateNow: 'Update now',
@@ -279,7 +312,6 @@ export const STRINGS_NORMAL: UiStrings = {
   updError: (message) => `Couldn't check for updates: ${message}`,
   updDev: 'Updates are only available in the installed app.',
 
-  sectionWhatsNew: "What's new",
   changelogVersionPrefix: 'Version',
   showOlder: 'Show older versions',
   hideOlder: 'Hide older versions',
@@ -289,7 +321,6 @@ export const STRINGS_NORMAL: UiStrings = {
     return key ? CATEGORY_NORMAL[key] : '';
   },
 
-  sectionAccounts: 'Accounts',
   accountLabelField: 'Account name',
   accountColor: 'Account colour',
   colorName: (hex) => {
@@ -324,25 +355,40 @@ export const STRINGS_NORMAL: UiStrings = {
 export const STRINGS_RENE: UiStrings = {
   numberLocale: 'nl-NL',
 
-  settingsTitle: 'Knopjes',
-  save: 'Bewaar',
-  saved: 'Klaar ✓',
   close: 'Sluiten',
+  escKey: 'Esc',
   reneBanner: '🤓 De Rene-stand staat aan! Alles is groot en makkelijk.',
 
+  navDownloadHistory: 'Wat je hebt gehaald',
   navGeneral: 'Gewoon',
-  navNotifications: 'Meldingen',
   navAccounts: 'Wie doet mee?',
+  navAppearance: 'Hoe het eruitziet',
+  navBlocker: 'Wat weg mag',
+  navDownloads: 'Wat je haalt',
+  navGmail: 'Gmail',
+  navGoogleApps: 'Google-dingen',
+  navLanguages: 'Talen',
+  navNotifications: 'Meldingen',
+  navPhishingProtection: 'Nepmail',
+  navSavedSearches: 'Bewaarde zoekjes',
+  navUnifiedInbox: 'Alles bij elkaar',
+  navUpdates: 'Nieuwe versie',
+  navVerificationCodes: 'Codes',
+  navAdvanced: 'Voor knutselaars',
+  navLicense: 'De regels',
+  navWhatsNew: 'Wat is er nieuw?',
   navAbout: 'Over de app',
   settingsAttention: 'kijk hier even',
+  sectionEmpty: 'Hier is nog niks om te zetten.',
 
-  sectionGeneral: 'Gewoon',
+  defaultMailClient: 'Mail gaat door deze app',
+  defaultMailClientDescription:
+    'Klik je ergens op een mail-adres? Dan gaat dat mailtje open in deze app.',
+  startup: 'Als de computer aan gaat',
   autoStart: 'De app gaat zelf aan',
   autoStartDescription: 'De app gaat open als je de computer aanzet.',
-  setDefaultMail: 'Maak dit je standaard-mailprogramma',
-  setDefaultMailHint: 'Windows vraagt misschien of je het zeker weet.',
-  isDefaultMail: 'Dit is je standaard-mailprogramma',
-  notDefaultMail: 'Nog niet je standaard-mailprogramma',
+  launchMinimized: 'Klein beginnen',
+  launchMinimizedDescription: 'De app gaat aan, maar je ziet hem nog niet. Hij staat onderin te wachten.',
   mailDropFolder: 'Waar de mailtjes komen',
   mailDropHint: 'Sleep een mailtje naar de balk boven Gmail. Dan komt hij hier te staan.',
   mailDropChoose: 'Kies map',
@@ -351,6 +397,7 @@ export const STRINGS_RENE: UiStrings = {
   dropSubtitle: (ok, m) => `${ok} gelukt — ${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
   dropSavedCount: (m) => `${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
   theme: 'Kleur',
+  themeDescription: 'Licht of donker. Of laat de computer het kiezen.',
   themeSystem: 'De computer kiest',
   themeLight: 'Licht',
   themeDark: 'Donker',
@@ -359,7 +406,6 @@ export const STRINGS_RENE: UiStrings = {
   openInApp: 'In de app',
   openInWindow: 'In een nieuw raam',
 
-  sectionNotifications: 'Meldingen',
   dnd: 'Even stil zijn',
   dndDescription: 'Je krijgt geen meldingen en hoort niks, tot je dit weer uitzet.',
   quietHours: 'Stille uren',
@@ -379,7 +425,6 @@ export const STRINGS_RENE: UiStrings = {
   persistToggleTitle: 'Meldingen blijven op het scherm staan tot u ze wegklikt',
   toggleNotApplicable: 'Kan niet bij deze meneer of mevrouw',
 
-  sectionAbout: 'Over de app',
   updates: 'Nieuwe versie',
   versionPrefix: 'Versie',
   updateNow: 'Doe maar!',
@@ -395,7 +440,6 @@ export const STRINGS_RENE: UiStrings = {
   updError: (message) => `Het lukt nu niet: ${message}`,
   updDev: 'Dit kan alleen in de echte app.',
 
-  sectionWhatsNew: 'Wat is er nieuw?',
   changelogVersionPrefix: 'Versie',
   showOlder: 'Laat oude dingen zien',
   hideOlder: 'Verberg oude dingen',
@@ -405,7 +449,6 @@ export const STRINGS_RENE: UiStrings = {
     return key ? CATEGORY_RENE[key] : '';
   },
 
-  sectionAccounts: 'Wie doet mee?',
   accountLabelField: 'Naam',
   accountColor: 'Kleur',
   colorName: (hex) => {

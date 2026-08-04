@@ -59,6 +59,7 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.SETTINGS_FORCE_OPEN, () => cb());
   },
   setAutoStart: (v: boolean): void => ipcRenderer.send(IPC.SET_AUTO_START, v),
+  setLaunchMinimized: (v: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_MINIMIZED, v),
   onPrefsChanged: (cb: (prefs: unknown) => void): void => {
     ipcRenderer.on(IPC.PREFS_CHANGED, (_e, p) => cb(p));
   },
@@ -71,7 +72,7 @@ contextBridge.exposeInMainWorld('desktop', {
   setTheme: (theme: 'system' | 'light' | 'dark'): void => ipcRenderer.send(IPC.SET_THEME, theme),
   setNotificationOpen: (v: 'app' | 'window'): void => ipcRenderer.send(IPC.SET_NOTIFICATION_OPEN, v),
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
-  setDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
+  setDefaultMail: (v: boolean): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL, v),
   onMailDropPreview: (cb: (arg: { items: unknown[] }) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
   },

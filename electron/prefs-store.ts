@@ -45,6 +45,9 @@ export interface MailDropPrefs {
 export interface Prefs {
   window: WindowPrefs;
   autoStart: boolean;
+  // Start het venster geminimaliseerd. Staat los van `autoStart`: je kan de app
+  // ook met de hand starten en hem toch klein willen beginnen.
+  launchMinimized: boolean;
   theme: ThemeChoice;
   notificationOpen: NotificationOpen;
   notifications: NotificationPrefs;
@@ -58,6 +61,7 @@ export interface Prefs {
 export const DEFAULT_PREFS: Prefs = {
   window: { width: 1200, height: 820, maximized: false },
   autoStart: false,
+  launchMinimized: false,
   theme: 'system',
   notificationOpen: 'app',
   notifications: { dnd: false, quietHours: { enabled: false, start: '18:00', end: '08:00' } },
@@ -77,6 +81,10 @@ export class PrefsStore {
       return {
         window: { ...DEFAULT_PREFS.window, ...(raw.window ?? {}) },
         autoStart: typeof raw.autoStart === 'boolean' ? raw.autoStart : DEFAULT_PREFS.autoStart,
+        launchMinimized:
+          typeof raw.launchMinimized === 'boolean'
+            ? raw.launchMinimized
+            : DEFAULT_PREFS.launchMinimized,
         theme: ['system', 'light', 'dark'].includes(raw.theme) ? raw.theme : DEFAULT_PREFS.theme,
         notificationOpen: raw.notificationOpen === 'window' ? 'window' : 'app',
         notifications: {
@@ -107,6 +115,9 @@ export class PrefsStore {
   }
   setAutoStart(v: boolean): void {
     this.write({ ...this.getAll(), autoStart: v });
+  }
+  setLaunchMinimized(v: boolean): void {
+    this.write({ ...this.getAll(), launchMinimized: v });
   }
   setTheme(t: ThemeChoice): void {
     this.write({ ...this.getAll(), theme: t });
