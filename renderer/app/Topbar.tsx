@@ -7,7 +7,8 @@ import { planPlusMenu, suggestionEmail, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } f
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import { accountCountVisible } from '../lib/badge-visibility';
-import { pinnedSurfaces, surfaceLabel } from '../lib/google-apps';
+import { pinnedSurfacesFor, surfaceLabel } from '../lib/google-apps';
+import { openableSurfaces } from '../lib/surfaces';
 import { playSound } from '../lib/notification-sound';
 import { SURFACE_ICON_DATA_URIS } from '../lib/surface-icon-data';
 import type { Profile, Surface, DelegatedSuggestion, UpdateStatus, Prefs } from './page';
@@ -107,7 +108,13 @@ export function Topbar({
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const updateReady = update.state === 'downloaded';
-  const pinned = pinnedSurfaces(prefs?.googleApps.pinned ?? []);
+  // A pin opens for the account in view, and a delegated mailbox has no Drive or Docs of
+  // its own, so the row is narrowed to what that account can open. Nothing in view means
+  // nothing to open: no buttons rather than dead ones.
+  const activeProfile = active ? (profiles.find((p) => p.key === active.key) ?? null) : null;
+  const pinned = activeProfile
+    ? pinnedSurfacesFor(prefs?.googleApps.pinned ?? [], openableSurfaces(activeProfile))
+    : [];
 
   useEffect(() => {
     window.desktop?.onPlayNotificationSound(({ name, volume }) => {

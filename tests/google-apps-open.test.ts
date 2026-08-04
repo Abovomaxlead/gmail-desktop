@@ -1,8 +1,10 @@
-// Where a Google app opens (in the app, its own window or the browser) and which apps
-// can be pinned to the bar.
+// Where a Google app opens (in the app, its own window or the browser), which apps can
+// be pinned to the bar, and which of those pins the account in view can actually open.
 
 import { describe, expect, it } from 'vitest';
 import { googleAppTarget, pinnedSurfaces } from '../electron/google-apps-open';
+import { pinnedSurfacesFor } from '../renderer/lib/google-apps';
+import { openableSurfaces } from '../renderer/lib/surfaces';
 
 const BASE = { openInApp: true, alwaysNewWindow: false, excluded: [] as string[] };
 
@@ -81,5 +83,44 @@ describe('pinnedSurfaces', () => {
     const stored = ['drive', 'nope', 'drive'];
     expect(pinnedSurfaces(stored, KNOWN)).toEqual(['drive']);
     expect(stored).toEqual(['drive', 'nope', 'drive']);
+  });
+});
+
+describe('pinnedSurfacesFor', () => {
+  const PINS = ['drive', 'calendar', 'docs'];
+
+  it('keeps every pin for one of your own accounts', () => {
+    const openable = openableSurfaces({ kind: 'authuser', hasCalendar: true });
+    expect(pinnedSurfacesFor(PINS, openable)).toEqual(['drive', 'calendar', 'docs']);
+  });
+
+  it('drops the Google apps for a delegated mailbox and keeps its calendar', () => {
+    const openable = openableSurfaces({ kind: 'delegated', hasCalendar: true });
+    expect(pinnedSurfacesFor(PINS, openable)).toEqual(['calendar']);
+  });
+
+  it('leaves a delegated mailbox without a calendar with nothing pinned', () => {
+    const openable = openableSurfaces({ kind: 'delegated', hasCalendar: false });
+    expect(pinnedSurfacesFor(PINS, openable)).toEqual([]);
+  });
+
+  it('pins nothing while a tab is still provisional', () => {
+    const openable = openableSurfaces({ kind: 'authuser', hasCalendar: true, provisional: true });
+    expect(pinnedSurfacesFor(PINS, openable)).toEqual([]);
+  });
+
+  it('keeps the order of the pinned list, not of the openable list', () => {
+    const openable = openableSurfaces({ kind: 'authuser', hasCalendar: true });
+    expect(pinnedSurfacesFor(['docs', 'drive'], openable)).toEqual(['docs', 'drive']);
+    expect(pinnedSurfacesFor(['drive', 'docs'], openable)).toEqual(['drive', 'docs']);
+  });
+
+  it('still drops keys no version of the app can pin', () => {
+    const openable = openableSurfaces({ kind: 'authuser', hasCalendar: true });
+    expect(pinnedSurfacesFor(['photos', 'mail', 'drive'], openable)).toEqual(['drive']);
+  });
+
+  it('pins nothing when no account is in view', () => {
+    expect(pinnedSurfacesFor(PINS, [])).toEqual([]);
   });
 });

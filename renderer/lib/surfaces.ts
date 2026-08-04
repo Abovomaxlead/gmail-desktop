@@ -115,6 +115,23 @@ export function surfacesForRef(ref: AccountRef): Surface[] {
   return ref.calendarUrl ? ['mail', 'calendar'] : ['mail'];
 }
 
+// The same rule as surfacesForRef, for callers that only have what the renderer knows
+// about an account - it never sees an AccountRef. Anything not on this list would end in
+// a throw from ownedIndex or delegatedCalendarUrl, so a control that opens a surface has
+// to ask here first. A provisional tab (remembered bar, identity not settled yet) has no
+// url for anything, not even its own mail.
+export interface AccountSurfaces {
+  kind: AccountRef['kind'];
+  hasCalendar: boolean;
+  provisional?: boolean;
+}
+
+export function openableSurfaces(account: AccountSurfaces): Surface[] {
+  if (account.provisional) return [];
+  if (account.kind === 'authuser') return [...SURFACES];
+  return account.hasCalendar ? ['mail', 'calendar'] : ['mail'];
+}
+
 export const APP_SURFACES: readonly Surface[] = SURFACES.filter(
   (s) => s !== 'mail' && s !== 'calendar',
 );

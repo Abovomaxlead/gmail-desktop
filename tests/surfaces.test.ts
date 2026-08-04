@@ -8,6 +8,7 @@ import {
   SURFACE_CONFIG,
   surfaceForUrl,
   surfacesForRef,
+  openableSurfaces,
   type Surface,
 } from '../renderer/lib/surfaces';
 import type { AccountRef } from '../renderer/lib/account-ref';
@@ -131,5 +132,49 @@ describe('surfaceForUrl', () => {
     expect(surfaceForUrl('https://www.google.com/url?q=https://example.com')).toBe(null);
     expect(surfaceForUrl('https://accounts.google.com/AddSession')).toBe(null);
     expect(surfaceForUrl('not a url')).toBe(null);
+  });
+});
+
+describe('openableSurfaces', () => {
+  it('gives one of your own accounts everything', () => {
+    expect(openableSurfaces({ kind: 'authuser', hasCalendar: true })).toEqual([...SURFACES]);
+  });
+
+  it('gives one of your own accounts everything even without a detected calendar', () => {
+    expect(openableSurfaces({ kind: 'authuser', hasCalendar: false })).toEqual([...SURFACES]);
+  });
+
+  it('gives a delegated mailbox mail, plus calendar only when it has one', () => {
+    expect(openableSurfaces({ kind: 'delegated', hasCalendar: true })).toEqual([
+      'mail',
+      'calendar',
+    ]);
+    expect(openableSurfaces({ kind: 'delegated', hasCalendar: false })).toEqual(['mail']);
+  });
+
+  it('never lists a Google app for a delegated mailbox', () => {
+    const surfaces = openableSurfaces({ kind: 'delegated', hasCalendar: true });
+    for (const app of APP_SURFACES) expect(surfaces).not.toContain(app);
+  });
+
+  it('gives a provisional tab nothing at all, not even its own mail', () => {
+    expect(openableSurfaces({ kind: 'authuser', hasCalendar: true, provisional: true })).toEqual([]);
+    expect(openableSurfaces({ kind: 'delegated', hasCalendar: true, provisional: true })).toEqual(
+      [],
+    );
+  });
+
+  it('agrees with surfacesForRef, which works on the ref main sees', () => {
+    expect(openableSurfaces({ kind: 'authuser', hasCalendar: true })).toEqual(
+      surfacesForRef({ kind: 'authuser', index: 0 }),
+    );
+    expect(openableSurfaces({ kind: 'delegated', hasCalendar: false })).toEqual(
+      surfacesForRef({
+        kind: 'delegated',
+        email: 'gedeeld@example.com',
+        mailUrl: 'https://mail.google.com/mail/b/x/',
+        calendarUrl: null,
+      }),
+    );
   });
 });

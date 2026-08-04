@@ -3,6 +3,11 @@
 // master switch, and the master switch beats alwaysNewWindow. filterPinned drops
 // unknown and duplicate keys, since prefs may name an app a later version removed.
 // electron/google-apps-open.ts re-exports these so main and the bar agree.
+//
+// Pinning is one list for the whole app, but a pin opens for whichever account is in
+// view, and a delegated mailbox has no Drive or Docs of its own. pinnedSurfacesFor is
+// therefore what the bar renders: the stored pins narrowed to what that account can
+// actually open, so a button that would throw is never drawn in the first place.
 
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from './surfaces';
 
@@ -26,6 +31,13 @@ export function surfaceLabel(surface: Surface): string {
 
 export function pinnedSurfaces(pinned: readonly string[]): Surface[] {
   return filterPinned(pinned, PINNABLE_SURFACES) as Surface[];
+}
+
+export function pinnedSurfacesFor(
+  pinned: readonly string[],
+  openable: readonly Surface[],
+): Surface[] {
+  return pinnedSurfaces(pinned).filter((s) => openable.includes(s));
 }
 
 export function filterPinned(pinned: readonly string[], known: readonly string[]): string[] {
