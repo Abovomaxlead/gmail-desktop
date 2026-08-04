@@ -78,7 +78,7 @@ import {
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
-import { overlayOptions, supportsOverlay, supportsOverlayUpdate } from './titlebar';
+import { overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
@@ -1819,7 +1819,7 @@ function createWindow(): void {
     height: bounds.height,
     x: bounds.x,
     y: bounds.y,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: windowBackground(prefs.getAll().theme, nativeTheme.shouldUseDarkColors),
     icon: ICON_PATH,
     // Een bodem voor de vensterbreedte. Zonder dit is het venster smaller te
     // slepen dan de balk aankan: onder ongeveer 236px klapt de reservering van de

@@ -24,6 +24,22 @@ export function isDarkTheme(
   return choice === 'dark' || (choice === 'system' && systemDark);
 }
 
+// De kleur die het venster zelf heeft zolang de renderer nog niets heeft
+// getekend. Dat moment is er altijd -- bij het opstarten, en in ontwikkelmodus
+// seconden lang omdat de devserver eerst compileert -- en wat je dan ziet is
+// deze kleur over de volle hoogte, dus ook waar de balk komt.
+//
+// Hij loopt om dezelfde reden met het thema mee als de overlay hierboven: stond
+// hij vast op de donkere waarde, dan opende een licht thema met een zwarte balk
+// die daarna omklapt. Zelfde bron als de overlay, zodat de twee niet uiteen
+// kunnen lopen.
+export function windowBackground(
+  choice: 'system' | 'light' | 'dark',
+  systemDark: boolean,
+): string {
+  return (isDarkTheme(choice, systemDark) ? DARK : LIGHT).color;
+}
+
 export function overlayOptions(
   choice: 'system' | 'light' | 'dark',
   systemDark: boolean,
