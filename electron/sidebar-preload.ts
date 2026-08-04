@@ -65,7 +65,6 @@ contextBridge.exposeInMainWorld('desktop', {
   setDownloadPrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_DOWNLOAD_PREFS, patch),
   setPhishing: (patch: unknown): void => ipcRenderer.send(IPC.SET_PHISHING, patch),
   setUpdatePrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_UPDATE_PREFS, patch),
-  setLanguages: (patch: unknown): void => ipcRenderer.send(IPC.SET_LANGUAGES, patch),
   setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
   setGmail: (patch: unknown): void => ipcRenderer.send(IPC.SET_GMAIL, patch),
   setVerificationCodes: (patch: unknown): void =>
@@ -85,8 +84,6 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.send(IPC.SET_NOTIFICATION_EXTRAS, patch),
   testNotification: (): void => ipcRenderer.send(IPC.NOTIFY_TEST),
   pickDownloadFolder: (): Promise<string> => ipcRenderer.invoke(IPC.DOWNLOAD_FOLDER_PICK),
-  getSpellcheckLanguages: (): Promise<{ code: string; label: string }[]> =>
-    ipcRenderer.invoke(IPC.SPELLCHECK_LANGUAGES_GET),
   onPrefsChanged: (cb: (prefs: unknown) => void): void => {
     ipcRenderer.on(IPC.PREFS_CHANGED, (_e, p) => cb(p));
   },

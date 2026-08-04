@@ -109,7 +109,6 @@ export interface Prefs {
   };
   phishing: { confirmExternalLinks: boolean; trustedHosts: string[] };
   updates: { autoCheck: boolean; notify: boolean };
-  languages: { spellcheck: string[] };
   gmail: {
     alwaysComposeInNewWindow: boolean;
     closeComposeAfterSend: boolean;
@@ -142,11 +141,6 @@ export interface DownloadRecord {
 }
 
 export type DownloadClickAction = 'show-in-folder' | 'open-file' | 'nothing';
-
-export interface SpellcheckLanguage {
-  code: string;
-  label: string;
-}
 
 interface DesktopBridge {
   onProfilesChanged(cb: (profiles: Profile[]) => void): void;
@@ -183,7 +177,6 @@ interface DesktopBridge {
   }): void;
   setPhishing(patch: { confirmExternalLinks?: boolean; trustedHosts?: string[] }): void;
   setUpdatePrefs(patch: { autoCheck?: boolean; notify?: boolean }): void;
-  setLanguages(patch: { spellcheck?: string[] }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
   setGmail(patch: {
     alwaysComposeInNewWindow?: boolean;
@@ -219,7 +212,6 @@ interface DesktopBridge {
   }): void;
   testNotification(): void;
   pickDownloadFolder(): Promise<string>;
-  getSpellcheckLanguages(): Promise<SpellcheckLanguage[]>;
   onPrefsChanged(cb: (prefs: Prefs) => void): void;
   setAccountPref(arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }): void;
   setAccountOrder(emails: string[]): void;

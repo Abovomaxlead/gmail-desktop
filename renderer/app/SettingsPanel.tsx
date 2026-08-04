@@ -13,7 +13,6 @@ import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { GmailSection } from './settings/GmailSection';
 import { GoogleAppsSection } from './settings/GoogleAppsSection';
-import { LanguagesSection } from './settings/LanguagesSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { PhishingSection } from './settings/PhishingSection';
 import { EmptyNote, Section } from './settings/Section';
@@ -46,8 +45,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navGmail;
     case 'google-apps':
       return S.navGoogleApps;
-    case 'languages':
-      return S.navLanguages;
     case 'notifications':
       return S.navNotifications;
     case 'phishing-protection':
@@ -161,8 +158,6 @@ export function SettingsPanel({
             return <VerificationCodesSection S={S} prefs={prefs} />;
           case 'downloads':
             return <DownloadsSection S={S} prefs={prefs} />;
-          case 'languages':
-            return <LanguagesSection S={S} prefs={prefs} />;
           case 'phishing-protection':
             return <PhishingSection S={S} prefs={prefs} />;
           case 'advanced':

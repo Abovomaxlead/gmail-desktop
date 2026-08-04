@@ -20,7 +20,6 @@ export interface UiStrings {
   navDownloads: string;
   navGmail: string;
   navGoogleApps: string;
-  navLanguages: string;
   navNotifications: string;
   navPhishingProtection: string;
   navUpdates: string;
@@ -76,13 +75,6 @@ export interface UiStrings {
   downloadFolderDefault: string;
   change: string;
   mailDropGroup: string;
-
-  spellchecker: string;
-  spellcheckerDescription: string;
-  spellcheckerUnavailable: string;
-  spellcheckerNone: string;
-  spellcheckerChosen: (count: number) => string;
-  spellcheckerSystemNote: string;
 
   confirmExternalLinks: string;
   confirmExternalLinksDescription: string;
@@ -339,7 +331,6 @@ export const STRINGS_NORMAL: UiStrings = {
   navDownloads: 'Downloads',
   navGmail: 'Gmail',
   navGoogleApps: 'Google Apps',
-  navLanguages: 'Languages',
   navNotifications: 'Notifications',
   navPhishingProtection: 'Phishing Protection',
   navUpdates: 'Updates',
@@ -405,13 +396,6 @@ export const STRINGS_NORMAL: UiStrings = {
   change: 'Change…',
   mailDropGroup: 'Dragged mail',
 
-  spellchecker: 'Spellchecker',
-  spellcheckerDescription:
-    'Select additional languages for spellchecking alongside the system language.',
-  spellcheckerUnavailable: 'This build has no spellchecker dictionaries available.',
-  spellcheckerNone: 'No additional languages selected.',
-  spellcheckerChosen: (count) => `${count} additional ${count === 1 ? 'language' : 'languages'} selected.`,
-  spellcheckerSystemNote: 'Your system language is always checked, whatever you pick here.',
 
   confirmExternalLinks: 'Confirm External Links Before Opening',
   confirmExternalLinksDescription:
@@ -624,7 +608,6 @@ export const STRINGS_RENE: UiStrings = {
   navDownloads: 'Wat je haalt',
   navGmail: 'Gmail',
   navGoogleApps: 'Google-dingen',
-  navLanguages: 'Talen',
   navNotifications: 'Meldingen',
   navPhishingProtection: 'Nepmail',
   navUpdates: 'Nieuwe versie',
@@ -685,12 +668,6 @@ export const STRINGS_RENE: UiStrings = {
   change: 'Kies map',
   mailDropGroup: 'Gesleepte mailtjes',
 
-  spellchecker: 'Spelling',
-  spellcheckerDescription: 'Kies talen waarin de app meekijkt of je goed schrijft.',
-  spellcheckerUnavailable: 'Er zijn nu geen woordenboeken.',
-  spellcheckerNone: 'Nog geen extra taal gekozen.',
-  spellcheckerChosen: (count) => `${count} ${count === 1 ? 'taal' : 'talen'} erbij.`,
-  spellcheckerSystemNote: 'De taal van je computer doet altijd mee.',
 
   confirmExternalLinks: 'Vraag het eerst bij een link',
   confirmExternalLinksDescription:

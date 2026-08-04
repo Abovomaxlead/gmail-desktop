@@ -67,10 +67,6 @@ export interface UpdatePrefs {
   notify: boolean;
 }
 
-export interface LanguagePrefs {
-  spellcheck: string[];
-}
-
 export interface GmailPrefs {
   alwaysComposeInNewWindow: boolean;
   closeComposeAfterSend: boolean;
@@ -134,7 +130,6 @@ export interface Prefs {
   downloads: DownloadPrefs;
   phishing: PhishingPrefs;
   updates: UpdatePrefs;
-  languages: LanguagePrefs;
   gmail: GmailPrefs;
   googleApps: GoogleAppsPrefs;
   verificationCodes: VerificationCodePrefs;
@@ -174,7 +169,6 @@ export const DEFAULT_PREFS: Prefs = {
   },
   phishing: { confirmExternalLinks: false, trustedHosts: [] },
   updates: { autoCheck: true, notify: true },
-  languages: { spellcheck: [] },
   gmail: {
     alwaysComposeInNewWindow: false,
     closeComposeAfterSend: false,
@@ -276,7 +270,6 @@ export class PrefsStore {
           autoCheck: bool(raw.updates?.autoCheck, true),
           notify: bool(raw.updates?.notify, true),
         },
-        languages: { spellcheck: stringList(raw.languages?.spellcheck) },
         gmail: {
           alwaysComposeInNewWindow: bool(raw.gmail?.alwaysComposeInNewWindow, false),
           closeComposeAfterSend: bool(raw.gmail?.closeComposeAfterSend, false),
@@ -341,12 +334,6 @@ export class PrefsStore {
   setUpdates(patch: Partial<UpdatePrefs>): void {
     const prefs = this.getAll();
     this.write({ ...prefs, updates: { ...prefs.updates, ...patch } });
-  }
-  setLanguages(patch: Partial<LanguagePrefs>): void {
-    const prefs = this.getAll();
-    const spellcheck =
-      patch.spellcheck === undefined ? prefs.languages.spellcheck : stringList(patch.spellcheck);
-    this.write({ ...prefs, languages: { spellcheck } });
   }
   setAdvanced(patch: Partial<AdvancedPrefs>): void {
     const prefs = this.getAll();

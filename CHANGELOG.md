@@ -59,7 +59,7 @@ to [Semantic Versioning](https://semver.org/).
 - **De instellingen hebben inhoud gekregen, tab voor tab.** Weergave (de getallen
   aan of uit, het tray-icoon, de ondergrens van het venster), Downloads (waar een
   download heen gaat, eerst vragen, map openen — de app handelde downloads tot nu
-  toe helemaal niet af), Talen (extra talen voor de spellingcontrole), Phishing
+  toe helemaal niet af), Phishing
   Protection (de host laten zien voordat een link naar de browser gaat — waar de
   link écht heen gaat, niet de google.com-omleiding die Gmail om elke link zet —
   met een lijst die zichzelf vult als je "altijd goed" aanvinkt), Bijwerken, Geavanceerd
@@ -180,7 +180,7 @@ to [Semantic Versioning](https://semver.org/).
 - **The settings tabs got their content, tab by tab.** Appearance (unread counts on
   or off, the tray icon, the window's minimum size), Downloads (where a download
   goes, ask first, open the folder — the app did not handle downloads at all until
-  now), Languages (extra spellchecker languages), Phishing Protection (see the host
+  now), Phishing Protection (see the host
   before a link opens in your browser — where the link really goes, not the google.com
   redirect Gmail wraps around every link — with a trusted list that fills itself when
   you tick "always allow"), Updates, Advanced (hardware acceleration), Gmail (compose in

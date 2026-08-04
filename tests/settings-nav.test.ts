@@ -22,7 +22,6 @@ describe('SETTINGS_GROUPS', () => {
         'downloads',
         'gmail',
         'google-apps',
-        'languages',
         'notifications',
         'phishing-protection',
         'updates',

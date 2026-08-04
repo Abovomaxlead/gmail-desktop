@@ -2105,7 +2105,10 @@ function notifyDownloadDone(
   n.show();
 }
 
-function spellcheckLanguagesFor(s: Electron.Session, extra: readonly string[]): string[] {
+// The spellchecker follows the system language and nothing else - there is no setting
+// for it. Setting it explicitly rather than leaving it to Electron matters: its default
+// is en-US, which would underline every Dutch word in a compose window.
+function spellcheckLanguagesFor(s: Electron.Session): string[] {
   const available = s.availableSpellCheckerLanguages;
   const locale = app.getLocale();
   const prefix = locale.split('-')[0]?.toLowerCase() ?? '';
@@ -2113,33 +2116,14 @@ function spellcheckLanguagesFor(s: Electron.Session, extra: readonly string[]): 
     available.find((c) => c.toLowerCase() === locale.toLowerCase()) ??
     available.find((c) => c.toLowerCase() === prefix) ??
     available.find((c) => c.toLowerCase().startsWith(`${prefix}-`));
-  const wanted = [...(system ? [system] : []), ...extra.filter((c) => available.includes(c))];
-  return [...new Set(wanted)];
+  return system ? [system] : [];
 }
 
 function applySpellcheckTo(s: Electron.Session): void {
-  const extra = prefs?.getAll().languages.spellcheck ?? [];
   try {
-    s.setSpellCheckerLanguages(spellcheckLanguagesFor(s, extra));
+    s.setSpellCheckerLanguages(spellcheckLanguagesFor(s));
   } catch {
   }
-}
-
-function applySpellcheck(): void {
-  for (const s of sessions) applySpellcheckTo(s);
-}
-
-function spellcheckOptions(): { code: string; label: string }[] {
-  const s = session.defaultSession;
-  let names: Intl.DisplayNames | null = null;
-  try {
-    names = new Intl.DisplayNames([app.getLocale()], { type: 'language' });
-  } catch {
-    names = null;
-  }
-  return s.availableSpellCheckerLanguages
-    .map((code) => ({ code, label: names?.of(code) || code }))
-    .sort((a, b) => a.label.localeCompare(b.label));
 }
 
 let updateTimer: ReturnType<typeof setInterval> | null = null;
@@ -2254,12 +2238,6 @@ function registerIpc(): void {
     applyAutoUpdateCheck();
     pushPrefs();
   });
-  ipcMain.on(IPC.SET_LANGUAGES, (_e, patch: unknown) => {
-    if (!prefs) return;
-    prefs.setLanguages((patch ?? {}) as Parameters<PrefsStore['setLanguages']>[0]);
-    applySpellcheck();
-    pushPrefs();
-  });
   ipcMain.on(IPC.SET_ADVANCED, (_e, patch: unknown) => {
     if (!prefs) return;
     prefs.setAdvanced((patch ?? {}) as Parameters<PrefsStore['setAdvanced']>[0]);
@@ -2300,7 +2278,6 @@ function registerIpc(): void {
     pushPrefs();
     return res.filePaths[0];
   });
-  ipcMain.handle(IPC.SPELLCHECK_LANGUAGES_GET, () => spellcheckOptions());
   ipcMain.handle(IPC.DOWNLOAD_HISTORY_GET, () => downloadHistory?.all() ?? []);
   ipcMain.on(IPC.DOWNLOAD_HISTORY_CLEAR, () => {
     downloadHistory?.clear();
