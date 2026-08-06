@@ -140,7 +140,7 @@ export interface UiStrings {
 
   soundChoice: string;
   soundChoiceDescription: string;
-  soundSystem: string;
+  soundDefault: string;
   soundChime: string;
   soundPing: string;
   soundArpeggio: string;
@@ -504,7 +504,7 @@ export const STRINGS_NORMAL: UiStrings = {
 
   soundChoice: 'Sound',
   soundChoiceDescription: 'Select the sound to play for notifications.',
-  soundSystem: 'System sound',
+  soundDefault: 'Default sound',
   soundChime: 'Chime',
   soundPing: 'Ping',
   soundArpeggio: 'Arpeggio',
@@ -791,7 +791,7 @@ export const STRINGS_RENE: UiStrings = {
 
   soundChoice: 'Welk geluidje',
   soundChoiceDescription: 'Kies wat je hoort bij een melding.',
-  soundSystem: 'Het geluid van de computer',
+  soundDefault: 'Het gewone geluidje',
   soundChime: 'Belletje',
   soundPing: 'Piepje',
   soundArpeggio: 'Trapje omhoog',
@@ -1078,7 +1078,7 @@ export const STRINGS_NL: UiStrings = {
 
   soundChoice: 'Geluid',
   soundChoiceDescription: 'Kies het geluid dat bij meldingen wordt afgespeeld.',
-  soundSystem: 'Systeemgeluid',
+  soundDefault: 'Standaardgeluid',
   soundChime: 'Belsignaal',
   soundPing: 'Ping',
   soundArpeggio: 'Arpeggio',

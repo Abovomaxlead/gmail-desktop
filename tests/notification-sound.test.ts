@@ -2,8 +2,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  DEFAULT_SOUND,
   SOUNDS,
   soundByName,
+  soundNameOrDefault,
   totalDurationMs,
   playSound,
   type AudioContextLike,
@@ -102,7 +104,7 @@ describe('SOUNDS', () => {
     expect(SOUNDS.length).toBeLessThanOrEqual(6);
   });
 
-  it('never uses the empty name, which means "let the OS play its own sound"', () => {
+  it('never uses the empty name, which is the sentinel for "the default sound"', () => {
     expect(SOUNDS.some((s) => s.name === '')).toBe(false);
   });
 
@@ -154,6 +156,31 @@ describe('soundByName', () => {
   it('returns null for an unknown name and for the empty name', () => {
     expect(soundByName('does-not-exist')).toBeNull();
     expect(soundByName('')).toBeNull();
+  });
+});
+
+describe('soundNameOrDefault', () => {
+  it('turns the empty stored preference into the default sound', () => {
+    expect(soundNameOrDefault('')).toBe(DEFAULT_SOUND);
+  });
+
+  it('returns a chosen sound unchanged', () => {
+    for (const s of SOUNDS) {
+      expect(soundNameOrDefault(s.name)).toBe(s.name);
+    }
+  });
+
+  // The whole point of the fallback is that it plays. A rename in SOUNDS that leaves
+  // DEFAULT_SOUND pointing at nothing would make every default-preferences notification
+  // silent again, which is the bug this replaced and which nothing else would catch.
+  it('names a sound that actually exists', () => {
+    expect(soundByName(DEFAULT_SOUND)).not.toBeNull();
+  });
+
+  it('resolves the empty preference to something playSound accepts', () => {
+    const ctx = makeFakeContext();
+    expect(playSound(soundNameOrDefault(''), 1, () => ctx)).toBe(true);
+    expect(ctx.notes.length).toBeGreaterThan(0);
   });
 });
 

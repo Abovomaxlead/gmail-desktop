@@ -6,7 +6,7 @@ import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
-import { SOUNDS, playSound } from '../../lib/notification-sound';
+import { SOUNDS, playSound, soundNameOrDefault } from '../../lib/notification-sound';
 import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
 
 // Notifications: mute, quiet hours, the notification sound, and the per-account grid
@@ -251,7 +251,7 @@ export function NotificationsSection({
             onChange={(e) => window.desktop?.setNotificationExtras({ soundName: e.target.value })}
             className={`${FIELD} disabled:cursor-not-allowed disabled:opacity-50`}
           >
-            <option value="">{S.soundSystem}</option>
+            <option value="">{S.soundDefault}</option>
             {SOUNDS.map((s) => (
               <option key={s.name} value={s.name}>
                 {soundLabel(S, s.name)}
@@ -260,9 +260,12 @@ export function NotificationsSection({
           </select>
           <button
             type="button"
-            disabled={prefs?.notifications.sound === false || !prefs?.notifications.soundName}
+            disabled={prefs?.notifications.sound === false}
             onClick={() =>
-              playSound(prefs?.notifications.soundName ?? '', prefs?.notifications.volume ?? 1)
+              playSound(
+                soundNameOrDefault(prefs?.notifications.soundName ?? ''),
+                prefs?.notifications.volume ?? 1,
+              )
             }
             className={BUTTON}
           >
@@ -281,7 +284,7 @@ export function NotificationsSection({
             min={0}
             max={100}
             step={5}
-            disabled={prefs?.notifications.sound === false || !prefs?.notifications.soundName}
+            disabled={prefs?.notifications.sound === false}
             value={Math.round((prefs?.notifications.volume ?? 1) * 100)}
             onChange={(e) =>
               window.desktop?.setNotificationExtras({ volume: Number(e.target.value) / 100 })

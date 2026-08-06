@@ -128,6 +128,7 @@ import {
 import { ToastWindow } from './toast-window';
 import { ToastController, type ToastInput } from './toast-controller';
 import type { Toast, ToastAccount, ToastAction } from '../renderer/lib/toast';
+import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
   fetchLabels,
@@ -823,8 +824,7 @@ let lastSoundAt = 0;
 const SOUND_GAP_MS = 1500;
 function playNotificationSound(p: Prefs): void {
   if (p.notifications.sound === false) return;
-  const name = p.notifications.soundName;
-  if (!name) return;
+  const name = soundNameOrDefault(p.notifications.soundName);
   const now = Date.now();
   if (now - lastSoundAt < SOUND_GAP_MS) return;
   lastSoundAt = now;
@@ -1521,7 +1521,9 @@ function toastAccountFor(email: string): ToastAccount | undefined {
 
 // The one place a toast is raised. Falling back to a system notification when our own
 // window is not there is not politeness: a bug in the stack must not mean mail arrives
-// silently, and the fallback is the behaviour this feature replaced, so it is known good.
+// silently. The fallback is a degraded one, not the behaviour this feature replaced - it
+// carries only a title and a body, so unlike the notification it stands in for it cannot
+// be clicked to open the mail and it auto-dismisses on the OS timeout.
 function showToast(input: ToastInput): void {
   if (toasts) {
     toasts.show(input);
@@ -2111,10 +2113,10 @@ function showTestNotification(): void {
     ...(first ? { account: toastAccountFor(first.email) } : {}),
     persist: true,
   });
-  if (p.notifications.sound !== false && p.notifications.soundName) {
-    lastSoundAt = 0;
-    playNotificationSound(p);
-  }
+  // A deliberate test should always be heard, so the throttle is reset first. Whether it
+  // may sound at all is playNotificationSound's decision, not this one's.
+  lastSoundAt = 0;
+  playNotificationSound(p);
 }
 
 function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
@@ -2273,6 +2275,7 @@ function notifyDownloadDone(
     ...(done && path && onClick !== 'nothing' ? { threadId: path } : {}),
     persist: true,
   });
+  if (prefs) playNotificationSound(prefs.getAll());
 }
 
 // The spellchecker follows the system language and nothing else - there is no setting

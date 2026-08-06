@@ -3,7 +3,9 @@
 // the tests import this module, so every call sits inside playSound behind a check.
 // One AudioContext is shared for the window's lifetime - Chromium allows only a
 // handful per page. Sound names are preference keys (`notifications.soundName`), so
-// renaming one makes a stored preference fall back to the system sound silently.
+// renaming one makes a stored preference play nothing at all - there is no system sound
+// to fall back to now that the app draws its own notifications, which is why the empty
+// preference resolves to DEFAULT_SOUND rather than to silence.
 // `exponentialRampToValueAtTime` cannot target 0, hence the near-silent SILENCE, and
 // 'custom' stays in OscillatorType only so a real OscillatorNode remains assignable.
 
@@ -95,6 +97,15 @@ export const SOUNDS: readonly SoundSpec[] = [
 
 export function soundByName(name: string): SoundSpec | null {
   return SOUNDS.find((s) => s.name === name) ?? null;
+}
+
+export const DEFAULT_SOUND = 'chime';
+
+/** The sound to actually play for a stored preference. Empty means the default, which
+ *  used to mean "let Windows do it" — it no longer can, because the app draws its own
+ *  notifications and Windows exposes no API for its notification chime. */
+export function soundNameOrDefault(name: string): string {
+  return name || DEFAULT_SOUND;
 }
 
 export function totalDurationMs(spec: SoundSpec): number {
