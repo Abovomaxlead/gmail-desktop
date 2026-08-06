@@ -11,7 +11,6 @@ import { AppearanceSection } from './settings/AppearanceSection';
 import { DownloadHistorySection } from './settings/DownloadHistorySection';
 import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
-import { GmailSection } from './settings/GmailSection';
 import { GoogleAppsSection } from './settings/GoogleAppsSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { PhishingSection } from './settings/PhishingSection';
@@ -41,8 +40,6 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navAppearance;
     case 'downloads':
       return S.navDownloads;
-    case 'gmail':
-      return S.navGmail;
     case 'google-apps':
       return S.navGoogleApps;
     case 'notifications':
@@ -148,8 +145,6 @@ export function SettingsPanel({
             );
           case 'google-apps':
             return <GoogleAppsSection S={S} prefs={prefs} />;
-          case 'gmail':
-            return <GmailSection S={S} prefs={prefs} />;
           case 'appearance':
             return <AppearanceSection S={S} prefs={prefs} />;
           case 'download-history':

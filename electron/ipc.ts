@@ -32,7 +32,6 @@ export const IPC = {
   SET_PHISHING: 'prefs:phishing',
   SET_UPDATE_PREFS: 'prefs:updates',
   SET_ADVANCED: 'prefs:advanced',
-  SET_GMAIL: 'prefs:gmail',
   SET_VERIFICATION_CODES: 'prefs:verification-codes',
   DOWNLOAD_HISTORY_GET: 'downloads:history-get',
   DOWNLOAD_HISTORY_CLEAR: 'downloads:history-clear',
@@ -41,9 +40,6 @@ export const IPC = {
   DOWNLOAD_HISTORY_CHANGED: 'downloads:history-changed',
   NOTIFY_SOUND_PLAY: 'notify:sound-play',
   SET_GOOGLE_APPS: 'prefs:google-apps',
-  GMAIL_TWEAKS: 'gmail:tweaks',
-  COMPOSE_REQUEST: 'gmail:compose-request',
-  COMPOSE_SENT: 'gmail:compose-sent',
   SET_NOTIFICATION_EXTRAS: 'prefs:notification-extras',
   NOTIFY_TEST: 'notify:test',
   DOWNLOAD_FOLDER_PICK: 'downloads:folder-pick',
@@ -129,8 +125,6 @@ export interface DownloadRecord {
   startedAt: number;
   state: 'completed' | 'cancelled' | 'interrupted';
 }
-
-export type GmailTweakState = { composeInNewWindow: boolean };
 
 export type NotifyState = {
   show: boolean;

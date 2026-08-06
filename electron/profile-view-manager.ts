@@ -3,15 +3,14 @@
 // (delegated keys are "d:<email>"), so it is recovered by splitting on the LAST one. A
 // preloading view is parked off-window and stays visible: an invisible view counts as
 // occluded and Gmail then never builds its message list, so show() and hideAll() must
-// skip warming views. State a page load destroys — the tweak CSS the preload injected,
-// the audio mute that silences Gmail's in-page chime — is re-sent on every load, so the
-// manager holds the last value itself. Discarding a mail view reports 0 unread so the
-// badge total forgets it; a window.open passes only when the app itself asked for it.
+// skip warming views. State a page load destroys — the audio mute that silences Gmail's
+// in-page chime — is re-sent on every load, so the manager holds the last value itself.
+// Discarding a mail view reports 0 unread so the badge total forgets it; a window.open
+// passes only when the app itself asked for it.
 import { BrowserWindow, WebContentsView } from 'electron';
 import { contentBounds } from './layout';
 import {
   IPC,
-  type GmailTweakState,
   type NotifyState,
   type MailDropPayload,
   type MailDropResult,
@@ -42,7 +41,6 @@ const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
 
 export class ProfileViewManager {
   private views = new Map<string, WebContentsView>();
-  private lastGmailTweaks: GmailTweakState = { composeInNewWindow: false };
   private activeViewKey: string | null = null;
   private notifClickUntil = new Map<string, number>();
   private warming = new Set<string>();
@@ -63,7 +61,6 @@ export class ProfileViewManager {
     private readonly getOpenMode: () => 'app' | 'window',
     private readonly getUiScale: () => number = () => 1,
     private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
-    private readonly onCompose: (accountKey: string) => void = () => {},
   ) {
     this.win.on('resize', () => this.relayout());
   }
@@ -99,14 +96,12 @@ export class ProfileViewManager {
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
         this.onActivate(acctKey, surface, typeof args[0] === 'string' ? args[0] : undefined);
       }
-      if (channel === IPC.COMPOSE_REQUEST && surface === 'mail') this.onCompose?.(acctKey);
     });
     void view.webContents.loadURL(urlOverride ?? SURFACE_CONFIG[surface].url(ref));
     view.webContents.on('before-input-event', (_e, input) => this.onInput(acctKey, input as unknown as KeyInput));
     view.webContents.on('did-finish-load', () => {
       view.webContents.setZoomLevel(this.getZoom(acctKey));
       if (surface === 'mail') view.webContents.setAudioMuted(this.getSilent(acctKey));
-      if (surface === 'mail') view.webContents.send(IPC.GMAIL_TWEAKS, this.lastGmailTweaks);
     });
     view.webContents.once('destroyed', () => {
       if (this.views.get(k) !== view) return;
@@ -271,16 +266,6 @@ export class ProfileViewManager {
     if (!wc || wc.isDestroyed()) return;
     wc.send(IPC.NOTIFY_ALLOWED, state);
     if (surface === 'mail') wc.setAudioMuted(state.silent);
-  }
-
-  pushGmailTweaks(state: GmailTweakState): void {
-    this.lastGmailTweaks = state;
-    for (const [key, view] of this.views) {
-      if (!key.endsWith(':mail')) continue;
-      const wc = view.webContents;
-      if (!wc || wc.isDestroyed()) continue;
-      wc.send(IPC.GMAIL_TWEAKS, state);
-    }
   }
 
   async withHiddenView<T>(

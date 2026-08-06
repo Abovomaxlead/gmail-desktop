@@ -20,7 +20,6 @@ export interface UiStrings {
   navAccounts: string;
   navAppearance: string;
   navDownloads: string;
-  navGmail: string;
   navGoogleApps: string;
   navNotifications: string;
   navPhishingProtection: string;
@@ -105,10 +104,6 @@ export interface UiStrings {
   hardwareAccelerationDescription: string;
   restartRequired: string;
 
-  gmailComposeGroup: string;
-  gmailComposeNewWindow: string;
-  gmailComposeNewWindowDescription: string;
-
   gaOpenInApp: string;
   gaOpenInAppDescription: string;
   gaAlwaysNewWindow: string;
@@ -154,9 +149,6 @@ export interface UiStrings {
   soundPreview: string;
   volumeLabel: (percent: number) => string;
   volumeDescription: string;
-
-  gmailCloseCompose: string;
-  gmailCloseComposeDescription: string;
 
   vcAutoCopy: string;
   vcAutoCopyDescription: string;
@@ -360,7 +352,6 @@ export const STRINGS_NORMAL: UiStrings = {
   navAccounts: 'Accounts',
   navAppearance: 'Appearance',
   navDownloads: 'Downloads',
-  navGmail: 'Gmail',
   navGoogleApps: 'Google Apps',
   navNotifications: 'Notifications',
   navPhishingProtection: 'Phishing Protection',
@@ -459,11 +450,6 @@ export const STRINGS_NORMAL: UiStrings = {
     'Enabling hardware acceleration can improve performance but can also cause compatibility issues on some systems.',
   restartRequired: 'Takes effect the next time the app starts.',
 
-  gmailComposeGroup: 'Compose',
-  gmailComposeNewWindow: 'Always Compose New Emails in New Window',
-  gmailComposeNewWindowDescription:
-    'Opens a new window for composing emails instead of inside Gmail.',
-
   gaOpenInApp: 'Open in App',
   gaOpenInAppDescription: 'Open Google Apps in app instead of external browser.',
   gaAlwaysNewWindow: 'Always Open in New Window',
@@ -516,10 +502,6 @@ export const STRINGS_NORMAL: UiStrings = {
   soundPreview: 'Play',
   volumeLabel: (percent) => `Volume ${percent}%`,
   volumeDescription: 'Set the volume level for notification sounds.',
-
-  gmailCloseCompose: 'Close Compose Window After Send',
-  gmailCloseComposeDescription:
-    'Automatically closes the compose window after pressing the send button. Only applies to a compose window the app opened itself.',
 
   vcAutoCopy: 'Automatically Copy Verification Code to Clipboard',
   vcAutoCopyDescription:
@@ -652,7 +634,6 @@ export const STRINGS_RENE: UiStrings = {
   navAccounts: 'Wie doet mee?',
   navAppearance: 'Hoe het eruitziet',
   navDownloads: 'Wat je haalt',
-  navGmail: 'Gmail',
   navGoogleApps: 'Google-dingen',
   navNotifications: 'Meldingen',
   navPhishingProtection: 'Nepmail',
@@ -746,11 +727,6 @@ export const STRINGS_RENE: UiStrings = {
     'Dit maakt de app sneller. Ziet het scherm er raar uit? Zet het dan uit.',
   restartRequired: 'Dit werkt pas als de app opnieuw opstart.',
 
-  gmailComposeGroup: 'Mail maken',
-  gmailComposeNewWindow: 'Maak mail in een eigen venster',
-  gmailComposeNewWindowDescription:
-    'Een nieuwe mail gaat in een apart venster, niet in het hoekje van Gmail.',
-
   gaOpenInApp: 'Open in de app',
   gaOpenInAppDescription: 'Open Google-dingen in de app en niet in je browser.',
   gaAlwaysNewWindow: 'Altijd in een nieuw venster',
@@ -802,10 +778,6 @@ export const STRINGS_RENE: UiStrings = {
   soundPreview: 'Laat horen',
   volumeLabel: (percent) => `Hoe hard: ${percent}%`,
   volumeDescription: 'Hoe hard het geluidje is.',
-
-  gmailCloseCompose: 'Doe het venster dicht na versturen',
-  gmailCloseComposeDescription:
-    'Heb je de mail verstuurd? Dan gaat het venster zelf dicht. Alleen bij een venster dat de app zelf opende.',
 
   vcAutoCopy: 'Zet de code op het klembord',
   vcAutoCopyDescription: 'Krijg je een code in een mailtje? Dan kan je hem meteen plakken.',
@@ -930,7 +902,6 @@ export const STRINGS_NL: UiStrings = {
   navAccounts: 'Accounts',
   navAppearance: 'Weergave',
   navDownloads: 'Downloads',
-  navGmail: 'Gmail',
   navGoogleApps: 'Google-apps',
   navNotifications: 'Meldingen',
   navPhishingProtection: 'Phishingbescherming',
@@ -1031,11 +1002,6 @@ export const STRINGS_NL: UiStrings = {
     'Hardwareversnelling kan de prestaties verbeteren, maar kan op sommige systemen ook problemen geven.',
   restartRequired: 'Werkt vanaf de volgende keer dat de app start.',
 
-  gmailComposeGroup: 'Opstellen',
-  gmailComposeNewWindow: 'Nieuwe mail altijd in een nieuw venster opstellen',
-  gmailComposeNewWindowDescription:
-    'Opent een nieuw venster om mail op te stellen, in plaats van binnen Gmail.',
-
   gaOpenInApp: 'In de app openen',
   gaOpenInAppDescription: 'Open Google-apps in de app in plaats van in de externe browser.',
   gaAlwaysNewWindow: 'Altijd in een nieuw venster openen',
@@ -1088,10 +1054,6 @@ export const STRINGS_NL: UiStrings = {
   soundPreview: 'Afspelen',
   volumeLabel: (percent) => `Volume ${percent}%`,
   volumeDescription: 'Stel het volume van meldingsgeluiden in.',
-
-  gmailCloseCompose: 'Venster voor opstellen sluiten na versturen',
-  gmailCloseComposeDescription:
-    'Sluit het venster voor opstellen automatisch nadat je op verzenden hebt gedrukt. Geldt alleen voor een venster dat de app zelf heeft geopend.',
 
   vcAutoCopy: 'Verificatiecode automatisch naar het klembord kopiëren',
   vcAutoCopyDescription:

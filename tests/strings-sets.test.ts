@@ -76,7 +76,6 @@ const SAME_IN_BOTH = new Set([
   'languageEnglish',
   'languageDutch',
   'escKey',
-  'navGmail',
   'calendarToggle',
   'navAccounts',
   'navDownloads',

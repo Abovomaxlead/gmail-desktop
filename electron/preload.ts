@@ -10,7 +10,6 @@
 import { parseUnreadCount } from './unread-parser';
 import {
   IPC,
-  type GmailTweakState,
   type NotifyState,
   type MailDropPayload,
   type MailDropResult,
@@ -116,15 +115,6 @@ export function notificationOptionsFor(
 
 export function notificationTitleFor(state: NotifyState, title: string): string {
   return typeof state.hiddenSender === 'string' ? state.hiddenSender : title;
-}
-
-export const COMPOSE_BUTTON_SELECTOR = '[gh="cm"], div[role="button"][gh="cm"]';
-
-export function isComposeClick(
-  target: { closest?: (selector: string) => unknown } | null | undefined,
-): boolean {
-  if (!target || typeof target.closest !== 'function') return false;
-  return target.closest(COMPOSE_BUTTON_SELECTOR) != null;
 }
 
 export function isEditableTarget(
@@ -317,25 +307,6 @@ if (typeof document !== 'undefined') {
   ipcRenderer.on(IPC.NOTIFY_ALLOWED, (_e: unknown, state: NotifyState) => {
     notifyState = state;
   });
-
-  let tweaks: GmailTweakState = { composeInNewWindow: false };
-  ipcRenderer.on(IPC.GMAIL_TWEAKS, (_e: unknown, state: unknown) => {
-    const s = state as Partial<GmailTweakState> | null;
-    tweaks = { composeInNewWindow: s?.composeInNewWindow === true };
-  });
-
-  document.addEventListener(
-    'click',
-    (e) => {
-      if (!tweaks.composeInNewWindow) return;
-      const target = e.target as (Element & { closest?: (s: string) => Element | null }) | null;
-      if (!isComposeClick(target)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      ipcRenderer.send(IPC.COMPOSE_REQUEST);
-    },
-    true,
-  );
 
   window.open = wrapWindowOpen(window.open.bind(window));
 

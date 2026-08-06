@@ -181,7 +181,6 @@ function loadChangelog(): ChangelogVersion[] {
 }
 const PRELOAD_PATH = join(__dirname, 'preload.js');
 const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
-const COMPOSE_PRELOAD_PATH = join(__dirname, 'compose-preload.js');
 const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
 const DEV_URL = process.env.ELECTRON_RENDERER_URL;
 const OAUTH_CONFIG_PATH = join(app.getPath('userData'), 'google-oauth.json');
@@ -1695,7 +1694,6 @@ function createWindow(): void {
     () => prefs?.getAll().notificationOpen ?? 'app',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
-    (acctKey) => openComposeForAccount(acctKey),
   );
 
   if (DEV_URL) void mainWindow.loadURL(DEV_URL);
@@ -1976,14 +1974,6 @@ function showTestNotification(): void {
   }
 }
 
-function pushGmailTweaks(): void {
-  if (!prefs || !manager) return;
-  const g = prefs.getAll().gmail;
-  manager.pushGmailTweaks({
-    composeInNewWindow: g.alwaysComposeInNewWindow === true,
-  });
-}
-
 function openSurfaceForAccount(ref: AccountRef, surface: Surface): void {
   if (surface === 'mail' || !prefs) {
     showAccount(ref, surface);
@@ -2030,23 +2020,9 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
   void win.loadURL(url);
 }
 
-function openComposeForAccount(accountKey: string): void {
-  const idx = idxOfKey(accountKey);
-  if (idx == null) return;
-  openComposeWindow(idx);
-}
-
 function openComposeWindow(index: number, fields?: MailtoFields): void {
-  const closeAfterSend = prefs?.getAll().gmail.closeComposeAfterSend === true;
   const title = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true).composeTitle;
-  const win = openCompose(index, title, fields, closeAfterSend ? COMPOSE_PRELOAD_PATH : undefined);
-  if (!closeAfterSend) return;
-  win.webContents.on('ipc-message', (_e, channel) => {
-    if (channel !== IPC.COMPOSE_SENT) return;
-    setTimeout(() => {
-      if (!win.isDestroyed()) win.close();
-    }, 1500);
-  });
+  openCompose(index, title, fields);
 }
 
 function openExternalGuarded(url: string): void {
@@ -2297,12 +2273,6 @@ function registerIpc(): void {
     if (!prefs) return;
     prefs.setNotificationExtras((patch ?? {}) as Parameters<PrefsStore['setNotificationExtras']>[0]);
     refreshNotifyAllowed();
-    pushPrefs();
-  });
-  ipcMain.on(IPC.SET_GMAIL, (_e, patch: unknown) => {
-    if (!prefs) return;
-    prefs.setGmail((patch ?? {}) as Parameters<PrefsStore['setGmail']>[0]);
-    pushGmailTweaks();
     pushPrefs();
   });
   ipcMain.on(IPC.SET_VERIFICATION_CODES, (_e, patch: unknown) => {

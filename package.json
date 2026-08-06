@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build:renderer": "npm run build --prefix renderer",
-    "build:main": "esbuild electron/main.ts electron/preload.ts electron/sidebar-preload.ts electron/compose-preload.ts --bundle --platform=node --target=node22 --external:electron --outdir=dist-electron --format=cjs",
+    "build:main": "esbuild electron/main.ts electron/preload.ts electron/sidebar-preload.ts --bundle --platform=node --target=node22 --external:electron --outdir=dist-electron --format=cjs",
     "build": "npm run build:renderer && npm run build:main",
     "start": "electron .",
     "dev": "node scripts/dev.mjs",

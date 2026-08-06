@@ -66,7 +66,6 @@ contextBridge.exposeInMainWorld('desktop', {
   setPhishing: (patch: unknown): void => ipcRenderer.send(IPC.SET_PHISHING, patch),
   setUpdatePrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_UPDATE_PREFS, patch),
   setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
-  setGmail: (patch: unknown): void => ipcRenderer.send(IPC.SET_GMAIL, patch),
   setVerificationCodes: (patch: unknown): void =>
     ipcRenderer.send(IPC.SET_VERIFICATION_CODES, patch),
   getDownloadHistory: (): Promise<unknown> => ipcRenderer.invoke(IPC.DOWNLOAD_HISTORY_GET),

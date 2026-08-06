@@ -9,7 +9,6 @@ export type SettingsSection =
   | 'accounts'
   | 'appearance'
   | 'downloads'
-  | 'gmail'
   | 'google-apps'
   | 'notifications'
   | 'phishing-protection'
@@ -36,7 +35,6 @@ export const SETTINGS_GROUPS: readonly (readonly SettingsSection[])[] = [
     'accounts',
     'appearance',
     'downloads',
-    'gmail',
     'google-apps',
     'notifications',
     'phishing-protection',

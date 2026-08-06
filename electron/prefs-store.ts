@@ -68,11 +68,6 @@ export interface UpdatePrefs {
   notify: boolean;
 }
 
-export interface GmailPrefs {
-  alwaysComposeInNewWindow: boolean;
-  closeComposeAfterSend: boolean;
-}
-
 export interface GoogleAppsPrefs {
   openInApp: boolean;
   alwaysNewWindow: boolean;
@@ -132,7 +127,6 @@ export interface Prefs {
   downloads: DownloadPrefs;
   phishing: PhishingPrefs;
   updates: UpdatePrefs;
-  gmail: GmailPrefs;
   googleApps: GoogleAppsPrefs;
   verificationCodes: VerificationCodePrefs;
   advanced: AdvancedPrefs;
@@ -172,10 +166,6 @@ export const DEFAULT_PREFS: Prefs = {
   },
   phishing: { confirmExternalLinks: false, trustedHosts: [] },
   updates: { autoCheck: true, notify: true },
-  gmail: {
-    alwaysComposeInNewWindow: false,
-    closeComposeAfterSend: false,
-  },
   googleApps: {
     openInApp: true,
     alwaysNewWindow: false,
@@ -276,10 +266,6 @@ export class PrefsStore {
           autoCheck: bool(raw.updates?.autoCheck, true),
           notify: bool(raw.updates?.notify, true),
         },
-        gmail: {
-          alwaysComposeInNewWindow: bool(raw.gmail?.alwaysComposeInNewWindow, false),
-          closeComposeAfterSend: bool(raw.gmail?.closeComposeAfterSend, false),
-        },
         googleApps: {
           openInApp: bool(raw.googleApps?.openInApp, true),
           alwaysNewWindow: bool(raw.googleApps?.alwaysNewWindow, false),
@@ -348,10 +334,6 @@ export class PrefsStore {
   setVerificationCodes(patch: Partial<VerificationCodePrefs>): void {
     const prefs = this.getAll();
     this.write({ ...prefs, verificationCodes: { ...prefs.verificationCodes, ...patch } });
-  }
-  setGmail(patch: Partial<GmailPrefs>): void {
-    const prefs = this.getAll();
-    this.write({ ...prefs, gmail: { ...prefs.gmail, ...patch } });
   }
   setGoogleApps(patch: Partial<GoogleAppsPrefs>): void {
     const prefs = this.getAll();

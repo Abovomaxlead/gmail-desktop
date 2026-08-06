@@ -20,7 +20,6 @@ describe('SETTINGS_GROUPS', () => {
         'accounts',
         'appearance',
         'downloads',
-        'gmail',
         'google-apps',
         'notifications',
         'phishing-protection',

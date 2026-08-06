@@ -109,10 +109,6 @@ export interface Prefs {
   };
   phishing: { confirmExternalLinks: boolean; trustedHosts: string[] };
   updates: { autoCheck: boolean; notify: boolean };
-  gmail: {
-    alwaysComposeInNewWindow: boolean;
-    closeComposeAfterSend: boolean;
-  };
   googleApps: {
     openInApp: boolean;
     alwaysNewWindow: boolean;
@@ -180,10 +176,6 @@ interface DesktopBridge {
   setPhishing(patch: { confirmExternalLinks?: boolean; trustedHosts?: string[] }): void;
   setUpdatePrefs(patch: { autoCheck?: boolean; notify?: boolean }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
-  setGmail(patch: {
-    alwaysComposeInNewWindow?: boolean;
-    closeComposeAfterSend?: boolean;
-  }): void;
   setVerificationCodes(patch: {
     autoCopy?: boolean;
     confidence?: 'medium' | 'high';

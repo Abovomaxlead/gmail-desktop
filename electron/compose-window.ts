@@ -4,10 +4,9 @@
 // Google session, and the window is returned so main can attach the closing
 // behaviour.
 //
-// The preload path is optional: only "close after sending" needs anyone watching, and
-// no preload means no listener the page can see. openThreadWindow is the fallback for
-// "open in a new window" when Gmail's own pop-out button cannot be triggered — that
-// focused pop-out only renders when Gmail itself opens it.
+// openThreadWindow is the fallback for "open in a new window" when Gmail's own pop-out
+// button cannot be triggered — that focused pop-out only renders when Gmail itself opens
+// it.
 
 import { BrowserWindow } from 'electron';
 import { attachExternalLinkHandling } from './external-links';
@@ -20,7 +19,6 @@ export function openCompose(
   index: number,
   title: string,
   fields?: MailtoFields,
-  preloadPath?: string,
 ): BrowserWindow {
   const win = new BrowserWindow({
     width: 720,
@@ -30,7 +28,6 @@ export function openCompose(
     webPreferences: {
       partition: SESSION_PARTITION,
       contextIsolation: true,
-      ...(preloadPath ? { preload: preloadPath } : {}),
     },
   });
   attachExternalLinkHandling(win.webContents);
