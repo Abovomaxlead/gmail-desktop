@@ -55,6 +55,11 @@ export interface UiStrings {
   themeSystem: string;
   themeLight: string;
   themeDark: string;
+  language: string;
+  languageDescription: string;
+  languageSystem: string;
+  languageEnglish: string;
+  languageDutch: string;
   notificationOpenLabel: string;
   notificationOpenDescription: string;
   openInApp: string;
@@ -393,6 +398,11 @@ export const STRINGS_NORMAL: UiStrings = {
   themeSystem: 'System',
   themeLight: 'Light',
   themeDark: 'Dark',
+  language: 'Language',
+  languageDescription: 'The language of this app. Gmail itself follows your Google account.',
+  languageSystem: 'Same as Windows',
+  languageEnglish: 'English',
+  languageDutch: 'Nederlands',
   notificationOpenLabel: 'When you click a notification',
   notificationOpenDescription:
     'The message opens in the app, or in a separate Gmail window on top of it.',
@@ -678,6 +688,11 @@ export const STRINGS_RENE: UiStrings = {
   themeSystem: 'De computer kiest',
   themeLight: 'Licht',
   themeDark: 'Donker',
+  language: 'Taal',
+  languageDescription: 'De taal van deze app. Gmail zelf gaat mee met je Google-account.',
+  languageSystem: 'Net als de computer',
+  languageEnglish: 'English',
+  languageDutch: 'Nederlands',
   notificationOpenLabel: 'Als je op een melding klikt',
   notificationOpenDescription: 'De mail gaat open in de app, of in een eigen raam ervoor.',
   openInApp: 'In de app',
@@ -907,6 +922,11 @@ export const STRINGS_RENE: UiStrings = {
 // the app compiling and running until then.
 export const STRINGS_NL: UiStrings = {
   ...STRINGS_NORMAL,
+  language: 'Taal',
+  languageDescription: 'De taal van deze app. Gmail zelf volgt de taal van je Google-account.',
+  languageSystem: 'Gelijk aan Windows',
+  languageEnglish: 'English',
+  languageDutch: 'Nederlands',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_NL[key] : '';

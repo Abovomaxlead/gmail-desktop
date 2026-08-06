@@ -31,6 +31,18 @@ export function AppearanceSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
             <option value="dark">{S.themeDark}</option>
           </select>
         </SettingRow>
+        <SettingRow label={S.language} description={S.languageDescription} htmlFor="setting-language">
+          <select
+            id="setting-language"
+            value={prefs?.language ?? 'system'}
+            onChange={(e) => window.desktop?.setLanguage(e.target.value as 'system' | 'en' | 'nl')}
+            className={FIELD}
+          >
+            <option value="system">{S.languageSystem}</option>
+            <option value="en">{S.languageEnglish}</option>
+            <option value="nl">{S.languageDutch}</option>
+          </select>
+        </SettingRow>
       </SettingsGroup>
 
       <SettingsGroup title={S.navAccounts}>
