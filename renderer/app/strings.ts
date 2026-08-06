@@ -6,6 +6,8 @@
 // section, one key for both, because nineteen sections with two keys each would be
 // nineteen chances for the two to drift apart.
 
+import type { Locale } from '../../electron/locale';
+
 export interface UiStrings {
   numberLocale: string;
 
@@ -32,6 +34,10 @@ export interface UiStrings {
 
   defaultMailClient: string;
   defaultMailClientDescription: string;
+  defaultMailIsDefault: string;
+  defaultMailNotDefault: string;
+  defaultMailSetButton: string;
+  defaultMailChangeButton: string;
   startup: string;
   autoStart: string;
   autoStartDescription: string;
@@ -104,6 +110,8 @@ export interface UiStrings {
   gaAlwaysNewWindowDescription: string;
   gaExcluded: string;
   gaExcludedDescription: string;
+  gaExcludedAllExternal: string;
+  gaExcludedAllNewWindow: string;
   gaExcludedNone: string;
   gaShowAccountLabel: string;
   gaShowAccountLabelDescription: string;
@@ -269,7 +277,7 @@ function categoryKey(heading: string): 'added' | 'fixed' | 'changed' | 'removed'
   }
 }
 
-const CATEGORY_NORMAL: Record<string, string> = {
+export const CATEGORY_NORMAL: Record<string, string> = {
   added: 'New',
   fixed: 'Fixed',
   changed: 'Changed',
@@ -277,12 +285,20 @@ const CATEGORY_NORMAL: Record<string, string> = {
   security: 'Security',
 };
 
-const CATEGORY_RENE: Record<string, string> = {
+export const CATEGORY_RENE: Record<string, string> = {
   added: 'Nieuw',
   fixed: 'Gemaakt',
   changed: 'Anders',
   removed: 'Weg',
   security: 'Veilig',
+};
+
+export const CATEGORY_NL: Record<string, string> = {
+  added: 'Toegevoegd',
+  fixed: 'Opgelost',
+  changed: 'Gewijzigd',
+  removed: 'Verwijderd',
+  security: 'Beveiliging',
 };
 
 type ColorKey = 'blue' | 'red' | 'green' | 'yellow' | 'purple' | 'teal';
@@ -296,7 +312,7 @@ const COLOR_KEYS: Record<string, ColorKey> = {
   '#00acc1': 'teal',
 };
 
-const COLOR_NORMAL: Record<ColorKey, string> = {
+export const COLOR_NORMAL: Record<ColorKey, string> = {
   blue: 'Blue',
   red: 'Red',
   green: 'Green',
@@ -306,6 +322,15 @@ const COLOR_NORMAL: Record<ColorKey, string> = {
 };
 
 const COLOR_RENE: Record<ColorKey, string> = {
+  blue: 'Blauw',
+  red: 'Rood',
+  green: 'Groen',
+  yellow: 'Geel',
+  purple: 'Paars',
+  teal: 'Turkoois',
+};
+
+export const COLOR_NL: Record<ColorKey, string> = {
   blue: 'Blauw',
   red: 'Rood',
   green: 'Groen',
@@ -344,7 +369,11 @@ export const STRINGS_NORMAL: UiStrings = {
 
   defaultMailClient: 'Default Mail Client',
   defaultMailClientDescription:
-    'Set Gmail Desktop as the default mail client to handle email links and related protocols.',
+    'Windows decides which app opens email links, so the choice is made there. This button takes you straight to it.',
+  defaultMailIsDefault: 'Email links open in Gmail Desktop.',
+  defaultMailNotDefault: 'Email links open in another app right now.',
+  defaultMailSetButton: 'Set in Windows',
+  defaultMailChangeButton: 'Change in Windows',
   startup: 'Startup',
   autoStart: 'Launch at Login',
   autoStartDescription:
@@ -433,6 +462,10 @@ export const STRINGS_NORMAL: UiStrings = {
   gaExcluded: 'Excluded Apps',
   gaExcludedDescription:
     'Select which Google Apps should open in the external browser instead of the app.',
+  gaExcludedAllExternal:
+    'Every Google App already opens in the external browser, so there is nothing left to exclude. Turn on Open in App to choose per app.',
+  gaExcludedAllNewWindow:
+    'Always Open in New Window gives every Google App its own window in the app, so this list has no say. Turn that off to choose per app.',
   gaExcludedNone: 'None',
   gaShowAccountLabel: 'Show Account Label',
   gaShowAccountLabelDescription:
@@ -623,7 +656,11 @@ export const STRINGS_RENE: UiStrings = {
 
   defaultMailClient: 'Mail gaat door deze app',
   defaultMailClientDescription:
-    'Klik je ergens op een mail-adres? Dan gaat dat mailtje open in deze app.',
+    'Windows kiest welke app een mail-adres opent. Met deze knop ga je er naartoe en kies je deze app.',
+  defaultMailIsDefault: 'Klik je op een mail-adres, dan gaat het door deze app.',
+  defaultMailNotDefault: 'Klik je op een mail-adres, dan gaat het nu nog door een andere app.',
+  defaultMailSetButton: 'Zet het goed',
+  defaultMailChangeButton: 'Verander het',
   startup: 'Als de computer aan gaat',
   autoStart: 'De app gaat zelf aan',
   autoStartDescription: 'De app gaat open als je de computer aanzet.',
@@ -706,6 +743,10 @@ export const STRINGS_RENE: UiStrings = {
     'Doe een Google-ding altijd in een nieuw venster open, ook als er al een venster open staat.',
   gaExcluded: 'Dingen die niet in de app gaan',
   gaExcludedDescription: 'Kies welke Google-dingen in je browser open gaan en niet in de app.',
+  gaExcludedAllExternal:
+    'Alle Google-dingen gaan nu al naar je browser, dus er is niks meer om uit te zetten. Zet "Open in de app" aan als je per ding wil kiezen.',
+  gaExcludedAllNewWindow:
+    'Met "Altijd in een nieuw venster" krijgt elk Google-ding zijn eigen venster in de app. Deze lijst doet dan niks. Zet die schakelaar uit als je per ding wil kiezen.',
   gaExcludedNone: 'Geen',
   gaShowAccountLabel: 'Naam van het account laten zien',
   gaShowAccountLabelDescription:
@@ -862,6 +903,21 @@ export const STRINGS_RENE: UiStrings = {
   settingsTooltip: 'Knopjes',
 };
 
-export function getStrings(reneMode: boolean): UiStrings {
-  return reneMode ? STRINGS_RENE : STRINGS_NORMAL;
+// Filled in with real Dutch by the translation task; a spread of the English set keeps
+// the app compiling and running until then.
+export const STRINGS_NL: UiStrings = {
+  ...STRINGS_NORMAL,
+  changelogCategory: (heading) => {
+    const key = categoryKey(heading);
+    return key ? CATEGORY_NL[key] : '';
+  },
+  colorName: (hex) => {
+    const key = colorKey(hex);
+    return key ? COLOR_NL[key] : hex;
+  },
+};
+
+export function getStrings(locale: Locale, reneMode: boolean): UiStrings {
+  if (reneMode) return STRINGS_RENE;
+  return locale === 'nl' ? STRINGS_NL : STRINGS_NORMAL;
 }
