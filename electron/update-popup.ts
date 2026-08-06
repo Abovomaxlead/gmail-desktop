@@ -1,6 +1,8 @@
 // Pure derivation of the little "check for updates" dialog shown after a
 // tray-initiated check. Intermediate states return null so the caller waits for a
 // terminal result before popping anything up.
+import type { NativeLabels } from './native-labels';
+
 export interface UpdateStatusLike {
   state: string;
   version?: string;
@@ -16,30 +18,30 @@ export interface UpdatePopup {
   downloadButtonIndex?: number;
 }
 
-export function updateCheckPopup(status: UpdateStatusLike): UpdatePopup | null {
+export function updateCheckPopup(status: UpdateStatusLike, L: NativeLabels): UpdatePopup | null {
   switch (status.state) {
     case 'dev':
       return {
-        message: 'Update checks only work in the installed app.',
-        buttons: ['OK'],
+        message: L.updateDevOnly,
+        buttons: [L.ok],
       };
     case 'available':
       return {
-        message: `A new version${status.version ? ` (v${status.version})` : ''} is available.`,
+        message: L.updateAvailableMessage(status.version),
         detail: status.currentVersion ? `You have v${status.currentVersion} installed.` : undefined,
-        buttons: ['Download', 'Later'],
+        buttons: [L.download, L.later],
         downloadButtonIndex: 0,
       };
     case 'not-available':
       return {
-        message: `You already have the latest version${status.currentVersion ? ` (v${status.currentVersion})` : ''}.`,
-        buttons: ['OK'],
+        message: L.updateLatestMessage(status.currentVersion),
+        buttons: [L.ok],
       };
     case 'error':
       return {
-        message: "Couldn't check for updates.",
+        message: L.updateCheckFailed,
         detail: status.message ? String(status.message) : undefined,
-        buttons: ['OK'],
+        buttons: [L.ok],
       };
     default:
       return null;

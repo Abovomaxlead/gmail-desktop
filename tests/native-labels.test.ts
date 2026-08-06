@@ -50,6 +50,25 @@ describe('nativeLabels — the other dialogs', () => {
   });
 });
 
+describe('nativeLabels — the update popup and notifications', () => {
+  it('keeps the version optional in the update messages', () => {
+    for (const [locale, rene] of [['en', false], ['nl', false], ['en', true]] as const) {
+      const l = nativeLabels(locale, rene);
+      expect(l.updateAvailableMessage('1.2.3')).toContain('1.2.3');
+      expect(l.updateAvailableMessage()).not.toContain('undefined');
+      expect(l.updateLatestMessage()).not.toContain('undefined');
+    }
+  });
+
+  it('keeps the address and the error in the account notice', () => {
+    for (const [locale, rene] of [['en', false], ['nl', false], ['en', true]] as const) {
+      const body = nativeLabels(locale, rene).accountNotAddedBody('a@b.com', 'boom');
+      expect(body).toContain('a@b.com');
+      expect(body).toContain('boom');
+    }
+  });
+});
+
 // Rene mode exists to say things differently, so its wording must not equal the normal
 // Dutch. cancel is the only field where both registers could reasonably land on the same
 // word, and they do not today, so every field is checked.
@@ -61,8 +80,8 @@ describe('the Rene variant', () => {
     for (const key of Object.keys(nl) as (keyof typeof nl)[]) {
       const a = nl[key];
       const b = rene[key];
-      const av = typeof a === 'function' ? a('x') : a;
-      const bv = typeof b === 'function' ? b('x') : b;
+      const av = typeof a === 'function' ? a('x', 'x') : a;
+      const bv = typeof b === 'function' ? b('x', 'x') : b;
       if (av === bv) same.push(key);
     }
     expect(same, `Rene wording equals normal Dutch: ${same.join(', ')}`).toEqual([]);

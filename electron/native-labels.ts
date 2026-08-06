@@ -15,6 +15,20 @@ export interface NativeLabels {
   readonly linkMessage: (host: string) => string;
   readonly linkDetail: (url: string) => string;
   readonly linkAlwaysAllow: (host: string) => string;
+  readonly ok: string;
+  readonly download: string;
+  readonly later: string;
+  readonly updateDevOnly: string;
+  readonly updateAvailableMessage: (version?: string) => string;
+  readonly updateLatestMessage: (version?: string) => string;
+  readonly updateCheckFailed: string;
+  readonly accountNotAddedTitle: string;
+  readonly accountNotAddedBody: (email: string, error: string) => string;
+  readonly testNotificationBody: string;
+  readonly downloadCompleteTitle: string;
+  readonly downloadCancelledTitle: string;
+  readonly downloadFailedTitle: string;
+  readonly noSubject: string;
 }
 
 const EN: NativeLabels = Object.freeze({
@@ -27,6 +41,21 @@ const EN: NativeLabels = Object.freeze({
   linkMessage: (host: string) => `Open ${host}?`,
   linkDetail: (url: string) => `This link leaves Gmail Desktop and opens in your browser.\n\n${url}`,
   linkAlwaysAllow: (host: string) => `Always allow ${host}`,
+  ok: 'OK',
+  download: 'Download',
+  later: 'Later',
+  updateDevOnly: 'Update checks only work in the installed app.',
+  updateAvailableMessage: (version?: string) => `A new version${version ? ` (v${version})` : ''} is available.`,
+  updateLatestMessage: (version?: string) => `You already have the latest version${version ? ` (v${version})` : ''}.`,
+  updateCheckFailed: "Couldn't check for updates.",
+  accountNotAddedTitle: 'Account not added',
+  accountNotAddedBody: (email: string, error: string) =>
+    `${email} is not linked to Gmail, so the account was not added. ${error}`,
+  testNotificationBody: 'This is what a notification looks like.',
+  downloadCompleteTitle: 'Download complete',
+  downloadCancelledTitle: 'Download cancelled',
+  downloadFailedTitle: 'Download failed',
+  noSubject: '(no subject)',
 });
 
 const NL: NativeLabels = Object.freeze({
@@ -39,6 +68,21 @@ const NL: NativeLabels = Object.freeze({
   linkMessage: (host: string) => `${host} openen?`,
   linkDetail: (url: string) => `Deze link verlaat Gmail Desktop en opent in je browser.\n\n${url}`,
   linkAlwaysAllow: (host: string) => `${host} altijd toestaan`,
+  ok: 'OK',
+  download: 'Downloaden',
+  later: 'Later',
+  updateDevOnly: 'Zoeken naar updates werkt alleen in de geïnstalleerde app.',
+  updateAvailableMessage: (version?: string) => `Er is een nieuwe versie${version ? ` (v${version})` : ''}.`,
+  updateLatestMessage: (version?: string) => `Je hebt de nieuwste versie al${version ? ` (v${version})` : ''}.`,
+  updateCheckFailed: 'Zoeken naar updates is niet gelukt.',
+  accountNotAddedTitle: 'Account niet toegevoegd',
+  accountNotAddedBody: (email: string, error: string) =>
+    `${email} is niet gekoppeld aan Gmail, dus het account is niet toegevoegd. ${error}`,
+  testNotificationBody: 'Zo ziet een melding eruit.',
+  downloadCompleteTitle: 'Download klaar',
+  downloadCancelledTitle: 'Download gestopt',
+  downloadFailedTitle: 'Download mislukt',
+  noSubject: '(geen onderwerp)',
 });
 
 const RENE: NativeLabels = Object.freeze({
@@ -51,6 +95,21 @@ const RENE: NativeLabels = Object.freeze({
   linkMessage: (host: string) => `Naar ${host} gaan?`,
   linkDetail: (url: string) => `Deze link gaat naar je browser en niet naar deze app.\n\n${url}`,
   linkAlwaysAllow: (host: string) => `${host} mag altijd`,
+  ok: 'Oké',
+  download: 'Ophalen',
+  later: 'Straks',
+  updateDevOnly: 'Kijken of er iets nieuws is kan hier niet.',
+  updateAvailableMessage: (version?: string) => `Er is iets nieuws${version ? ` (v${version})` : ''}.`,
+  updateLatestMessage: (version?: string) => `Je hebt al de nieuwste${version ? ` (v${version})` : ''}.`,
+  updateCheckFailed: 'Kijken of er iets nieuws is lukte niet.',
+  accountNotAddedTitle: 'Dit account doet niet mee',
+  accountNotAddedBody: (email: string, error: string) =>
+    `${email} hoort niet bij Gmail, dus dit account doet niet mee. ${error}`,
+  testNotificationBody: 'Zo ziet een berichtje eruit.',
+  downloadCompleteTitle: 'Het is opgehaald',
+  downloadCancelledTitle: 'Ophalen gestopt',
+  downloadFailedTitle: 'Ophalen lukte niet',
+  noSubject: '(zonder titel)',
 });
 
 export function nativeLabels(locale: Locale, reneMode: boolean): NativeLabels {

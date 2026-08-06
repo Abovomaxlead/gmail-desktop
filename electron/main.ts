@@ -574,9 +574,10 @@ async function addAccountAfterConsent(
       manager?.discardView(keyOfIndex(index), 'mail');
       if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
       if (Notification.isSupported()) {
+        const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
         new Notification({
-          title: 'Account niet toegevoegd',
-          body: `${email} is niet gekoppeld aan Gmail, dus het account is niet toegevoegd. ${result.error}`,
+          title: L.accountNotAddedTitle,
+          body: L.accountNotAddedBody(email, result.error),
         }).show();
       }
       if (!stopProbing) probe(index + 1);
@@ -1461,9 +1462,10 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   const now = new Date();
   if (!notificationsAllowed(p, email, now, 'mail')) return;
   const hidden = hiddenNotificationText(p);
+  const L = nativeLabels(currentLocale(), prefs.getAll().reneMode === true);
   const n = new Notification({
     title: hidden.hiddenSender ?? (displayName(meta.from) || email),
-    body: hidden.hiddenSubject ?? (meta.subject || NO_SUBJECT),
+    body: hidden.hiddenSubject ?? (meta.subject || L.noSubject),
     silent: notificationSilent(p, email, 'mail'),
     timeoutType: notificationPersist(p, email) ? 'never' : 'default',
   });
@@ -1764,7 +1766,8 @@ function checkForUpdateFromTray(): void {
 
 function maybeShowTrayUpdatePopup(): void {
   if (!pendingTrayUpdateCheck) return;
-  const popup = updateCheckPopup(lastUpdateStatus as { state: string });
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+  const popup = updateCheckPopup(lastUpdateStatus as { state: string }, L);
   if (!popup) return;
   pendingTrayUpdateCheck = false;
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1959,9 +1962,10 @@ function showTestNotification(): void {
   if (!Notification.isSupported() || !prefs) return;
   const p = prefs.getAll();
   const hidden = hiddenNotificationText(p);
+  const L = nativeLabels(currentLocale(), p.reneMode === true);
   new Notification({
     title: hidden.hiddenSender ?? 'Gmail Desktop',
-    body: hidden.hiddenSubject ?? 'This is what a notification looks like.',
+    body: hidden.hiddenSubject ?? L.testNotificationBody,
     silent: p.notifications.sound === false,
   }).show();
   if (p.notifications.sound !== false && p.notifications.soundName) {
@@ -2133,8 +2137,9 @@ function notifyDownloadDone(
 ): void {
   if (!Notification.isSupported()) return;
   const done = state === 'completed';
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
   const n = new Notification({
-    title: done ? 'Download complete' : state === 'cancelled' ? 'Download cancelled' : 'Download failed',
+    title: done ? L.downloadCompleteTitle : state === 'cancelled' ? L.downloadCancelledTitle : L.downloadFailedTitle,
     body: filename,
     silent: prefs?.getAll().notifications.sound === false,
   });
