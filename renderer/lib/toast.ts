@@ -7,9 +7,9 @@
 // and those never carry actions. `messageId` is what the archive and mark-read buttons
 // need, so it is present only on push-sourced mail, where main got it from the Gmail API;
 // a notification relayed from the Gmail page knows its subject but not its message id.
-// Such a relayed one carries `webNotifyId` instead: the id the page gave it, which a click
-// has to travel back with, because only that page still holds the subject the thread
-// lookup matches against.
+// Such a relayed one carries `webNotifyId` instead: the name main filed the source view
+// under, which a click has to travel back with, because only that page still holds the
+// subject the thread lookup matches against.
 
 /** The width the page lays out its cards to, and the width the window is sized to — read
  * from here by both sides so the two can never drift apart. */
@@ -34,7 +34,8 @@ export interface Toast {
   account?: ToastAccount;
   threadId?: string;
   messageId?: string;
-  /** The page-side id of a notification relayed from a Gmail view. */
+  /** A notification relayed from a Gmail view, keyed by webNotifySourceKey — not the bare
+   * page-side id, which collides between views. */
   webNotifyId?: string;
   /** Epoch ms. Absent means it stays until dismissed. */
   expiresAt?: number;
@@ -57,3 +58,14 @@ export interface ToastState extends ToastStack {
 }
 
 export type ToastAction = 'archive' | 'read';
+
+/** The name main files a relayed notification's source view under. Every page numbers its
+ * own notifications from 1 and no page knows about any other, so the page-side id alone
+ * collides: two accounts both raise a "w1" and whichever spoke last wins, which sends the
+ * click to the wrong view and opens an unrelated conversation. A reload reproduces it
+ * within a single account. Pairing the id with the WebContents that sent it is unique for
+ * as long as that view lives — and once it does not, there is nothing left to resolve the
+ * thread with anyway, so the toast falls back to opening the account. */
+export function webNotifySourceKey(senderId: number, pageId: string): string {
+  return `${senderId}:${pageId}`;
+}

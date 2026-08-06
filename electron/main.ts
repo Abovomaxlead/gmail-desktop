@@ -127,7 +127,7 @@ import {
 } from './compose-account-window';
 import { ToastWindow } from './toast-window';
 import { ToastController, type ToastInput } from './toast-controller';
-import type { Toast, ToastAccount, ToastAction } from '../renderer/lib/toast';
+import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } from '../renderer/lib/toast';
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
@@ -1536,10 +1536,12 @@ function showToast(input: ToastInput): void {
 
 function activateToast(toast: Toast): void {
   if (toast.webNotifyId) {
-    const sender = webNotifySources.get(toast.webNotifyId);
+    const source = webNotifySources.get(toast.webNotifyId);
     webNotifySources.delete(toast.webNotifyId);
-    if (sender && !sender.isDestroyed()) {
-      sender.send(IPC.WEB_NOTIFY_CLICK, toast.webNotifyId);
+    // The page-side id goes back, never the key we filed it under: the page's own map is
+    // keyed by the name it made up, and knows nothing about which WebContents it is.
+    if (source && !source.wc.isDestroyed()) {
+      source.wc.send(IPC.WEB_NOTIFY_CLICK, source.pageId);
       return;
     }
     // The view is gone, so nothing can resolve the thread. Showing the account beats
@@ -2298,9 +2300,10 @@ const downloadClickPaths = new Map<string, DownloadClickAction>();
 
 // Which view raised a relayed notification. A click has to go back to that page, because
 // the page is the only place that still knows the real subject, and finding the thread
-// means matching that subject in its own DOM. Keyed by the page-side id, not the toast id,
-// so the round trip carries the name the page will recognise.
-const webNotifySources = new Map<string, Electron.WebContents>();
+// means matching that subject in its own DOM. Keyed by webNotifySourceKey rather than by
+// the page-side id alone, which is only unique within one view; the page-side id is kept
+// alongside because that is the name the page itself will recognise on the way back.
+const webNotifySources = new Map<string, { wc: Electron.WebContents; pageId: string }>();
 
 function notifyDownloadDone(
   filename: string,
@@ -2500,13 +2503,14 @@ function registerIpc(): void {
     const p = prefs.getAll();
     const hidden = hiddenNotificationText(p);
     const L = nativeLabels(currentLocale(), p.reneMode === true);
-    webNotifySources.set(arg.id, e.sender);
+    const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
+    webNotifySources.set(sourceKey, { wc: e.sender, pageId: arg.id });
     showToast({
       kind: 'mail',
       title: hidden.hiddenSender ?? arg.title,
       body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
       account: toastAccountFor(profile.email),
-      webNotifyId: arg.id,
+      webNotifyId: sourceKey,
       persist: notificationPersist(p, profile.email),
     });
     if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);

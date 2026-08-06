@@ -100,6 +100,15 @@ export function rerouteServiceWorkerNotifications(
   };
 }
 
+// The name this page gives one of its notifications. The counter alone would not do: main
+// files these under the view that sent them, and a reload keeps the same view while
+// restarting the counter at 1, so a card raised before the reload and one raised after
+// would answer to the same name and a click would resolve against the wrong one. The nonce
+// is per page load, which is exactly the lifetime of the bodies we keep.
+export function webNotifyPageId(loadNonce: string, seq: number): string {
+  return `${loadNonce}-${seq}`;
+}
+
 export function webNotifyPayload(
   id: string,
   title: string,
@@ -321,13 +330,14 @@ if (typeof document !== 'undefined') {
     // the click, because finding the thread means matching that subject in this page's
     // DOM, and by then main has long since replaced the text on screen.
     const bodies = new Map<string, string>();
+    const loadNonce = Math.random().toString(36).slice(2, 10);
     let webNotifySeq = 0;
     const Wrapped = function (this: Notification, title: string, options?: NotificationOptions) {
       if (!notifyState.show) {
         return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
       }
       webNotifySeq += 1;
-      const id = `w${webNotifySeq}`;
+      const id = webNotifyPageId(loadNonce, webNotifySeq);
       const payload = webNotifyPayload(id, title, options);
       bodies.set(id, payload.body);
       ipcRenderer.send(IPC.WEB_NOTIFY_SHOW, payload);
