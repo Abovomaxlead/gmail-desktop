@@ -55,6 +55,7 @@ import { WarmupTracker } from './view-warmup';
 import { addAccountUrl } from './google-urls';
 import { popupNativeMenu } from './native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
+import { nativeLabels } from './native-labels';
 import { applyBadge } from './badge-controller';
 import { UnreadStore } from './unread-store';
 import { shouldNotifyUpdate } from './update-notifier';
@@ -637,12 +638,13 @@ function chooseComposeAccount(): number | null {
   if (authusers.length === 0) return null;
   if (authusers.length === 1) return authIdx(authusers[0]);
   const labels = authusers.map((p) => prefs?.getAccount(p.email).label ?? p.name ?? p.email);
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
   const cancelId = labels.length;
   const chosen = dialog.showMessageBoxSync(mainWindow!, {
     type: 'question',
-    title: 'New message',
-    message: 'Send from which account?',
-    buttons: [...labels, 'Cancel'],
+    title: L.composeTitle,
+    message: L.composeMessage,
+    buttons: [...labels, L.cancel],
     cancelId,
     defaultId: 0,
   });
