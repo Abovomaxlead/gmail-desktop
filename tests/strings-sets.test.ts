@@ -67,8 +67,11 @@ function render(value: unknown): string | null {
 }
 
 // A value identical to the English one is almost always a forgotten translation. The
-// exceptions are words Dutch borrowed unchanged or product names, listed here so that
-// adding one is a deliberate act rather than a silent pass.
+// exceptions are words Dutch borrowed unchanged, product names, and terms where the
+// standard Dutch UI word happens to be the English one, listed here so that adding one is
+// a deliberate act rather than a silent pass. Reaching for this list to dodge a hard
+// translation is the failure mode; picking a second-choice Dutch word to stay off it is
+// the other, so an entry here beats a worse string.
 const SAME_IN_BOTH = new Set([
   'languageEnglish',
   'languageDutch',
@@ -82,18 +85,60 @@ const SAME_IN_BOTH = new Set([
   'dhBytes',
   'soundPing',
   'soundArpeggio',
+  'volumeLabel',
+  'mailToggle',
+  'perAccountNotifications',
 ]);
+
+function nlOf(key: string): string | null {
+  return render((STRINGS_NL as unknown as Record<string, unknown>)[key]);
+}
+
+function enOf(key: string): string | null {
+  return render((STRINGS_NORMAL as unknown as Record<string, unknown>)[key]);
+}
 
 describe('STRINGS_NL', () => {
   it('translates every value that is not deliberately shared with English', () => {
     const leftovers: string[] = [];
     for (const key of Object.keys(STRINGS_NORMAL)) {
       if (SAME_IN_BOTH.has(key)) continue;
-      const nl = render((STRINGS_NL as unknown as Record<string, unknown>)[key]);
-      const en = render((STRINGS_NORMAL as unknown as Record<string, unknown>)[key]);
+      const nl = nlOf(key);
+      const en = enOf(key);
       if (nl !== null && en !== null && nl === en) leftovers.push(key);
     }
     expect(leftovers, `still English: ${leftovers.join(', ')}`).toEqual([]);
+  });
+
+  // Without this an allowlist entry outlives its reason: rename the key or translate the
+  // value and the entry quietly starts excusing a key that no longer needs excusing.
+  it('keeps no allowlist entry that has stopped being shared with English', () => {
+    const stale: string[] = [];
+    for (const key of SAME_IN_BOTH) {
+      if (!(key in STRINGS_NORMAL)) {
+        stale.push(`${key} (no such key)`);
+        continue;
+      }
+      const nl = nlOf(key);
+      const en = enOf(key);
+      if (nl !== null && en !== null && nl !== en) stale.push(`${key} (now differs)`);
+    }
+    expect(stale, `stale allowlist entries: ${stale.join(', ')}`).toEqual([]);
+  });
+});
+
+// The two map-backed members are the one place a Dutch UI can silently fall back to
+// English: they are functions, so the leftover-English test cannot render them, and the
+// map tests above compare the maps rather than which map these two read. Call them.
+describe('STRINGS_NL map-backed members', () => {
+  it('reads the Dutch category names, not the English ones', () => {
+    expect(STRINGS_NL.changelogCategory('Added')).toBe('Toegevoegd');
+    expect(STRINGS_NL.changelogCategory('Fixed')).toBe('Opgelost');
+  });
+
+  it('reads the Dutch colour names, not the English ones', () => {
+    expect(STRINGS_NL.colorName('#4285f4')).toBe('Blauw');
+    expect(STRINGS_NL.colorName('#ea4335')).toBe('Rood');
   });
 });
 

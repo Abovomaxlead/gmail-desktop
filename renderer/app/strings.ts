@@ -1,11 +1,10 @@
 // All user-facing text in the app's own chrome (bar + settings), in three flavours: the
 // normal English UI, its Dutch counterpart in the same businesslike register, and Rene
 // mode's simple Dutch, short words a four-year-old can read. Gmail's own page content is
-// Google's and stays as it is. `numberLocale` is a
-// formatting choice that belongs to the language: which separator groups the thousands
-// in an unread count (1.324 vs 1,324). A nav name is also the heading above its own
-// section, one key for both, because nineteen sections with two keys each would be
-// nineteen chances for the two to drift apart.
+// Google's and stays as it is. `numberLocale` is a formatting choice that belongs to the
+// language: which separator groups the thousands in an unread count (1.324 vs 1,324). A
+// nav name is also the heading above its own section, one key for both, because nineteen
+// sections with two keys each would be nineteen chances for the two to drift apart.
 
 import type { Locale } from '../../electron/locale';
 
@@ -924,7 +923,7 @@ export const STRINGS_NL: UiStrings = {
 
   close: 'Sluiten',
   escKey: 'Esc',
-  reneBanner: '🤓 De Rene-stand staat aan. Alles is groot en eenvoudig.',
+  reneBanner: '🤓 De Rene-modus staat aan. Alles is groot en eenvoudig.',
 
   navDownloadHistory: 'Downloadgeschiedenis',
   navGeneral: 'Algemeen',
@@ -953,7 +952,7 @@ export const STRINGS_NL: UiStrings = {
   startup: 'Opstarten',
   autoStart: 'Starten bij aanmelden',
   autoStartDescription:
-    'Zet deze optie aan om de app automatisch te starten wanneer je je op je computer aanmeldt.',
+    'Zet deze optie aan om de app automatisch te starten bij het aanmelden op je computer.',
   launchMinimized: 'Geminimaliseerd starten',
   launchMinimizedDescription: 'Zet deze optie aan om de app geminimaliseerd te starten.',
   mailDropFolder: 'Map voor bewaarde mail',
@@ -977,13 +976,13 @@ export const STRINGS_NL: UiStrings = {
   languageDutch: 'Nederlands',
   notificationOpenLabel: 'Als je op een melding klikt',
   notificationOpenDescription:
-    'Het bericht opent in de app, of in een apart Gmail-venster daarboven.',
+    'Het bericht opent in de app, of in een apart Gmail-venster erboven.',
   openInApp: 'In de app openen',
   openInWindow: 'In een nieuw venster openen',
 
   showUnreadBadges: 'Tellers voor ongelezen mail weergeven',
   showUnreadBadgesDescription:
-    'Verbergt alle tellers voor ongelezen mail, ongeacht de instelling per account.',
+    'Uit verbergt alle tellers voor ongelezen mail, ongeacht de instelling per account.',
   systemTray: 'Pictogram in het systeemvak',
   trayEnabled: 'Pictogram in het systeemvak weergeven',
   trayEnabledDescription: 'Toon het pictogram van de app in het systeemvak.',
@@ -991,13 +990,13 @@ export const STRINGS_NL: UiStrings = {
   traySelectUnreadDescription:
     'Kies automatisch het eerste account met ongelezen mail wanneer je op het pictogram in het systeemvak klikt.',
   trayColourTodo:
-    'De kleur van het pictogram in het systeemvak kan nog niet: het pictogram is het logo van de app in kleur, en een lichte of donkere versie heeft eerst een eigen afbeelding in één kleur nodig.',
+    'De kleur van het pictogram in het systeemvak kan nog niet worden gekozen: het pictogram is het logo van de app in kleur, en een lichte of donkere versie heeft eerst een eigen afbeelding in één kleur nodig.',
   windowGroup: 'Venster',
   restrictMinWindowSize: 'Minimale venstergrootte beperken',
   restrictMinWindowSizeDescription:
     'Beperk de minimale grootte van het venster van de app, zodat het niet te klein kan worden.',
 
-  saveAsDialog: 'Venster Opslaan als weergeven voor het downloaden',
+  saveAsDialog: 'Dialoogvenster Opslaan als weergeven voordat er wordt gedownload',
   saveAsDialogDescription: 'Vraag elke keer om een locatie voordat een bestand wordt gedownload.',
   openFolderWhenDone: 'Map openen als het klaar is',
   openFolderWhenDoneDescription:
@@ -1010,11 +1009,11 @@ export const STRINGS_NL: UiStrings = {
   mailDropGroup: 'Gesleepte mail',
 
 
-  confirmExternalLinks: 'Externe links bevestigen voor het openen',
+  confirmExternalLinks: 'Externe links bevestigen voordat ze worden geopend',
   confirmExternalLinksDescription:
     'Vraag om bevestiging voordat links van niet-vertrouwde hosts in je browser openen. Het venster laat zien waar de link echt heen gaat — het beoordeelt niet of de host veilig is.',
   confirmExternalLinksGoogleNote:
-    'Over Google’s eigen apps wordt nooit iets gevraagd: Gmail, Calendar, Drive, Docs, Keep, Contacts, Chat en inloggen. Over de rest van google.com wel — op een pagina op sites.google.com staat wat een vreemde er heeft neergezet.',
+    'Over de eigen apps van Google wordt nooit iets gevraagd: Gmail, Calendar, Drive, Docs, Keep, Contacts, Chat en inloggen. Over de rest van google.com wel — op een pagina op sites.google.com staat wat een vreemde er heeft neergezet.',
   trustedHosts: 'Vertrouwde hosts',
   trustedHostsDescription:
     'Hosts waarover je niets meer gevraagd wordt. Een host komt hier terecht als je in het venster "Altijd toestaan" aanvinkt; subdomeinen van een vertrouwde host zijn ook vertrouwd.',
@@ -1022,7 +1021,7 @@ export const STRINGS_NL: UiStrings = {
   trustedHostRemove: (host) => `${host} niet meer vertrouwen`,
 
   autoCheckUpdates: 'Automatisch op updates controleren',
-  autoCheckUpdatesDescription: 'Controleer periodiek automatisch op updates.',
+  autoCheckUpdatesDescription: 'De app controleert periodiek automatisch op updates.',
   notifyUpdates: 'Melden wanneer er updates zijn',
   notifyUpdatesDescription: 'Ontvang een melding wanneer er updates beschikbaar zijn.',
 
@@ -1046,9 +1045,9 @@ export const STRINGS_NL: UiStrings = {
   gaExcludedDescription:
     'Kies welke Google-apps in de externe browser openen in plaats van in de app.',
   gaExcludedAllExternal:
-    'Elke Google-app opent al in de externe browser, dus er is niets meer om uit te sluiten. Zet In de app openen aan om per app te kiezen.',
+    'Elke Google-app opent al in de externe browser, dus er is niets meer om uit te sluiten. Zet "In de app openen" aan om per app te kiezen.',
   gaExcludedAllNewWindow:
-    'Altijd in een nieuw venster openen geeft elke Google-app een eigen venster in de app, dus deze lijst doet niets. Zet die optie uit om per app te kiezen.',
+    '"Altijd in een nieuw venster openen" geeft elke Google-app een eigen venster in de app, dus deze lijst doet niets. Zet die optie uit om per app te kiezen.',
   gaExcludedNone: 'Geen',
   gaShowAccountLabel: 'Accountnaam weergeven',
   gaShowAccountLabelDescription:
@@ -1058,7 +1057,7 @@ export const STRINGS_NL: UiStrings = {
     'Geef het venster van een Google-app tijdens het laden de kleur van het account, zodat je ziet van wie het is.',
   gaPinned: 'Vastgezette apps',
   gaPinnedDescription:
-    'Kies de apps die je het meest gebruikt. De balk bovenaan tekent ze nog niet — dat is de volgende stap; voorlopig staan ze ook in het rechtsklikmenu van een accounttabblad.',
+    'Kies de apps die je het meest gebruikt. De balk bovenaan toont ze nog niet — dat is de volgende stap; voorlopig staan ze ook in het rechtsklikmenu van een accounttabblad.',
   gaPinnedHeading: 'Vastgezet',
   gaAvailableHeading: 'Beschikbaar',
   gaPin: (name) => `${name} vastzetten`,
@@ -1081,14 +1080,14 @@ export const STRINGS_NL: UiStrings = {
   soundChoice: 'Geluid',
   soundChoiceDescription: 'Kies het geluid dat bij meldingen wordt afgespeeld.',
   soundSystem: 'Systeemgeluid',
-  soundChime: 'Klokje',
+  soundChime: 'Belsignaal',
   soundPing: 'Ping',
   soundArpeggio: 'Arpeggio',
   soundKnock: 'Klop',
   soundTick: 'Tik',
   soundPreview: 'Afspelen',
-  volumeLabel: (percent) => `Geluidsniveau ${percent}%`,
-  volumeDescription: 'Stel het geluidsniveau van meldingsgeluiden in.',
+  volumeLabel: (percent) => `Volume ${percent}%`,
+  volumeDescription: 'Stel het volume van meldingsgeluiden in.',
 
   gmailCloseCompose: 'Venster voor opstellen sluiten na versturen',
   gmailCloseComposeDescription:
@@ -1099,7 +1098,7 @@ export const STRINGS_NL: UiStrings = {
     'Een verificatiecode die je per mail ontvangt, wordt automatisch naar je klembord gekopieerd, zodat je hem direct kunt plakken.',
   vcConfidence: 'Zekerheid bij het herkennen van verificatiecodes',
   vcConfidenceDescription:
-    'Kies hoe zeker de app moet zijn bij het herkennen van verificatiecodes. Gemiddeld pikt er soms iets uit dat geen code is, terwijl Hoog naar expliciete trefwoorden zoekt, maar codes kan missen.',
+    'Kies hoe zeker de app moet zijn bij het herkennen van verificatiecodes. Bij "Gemiddeld" pikt de app er soms iets uit dat geen code is; bij "Hoog" zoekt hij naar expliciete trefwoorden, maar mist hij soms een code.',
   vcConfidenceMedium: 'Gemiddeld',
   vcConfidenceHigh: 'Hoog',
   vcMarkRead: 'Mail automatisch als gelezen markeren na het kopiëren van de verificatiecode',
@@ -1109,9 +1108,9 @@ export const STRINGS_NL: UiStrings = {
   vcDeleteDescription:
     'Mail met een verificatiecode wordt automatisch verwijderd nadat de code naar je klembord is gekopieerd.',
   vcDeleteWarning:
-    'Een verkeerd herkende code betekent dat een echte mail in de prullenbak gaat. Daarom is Hoog aan te raden — en daarom staat deze optie standaard uit.',
+    'Een verkeerd herkende code betekent dat een echte mail in de prullenbak gaat. Daarom is de instelling "Hoog" aan te raden — en daarom staat deze optie standaard uit.',
   vcNotWiredYet:
-    'Codes worden via de Gmail API gelezen, dus dit geldt alleen voor accounts die daarvoor gekoppeld zijn — dezelfde koppeling die meldingen gebruiken. Voor als gelezen markeren en weggooien is een extra Google-toestemming nodig; heb je die sinds ze erbij kwam niet gegeven, koppel het account dan opnieuw.',
+    'Codes worden via de Gmail API gelezen, dus dit geldt alleen voor accounts die daarvoor gekoppeld zijn — dezelfde koppeling die meldingen gebruiken. Voor als gelezen markeren en verwijderen is een extra Google-toestemming nodig; heb je die sinds ze erbij kwam niet gegeven, koppel het account dan opnieuw.',
 
   addShort: 'Toevoegen',
   renameAccount: 'Account een andere naam geven',
@@ -1144,11 +1143,11 @@ export const STRINGS_NL: UiStrings = {
   dndDescription:
     'Geen meldingen en geen geluiden voor welk account dan ook, totdat je dit weer uitzet.',
   quietHours: 'Stille uren',
-  quietHoursDescription: 'Meldingen worden tussen de onderstaande tijden vastgehouden.',
+  quietHoursDescription: 'Meldingen worden tussen de onderstaande tijden uitgesteld.',
   from: 'Van',
   to: 'tot',
-  perAccountNotifications: 'Meldingen per account',
-  mailToggle: 'E-mail',
+  perAccountNotifications: 'Per account',
+  mailToggle: 'Mail',
   mailToggleTitle: 'Meldingen voor mail van dit account',
   calendarToggle: 'Calendar',
   calendarToggleTitle: 'Herinneringen uit Calendar voor dit account',
@@ -1168,11 +1167,11 @@ export const STRINGS_NL: UiStrings = {
   restartInstall: 'Opnieuw starten en installeren',
   checkForUpdates: 'Op updates controleren',
   checking: 'Controleren…',
-  updChecking: 'Zoeken naar updates…',
+  updChecking: 'Controleren op updates…',
   updAvailable: (version) => `Update beschikbaar: v${version}`,
   updLatest: 'Je gebruikt de nieuwste versie.',
   updDownloading: (percent) => `Update downloaden… ${percent}%`,
-  updDownloaded: 'Update gedownload — opnieuw starten om te installeren…',
+  updDownloaded: 'Update gedownload — de app start opnieuw om te installeren…',
   updError: (message) => `Controleren op updates lukte niet: ${message}`,
   updDev: 'Updates zijn alleen beschikbaar in de geïnstalleerde app.',
 
@@ -1197,9 +1196,9 @@ export const STRINGS_NL: UiStrings = {
   removeConfirmAfter: '-knop.',
   remove: 'Verwijderen',
   cancel: 'Annuleren',
-  redetectLabel: 'Accounts herkennen',
+  redetectLabel: 'Accounts zoeken',
   redetect: 'Accounts opnieuw zoeken',
-  redetectDescription: 'Kijkt opnieuw naar de Google-accounts waarop je bent ingelogd.',
+  redetectDescription: 'Zoekt opnieuw in de Google-accounts waarop je bent ingelogd.',
   noAccounts: 'Nog geen accounts gevonden.',
   accountsFootnoteBefore:
     'Accounts worden gevonden via de Google-accounts waarop je bent ingelogd. Gebruik de ',
@@ -1210,7 +1209,7 @@ export const STRINGS_NL: UiStrings = {
   addAccountLabel: 'Account toevoegen',
   addDelegatedLabel: 'Gedelegeerd postvak toevoegen',
   delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
-  delegatedSuggestionsHeading: 'Voorgesteld gedelegeerd',
+  delegatedSuggestionsHeading: 'Voorgestelde postvakken',
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedelegeerde postvakken gevonden.',
   settingsTooltip: 'Instellingen',
