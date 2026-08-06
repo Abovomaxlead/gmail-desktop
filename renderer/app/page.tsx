@@ -15,6 +15,7 @@ import { googleAppTarget } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
+import type { ComposeAccountAsk } from '../lib/compose-account';
 
 // The page that carries the bar and the settings panel: all state and all IPC live
 // here, the drawing lives in Topbar and SettingsPanel. The Prefs, UpdateState and
@@ -233,6 +234,8 @@ interface DesktopBridge {
   openMailDropFolder(): void;
   onDefaultMailStatus(cb: (isDefault: boolean) => void): void;
   getChangelog(): Promise<ChangelogVersion[]>;
+  onComposeAccountAsk(cb: (arg: ComposeAccountAsk) => void): void;
+  pickComposeAccount(index: number | null): void;
 }
 
 declare global {

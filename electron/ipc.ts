@@ -75,6 +75,8 @@ export const IPC = {
   MAIL_DROP_COPY: 'maildrop:copy',
   MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
+  COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
+  COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
 } as const;
 
 export interface MailDropItem {

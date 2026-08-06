@@ -97,6 +97,7 @@ import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './shortcuts';
 import { openCompose, openFullThreadWindow } from './compose-window';
 import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mailto';
+import type { ComposeAccountAsk, ComposeAccountChoice } from '../renderer/lib/compose-account';
 import {
   MAIL_APP_NAME,
   isOurProgId,
@@ -218,6 +219,8 @@ let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 let notifiedUpdateVersion: string | null = null;
 let lastCheckBackground = false;
 let pendingMailto: string | null = null;
+let composeAccountOverlay: OverlayView | null = null;
+let composeAccountResolve: ((index: number | null) => void) | null = null;
 
 const SESSION_PARTITION = 'persist:google';
 
@@ -634,25 +637,56 @@ function activeView(): { ref: AccountRef; surface: Surface } | null {
   return p && surface ? { ref: p.ref, surface } : null;
 }
 
-function chooseComposeAccount(): number | null {
-  const authusers = profiles.filter((p) => p.ref.kind === 'authuser');
-  if (authusers.length === 0) return null;
-  if (authusers.length === 1) return authIdx(authusers[0]);
-  const labels = authusers.map((p) => prefs?.getAccount(p.email).label ?? p.name ?? p.email);
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  const cancelId = labels.length;
-  const chosen = dialog.showMessageBoxSync(mainWindow!, {
-    type: 'question',
-    title: L.composeTitle,
-    message: L.composeMessage,
-    buttons: [...labels, L.cancel],
-    cancelId,
-    defaultId: 0,
-  });
-  return chosen === cancelId ? null : authIdx(authusers[chosen]);
+// Resolves the pending picker with `index` and forgets it, so a stray reply after the
+// picker has already been answered (or the window has closed) is a no-op rather than a
+// second resolution of an already-settled promise.
+function settleComposeAccount(index: number | null): void {
+  const resolve = composeAccountResolve;
+  composeAccountResolve = null;
+  composeAccountOverlay?.close();
+  resolve?.(index);
 }
 
-function dispatchMailto(mailtoUrl: string): void {
+function chooseComposeAccount(fields: MailtoFields): Promise<number | null> {
+  const authusers = profiles.filter((p) => p.ref.kind === 'authuser');
+  if (authusers.length === 0) return Promise.resolve(null);
+  if (authusers.length === 1) return Promise.resolve(authIdx(authusers[0]));
+  // A second mailto: arriving while the picker is already open is ignored rather than
+  // stacking a second dialog whose answer could cross with the first.
+  if (composeAccountResolve) return Promise.resolve(null);
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(null);
+
+  const accounts: ComposeAccountChoice[] = authusers.map((p) => ({
+    index: authIdx(p),
+    email: p.email,
+    label: prefs?.getAccount(p.email).label ?? p.name ?? p.email,
+    color: p.color,
+    avatarUrl: p.avatarUrl,
+  }));
+  const ask: ComposeAccountAsk = {
+    to: fields.to,
+    subject: fields.subject,
+    accounts,
+    locale: currentLocale(),
+    reneMode: prefs?.getAll().reneMode === true,
+  };
+
+  if (!composeAccountOverlay) {
+    composeAccountOverlay = new OverlayView(
+      mainWindow,
+      SIDEBAR_PRELOAD_PATH,
+      DEV_URL ? `${DEV_URL}/compose-account` : 'app://bundle/compose-account.html',
+      IPC.COMPOSE_ACCOUNT_ASK,
+    );
+  }
+  composeAccountOverlay.open(ask);
+
+  return new Promise<number | null>((resolve) => {
+    composeAccountResolve = resolve;
+  });
+}
+
+async function dispatchMailto(mailtoUrl: string): Promise<void> {
   const fields = parseMailto(mailtoUrl);
   if (!fields) return;
   if (mainWindow) {
@@ -665,7 +699,7 @@ function dispatchMailto(mailtoUrl: string): void {
     pendingMailto = mailtoUrl;
     return;
   }
-  const index = chooseComposeAccount();
+  const index = await chooseComposeAccount(fields);
   if (index == null) return;
   openComposeWindow(index, fields);
 }
@@ -675,7 +709,7 @@ function flushPendingMailto(): void {
   if (manager?.activeKey() == null) return;
   const url = pendingMailto;
   pendingMailto = null;
-  dispatchMailto(url);
+  void dispatchMailto(url);
 }
 function switchSurface(index: number, surface: Surface): void {
   showAccount(authRef(index), surface);
@@ -1733,6 +1767,7 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
     mainWindow = null;
+    settleComposeAccount(null);
   });
 
   mainWindow.webContents.on('before-input-event', (_e, input) => {
@@ -2598,6 +2633,12 @@ function registerIpc(): void {
     pushPrefs();
   });
   ipcMain.handle(IPC.CHANGELOG_GET, () => loadChangelog());
+  // One handler for the life of the app, not `ipcMain.once` per open: a `once` listener
+  // left registered by a cancelled dialog would answer the next one instead, a bug that
+  // only shows up on the third mailto:.
+  ipcMain.on(IPC.COMPOSE_ACCOUNT_PICK, (_e, index: number | null) => {
+    settleComposeAccount(typeof index === 'number' ? index : null);
+  });
 }
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -2610,13 +2651,13 @@ if (!gotTheLock) {
     if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
     const url = extractMailtoFromArgv(argv);
-    if (url) dispatchMailto(url);
+    if (url) void dispatchMailto(url);
   });
 }
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  dispatchMailto(url);
+  void dispatchMailto(url);
 });
 
 app.whenReady().then(() => {

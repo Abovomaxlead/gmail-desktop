@@ -250,6 +250,11 @@ export interface UiStrings {
   delegatedScanning: string;
   delegatedNoneFound: string;
   settingsTooltip: string;
+
+  composePickerTo: string;
+  composePickerSubject: string;
+  composePickerFrom: string;
+  composePickerEsc: string;
 }
 
 function categoryKey(heading: string): 'added' | 'fixed' | 'changed' | 'removed' | 'security' | null {
@@ -620,6 +625,11 @@ export const STRINGS_NORMAL: UiStrings = {
   delegatedScanning: 'Looking in your account menu…',
   delegatedNoneFound: 'No delegated mailboxes found.',
   settingsTooltip: 'Settings',
+
+  composePickerTo: 'New message to',
+  composePickerSubject: 'Subject:',
+  composePickerFrom: 'Send from',
+  composePickerEsc: 'Esc closes',
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -888,6 +898,11 @@ export const STRINGS_RENE: UiStrings = {
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedeelde postbussen gevonden.',
   settingsTooltip: 'Knopjes',
+
+  composePickerTo: 'Een mailtje naar',
+  composePickerSubject: 'Waarover:',
+  composePickerFrom: 'Van wie komt het?',
+  composePickerEsc: 'Esc is weg',
 };
 
 export const STRINGS_NL: UiStrings = {
@@ -1175,6 +1190,11 @@ export const STRINGS_NL: UiStrings = {
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedelegeerde postvakken gevonden.',
   settingsTooltip: 'Instellingen',
+
+  composePickerTo: 'Nieuw bericht aan',
+  composePickerSubject: 'Betreft:',
+  composePickerFrom: 'Verstuur vanaf',
+  composePickerEsc: 'Esc sluit',
 };
 
 export function getStrings(locale: Locale, reneMode: boolean): UiStrings {

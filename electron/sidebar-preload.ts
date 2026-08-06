@@ -125,4 +125,9 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.MAIL_DEFAULT_STATUS, (_e, v) => cb(Boolean(v)));
   },
   getChangelog: (): Promise<unknown> => ipcRenderer.invoke(IPC.CHANGELOG_GET),
+  onComposeAccountAsk: (cb: (arg: unknown) => void): void => {
+    ipcRenderer.on(IPC.COMPOSE_ACCOUNT_ASK, (_e, arg) => cb(arg));
+  },
+  pickComposeAccount: (index: number | null): void =>
+    ipcRenderer.send(IPC.COMPOSE_ACCOUNT_PICK, index),
 });
