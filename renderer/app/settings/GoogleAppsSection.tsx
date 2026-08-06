@@ -14,6 +14,13 @@ import { CHECKBOX, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
 // cannot drift from the tab menu, minus mail. `known()` filters out keys a prefs
 // file from another version may still hold, and every write sends that cleaned list.
 // The new-window row is disabled rather than hidden so the section does not jump.
+//
+// Either master switch settles every app at once - "open in app" off sends them all to
+// the browser, "always a new window" gives them all their own window - and in both
+// cases googleAppTarget never reaches the exclusion list. So the list is disabled while
+// either is set, with a line saying which switch is deciding: ticking apps there would
+// be double work. The ticks are kept, not cleared, so they come back into play once
+// both switches are off again.
 
 const GOOGLE_APPS: readonly Surface[] = SURFACES.filter((s) => s !== 'mail');
 
@@ -32,6 +39,9 @@ const EXCLUDED_LABEL_ID = 'setting-ga-excluded-label';
 
 export function GoogleAppsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const ga = prefs?.googleApps;
+  const allExternal = ga?.openInApp === false;
+  const allNewWindow = !allExternal && ga?.alwaysNewWindow === true;
+  const settled = allExternal || allNewWindow;
   const excluded = known(ga?.excluded ?? []);
   const pinned = known(ga?.pinned ?? []);
   const available = GOOGLE_APPS.filter((s) => !pinned.includes(s));
@@ -76,21 +86,37 @@ export function GoogleAppsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
           <p id={EXCLUDED_LABEL_ID} className="text-[13.5px] font-medium leading-5">
             {S.gaExcluded}
           </p>
-          <p className={`mt-1 max-w-[46ch] ${HINT}`}>{S.gaExcludedDescription}</p>
+          <p className={`mt-1 max-w-[46ch] ${HINT}`}>
+            {allExternal
+              ? S.gaExcludedAllExternal
+              : allNewWindow
+                ? S.gaExcludedAllNewWindow
+                : S.gaExcludedDescription}
+          </p>
           <p className={`mb-2 mt-2 ${HINT}`}>
             {excluded.length === 0 ? S.gaExcludedNone : excluded.map(appLabel).join(', ')}
           </p>
-          <div role="group" aria-labelledby={EXCLUDED_LABEL_ID} className={`${PANEL} p-1`}>
+          <div
+            role="group"
+            aria-labelledby={EXCLUDED_LABEL_ID}
+            aria-disabled={settled || undefined}
+            className={`${PANEL} p-1 ${settled ? 'opacity-50' : ''}`}
+          >
             {GOOGLE_APPS.map((s) => (
               <label
                 key={s}
-                className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition hover:bg-black/[0.04] dark:hover:bg-white/5 motion-reduce:transition-none"
+                className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition motion-reduce:transition-none ${
+                  settled
+                    ? 'cursor-not-allowed'
+                    : 'cursor-pointer hover:bg-black/[0.04] dark:hover:bg-white/5'
+                }`}
               >
                 <input
                   type="checkbox"
                   checked={excluded.includes(s)}
+                  disabled={settled}
                   onChange={(e) => toggleExcluded(s, e.target.checked)}
-                  className={CHECKBOX}
+                  className={`${CHECKBOX} disabled:cursor-not-allowed`}
                 />
                 <span className="min-w-0 flex-1 truncate">{appLabel(s)}</span>
               </label>

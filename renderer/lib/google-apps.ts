@@ -1,8 +1,11 @@
-// Which Google apps can be pinned to the bar, and where each app opens. The order
-// of the checks in googleAppTarget is the decision: a per-app exception beats the
-// master switch, and the master switch beats alwaysNewWindow. filterPinned drops
-// unknown and duplicate keys, since prefs may name an app a later version removed.
-// electron/google-apps-open.ts re-exports these so main and the bar agree.
+// Which Google apps can be pinned to the bar, and where each app opens. The order of
+// the checks in googleAppTarget is the decision: both master switches settle every app
+// at once and so come first, and the per-app exclusion only gets a say when neither
+// did. That is why the settings panel disables the exclusion list while either master
+// switch is set - a list that cannot change any outcome must not invite a choice.
+// filterPinned drops unknown and duplicate keys, since prefs may name an app a later
+// version removed. electron/google-apps-open.ts re-exports these so main and the bar
+// agree.
 //
 // Pinning is one list for the whole app, but a pin opens for whichever account is in
 // view, and a delegated mailbox has no Drive or Docs of its own. pinnedSurfacesFor is
@@ -19,9 +22,9 @@ export function googleAppTarget(
   surface: string,
   prefs: { openInApp: boolean; alwaysNewWindow: boolean; excluded: readonly string[] },
 ): GoogleAppTarget {
-  if (prefs.excluded.includes(surface)) return 'external';
   if (!prefs.openInApp) return 'external';
   if (prefs.alwaysNewWindow) return 'new-window';
+  if (prefs.excluded.includes(surface)) return 'external';
   return 'in-app';
 }
 

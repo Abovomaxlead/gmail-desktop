@@ -56,6 +56,13 @@ to [Semantic Versioning](https://semver.org/).
   je na lange tijd aanklikt kan zichzelf nog even bijwerken.
 
 ### Gewijzigd
+- **"Altijd in een nieuw venster" gaat nu voor op een uitgesloten app.** Eerst won
+  uitsluiten: een app op die lijst ging naar de browser, ook met nieuw-venster aan.
+  Dat maakte de twee instellingen tegenstrijdig — je zette iets aan en de lijst
+  eronder bleef doen alsof hij nog iets te zeggen had. Nu bepalen de hoofdschakelaars
+  het voor alles, en heeft de uitsluitingslijst alleen iets te zeggen als ze beide uit
+  staan. Had je een app uitgesloten én nieuw-venster aan, dan opent die app vanaf nu
+  in de app in plaats van in je browser.
 - **De instellingen hebben inhoud gekregen, tab voor tab.** Weergave (de getallen
   aan of uit, het tray-icoon, de ondergrens van het venster), Downloads (waar een
   download heen gaat, eerst vragen, map openen — de app handelde downloads tot nu
@@ -101,6 +108,21 @@ to [Semantic Versioning](https://semver.org/).
   in de scopes staat — daardoor moet elk account eenmalig opnieuw toestemming geven.
 
 ### Opgelost
+- **De lijst met uitgesloten Google-apps bleef aanklikbaar terwijl hij niets deed.**
+  Beide hoofdschakelaars beslissen het al voor élke app: staat "Open in de app" uit,
+  dan gaat alles naar je browser, en staat "Altijd in een nieuw venster" aan, dan
+  krijgt alles zijn eigen venster in de app. In beide gevallen verandert het aanvinken
+  van een app daar niets aan — dubbel werk dus. Die lijst is nu uitgeschakeld zolang
+  één van de twee zo staat, met een regel erbij die zegt welke schakelaar het bepaalt.
+  Je vinkjes blijven bewaard en gaan weer meedoen zodra beide schakelaars uit zijn.
+- **Mail door deze app laten gaan werkte niet.** De schakelaar bij Instellingen →
+  Algemeen kon de standaard helemaal niet zetten, en de app stond niet eens tussen
+  de standaard-apps van Windows — daar was hij dus ook niet met de hand te kiezen.
+  Windows bepaalt sinds versie 8 zelf welke app een mail-adres opent, en zet daar
+  een ondertekend stempel op; geen enkele app kan daar omheen. De app meldt zich nu
+  bij het opstarten aan als mailprogramma, zodat hij in de lijst van Windows
+  verschijnt, en de schakelaar is een knop geworden die je rechtstreeks naar die
+  lijst brengt. Eronder staat wat Windows er op dit moment van gemaakt heeft.
 - **Hetzelfde label twee keer slepen lukte niet.** Na de eerste sleep bleef de
   labelnaam geselecteerd, en dan begon Chromium bij de volgende poging zijn eigen
   sleep van die selectie — waardoor de balk nooit verscheen. Alleen bij dat ene

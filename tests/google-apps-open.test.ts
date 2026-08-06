@@ -33,10 +33,19 @@ describe('googleAppTarget', () => {
     expect(googleAppTarget('drive', prefs)).toBe('in-app');
   });
 
-  it('lets the per-app exception beat "always a new window"', () => {
+  it('lets "always a new window" beat the per-app exception', () => {
+    // Both master switches settle every app at once, so the exclusion list has no say
+    // while either is set - which is what lets the settings panel disable that list
+    // without hiding a setting that still bites.
     expect(googleAppTarget('keep', { openInApp: true, alwaysNewWindow: true, excluded: ['keep'] })).toBe(
-      'external',
+      'new-window',
     );
+  });
+
+  it('keeps a stored exclusion for when the master switches are off again', () => {
+    const stored = { openInApp: true, alwaysNewWindow: true, excluded: ['keep'] };
+    expect(googleAppTarget('keep', stored)).toBe('new-window');
+    expect(googleAppTarget('keep', { ...stored, alwaysNewWindow: false })).toBe('external');
   });
 
   it('lets "not in the app" beat "always a new window"', () => {
