@@ -66,6 +66,37 @@ function render(value: unknown): string | null {
   }
 }
 
+// A value identical to the English one is almost always a forgotten translation. The
+// exceptions are words Dutch borrowed unchanged or product names, listed here so that
+// adding one is a deliberate act rather than a silent pass.
+const SAME_IN_BOTH = new Set([
+  'languageEnglish',
+  'languageDutch',
+  'escKey',
+  'navGmail',
+  'calendarToggle',
+  'navAccounts',
+  'navDownloads',
+  'navUpdates',
+  'updates',
+  'dhBytes',
+  'soundPing',
+  'soundArpeggio',
+]);
+
+describe('STRINGS_NL', () => {
+  it('translates every value that is not deliberately shared with English', () => {
+    const leftovers: string[] = [];
+    for (const key of Object.keys(STRINGS_NORMAL)) {
+      if (SAME_IN_BOTH.has(key)) continue;
+      const nl = render((STRINGS_NL as unknown as Record<string, unknown>)[key]);
+      const en = render((STRINGS_NORMAL as unknown as Record<string, unknown>)[key]);
+      if (nl !== null && en !== null && nl === en) leftovers.push(key);
+    }
+    expect(leftovers, `still English: ${leftovers.join(', ')}`).toEqual([]);
+  });
+});
+
 describe('the category and colour maps', () => {
   it('carry the same keys in all three sets', () => {
     expect(Object.keys(CATEGORY_NL).sort()).toEqual(Object.keys(CATEGORY_NORMAL).sort());

@@ -1,6 +1,7 @@
-// All user-facing text in the app's own chrome (bar + settings), in two flavours: the
-// normal English UI and Rene mode's simple Dutch, short words a four-year-old can
-// read. Gmail's own page content is Google's and stays as it is. `numberLocale` is a
+// All user-facing text in the app's own chrome (bar + settings), in three flavours: the
+// normal English UI, its Dutch counterpart in the same businesslike register, and Rene
+// mode's simple Dutch, short words a four-year-old can read. Gmail's own page content is
+// Google's and stays as it is. `numberLocale` is a
 // formatting choice that belongs to the language: which separator groups the thousands
 // in an unread count (1.324 vs 1,324). A nav name is also the heading above its own
 // section, one key for both, because nineteen sections with two keys each would be
@@ -918,23 +919,301 @@ export const STRINGS_RENE: UiStrings = {
   settingsTooltip: 'Knopjes',
 };
 
-// Filled in with real Dutch by the translation task; a spread of the English set keeps
-// the app compiling and running until then.
 export const STRINGS_NL: UiStrings = {
-  ...STRINGS_NORMAL,
+  numberLocale: 'nl-NL',
+
+  close: 'Sluiten',
+  escKey: 'Esc',
+  reneBanner: '🤓 De Rene-stand staat aan. Alles is groot en eenvoudig.',
+
+  navDownloadHistory: 'Downloadgeschiedenis',
+  navGeneral: 'Algemeen',
+  navAccounts: 'Accounts',
+  navAppearance: 'Weergave',
+  navDownloads: 'Downloads',
+  navGmail: 'Gmail',
+  navGoogleApps: 'Google-apps',
+  navNotifications: 'Meldingen',
+  navPhishingProtection: 'Phishingbescherming',
+  navUpdates: 'Updates',
+  navVerificationCodes: 'Verificatiecodes',
+  navAdvanced: 'Geavanceerd',
+  navWhatsNew: 'Wat is er nieuw',
+  navAbout: 'Over Gmail Desktop',
+  settingsAttention: 'vraagt je aandacht',
+  sectionEmpty: 'Hier is nog niets in te stellen.',
+
+  defaultMailClient: 'Standaard mailprogramma',
+  defaultMailClientDescription:
+    'Windows bepaalt welke app e-maillinks opent, dus die keuze maak je daar. Deze knop brengt je er direct naartoe.',
+  defaultMailIsDefault: 'E-maillinks openen in Gmail Desktop.',
+  defaultMailNotDefault: 'E-maillinks openen nu in een andere app.',
+  defaultMailSetButton: 'Instellen in Windows',
+  defaultMailChangeButton: 'Wijzigen in Windows',
+  startup: 'Opstarten',
+  autoStart: 'Starten bij aanmelden',
+  autoStartDescription:
+    'Zet deze optie aan om de app automatisch te starten wanneer je je op je computer aanmeldt.',
+  launchMinimized: 'Geminimaliseerd starten',
+  launchMinimizedDescription: 'Zet deze optie aan om de app geminimaliseerd te starten.',
+  mailDropFolder: 'Map voor bewaarde mail',
+  mailDropHint:
+    'Mail die je naar de strook boven Gmail sleept, komt hier als .eml te staan, met een log.jsonl ernaast',
+  mailDropChoose: 'Kiezen…',
+  mailDropOpen: 'Openen',
+  dropTitle: (t) => `${t} ${t === 1 ? 'gesprek' : 'gesprekken'} verplaatst`,
+  dropSubtitle: (ok, m) =>
+    `${ok} bewaard — ${m} ${m === 1 ? 'bericht' : 'berichten'} naar schijf geschreven`,
+  dropSavedCount: (m) => `${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
+  theme: 'Thema',
+  themeDescription: 'Volg Windows, of houd de app licht of donker wat Windows ook doet.',
+  themeSystem: 'Systeem',
+  themeLight: 'Licht',
+  themeDark: 'Donker',
   language: 'Taal',
   languageDescription: 'De taal van deze app. Gmail zelf volgt de taal van je Google-account.',
   languageSystem: 'Gelijk aan Windows',
   languageEnglish: 'English',
   languageDutch: 'Nederlands',
+  notificationOpenLabel: 'Als je op een melding klikt',
+  notificationOpenDescription:
+    'Het bericht opent in de app, of in een apart Gmail-venster daarboven.',
+  openInApp: 'In de app openen',
+  openInWindow: 'In een nieuw venster openen',
+
+  showUnreadBadges: 'Tellers voor ongelezen mail weergeven',
+  showUnreadBadgesDescription:
+    'Verbergt alle tellers voor ongelezen mail, ongeacht de instelling per account.',
+  systemTray: 'Pictogram in het systeemvak',
+  trayEnabled: 'Pictogram in het systeemvak weergeven',
+  trayEnabledDescription: 'Toon het pictogram van de app in het systeemvak.',
+  traySelectUnread: 'Bij klikken het account met ongelezen mail kiezen',
+  traySelectUnreadDescription:
+    'Kies automatisch het eerste account met ongelezen mail wanneer je op het pictogram in het systeemvak klikt.',
+  trayColourTodo:
+    'De kleur van het pictogram in het systeemvak kan nog niet: het pictogram is het logo van de app in kleur, en een lichte of donkere versie heeft eerst een eigen afbeelding in één kleur nodig.',
+  windowGroup: 'Venster',
+  restrictMinWindowSize: 'Minimale venstergrootte beperken',
+  restrictMinWindowSizeDescription:
+    'Beperk de minimale grootte van het venster van de app, zodat het niet te klein kan worden.',
+
+  saveAsDialog: 'Venster Opslaan als weergeven voor het downloaden',
+  saveAsDialogDescription: 'Vraag elke keer om een locatie voordat een bestand wordt gedownload.',
+  openFolderWhenDone: 'Map openen als het klaar is',
+  openFolderWhenDoneDescription:
+    'Open automatisch de map met het gedownloade bestand zodra de download klaar is.',
+  downloadFolder: 'Standaardlocatie voor downloads',
+  downloadFolderDescription:
+    'Dit is de standaardlocatie waar gedownloade bestanden worden opgeslagen.',
+  downloadFolderDefault: 'De eigen map Downloads van Windows wordt gebruikt.',
+  change: 'Wijzigen…',
+  mailDropGroup: 'Gesleepte mail',
+
+
+  confirmExternalLinks: 'Externe links bevestigen voor het openen',
+  confirmExternalLinksDescription:
+    'Vraag om bevestiging voordat links van niet-vertrouwde hosts in je browser openen. Het venster laat zien waar de link echt heen gaat — het beoordeelt niet of de host veilig is.',
+  confirmExternalLinksGoogleNote:
+    'Over Google’s eigen apps wordt nooit iets gevraagd: Gmail, Calendar, Drive, Docs, Keep, Contacts, Chat en inloggen. Over de rest van google.com wel — op een pagina op sites.google.com staat wat een vreemde er heeft neergezet.',
+  trustedHosts: 'Vertrouwde hosts',
+  trustedHostsDescription:
+    'Hosts waarover je niets meer gevraagd wordt. Een host komt hier terecht als je in het venster "Altijd toestaan" aanvinkt; subdomeinen van een vertrouwde host zijn ook vertrouwd.',
+  trustedHostsEmpty: 'Geen vertrouwde hosts toegevoegd.',
+  trustedHostRemove: (host) => `${host} niet meer vertrouwen`,
+
+  autoCheckUpdates: 'Automatisch op updates controleren',
+  autoCheckUpdatesDescription: 'Controleer periodiek automatisch op updates.',
+  notifyUpdates: 'Melden wanneer er updates zijn',
+  notifyUpdatesDescription: 'Ontvang een melding wanneer er updates beschikbaar zijn.',
+
+  miscellaneous: 'Overig',
+  hardwareAcceleration: 'Hardwareversnelling',
+  hardwareAccelerationDescription:
+    'Hardwareversnelling kan de prestaties verbeteren, maar kan op sommige systemen ook problemen geven.',
+  restartRequired: 'Werkt vanaf de volgende keer dat de app start.',
+
+  gmailComposeGroup: 'Opstellen',
+  gmailComposeNewWindow: 'Nieuwe mail altijd in een nieuw venster opstellen',
+  gmailComposeNewWindowDescription:
+    'Opent een nieuw venster om mail op te stellen, in plaats van binnen Gmail.',
+
+  gaOpenInApp: 'In de app openen',
+  gaOpenInAppDescription: 'Open Google-apps in de app in plaats van in de externe browser.',
+  gaAlwaysNewWindow: 'Altijd in een nieuw venster openen',
+  gaAlwaysNewWindowDescription:
+    'Open Google-apps altijd in een nieuw venster, in plaats van een venster dat al open staat opnieuw te gebruiken.',
+  gaExcluded: 'Uitgesloten apps',
+  gaExcludedDescription:
+    'Kies welke Google-apps in de externe browser openen in plaats van in de app.',
+  gaExcludedAllExternal:
+    'Elke Google-app opent al in de externe browser, dus er is niets meer om uit te sluiten. Zet In de app openen aan om per app te kiezen.',
+  gaExcludedAllNewWindow:
+    'Altijd in een nieuw venster openen geeft elke Google-app een eigen venster in de app, dus deze lijst doet niets. Zet die optie uit om per app te kiezen.',
+  gaExcludedNone: 'Geen',
+  gaShowAccountLabel: 'Accountnaam weergeven',
+  gaShowAccountLabelDescription:
+    'Toon de accountnaam in de titelbalk van het venster van een Google-app, als je meer dan één account gebruikt.',
+  gaShowAccountColor: 'Accountkleur weergeven',
+  gaShowAccountColorDescription:
+    'Geef het venster van een Google-app tijdens het laden de kleur van het account, zodat je ziet van wie het is.',
+  gaPinned: 'Vastgezette apps',
+  gaPinnedDescription:
+    'Kies de apps die je het meest gebruikt. De balk bovenaan tekent ze nog niet — dat is de volgende stap; voorlopig staan ze ook in het rechtsklikmenu van een accounttabblad.',
+  gaPinnedHeading: 'Vastgezet',
+  gaAvailableHeading: 'Beschikbaar',
+  gaPin: (name) => `${name} vastzetten`,
+  gaUnpin: (name) => `${name} losmaken`,
+
+  dhEmpty: 'Er is nog niets gedownload.',
+  dhFile: 'Bestand',
+  dhSize: 'Grootte',
+  dhWhen: 'Wanneer',
+  dhState: 'Status',
+  dhStateCompleted: 'Klaar',
+  dhStateCancelled: 'Geannuleerd',
+  dhStateInterrupted: 'Mislukt',
+  dhReveal: 'In map weergeven',
+  dhOpen: 'Openen',
+  dhClear: 'Lijst wissen',
+  dhClearConfirm: 'De hele lijst wissen? Dit kan niet ongedaan worden gemaakt.',
+  dhBytes: (n) => `${n} bytes`,
+
+  soundChoice: 'Geluid',
+  soundChoiceDescription: 'Kies het geluid dat bij meldingen wordt afgespeeld.',
+  soundSystem: 'Systeemgeluid',
+  soundChime: 'Klokje',
+  soundPing: 'Ping',
+  soundArpeggio: 'Arpeggio',
+  soundKnock: 'Klop',
+  soundTick: 'Tik',
+  soundPreview: 'Afspelen',
+  volumeLabel: (percent) => `Geluidsniveau ${percent}%`,
+  volumeDescription: 'Stel het geluidsniveau van meldingsgeluiden in.',
+
+  gmailCloseCompose: 'Venster voor opstellen sluiten na versturen',
+  gmailCloseComposeDescription:
+    'Sluit het venster voor opstellen automatisch nadat je op verzenden hebt gedrukt. Geldt alleen voor een venster dat de app zelf heeft geopend.',
+
+  vcAutoCopy: 'Verificatiecode automatisch naar het klembord kopiëren',
+  vcAutoCopyDescription:
+    'Een verificatiecode die je per mail ontvangt, wordt automatisch naar je klembord gekopieerd, zodat je hem direct kunt plakken.',
+  vcConfidence: 'Zekerheid bij het herkennen van verificatiecodes',
+  vcConfidenceDescription:
+    'Kies hoe zeker de app moet zijn bij het herkennen van verificatiecodes. Gemiddeld pikt er soms iets uit dat geen code is, terwijl Hoog naar expliciete trefwoorden zoekt, maar codes kan missen.',
+  vcConfidenceMedium: 'Gemiddeld',
+  vcConfidenceHigh: 'Hoog',
+  vcMarkRead: 'Mail automatisch als gelezen markeren na het kopiëren van de verificatiecode',
+  vcMarkReadDescription:
+    'Mail met een verificatiecode wordt automatisch als gelezen gemarkeerd nadat de code naar je klembord is gekopieerd.',
+  vcDelete: 'Mail automatisch verwijderen na het kopiëren van de verificatiecode',
+  vcDeleteDescription:
+    'Mail met een verificatiecode wordt automatisch verwijderd nadat de code naar je klembord is gekopieerd.',
+  vcDeleteWarning:
+    'Een verkeerd herkende code betekent dat een echte mail in de prullenbak gaat. Daarom is Hoog aan te raden — en daarom staat deze optie standaard uit.',
+  vcNotWiredYet:
+    'Codes worden via de Gmail API gelezen, dus dit geldt alleen voor accounts die daarvoor gekoppeld zijn — dezelfde koppeling die meldingen gebruiken. Voor als gelezen markeren en weggooien is een extra Google-toestemming nodig; heb je die sinds ze erbij kwam niet gegeven, koppel het account dan opnieuw.',
+
+  addShort: 'Toevoegen',
+  renameAccount: 'Account een andere naam geven',
+
+  notificationContent: 'Wat er in een melding staat',
+  showSender: 'Afzender weergeven',
+  showSenderDescription: 'Toon de naam van de afzender van de mail in meldingen.',
+  showSubject: 'Onderwerp weergeven',
+  showSubjectDescription: 'Toon het onderwerp van de mail in meldingen.',
+  testNotification: 'Testmelding',
+  testNotificationDescription: 'Laat een testmelding zien, zodat je ziet hoe meldingen eruitzien.',
+  testNotificationButton: 'Testmelding weergeven',
+  soundGroup: 'Geluid',
+  playSound: 'Geluid afspelen',
+  playSoundDescription:
+    'Speel een geluid af bij een melding. Uit is stil voor elk account, wat daar ook is ingesteld.',
+  googleAppsNotifications: 'Google-apps',
+  googleAppsNotificationsDescription:
+    'Sta meldingen van Google-apps zoals Calendar toe. Uit dempt ze voor elk account.',
+  downloadNotify: 'Melding weergeven',
+  downloadNotifyDescription:
+    'Toon een melding wanneer een download klaar is, is geannuleerd of is mislukt.',
+  downloadOnClick: 'Bij klikken',
+  downloadOnClickDescription: 'Kies wat er gebeurt als je op de melding over de download klikt.',
+  downloadClickShowInFolder: 'In map weergeven',
+  downloadClickOpenFile: 'Het bestand openen',
+  downloadClickNothing: 'Niets doen',
+
+  dnd: 'Niet storen (alles dempen)',
+  dndDescription:
+    'Geen meldingen en geen geluiden voor welk account dan ook, totdat je dit weer uitzet.',
+  quietHours: 'Stille uren',
+  quietHoursDescription: 'Meldingen worden tussen de onderstaande tijden vastgehouden.',
+  from: 'Van',
+  to: 'tot',
+  perAccountNotifications: 'Meldingen per account',
+  mailToggle: 'E-mail',
+  mailToggleTitle: 'Meldingen voor mail van dit account',
+  calendarToggle: 'Calendar',
+  calendarToggleTitle: 'Herinneringen uit Calendar voor dit account',
+  badgeToggle: 'Teller',
+  badgeToggleTitle:
+    'Tel de ongelezen mail van dit postvak mee — op de teller in de taakbalk en op het tabblad',
+  soundToggle: 'Geluid',
+  soundToggleTitle: 'Speel een geluid af bij meldingen voor dit account',
+  persistToggle: 'Blijft staan',
+  persistToggleTitle: 'Houd meldingen op het scherm tot je ze wegklikt',
+  toggleNotApplicable: 'Niet beschikbaar voor dit account',
+
+  updates: 'Updates',
+  versionPrefix: 'Versie',
+  updateNow: 'Nu updaten',
+  updateReady: 'Update klaar',
+  restartInstall: 'Opnieuw starten en installeren',
+  checkForUpdates: 'Op updates controleren',
+  checking: 'Controleren…',
+  updChecking: 'Zoeken naar updates…',
+  updAvailable: (version) => `Update beschikbaar: v${version}`,
+  updLatest: 'Je gebruikt de nieuwste versie.',
+  updDownloading: (percent) => `Update downloaden… ${percent}%`,
+  updDownloaded: 'Update gedownload — opnieuw starten om te installeren…',
+  updError: (message) => `Controleren op updates lukte niet: ${message}`,
+  updDev: 'Updates zijn alleen beschikbaar in de geïnstalleerde app.',
+
+  changelogVersionPrefix: 'Versie',
+  showOlder: 'Oudere versies weergeven',
+  hideOlder: 'Oudere versies verbergen',
+  changelogEmpty: 'Geen releasenotes beschikbaar.',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_NL[key] : '';
   },
+
+  accountLabelField: 'Accountnaam',
+  accountColor: 'Accountkleur',
   colorName: (hex) => {
     const key = colorKey(hex);
     return key ? COLOR_NL[key] : hex;
   },
+  removeAccount: 'Account verwijderen',
+  removeConfirmBefore:
+    'Dit account uit de app verwijderen? Het blijft ingelogd bij Google — voeg het later opnieuw toe met de ',
+  removeConfirmAfter: '-knop.',
+  remove: 'Verwijderen',
+  cancel: 'Annuleren',
+  redetectLabel: 'Accounts herkennen',
+  redetect: 'Accounts opnieuw zoeken',
+  redetectDescription: 'Kijkt opnieuw naar de Google-accounts waarop je bent ingelogd.',
+  noAccounts: 'Nog geen accounts gevonden.',
+  accountsFootnoteBefore:
+    'Accounts worden gevonden via de Google-accounts waarop je bent ingelogd. Gebruik de ',
+  accountsFootnoteAfter:
+    '-knop in de zijbalk om met een nieuw account in te loggen, of voeg er een toe via de accountwisselaar van Gmail en zoek daarna opnieuw.',
+
+  addAccountTooltip: 'Account toevoegen',
+  addAccountLabel: 'Account toevoegen',
+  addDelegatedLabel: 'Gedelegeerd postvak toevoegen',
+  delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
+  delegatedSuggestionsHeading: 'Voorgesteld gedelegeerd',
+  delegatedScanning: 'Even in je accountmenu kijken…',
+  delegatedNoneFound: 'Geen gedelegeerde postvakken gevonden.',
+  settingsTooltip: 'Instellingen',
 };
 
 export function getStrings(locale: Locale, reneMode: boolean): UiStrings {
