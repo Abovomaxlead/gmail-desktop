@@ -15,9 +15,6 @@ export interface ToastRect {
 /** Gap between the stack and the screen edges, on both axes. */
 export const TOAST_MARGIN = 16;
 
-/** The card width the page lays out to, in CSS pixels. */
-export const TOAST_WIDTH = 380;
-
 function usableHeight(workArea: ToastRect): number {
   return Math.max(1, workArea.height - TOAST_MARGIN * 2);
 }

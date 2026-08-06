@@ -93,8 +93,8 @@ export class ToastController {
   }
 
   activateSummary(): void {
-    const accountKey = this.stack.summary?.accountKey ?? null;
     if (!this.stack.summary) return;
+    const accountKey = this.stack.summary.accountKey;
     this.stack = dismissAll(this.stack);
     this.push();
     this.retime();
@@ -124,11 +124,13 @@ export class ToastController {
 
   /** The page measured itself. Collapse if it does not fit, otherwise size the window to it. */
   applySize(cssWidth: number, cssHeight: number): void {
+    if (this.stack.toasts.length === 0 && this.stack.summary === null) return;
     if (this.hooks.window.wouldOverflow(cssHeight)) {
       const folded = collapse(this.stack);
       if (folded !== this.stack) {
         this.stack = folded;
         this.push();
+        this.retime();
         return;
       }
     }
@@ -147,6 +149,7 @@ export class ToastController {
   destroy(): void {
     this.stopTimer();
     this.stack = EMPTY_STACK;
+    this.ready = false;
     this.hooks.window.destroy();
   }
 

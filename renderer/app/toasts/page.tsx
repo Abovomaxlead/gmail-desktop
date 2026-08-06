@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStrings } from '../strings';
 import { HAIRLINE } from '../settings/tokens';
-import type { Toast, ToastAction, ToastState } from '../../lib/toast';
+import { TOAST_WIDTH, type Toast, type ToastAction, type ToastState } from '../../lib/toast';
 
 // The notification stack, one card per notification, anchored to the bottom-right of the
 // screen by main and growing upward. It is its own frameless transparent window, so as in
@@ -24,7 +24,6 @@ import type { Toast, ToastAction, ToastState } from '../../lib/toast';
 // clicks meant for the desktop, and a click-through window gets mouse moves but no enter
 // or leave events; elementFromPoint is what still works under that.
 
-const CARD_WIDTH = 380;
 // Windows at a fractional display scale rounds the content size and then divides the CSS
 // viewport by the zoom factor, so an exact fit can land a pixel short and clip a shadow.
 const ROUNDING_SLACK = 2;
@@ -35,11 +34,18 @@ export default function ToastsPage() {
   const hoveredRef = useRef(false);
 
   useEffect(() => {
-    window.desktop?.onToastState((next) => setState(next));
+    window.desktop?.onToastState((next) => {
+      // Mirrors the controller clearing its own hoveredSince when the stack empties: with
+      // no cards left there is nothing to be hovered over, and leaving this set would make
+      // the next toast arrive with the page believing the pointer is still parked on a
+      // card that no longer exists.
+      if (next.toasts.length === 0 && next.summary === null) hoveredRef.current = false;
+      setState(next);
+    });
   }, []);
 
-  // One observer for the life of the page: the stack changes size when cards come and go,
-  // and again when a font finishes loading or a long subject wraps to a second line.
+  // Rebuilt on every state change rather than attached once: the wrap div does not exist
+  // until the first card renders, so an empty dependency array would observe nothing.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -69,11 +75,20 @@ export default function ToastsPage() {
       hoveredRef.current = false;
       window.desktop?.setToastHovered(false);
     };
+    // mouseleave does not bubble, so a listener on document itself is not reliably in the
+    // dispatch path; the documentElement is the node the pointer actually leaves. mouseout
+    // with a null relatedTarget is a second net for the same event, since it does bubble.
+    const onOut = (e: MouseEvent): void => {
+      if (e.relatedTarget !== null) return;
+      onLeave();
+    };
     document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseleave', onLeave);
+    document.documentElement.addEventListener('mouseleave', onLeave);
+    document.addEventListener('mouseout', onOut);
     return () => {
       document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseleave', onLeave);
+      document.documentElement.removeEventListener('mouseleave', onLeave);
+      document.removeEventListener('mouseout', onOut);
     };
   }, []);
 
@@ -88,7 +103,7 @@ export default function ToastsPage() {
       {transparent}
       <div
         ref={wrapRef}
-        style={{ width: CARD_WIDTH }}
+        style={{ width: TOAST_WIDTH }}
         className="flex flex-col items-stretch gap-2"
       >
         {empty ? null : (

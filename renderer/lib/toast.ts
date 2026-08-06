@@ -11,6 +11,10 @@
 // has to travel back with, because only that page still holds the subject the thread
 // lookup matches against.
 
+/** The width the page lays out its cards to, and the width the window is sized to — read
+ * from here by both sides so the two can never drift apart. */
+export const TOAST_WIDTH = 380;
+
 export type ToastKind = 'mail' | 'update' | 'download' | 'error' | 'test';
 
 export interface ToastAccount {

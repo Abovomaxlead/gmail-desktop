@@ -17,11 +17,13 @@
 // which is what keeps a resize from ever being seen.
 
 import { BrowserWindow, screen } from 'electron';
-import { TOAST_WIDTH, exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
+import { exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
+import { TOAST_WIDTH } from '../renderer/lib/toast';
 
 export class ToastWindow {
   private win: BrowserWindow | null = null;
   private lastSize: { width: number; height: number } | null = null;
+  private destroyed = false;
 
   constructor(
     private readonly preloadPath: string,
@@ -32,8 +34,9 @@ export class ToastWindow {
     private readonly onReady: () => void,
   ) {}
 
-  /** Creates the window on first use. Returns null when creation failed. */
+  /** Creates the window on first use. Returns null when creation failed, or once destroyed. */
   private ensure(): BrowserWindow | null {
+    if (this.destroyed) return null;
     if (this.win && !this.win.isDestroyed()) return this.win;
     try {
       const win = new BrowserWindow({
@@ -129,6 +132,7 @@ export class ToastWindow {
   }
 
   destroy(): void {
+    this.destroyed = true;
     const win = this.win;
     this.win = null;
     if (win && !win.isDestroyed()) win.destroy();
