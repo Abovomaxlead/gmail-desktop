@@ -1807,9 +1807,10 @@ function maybeNotifyUpdate(version: string): void {
     return;
   if (!Notification.isSupported()) return;
   notifiedUpdateVersion = version;
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
   const n = new Notification({
-    title: 'Update available',
-    body: `Gmail Desktop ${version} is ready. Click to update.`,
+    title: L.updateAvailableTitle,
+    body: L.updateAvailableBody(version),
   });
   n.on('click', () => openSettingsPanel());
   n.show();
@@ -2054,15 +2055,16 @@ function openExternalGuarded(url: string): void {
   const host = hostOf(target) ?? target;
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;
   const shown = target.length > 200 ? `${target.slice(0, 200)}…` : target;
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
   const box = {
     type: 'question' as const,
     noLink: true,
-    buttons: ['Open link', 'Cancel'],
+    buttons: [L.linkOpenButton, L.cancel],
     defaultId: 1,
     cancelId: 1,
-    message: `Open ${host}?`,
-    detail: `This link leaves Gmail Desktop and opens in your browser.\n\n${shown}`,
-    checkboxLabel: `Always allow ${host}`,
+    message: L.linkMessage(host),
+    detail: L.linkDetail(shown),
+    checkboxLabel: L.linkAlwaysAllow(host),
     checkboxChecked: false,
   };
   const done = (res: { response: number; checkboxChecked: boolean }) => {
