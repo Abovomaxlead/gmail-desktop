@@ -3,8 +3,9 @@
 // strip. Everything above the Electron block at the bottom
 // is Node-safe so it can be unit-tested. Gmail is not our page, so anything found in it
 // is matched by shape, never by translated text, and all user-facing wording arrives
-// from main — which is why a notification click resolves its thread from options.body
-// and not from the text shown. Notification.permission must stay a live getter or Gmail
+// from main — which is why a notification click resolves its thread from the body the
+// page gave us, which we keep, and never from the text on screen — main replaced that
+// before drawing it. Notification.permission must stay a live getter or Gmail
 // freezes it at "default"; window.open must return a stub, since null reads as a popup
 // blocker. The drop strip has to live in <body> to render at all.
 import { parseUnreadCount } from './unread-parser';
@@ -99,34 +100,13 @@ export function rerouteServiceWorkerNotifications(
   };
 }
 
-// LegacyNotifyState is scaffolding: Task 3 shrank NotifyState to the two fields the
-// Gmail page itself still decides, but these two functions still need the fields main
-// used to push through this channel. Task 9 rewrites this path and deletes both
-// functions and this type.
-type LegacyNotifyState = {
-  show: boolean;
-  silent: boolean;
-  persist?: boolean;
-  hiddenSender?: string;
-  hiddenSubject?: string;
-};
-
-export function notificationOptionsFor(
-  state: LegacyNotifyState,
+export function webNotifyPayload(
+  id: string,
+  title: string,
   options?: NotificationOptions,
-): NotificationOptions | undefined {
-  const hideBody = typeof state.hiddenSubject === 'string';
-  if (!state.silent && !state.persist && !hideBody) return options;
-  return {
-    ...options,
-    ...(hideBody ? { body: state.hiddenSubject } : {}),
-    ...(state.silent ? { silent: true } : {}),
-    ...(state.persist ? { requireInteraction: true } : {}),
-  };
-}
-
-export function notificationTitleFor(state: LegacyNotifyState, title: string): string {
-  return typeof state.hiddenSender === 'string' ? state.hiddenSender : title;
+): { id: string; title: string; body: string } {
+  const raw = options?.body;
+  return { id, title, body: raw === undefined || raw === null ? '' : String(raw) };
 }
 
 export function isEditableTarget(
@@ -333,29 +313,46 @@ if (typeof document !== 'undefined') {
     }
     setInterval(report, 5000);
 
+    // Gmail's own notifications are relayed to main rather than raised here: main draws
+    // every notification the app gives, and only main knows the account this view belongs
+    // to, whether it should stay, and what the privacy settings should replace. The stub
+    // returned is the object Gmail's code goes on to use, so it has to answer to onclick,
+    // close and addEventListener whatever we do with it. The original body is kept until
+    // the click, because finding the thread means matching that subject in this page's
+    // DOM, and by then main has long since replaced the text on screen.
+    const bodies = new Map<string, string>();
+    let webNotifySeq = 0;
+    const Wrapped = function (this: Notification, title: string, options?: NotificationOptions) {
+      if (!notifyState.show) {
+        return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
+      }
+      webNotifySeq += 1;
+      const id = `w${webNotifySeq}`;
+      const payload = webNotifyPayload(id, title, options);
+      bodies.set(id, payload.body);
+      ipcRenderer.send(IPC.WEB_NOTIFY_SHOW, payload);
+      return {
+        onclick: null,
+        close: () => bodies.delete(id),
+        addEventListener() {},
+      } as unknown as Notification;
+    } as unknown as typeof Notification;
     const Original = window.Notification;
     if (Original) {
-      const Wrapped = function (this: Notification, title: string, options?: NotificationOptions) {
-        if (!notifyState.show) {
-          return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
-        }
-        const n = new Original(
-          notificationTitleFor(notifyState, title),
-          notificationOptionsFor(notifyState, options),
-        );
-        n.addEventListener('click', () => {
-          const threadId = findThreadIdBySubject(document, options?.body ?? '');
-          ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId ?? undefined);
-        });
-        return n;
-      } as unknown as typeof Notification;
       Object.defineProperty(Wrapped, 'permission', {
         configurable: true,
         get: () => Original.permission,
       });
       Wrapped.requestPermission = Original.requestPermission.bind(Original);
-      window.Notification = Wrapped;
     }
+    window.Notification = Wrapped;
+
+    ipcRenderer.on(IPC.WEB_NOTIFY_CLICK, (_e: unknown, id: string) => {
+      const body = bodies.get(id) ?? '';
+      bodies.delete(id);
+      const threadId = findThreadIdBySubject(document, body);
+      ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId ?? undefined);
+    });
 
     rerouteServiceWorkerNotifications(
       typeof ServiceWorkerRegistration !== 'undefined' ? ServiceWorkerRegistration.prototype : undefined,

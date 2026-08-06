@@ -1535,12 +1535,20 @@ function showToast(input: ToastInput): void {
 }
 
 function activateToast(toast: Toast): void {
-  if (toast.kind === 'mail' && toast.account) {
-    activateNotification(toast.account.key, 'mail', toast.threadId);
+  if (toast.webNotifyId) {
+    const sender = webNotifySources.get(toast.webNotifyId);
+    webNotifySources.delete(toast.webNotifyId);
+    if (sender && !sender.isDestroyed()) {
+      sender.send(IPC.WEB_NOTIFY_CLICK, toast.webNotifyId);
+      return;
+    }
+    // The view is gone, so nothing can resolve the thread. Showing the account beats
+    // swallowing the click.
+    if (toast.account) activateNotification(toast.account.key, 'mail');
     return;
   }
-  if (toast.kind === 'update' || toast.kind === 'error') {
-    openSettingsPanel();
+  if (toast.kind === 'mail' && toast.account) {
+    activateNotification(toast.account.key, 'mail', toast.threadId);
     return;
   }
   if (toast.kind === 'download' && toast.threadId) {
@@ -1548,6 +1556,10 @@ function activateToast(toast: Toast): void {
     downloadClickPaths.delete(toast.threadId);
     if (action === 'open-file') void shell.openPath(toast.threadId);
     else if (action === 'show-in-folder') shell.showItemInFolder(toast.threadId);
+    return;
+  }
+  if (toast.kind === 'update' || toast.kind === 'error') {
+    openSettingsPanel();
     return;
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2284,6 +2296,12 @@ function attachSessionHandlers(s: Electron.Session): void {
 // one that applies.
 const downloadClickPaths = new Map<string, DownloadClickAction>();
 
+// Which view raised a relayed notification. A click has to go back to that page, because
+// the page is the only place that still knows the real subject, and finding the thread
+// means matching that subject in its own DOM. Keyed by the page-side id, not the toast id,
+// so the round trip carries the name the page will recognise.
+const webNotifySources = new Map<string, Electron.WebContents>();
+
 function notifyDownloadDone(
   filename: string,
   path: string,
@@ -2470,6 +2488,29 @@ function registerIpc(): void {
     toasts?.runAction(arg.id, arg.action),
   );
   ipcMain.on(IPC.TOAST_HOVER, (_e, hovered: boolean) => toasts?.setHovered(Boolean(hovered)));
+  // Gmail raised a notification in one of its views. The account comes from which view
+  // sent it, never from the page, and the privacy replacement is applied here so that one
+  // place decides it for both notification paths. Push-covered accounts never get here:
+  // notificationsAllowed already told that view to keep quiet.
+  ipcMain.on(IPC.WEB_NOTIFY_SHOW, (e, arg: { id: string; title: string; body: string }) => {
+    if (!prefs) return;
+    const accountKey = manager?.keyForWebContents(e.sender) ?? null;
+    const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
+    if (!profile) return;
+    const p = prefs.getAll();
+    const hidden = hiddenNotificationText(p);
+    const L = nativeLabels(currentLocale(), p.reneMode === true);
+    webNotifySources.set(arg.id, e.sender);
+    showToast({
+      kind: 'mail',
+      title: hidden.hiddenSender ?? arg.title,
+      body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
+      account: toastAccountFor(profile.email),
+      webNotifyId: arg.id,
+      persist: notificationPersist(p, profile.email),
+    });
+    if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
+  });
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
     const current = downloadFolder();
     const res = await dialog.showOpenDialog({

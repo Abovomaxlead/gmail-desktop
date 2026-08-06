@@ -7,7 +7,7 @@
 // in-page chime — is re-sent on every load, so the manager holds the last value itself.
 // Discarding a mail view reports 0 unread so the badge total forgets it; a window.open
 // passes only when the app itself asked for it.
-import { BrowserWindow, WebContentsView } from 'electron';
+import { BrowserWindow, WebContentsView, type WebContents } from 'electron';
 import { contentBounds } from './layout';
 import {
   IPC,
@@ -163,6 +163,14 @@ export class ProfileViewManager {
 
   activeKey(): string | null {
     return this.activeViewKey ? acctKeyOfViewKey(this.activeViewKey) : null;
+  }
+
+  /** Which account a view belongs to, for an event that arrives from the page itself. */
+  keyForWebContents(wc: WebContents): string | null {
+    for (const [vk, view] of this.views) {
+      if (view.webContents === wc) return acctKeyOfViewKey(vk);
+    }
+    return null;
   }
 
   isShowing(accountKey: string, surface: Surface): boolean {
