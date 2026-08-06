@@ -204,6 +204,11 @@ export interface UiStrings {
   soundToggleTitle: string;
   persistToggle: string;
   persistToggleTitle: string;
+  toastArchive: string;
+  toastMarkRead: string;
+  toastDismiss: string;
+  toastDismissAll: string;
+  toastSummary: (count: number) => string;
   toggleNotApplicable: string;
 
   updates: string;
@@ -571,6 +576,11 @@ export const STRINGS_NORMAL: UiStrings = {
   soundToggleTitle: 'Play a sound with notifications for this account',
   persistToggle: 'Persist',
   persistToggleTitle: 'Keep notifications on screen until you dismiss them',
+  toastArchive: 'Archive',
+  toastMarkRead: 'Mark read',
+  toastDismiss: 'Dismiss',
+  toastDismissAll: 'Dismiss all',
+  toastSummary: (count: number) => `${count} new notifications`,
   toggleNotApplicable: 'Not available for this account',
 
   updates: 'Updates',
@@ -848,6 +858,11 @@ export const STRINGS_RENE: UiStrings = {
   soundToggleTitle: 'Speel een geluidje bij meldingen voor deze meneer of mevrouw',
   persistToggle: 'Blijft staan',
   persistToggleTitle: 'Meldingen blijven op het scherm staan tot u ze wegklikt',
+  toastArchive: 'Opbergen',
+  toastMarkRead: 'Al gezien',
+  toastDismiss: 'Weg ermee',
+  toastDismissAll: 'Alles weg',
+  toastSummary: (count: number) => `${count} nieuwe berichtjes`,
   toggleNotApplicable: 'Kan niet bij deze meneer of mevrouw',
 
   updates: 'Nieuwe versie',
@@ -1138,6 +1153,11 @@ export const STRINGS_NL: UiStrings = {
   soundToggleTitle: 'Speel een geluid af bij meldingen voor dit account',
   persistToggle: 'Blijft staan',
   persistToggleTitle: 'Houd meldingen op het scherm tot je ze wegklikt',
+  toastArchive: 'Archiveren',
+  toastMarkRead: 'Gelezen',
+  toastDismiss: 'Sluiten',
+  toastDismissAll: 'Alles sluiten',
+  toastSummary: (count: number) => `${count} nieuwe meldingen`,
   toggleNotApplicable: 'Niet beschikbaar voor dit account',
 
   updates: 'Updates',
