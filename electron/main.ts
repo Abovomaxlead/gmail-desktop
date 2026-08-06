@@ -111,7 +111,7 @@ import {
 } from './notification-policy';
 import { updateCheckPopup } from './update-popup';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
-import { attachContextMenu, LABELS_NORMAL, LABELS_RENE } from './context-menu';
+import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './context-menu';
 import { attachExternalLinkHandling, setExternalOpener } from './external-links';
 import { googleAppTarget } from './google-apps-open';
 import { DownloadHistoryStore } from './download-history';
@@ -2641,7 +2641,10 @@ app.whenReady().then(() => {
   if (!gotTheLock) return;
   Menu.setApplicationMenu(null);
   app.on('web-contents-created', (_e, wc) => {
-    attachContextMenu(wc, () => (prefs?.getAll().reneMode ? LABELS_RENE : LABELS_NORMAL));
+    attachContextMenu(wc, () => {
+      if (prefs?.getAll().reneMode) return LABELS_RENE;
+      return currentLocale() === 'nl' ? LABELS_NL : LABELS_NORMAL;
+    });
   });
   app.on('session-created', (s) => attachSessionHandlers(s));
   attachSessionHandlers(session.defaultSession);

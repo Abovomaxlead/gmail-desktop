@@ -114,6 +114,21 @@ export const LABELS_RENE: ContextMenuLabels = {
   searchGoogle: 'Zoek “%s” op Google',
 };
 
+export const LABELS_NL: ContextMenuLabels = {
+  undo: 'Ongedaan maken',
+  redo: 'Opnieuw',
+  cut: 'Knippen',
+  copy: 'Kopiëren',
+  paste: 'Plakken',
+  pasteMatchStyle: 'Plakken zonder opmaak',
+  selectAll: 'Alles selecteren',
+  copyLink: 'Linkadres kopiëren',
+  openLink: 'Link openen in browser',
+  copyImage: 'Afbeelding kopiëren',
+  copyImageAddress: 'Afbeeldingsadres kopiëren',
+  searchGoogle: 'Zoek “%s” met Google',
+};
+
 const SEARCH_LABEL_MAX = 25;
 
 export function searchMenuLabel(selectionText: string, template: string): string {
