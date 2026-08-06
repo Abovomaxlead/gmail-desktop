@@ -1,7 +1,7 @@
 // The preferences store: defaults, the patch per tab, and its file on disk.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrefsStore, DEFAULT_PREFS } from '../electron/prefs-store';
@@ -123,6 +123,26 @@ describe('PrefsStore', () => {
       'utf8',
     );
     expect(new PrefsStore(file).getAll().notifications.dndUntil).toBeUndefined();
+  });
+
+  it('defaults the language to the system language', () => {
+    const store = new PrefsStore(file);
+    expect(store.getAll().language).toBe('system');
+    expect(DEFAULT_PREFS.language).toBe('system');
+  });
+
+  it('stores an explicit language choice', () => {
+    const store = new PrefsStore(file);
+    store.setLanguage('nl');
+    expect(store.getAll().language).toBe('nl');
+    expect(new PrefsStore(file).getAll().language).toBe('nl');
+  });
+
+  it('rejects a language a prefs file from another version may hold', () => {
+    const store = new PrefsStore(file);
+    store.setLanguage('nl');
+    writeFileSync(file, JSON.stringify({ ...store.getAll(), language: 'fr' }));
+    expect(new PrefsStore(file).getAll().language).toBe('system');
   });
 });
 

@@ -8,6 +8,7 @@
 // resolves, and hardwareAcceleration is read before app "ready" so it needs a restart.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import type { LanguagePref } from './locale';
 
 export interface AccountPref {
   order?: number;
@@ -122,6 +123,7 @@ export interface Prefs {
   autoStart: boolean;
   launchMinimized: boolean;
   theme: ThemeChoice;
+  language: LanguagePref;
   notificationOpen: NotificationOpen;
   notifications: NotificationPrefs;
   accounts: Record<string, AccountPref>;
@@ -142,6 +144,7 @@ export const DEFAULT_PREFS: Prefs = {
   autoStart: false,
   launchMinimized: false,
   theme: 'system',
+  language: 'system',
   notificationOpen: 'app',
   notifications: {
     dnd: false,
@@ -224,6 +227,9 @@ export class PrefsStore {
             ? raw.launchMinimized
             : DEFAULT_PREFS.launchMinimized,
         theme: ['system', 'light', 'dark'].includes(raw.theme) ? raw.theme : DEFAULT_PREFS.theme,
+        language: ['system', 'en', 'nl'].includes(raw.language)
+          ? raw.language
+          : DEFAULT_PREFS.language,
         notificationOpen: raw.notificationOpen === 'window' ? 'window' : 'app',
         notifications: {
           dnd: typeof raw.notifications?.dnd === 'boolean' ? raw.notifications.dnd : false,
@@ -362,6 +368,9 @@ export class PrefsStore {
   }
   setTheme(t: ThemeChoice): void {
     this.write({ ...this.getAll(), theme: t });
+  }
+  setLanguage(v: LanguagePref): void {
+    this.write({ ...this.getAll(), language: v });
   }
   setNotificationOpen(v: NotificationOpen): void {
     this.write({ ...this.getAll(), notificationOpen: v });
