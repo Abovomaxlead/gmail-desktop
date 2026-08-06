@@ -77,13 +77,13 @@ const NL: NativeLabels = Object.freeze({
   updateAvailableMessage: (version?: string) => `Er is een nieuwe versie${version ? ` (v${version})` : ''}.`,
   updateLatestMessage: (version?: string) => `Je hebt de nieuwste versie al${version ? ` (v${version})` : ''}.`,
   updateInstalledDetail: (version: string) => `Je hebt v${version} geïnstalleerd.`,
-  updateCheckFailed: 'Zoeken naar updates is niet gelukt.',
+  updateCheckFailed: 'Controleren op updates is mislukt',
   accountNotAddedTitle: 'Account niet toegevoegd',
   accountNotAddedBody: (email: string, error: string) =>
     `${email} is niet gekoppeld aan Gmail, dus het account is niet toegevoegd. ${error}`,
   testNotificationBody: 'Zo ziet een melding eruit.',
-  downloadCompleteTitle: 'Download klaar',
-  downloadCancelledTitle: 'Download gestopt',
+  downloadCompleteTitle: 'Download voltooid',
+  downloadCancelledTitle: 'Download geannuleerd',
   downloadFailedTitle: 'Download mislukt',
   noSubject: '(geen onderwerp)',
 });

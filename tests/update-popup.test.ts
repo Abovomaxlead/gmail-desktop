@@ -51,4 +51,8 @@ describe('updateCheckPopup', () => {
     expect(p!.buttons).toEqual(['OK']);
     expect(p!.downloadButtonIndex).toBeUndefined();
   });
+
+  it('reads its labels from the given set, not a hardcoded string', () => {
+    expect(updateCheckPopup({ state: 'dev' }, nativeLabels('nl', false))!.message).toContain('geïnstalleerde app');
+  });
 });

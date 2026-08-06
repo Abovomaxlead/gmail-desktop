@@ -1152,7 +1152,7 @@ export const STRINGS_NL: UiStrings = {
   updLatest: 'Je gebruikt de nieuwste versie.',
   updDownloading: (percent) => `Update downloaden… ${percent}%`,
   updDownloaded: 'Update gedownload — de app start opnieuw om te installeren…',
-  updError: (message) => `Controleren op updates lukte niet: ${message}`,
+  updError: (message) => `Controleren op updates is mislukt: ${message}`,
   updDev: 'Updates zijn alleen beschikbaar in de geïnstalleerde app.',
 
   changelogVersionPrefix: 'Versie',

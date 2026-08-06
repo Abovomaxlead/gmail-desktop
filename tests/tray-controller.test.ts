@@ -70,6 +70,10 @@ describe('updateItemLabel', () => {
     expect(updateItemLabel({ state: 'downloaded' }, true, L)).toBe('Restart to install update');
     expect(updateItemLabel({ state: 'error' }, true, L)).toBe('Update check failed — retry');
   });
+
+  it('reads its label from the given set, not a hardcoded string', () => {
+    expect(updateItemLabel({ state: 'downloaded' }, true, trayLabels('nl', false))).toContain('installeren');
+  });
 });
 
 describe('snoozeStatusLabel', () => {

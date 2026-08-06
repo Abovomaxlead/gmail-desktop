@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { AccountPref, Prefs, Profile } from '../page';
+import type { Profile } from '../page';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
@@ -10,7 +10,6 @@ import {
   DANGER_BUTTON,
   DANGER_PANEL,
   FOCUS_RING,
-  HAIRLINE,
   HINT,
   PANEL,
   SURFACE_FOCUS_RING,
@@ -19,8 +18,9 @@ import {
 // Accounts: who takes part, in which order the tabs sit, which colour each account
 // has, and removing one. The card is grey rather than white because it is a thing
 // you can drag, and it reuses SURFACE_FOCUS_RING since its two tints match the nav
-// column's. The pills on a card only show what an account is allowed to do; the
-// switches themselves live in Notifications.
+// column's. Which notifications an account may give is not settable here: that
+// belongs to the per-account grid in Notifications, and having it in both places
+// meant two controls for one setting.
 
 const SWATCHES = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#A142F4', '#00ACC1'];
 
@@ -87,70 +87,13 @@ function DelegatedIcon({ className = '' }: { className?: string }) {
   );
 }
 
-interface Chip {
-  key: string;
-  label: string;
-  title: string;
-  on: boolean;
-  set(v: boolean): void;
-}
-
-function chipsFor(S: UiStrings, p: Profile, a: AccountPref | undefined): Chip[] {
-  const chips: Chip[] = [
-    {
-      key: 'notify',
-      label: S.mailToggle,
-      title: S.mailToggleTitle,
-      on: a?.notify !== false,
-      set: (v) => window.desktop?.setAccountPref({ email: p.email, notify: v }),
-    },
-    {
-      key: 'badge',
-      label: S.badgeToggle,
-      title: S.badgeToggleTitle,
-      on: a?.badgeCount !== false,
-      set: (v) => window.desktop?.setAccountPref({ email: p.email, badgeCount: v }),
-    },
-  ];
-  if (p.hasCalendar) {
-    chips.push({
-      key: 'calendar',
-      label: S.calendarToggle,
-      title: S.calendarToggleTitle,
-      on: a?.calendarNotify === true,
-      set: (v) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: v }),
-    });
-  }
-  return chips;
-}
-
-function ChipButton({ chip }: { chip: Chip }) {
-  return (
-    <button
-      type="button"
-      onClick={() => chip.set(!chip.on)}
-      aria-pressed={chip.on}
-      title={chip.title}
-      className={`rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 transition motion-reduce:transition-none ${HAIRLINE} ${CARD_FOCUS_RING} ${
-        chip.on
-          ? 'bg-white text-neutral-700 hover:bg-white/60 dark:bg-neutral-900 dark:text-neutral-200 dark:hover:bg-neutral-900/60'
-          : 'bg-transparent text-neutral-400 hover:bg-black/[0.03] dark:text-neutral-600 dark:hover:bg-white/[0.04]'
-      }`}
-    >
-      {chip.label}
-    </button>
-  );
-}
-
 export function AccountsSection({
   S,
   profiles,
-  prefs,
   onRedetect,
 }: {
   S: UiStrings;
   profiles: Profile[];
-  prefs?: Prefs | null;
   onRedetect: () => void;
 }) {
   const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({});
@@ -198,7 +141,6 @@ export function AccountsSection({
           {profiles.map((p) => {
             const showImg = p.avatarUrl && !brokenAvatars[p.avatarUrl];
             const delegated = p.kind === 'delegated';
-            const chips = prefs ? chipsFor(S, p, prefs.accounts[p.email]) : [];
             const dragging = dragEmail === p.email;
             const target = overEmail === p.email && dragEmail !== null && !dragging;
 
@@ -282,39 +224,31 @@ export function AccountsSection({
                       )}
                     </span>
 
-                    <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                      <span className="flex flex-wrap items-center gap-1.5">
-                        {chips.map((c) => (
-                          <ChipButton key={c.key} chip={c} />
-                        ))}
-                      </span>
-
-                      <span
-                        role="group"
-                        aria-label={S.accountColor}
-                        className="flex shrink-0 items-center gap-1.5"
-                      >
-                        {SWATCHES.map((c) => {
-                          const on = p.color.toLowerCase() === c.toLowerCase();
-                          return (
-                            <button
-                              key={c}
-                              type="button"
-                              onClick={() => window.desktop?.setColor(p.email, c)}
-                              aria-label={S.colorName(c)}
-                              aria-pressed={on}
-                              title={S.colorName(c)}
-                              className={`h-4 w-4 rounded-full transition hover:scale-110 motion-reduce:transition-none motion-reduce:hover:scale-100 ${CARD_FOCUS_RING} ${
-                                on
-                                  ? 'ring-2 ring-neutral-900 ring-offset-2 ring-offset-neutral-100 dark:ring-neutral-100 dark:ring-offset-neutral-950'
-                                  : ''
-                              }`}
-                              style={{ backgroundColor: c }}
-                            />
-                          );
-                        })}
-                      </span>
-                    </div>
+                    <span
+                      role="group"
+                      aria-label={S.accountColor}
+                      className="mt-1 flex flex-wrap items-center gap-1.5"
+                    >
+                      {SWATCHES.map((c) => {
+                        const on = p.color.toLowerCase() === c.toLowerCase();
+                        return (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => window.desktop?.setColor(p.email, c)}
+                            aria-label={S.colorName(c)}
+                            aria-pressed={on}
+                            title={S.colorName(c)}
+                            className={`h-4 w-4 rounded-full transition hover:scale-110 motion-reduce:transition-none motion-reduce:hover:scale-100 ${CARD_FOCUS_RING} ${
+                              on
+                                ? 'ring-2 ring-neutral-900 ring-offset-2 ring-offset-neutral-100 dark:ring-neutral-100 dark:ring-offset-neutral-950'
+                                : ''
+                            }`}
+                            style={{ backgroundColor: c }}
+                          />
+                        );
+                      })}
+                    </span>
                   </div>
 
                   <span className="flex shrink-0 items-center gap-0.5">

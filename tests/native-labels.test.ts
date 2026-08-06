@@ -2,7 +2,17 @@
 // string sets.
 
 import { describe, it, expect } from 'vitest';
-import { nativeLabels } from '../electron/native-labels';
+import { nativeLabels, type NativeLabels } from '../electron/native-labels';
+
+// Calls a field, rendering function members with as many 'x' arguments as the function
+// declares (fn.length) rather than a fixed count — a member given too few arguments
+// renders the literal text "undefined" inside its template, which would still pass a
+// plain non-empty check.
+function render(value: NativeLabels[keyof NativeLabels]): string {
+  if (typeof value !== 'function') return value;
+  const fn = value as unknown as (...args: string[]) => string;
+  return fn(...Array(fn.length).fill('x'));
+}
 
 describe('nativeLabels', () => {
   it('speaks English for the English locale', () => {
@@ -21,7 +31,7 @@ describe('nativeLabels', () => {
     for (const [locale, rene] of [['en', false], ['nl', false], ['en', true]] as const) {
       const l = nativeLabels(locale, rene);
       for (const [key, value] of Object.entries(l)) {
-        const filled = typeof value === 'function' ? value('x') : value;
+        const filled = render(value as NativeLabels[keyof NativeLabels]);
         expect(filled.trim(), `${locale}/${rene} ${key} is empty`).not.toBe('');
       }
     }
@@ -88,12 +98,8 @@ describe('the Rene variant', () => {
     const nl = nativeLabels('nl', false);
     const rene = nativeLabels('nl', true);
     const same: string[] = [];
-    for (const key of Object.keys(nl) as (keyof typeof nl)[]) {
-      const a = nl[key];
-      const b = rene[key];
-      const av = typeof a === 'function' ? a('x', 'x') : a;
-      const bv = typeof b === 'function' ? b('x', 'x') : b;
-      if (av === bv) same.push(key);
+    for (const key of Object.keys(nl) as (keyof NativeLabels)[]) {
+      if (render(nl[key]) === render(rene[key])) same.push(key);
     }
     expect(same, `Rene wording equals normal Dutch: ${same.join(', ')}`).toEqual([]);
   });

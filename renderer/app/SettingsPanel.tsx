@@ -141,7 +141,7 @@ export function SettingsPanel({
             );
           case 'accounts':
             return (
-              <AccountsSection S={S} profiles={profiles} prefs={prefs} onRedetect={onRedetect} />
+              <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />
             );
           case 'google-apps':
             return <GoogleAppsSection S={S} prefs={prefs} />;
