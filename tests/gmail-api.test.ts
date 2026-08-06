@@ -14,6 +14,8 @@ import {
   threadsListUrl,
   threadMessagesUrl,
   messageRawUrl,
+  messageModifyUrl,
+  archiveMessage,
   messageIdQuery,
   searchInLabelUrl,
   parseHasMessage,
@@ -441,6 +443,25 @@ describe('message metadata', () => {
     expect(parseMessageMeta({ threadId: 't1', internalDate: '1' })).toBeNull();
     expect(parseMessageMeta({ id: 'm1', threadId: 't1' })).toBeNull();
     expect(parseMessageMeta(null)).toBeNull();
+  });
+});
+
+describe('archiveMessage', () => {
+  it('is the modify endpoint for that message', () => {
+    expect(messageModifyUrl('18f2c')).toBe(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/18f2c/modify',
+    );
+  });
+
+  it('escapes a message id that needs it', () => {
+    expect(messageModifyUrl('a/b')).toBe(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/a%2Fb/modify',
+    );
+  });
+
+  it('exists and takes a token and a message id', () => {
+    expect(typeof archiveMessage).toBe('function');
+    expect(archiveMessage.length).toBe(2);
   });
 });
 

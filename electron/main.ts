@@ -148,6 +148,7 @@ import {
   type MessageMeta,
   fetchMessageRaw,
   markMessageRead,
+  archiveMessage,
   trashMessage,
 } from './gmail-api';
 import { mapLimit } from './concurrency';
@@ -1556,8 +1557,23 @@ function activateToast(toast: Toast): void {
   }
 }
 
-async function runToastAction(_toast: Toast, _action: ToastAction): Promise<void> {
-  // Filled in by the archive / mark-read task.
+// Archive and mark-read from the card. The card is already gone by the time this runs —
+// the controller removes it before calling — because a button that leaves its card sitting
+// there while a request is in flight invites a second click on the same message. A failure
+// is logged and not surfaced: the mail is still in the inbox, which is the same state the
+// user would have been in had they never clicked.
+async function runToastAction(toast: Toast, action: ToastAction): Promise<void> {
+  const email = toast.account?.email;
+  const messageId = toast.messageId;
+  if (!email || !messageId) return;
+  const withToken = withTokenFor(email);
+  if (!withToken) return;
+  try {
+    if (action === 'archive') await withToken((t) => archiveMessage(t, messageId));
+    else await withToken((t) => markMessageRead(t, messageId));
+  } catch (e) {
+    console.warn(`[toast] ${action} failed for ${email}:`, e);
+  }
 }
 
 function notifyNewMail(email: string, meta: MessageMeta): void {
@@ -1616,15 +1632,15 @@ async function handleVerificationCode(
   }
 }
 
-function syncRunnerFor(email: string): { run(): Promise<void> } | null {
-  const existing = syncRunners.get(email);
-  if (existing) return existing;
+// The access-token dance for one account: use what we have, and on a 401 force a refresh
+// and try once more. Lifted out of syncRunnerFor because the toast actions need the same
+// thing for whichever account the card belongs to, long after the sync that raised it.
+function withTokenFor(email: string): (<T>(fn: (token: string) => Promise<T>) => Promise<T>) | null {
   const cfg = oauthConfig();
-  if (!cfg || !oauthTokens || !history) return null;
-
-  const withToken = async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
+  if (!cfg || !oauthTokens) return null;
+  return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
     const token = await accessTokenFor(cfg, oauthTokens!, email);
-    if (!token) throw new Error('geen token');
+    if (!token) throw new Error('no token');
     try {
       return await fn(token);
     } catch (e) {
@@ -1639,6 +1655,15 @@ function syncRunnerFor(email: string): { run(): Promise<void> } | null {
       return await fn(fresh);
     }
   };
+}
+
+function syncRunnerFor(email: string): { run(): Promise<void> } | null {
+  const existing = syncRunners.get(email);
+  if (existing) return existing;
+  if (!history) return null;
+
+  const withToken = withTokenFor(email);
+  if (!withToken) return null;
 
   const runner = createSyncRunner({
     client: {

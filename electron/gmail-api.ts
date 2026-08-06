@@ -198,6 +198,16 @@ export async function markMessageRead(accessToken: string, messageId: string): P
   });
 }
 
+// Archiving is removing INBOX, which is the same modify call mark-as-read uses with a
+// different label. Gmail has no archive endpoint of its own.
+export async function archiveMessage(accessToken: string, messageId: string): Promise<void> {
+  await requestJson(messageModifyUrl(messageId), accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify({ removeLabelIds: ['INBOX'] }), 'utf8'),
+  });
+}
+
 export async function trashMessage(accessToken: string, messageId: string): Promise<void> {
   await requestJson(messageTrashUrl(messageId), accessToken, {
     method: 'POST',
