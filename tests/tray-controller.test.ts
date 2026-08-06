@@ -9,6 +9,9 @@ import {
   trayMenuTemplate,
   type TrayState,
 } from '../electron/tray-controller';
+import { trayLabels } from '../electron/tray-labels';
+
+const L = trayLabels('en', false);
 
 describe('shouldHideOnClose', () => {
   it('hides to tray during a normal close', () => {
@@ -35,6 +38,7 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
     now: new Date(2026, 0, 1, 12, 0).getTime(),
     onSnooze: vi.fn(),
     onClearSnooze: vi.fn(),
+    labels: L,
     ...overrides,
   };
 }
@@ -55,16 +59,16 @@ describe('formatClock', () => {
 
 describe('updateItemLabel', () => {
   it('shows a dev label when unpackaged regardless of state', () => {
-    expect(updateItemLabel({ state: 'available', version: '1.2.3' }, false)).toBe('Check for updates (dev)');
+    expect(updateItemLabel({ state: 'available', version: '1.2.3' }, false, L)).toBe('Check for updates (dev)');
   });
   it('maps each updater state to a label', () => {
-    expect(updateItemLabel({ state: 'idle' }, true)).toBe('Check for updates');
-    expect(updateItemLabel({ state: 'not-available' }, true)).toBe('Check for updates');
-    expect(updateItemLabel({ state: 'checking' }, true)).toBe('Checking for updates…');
-    expect(updateItemLabel({ state: 'available', version: '0.2.0' }, true)).toBe('Download update v0.2.0');
-    expect(updateItemLabel({ state: 'downloading', percent: 42 }, true)).toBe('Downloading update… 42%');
-    expect(updateItemLabel({ state: 'downloaded' }, true)).toBe('Restart to install update');
-    expect(updateItemLabel({ state: 'error' }, true)).toBe('Update check failed — retry');
+    expect(updateItemLabel({ state: 'idle' }, true, L)).toBe('Check for updates');
+    expect(updateItemLabel({ state: 'not-available' }, true, L)).toBe('Check for updates');
+    expect(updateItemLabel({ state: 'checking' }, true, L)).toBe('Checking for updates…');
+    expect(updateItemLabel({ state: 'available', version: '0.2.0' }, true, L)).toBe('Download update v0.2.0');
+    expect(updateItemLabel({ state: 'downloading', percent: 42 }, true, L)).toBe('Downloading update… 42%');
+    expect(updateItemLabel({ state: 'downloaded' }, true, L)).toBe('Restart to install update');
+    expect(updateItemLabel({ state: 'error' }, true, L)).toBe('Update check failed — retry');
   });
 });
 

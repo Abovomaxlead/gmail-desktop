@@ -92,6 +92,7 @@ import {
 import { fetchThreadEmls } from './mail-fetch';
 import { NO_SUBJECT } from './dropzone';
 import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './tray-controller';
+import { trayLabels } from './tray-labels';
 import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './shortcuts';
 import { openCompose, openFullThreadWindow } from './compose-window';
@@ -1909,6 +1910,7 @@ function getTrayState(): TrayState {
     now: Date.now(),
     onSnooze: setSnooze,
     onClearSnooze: clearSnooze,
+    labels: trayLabels(currentLocale(), p?.reneMode === true),
   };
 }
 function refreshTray(): void {
@@ -2036,7 +2038,8 @@ function openComposeForAccount(accountKey: string): void {
 
 function openComposeWindow(index: number, fields?: MailtoFields): void {
   const closeAfterSend = prefs?.getAll().gmail.closeComposeAfterSend === true;
-  const win = openCompose(index, fields, closeAfterSend ? COMPOSE_PRELOAD_PATH : undefined);
+  const title = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true).composeTitle;
+  const win = openCompose(index, title, fields, closeAfterSend ? COMPOSE_PRELOAD_PATH : undefined);
   if (!closeAfterSend) return;
   win.webContents.on('ipc-message', (_e, channel) => {
     if (channel !== IPC.COMPOSE_SENT) return;

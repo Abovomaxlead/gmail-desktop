@@ -28,7 +28,7 @@ export function updateCheckPopup(status: UpdateStatusLike, L: NativeLabels): Upd
     case 'available':
       return {
         message: L.updateAvailableMessage(status.version),
-        detail: status.currentVersion ? `You have v${status.currentVersion} installed.` : undefined,
+        detail: status.currentVersion ? L.updateInstalledDetail(status.currentVersion) : undefined,
         buttons: [L.download, L.later],
         downloadButtonIndex: 0,
       };

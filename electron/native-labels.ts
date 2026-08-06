@@ -21,6 +21,7 @@ export interface NativeLabels {
   readonly updateDevOnly: string;
   readonly updateAvailableMessage: (version?: string) => string;
   readonly updateLatestMessage: (version?: string) => string;
+  readonly updateInstalledDetail: (version: string) => string;
   readonly updateCheckFailed: string;
   readonly accountNotAddedTitle: string;
   readonly accountNotAddedBody: (email: string, error: string) => string;
@@ -47,6 +48,7 @@ const EN: NativeLabels = Object.freeze({
   updateDevOnly: 'Update checks only work in the installed app.',
   updateAvailableMessage: (version?: string) => `A new version${version ? ` (v${version})` : ''} is available.`,
   updateLatestMessage: (version?: string) => `You already have the latest version${version ? ` (v${version})` : ''}.`,
+  updateInstalledDetail: (version: string) => `You have v${version} installed.`,
   updateCheckFailed: "Couldn't check for updates.",
   accountNotAddedTitle: 'Account not added',
   accountNotAddedBody: (email: string, error: string) =>
@@ -74,6 +76,7 @@ const NL: NativeLabels = Object.freeze({
   updateDevOnly: 'Zoeken naar updates werkt alleen in de geïnstalleerde app.',
   updateAvailableMessage: (version?: string) => `Er is een nieuwe versie${version ? ` (v${version})` : ''}.`,
   updateLatestMessage: (version?: string) => `Je hebt de nieuwste versie al${version ? ` (v${version})` : ''}.`,
+  updateInstalledDetail: (version: string) => `Je hebt v${version} geïnstalleerd.`,
   updateCheckFailed: 'Zoeken naar updates is niet gelukt.',
   accountNotAddedTitle: 'Account niet toegevoegd',
   accountNotAddedBody: (email: string, error: string) =>
@@ -101,6 +104,7 @@ const RENE: NativeLabels = Object.freeze({
   updateDevOnly: 'Kijken of er iets nieuws is kan hier niet.',
   updateAvailableMessage: (version?: string) => `Er is iets nieuws${version ? ` (v${version})` : ''}.`,
   updateLatestMessage: (version?: string) => `Je hebt al de nieuwste${version ? ` (v${version})` : ''}.`,
+  updateInstalledDetail: (version: string) => `Jij hebt nu v${version}.`,
   updateCheckFailed: 'Kijken of er iets nieuws is lukte niet.',
   accountNotAddedTitle: 'Dit account doet niet mee',
   accountNotAddedBody: (email: string, error: string) =>

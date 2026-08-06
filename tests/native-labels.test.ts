@@ -67,6 +67,17 @@ describe('nativeLabels — the update popup and notifications', () => {
       expect(body).toContain('boom');
     }
   });
+
+  it('keeps the version in the "already installed" detail in every variant', () => {
+    for (const [locale, rene] of [['en', false], ['nl', false], ['en', true]] as const) {
+      expect(nativeLabels(locale, rene).updateInstalledDetail('1.2.3')).toContain('1.2.3');
+    }
+  });
+
+  it('translates the "already installed" detail', () => {
+    expect(nativeLabels('en', false).updateInstalledDetail('1.2.3')).toBe('You have v1.2.3 installed.');
+    expect(nativeLabels('nl', false).updateInstalledDetail('1.2.3')).toBe('Je hebt v1.2.3 geïnstalleerd.');
+  });
 });
 
 // Rene mode exists to say things differently, so its wording must not equal the normal

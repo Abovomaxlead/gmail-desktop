@@ -18,13 +18,14 @@ const SESSION_PARTITION = 'persist:google';
 
 export function openCompose(
   index: number,
+  title: string,
   fields?: MailtoFields,
   preloadPath?: string,
 ): BrowserWindow {
   const win = new BrowserWindow({
     width: 720,
     height: 640,
-    title: 'New message',
+    title,
     backgroundColor: '#ffffff',
     webPreferences: {
       partition: SESSION_PARTITION,

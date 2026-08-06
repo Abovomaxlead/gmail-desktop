@@ -6,6 +6,7 @@
 // survives those rebuilds, and createTray takes a finished image because tinting it
 // depends on a preference main owns.
 import type { Tray, Menu, MenuItemConstructorOptions } from 'electron';
+import type { TrayLabels } from './tray-labels';
 
 export function shouldHideOnClose(state: {
   isQuitting: boolean;
@@ -35,6 +36,7 @@ export interface TrayState {
   now: number;
   onSnooze: (minutes: number | null) => void;
   onClearSnooze: () => void;
+  labels: TrayLabels;
 }
 
 export function formatClock(d: Date): string {
@@ -47,26 +49,26 @@ function snoozeActive(state: TrayState): boolean {
 }
 
 export function snoozeStatusLabel(state: TrayState): string {
-  if (snoozeActive(state)) return `Notifications snoozed until ${formatClock(new Date(state.dndUntil!))}`;
-  if (state.dnd) return 'Notifications off';
-  return 'Snooze notifications';
+  if (snoozeActive(state)) return state.labels.snoozedUntil(formatClock(new Date(state.dndUntil!)));
+  if (state.dnd) return state.labels.notificationsOff;
+  return state.labels.snoozeNotifications;
 }
 
-export function updateItemLabel(status: TrayUpdateStatus, isPackaged: boolean): string {
-  if (!isPackaged || status.state === 'dev') return 'Check for updates (dev)';
+export function updateItemLabel(status: TrayUpdateStatus, isPackaged: boolean, L: TrayLabels): string {
+  if (!isPackaged || status.state === 'dev') return L.checkForUpdatesDev;
   switch (status.state) {
     case 'checking':
-      return 'Checking for updates…';
+      return L.checkingForUpdates;
     case 'available':
-      return `Download update${status.version ? ` v${status.version}` : ''}`;
+      return L.downloadUpdate(status.version);
     case 'downloading':
-      return `Downloading update… ${status.percent ?? 0}%`;
+      return L.downloadingUpdate(status.percent ?? 0);
     case 'downloaded':
-      return 'Restart to install update';
+      return L.restartToInstall;
     case 'error':
-      return 'Update check failed — retry';
+      return L.updateCheckFailed;
     default:
-      return 'Check for updates';
+      return L.checkForUpdates;
   }
 }
 
@@ -82,7 +84,7 @@ function updateItem(state: TrayState): MenuItemConstructorOptions {
         ? state.onInstallUpdate
         : state.onCheckUpdate;
   return {
-    label: updateItemLabel(state.updateStatus, state.isPackaged),
+    label: updateItemLabel(state.updateStatus, state.isPackaged, state.labels),
     enabled: !dev && !busy,
     click,
   };
@@ -91,34 +93,34 @@ function updateItem(state: TrayState): MenuItemConstructorOptions {
 function snoozeSubmenu(state: TrayState): MenuItemConstructorOptions[] {
   const muted = state.dnd || snoozeActive(state);
   return [
-    { label: 'For 10 minutes', click: () => state.onSnooze(10) },
-    { label: 'For 30 minutes', click: () => state.onSnooze(30) },
-    { label: 'For 1 hour', click: () => state.onSnooze(60) },
+    { label: state.labels.snoozeFor10, click: () => state.onSnooze(10) },
+    { label: state.labels.snoozeFor30, click: () => state.onSnooze(30) },
+    { label: state.labels.snoozeFor1Hour, click: () => state.onSnooze(60) },
     { type: 'separator' },
     {
-      label: 'Until I turn them back on',
+      label: state.labels.snoozeUntilTurnedOn,
       type: 'checkbox',
       checked: state.dnd && !snoozeActive(state),
       click: () => state.onSnooze(null),
     },
-    { label: 'Turn notifications on', enabled: muted, click: () => state.onClearSnooze() },
+    { label: state.labels.turnNotificationsOn, enabled: muted, click: () => state.onClearSnooze() },
   ];
 }
 
 export function trayMenuTemplate(state: TrayState): MenuItemConstructorOptions[] {
   return [
-    { label: 'Open', click: state.onOpen },
+    { label: state.labels.open, click: state.onOpen },
     { type: 'separator' },
     { label: snoozeStatusLabel(state), submenu: snoozeSubmenu(state) },
     updateItem(state),
     {
-      label: 'Start at login',
+      label: state.labels.startAtLogin,
       type: 'checkbox',
       checked: state.autoStart,
       click: () => state.onToggleAutoStart(!state.autoStart),
     },
     { type: 'separator' },
-    { label: 'Quit', click: state.onQuit },
+    { label: state.labels.quit, click: state.onQuit },
   ];
 }
 
