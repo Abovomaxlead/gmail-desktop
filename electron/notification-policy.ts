@@ -69,8 +69,12 @@ export function notificationSilent(
   return prefs.accounts[email]?.notifySound === false;
 }
 
+// Our own notifications stay on screen until they are dismissed; this switch is how an
+// account opts out of that and gets a card that fades instead. It reads `!== false`
+// rather than `=== true` because staying is the default, and a prefs file written before
+// this existed has no opinion to honour.
 export function notificationPersist(prefs: Prefs, email: string): boolean {
-  return prefs.accounts[email]?.notifyPersist === true;
+  return prefs.accounts[email]?.notifyPersist !== false;
 }
 
 export function wantsCalendarView(prefs: Prefs, email: string, ref: AccountRef): boolean {
