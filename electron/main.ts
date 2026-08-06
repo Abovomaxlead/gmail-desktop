@@ -125,6 +125,9 @@ import {
   openComposeAccountWindow,
   resizeAndShowComposeAccountWindow,
 } from './compose-account-window';
+import { ToastWindow } from './toast-window';
+import { ToastController, type ToastInput } from './toast-controller';
+import type { Toast, ToastAccount, ToastAction } from '../renderer/lib/toast';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
   fetchLabels,
@@ -218,6 +221,7 @@ let pushManager: { stop(): void; refresh(): void } | null = null;
 const syncRunners = new Map<string, { run(): Promise<void> }>();
 let reconnectBanner: OverlayView | null = null;
 let reconnectAccounts: ReconnectAccount[] = [];
+let toasts: ToastController | null = null;
 let updateRequested = false;
 let pendingTrayUpdateCheck = false;
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
@@ -585,13 +589,13 @@ async function addAccountAfterConsent(
     if (!result.ok) {
       manager?.discardView(keyOfIndex(index), 'mail');
       if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
-      if (Notification.isSupported()) {
-        const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-        new Notification({
-          title: L.accountNotAddedTitle,
-          body: L.accountNotAddedBody(email, result.error),
-        }).show();
-      }
+      const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+      showToast({
+        kind: 'error',
+        title: L.accountNotAddedTitle,
+        body: L.accountNotAddedBody(email, result.error),
+        persist: true,
+      });
       if (!stopProbing) probe(index + 1);
       else settleDetection();
       return;
@@ -1500,24 +1504,79 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
   if (threadId && surface === 'mail') manager?.openMailThread(accountKey, threadId);
 }
 
-function notifyNewMail(email: string, meta: MessageMeta): void {
-  if (!prefs || !Notification.isSupported()) return;
-  if (!coverage.has(email)) return;
+// The account fields a card needs, resolved once at show time. A toast keeps the colour
+// and avatar it was raised with rather than a reference to a profile that may be removed
+// while the card is still on screen.
+function toastAccountFor(email: string): ToastAccount | undefined {
   const profile = profiles.find((p) => p.email === email);
-  if (!profile) return;
+  if (!profile) return undefined;
+  return {
+    key: keyOf(profile),
+    email: profile.email,
+    label: prefs?.getAccount(email).label ?? profile.name ?? email,
+    color: profile.color,
+    avatarUrl: profile.avatarUrl,
+  };
+}
+
+// The one place a toast is raised. Falling back to a system notification when our own
+// window is not there is not politeness: a bug in the stack must not mean mail arrives
+// silently, and the fallback is the behaviour this feature replaced, so it is known good.
+function showToast(input: ToastInput): void {
+  if (toasts) {
+    toasts.show(input);
+    return;
+  }
+  if (!Notification.isSupported()) return;
+  new Notification({ title: input.title, body: input.body }).show();
+}
+
+function activateToast(toast: Toast): void {
+  if (toast.kind === 'mail' && toast.account) {
+    activateNotification(toast.account.key, 'mail', toast.threadId);
+    return;
+  }
+  if (toast.kind === 'update' || toast.kind === 'error') {
+    openSettingsPanel();
+    return;
+  }
+  if (toast.kind === 'download' && toast.threadId) {
+    const action = downloadClickPaths.get(toast.threadId);
+    downloadClickPaths.delete(toast.threadId);
+    if (action === 'open-file') void shell.openPath(toast.threadId);
+    else if (action === 'show-in-folder') shell.showItemInFolder(toast.threadId);
+    return;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+}
+
+async function runToastAction(_toast: Toast, _action: ToastAction): Promise<void> {
+  // Filled in by the archive / mark-read task.
+}
+
+function notifyNewMail(email: string, meta: MessageMeta): void {
+  if (!prefs) return;
+  if (!coverage.has(email)) return;
+  const account = toastAccountFor(email);
+  if (!account) return;
   const p = prefs.getAll();
   const now = new Date();
   if (!notificationsAllowed(p, email, now, 'mail')) return;
   const hidden = hiddenNotificationText(p);
-  const L = nativeLabels(currentLocale(), prefs.getAll().reneMode === true);
-  const n = new Notification({
+  const L = nativeLabels(currentLocale(), p.reneMode === true);
+  showToast({
+    kind: 'mail',
     title: hidden.hiddenSender ?? (displayName(meta.from) || email),
     body: hidden.hiddenSubject ?? (meta.subject || L.noSubject),
-    silent: notificationSilent(p, email, 'mail'),
-    timeoutType: notificationPersist(p, email) ? 'never' : 'default',
+    account,
+    threadId: meta.threadId,
+    messageId: meta.id,
+    persist: notificationPersist(p, email),
   });
-  n.on('click', () => activateNotification(keyOf(profile), 'mail', meta.threadId));
-  n.show();
   if (!notificationSilent(p, email, 'mail')) playNotificationSound(p);
 }
 
@@ -1743,6 +1802,36 @@ function createWindow(): void {
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
   );
 
+  // Built with the main window because that is what decides which display the stack
+  // appears on, and torn down with it: a stack floating over a closed app is nonsense.
+  const toastWindow = new ToastWindow(
+    SIDEBAR_PRELOAD_PATH,
+    DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
+    () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
+    () => mainWindow,
+    () => toasts?.markReady(),
+  );
+  toasts = new ToastController({
+    window: toastWindow,
+    locale: () => currentLocale(),
+    reneMode: () => prefs?.getAll().reneMode === true,
+    now: () => Date.now(),
+    onActivate: (toast) => activateToast(toast),
+    onActivateSummary: (accountKey) => {
+      if (accountKey) activateNotification(accountKey, 'mail');
+      else if (mainWindow && !mainWindow.isDestroyed()) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    },
+    onAction: (toast, action) => void runToastAction(toast, action),
+  });
+  mainWindow.on('closed', () => {
+    toasts?.destroy();
+    toasts = null;
+  });
+
   if (DEV_URL) void mainWindow.loadURL(DEV_URL);
   else void mainWindow.loadURL('app://bundle/');
 
@@ -1859,15 +1948,14 @@ function maybeNotifyUpdate(version: string): void {
     })
   )
     return;
-  if (!Notification.isSupported()) return;
   notifiedUpdateVersion = version;
   const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  const n = new Notification({
+  showToast({
+    kind: 'update',
     title: L.updateAvailableTitle,
     body: L.updateAvailableBody(version),
+    persist: true,
   });
-  n.on('click', () => openSettingsPanel());
-  n.show();
 }
 function downloadUpdate(): void {
   updateRequested = true;
@@ -2011,15 +2099,18 @@ function applyMinWindowSize(): void {
 }
 
 function showTestNotification(): void {
-  if (!Notification.isSupported() || !prefs) return;
+  if (!prefs) return;
   const p = prefs.getAll();
   const hidden = hiddenNotificationText(p);
   const L = nativeLabels(currentLocale(), p.reneMode === true);
-  new Notification({
+  const first = profiles[0];
+  showToast({
+    kind: 'test',
     title: hidden.hiddenSender ?? 'Gmail Desktop',
     body: hidden.hiddenSubject ?? L.testNotificationBody,
-    silent: p.notifications.sound === false,
-  }).show();
+    ...(first ? { account: toastAccountFor(first.email) } : {}),
+    persist: true,
+  });
   if (p.notifications.sound !== false && p.notifications.soundName) {
     lastSoundAt = 0;
     playNotificationSound(p);
@@ -2160,27 +2251,28 @@ function attachSessionHandlers(s: Electron.Session): void {
   });
 }
 
+// A download card carries its path in threadId — the only field on a Toast that is a free
+// string, and reusing it beats widening the type for one kind. The action is remembered
+// here rather than on the card, so a preference changed between download and click is the
+// one that applies.
+const downloadClickPaths = new Map<string, DownloadClickAction>();
+
 function notifyDownloadDone(
   filename: string,
   path: string,
   state: 'completed' | 'cancelled' | 'interrupted',
   onClick: DownloadClickAction,
 ): void {
-  if (!Notification.isSupported()) return;
   const done = state === 'completed';
   const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  const n = new Notification({
+  if (done && path && onClick !== 'nothing') downloadClickPaths.set(path, onClick);
+  showToast({
+    kind: 'download',
     title: done ? L.downloadCompleteTitle : state === 'cancelled' ? L.downloadCancelledTitle : L.downloadFailedTitle,
     body: filename,
-    silent: prefs?.getAll().notifications.sound === false,
+    ...(done && path && onClick !== 'nothing' ? { threadId: path } : {}),
+    persist: true,
   });
-  if (done && path && onClick !== 'nothing') {
-    n.on('click', () => {
-      if (onClick === 'open-file') void shell.openPath(path);
-      else shell.showItemInFolder(path);
-    });
-  }
-  n.show();
 }
 
 // The spellchecker follows the system language and nothing else - there is no setting
@@ -2338,6 +2430,18 @@ function registerIpc(): void {
     pushPrefs();
   });
   ipcMain.on(IPC.NOTIFY_TEST, () => showTestNotification());
+  ipcMain.on(IPC.TOAST_SIZE, (_e, size: { width: number; height: number }) =>
+    toasts?.applySize(size.width, size.height),
+  );
+  ipcMain.on(IPC.TOAST_ACTIVATE, (_e, id: string) =>
+    id === 'summary' ? toasts?.activateSummary() : toasts?.activate(id),
+  );
+  ipcMain.on(IPC.TOAST_DISMISS, (_e, id: string) => toasts?.dismiss(id));
+  ipcMain.on(IPC.TOAST_DISMISS_ALL, () => toasts?.dismissAll());
+  ipcMain.on(IPC.TOAST_ACTION, (_e, arg: { id: string; action: ToastAction }) =>
+    toasts?.runAction(arg.id, arg.action),
+  );
+  ipcMain.on(IPC.TOAST_HOVER, (_e, hovered: boolean) => toasts?.setHovered(Boolean(hovered)));
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
     const current = downloadFolder();
     const res = await dialog.showOpenDialog({
@@ -2639,6 +2743,7 @@ function registerIpc(): void {
     if (v !== 'system' && v !== 'en' && v !== 'nl') return;
     prefs!.setLanguage(v);
     pushPrefs();
+    toasts?.refresh();
   });
   ipcMain.on(IPC.SET_NOTIFICATION_OPEN, (_e, v: 'app' | 'window') => {
     prefs!.setNotificationOpen(v);
@@ -2648,6 +2753,7 @@ function registerIpc(): void {
     prefs!.setReneMode(v === true);
     applyReneZoom();
     pushPrefs();
+    toasts?.refresh();
   });
   ipcMain.handle(IPC.CHANGELOG_GET, () => loadChangelog());
   // One handler for the life of the app, not `ipcMain.once` per open: a `once` listener
@@ -2707,6 +2813,7 @@ app.whenReady().then(() => {
   setupNotifications();
   registerIpc();
   nativeTheme.on('updated', () => applyTitleBarOverlay());
+  screen.on('display-metrics-changed', () => toasts?.reposition());
   createWindow();
   // Registering every launch keeps the exe path right after an update or a move, and
   // is what makes the app show up in Windows Settings at all.
