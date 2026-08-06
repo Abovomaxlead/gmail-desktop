@@ -49,3 +49,22 @@ describe('nativeLabels — the other dialogs', () => {
     }
   });
 });
+
+// Rene mode exists to say things differently, so its wording must not equal the normal
+// Dutch. cancel is the only field where both registers could reasonably land on the same
+// word, and they do not today, so every field is checked.
+describe('the Rene variant', () => {
+  it('says everything differently from normal Dutch', () => {
+    const nl = nativeLabels('nl', false);
+    const rene = nativeLabels('nl', true);
+    const same: string[] = [];
+    for (const key of Object.keys(nl) as (keyof typeof nl)[]) {
+      const a = nl[key];
+      const b = rene[key];
+      const av = typeof a === 'function' ? a('x') : a;
+      const bv = typeof b === 'function' ? b('x') : b;
+      if (av === bv) same.push(key);
+    }
+    expect(same, `Rene wording equals normal Dutch: ${same.join(', ')}`).toEqual([]);
+  });
+});

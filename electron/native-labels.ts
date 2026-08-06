@@ -6,52 +6,52 @@
 import type { Locale } from './locale';
 
 export interface NativeLabels {
-  composeTitle: string;
-  composeMessage: string;
-  cancel: string;
-  updateAvailableTitle: string;
-  updateAvailableBody: (version: string) => string;
-  linkOpenButton: string;
-  linkMessage: (host: string) => string;
-  linkDetail: (url: string) => string;
-  linkAlwaysAllow: (host: string) => string;
+  readonly composeTitle: string;
+  readonly composeMessage: string;
+  readonly cancel: string;
+  readonly updateAvailableTitle: string;
+  readonly updateAvailableBody: (version: string) => string;
+  readonly linkOpenButton: string;
+  readonly linkMessage: (host: string) => string;
+  readonly linkDetail: (url: string) => string;
+  readonly linkAlwaysAllow: (host: string) => string;
 }
 
-const EN: NativeLabels = {
+const EN: NativeLabels = Object.freeze({
   composeTitle: 'New message',
   composeMessage: 'Send from which account?',
   cancel: 'Cancel',
   updateAvailableTitle: 'Update available',
-  updateAvailableBody: (version) => `Gmail Desktop ${version} is ready. Click to update.`,
+  updateAvailableBody: (version: string) => `Gmail Desktop ${version} is ready. Click to update.`,
   linkOpenButton: 'Open link',
-  linkMessage: (host) => `Open ${host}?`,
-  linkDetail: (url) => `This link leaves Gmail Desktop and opens in your browser.\n\n${url}`,
-  linkAlwaysAllow: (host) => `Always allow ${host}`,
-};
+  linkMessage: (host: string) => `Open ${host}?`,
+  linkDetail: (url: string) => `This link leaves Gmail Desktop and opens in your browser.\n\n${url}`,
+  linkAlwaysAllow: (host: string) => `Always allow ${host}`,
+});
 
-const NL: NativeLabels = {
+const NL: NativeLabels = Object.freeze({
   composeTitle: 'Nieuw bericht',
   composeMessage: 'Vanaf welk account wil je versturen?',
   cancel: 'Annuleren',
   updateAvailableTitle: 'Update beschikbaar',
-  updateAvailableBody: (version) => `Gmail Desktop ${version} staat klaar. Klik om bij te werken.`,
+  updateAvailableBody: (version: string) => `Gmail Desktop ${version} staat klaar. Klik om bij te werken.`,
   linkOpenButton: 'Link openen',
-  linkMessage: (host) => `${host} openen?`,
-  linkDetail: (url) => `Deze link verlaat Gmail Desktop en gaat open in je browser.\n\n${url}`,
-  linkAlwaysAllow: (host) => `${host} altijd toestaan`,
-};
+  linkMessage: (host: string) => `${host} openen?`,
+  linkDetail: (url: string) => `Deze link verlaat Gmail Desktop en opent in je browser.\n\n${url}`,
+  linkAlwaysAllow: (host: string) => `${host} altijd toestaan`,
+});
 
-const RENE: NativeLabels = {
+const RENE: NativeLabels = Object.freeze({
   composeTitle: 'Nieuw mailtje',
   composeMessage: 'Van wie moet het mailtje komen?',
   cancel: 'Laat maar',
   updateAvailableTitle: 'Er is iets nieuws',
-  updateAvailableBody: (version) => `Gmail Desktop ${version} is klaar. Klik hier om het nieuw te maken.`,
-  linkOpenButton: 'Link openen',
-  linkMessage: (host) => `${host} openen?`,
-  linkDetail: (url) => `Deze link gaat naar je browser en niet naar deze app.\n\n${url}`,
-  linkAlwaysAllow: (host) => `${host} mag altijd`,
-};
+  updateAvailableBody: (version: string) => `Gmail Desktop ${version} is er. Klik hier om hem op te halen.`,
+  linkOpenButton: 'Doe maar',
+  linkMessage: (host: string) => `Naar ${host} gaan?`,
+  linkDetail: (url: string) => `Deze link gaat naar je browser en niet naar deze app.\n\n${url}`,
+  linkAlwaysAllow: (host: string) => `${host} mag altijd`,
+});
 
 export function nativeLabels(locale: Locale, reneMode: boolean): NativeLabels {
   if (reneMode) return RENE;
