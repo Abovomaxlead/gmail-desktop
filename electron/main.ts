@@ -28,6 +28,7 @@ import { ProfileViewManager, type Profile, type Surface } from './profile-view-m
 import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountCountVisible } from '../renderer/lib/badge-visibility';
 import { accountKey, parseAccountKey, type AccountRef } from './account-ref';
+import { resolveLocale, type LanguagePref, type Locale } from './locale';
 import { DelegatedStore, type StoredDelegate } from './delegated-store';
 import {
   AccountCacheStore,
@@ -94,6 +95,12 @@ import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './shortcuts';
 import { openCompose, openFullThreadWindow } from './compose-window';
 import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mailto';
+import {
+  MAIL_APP_NAME,
+  isOurProgId,
+  readMailtoProgId,
+  registerMailClient,
+} from './mail-client-registration';
 import { sortByOrder } from './account-order';
 import {
   notificationsAllowed,
@@ -440,11 +447,23 @@ function refreshBadge(): void {
     if (process.platform === 'win32') mainWindow?.setOverlayIcon(null, '');
   });
 }
-function pushPrefs(): void {
-  if (prefs) mainWindow?.webContents.send(IPC.PREFS_CHANGED, prefs.getAll());
+// One place decides the language, so the panel, the context menu and the native dialogs
+// cannot disagree. The resolved locale rides along with the prefs push rather than
+// being worked out again in the renderer.
+function currentLocale(): Locale {
+  return resolveLocale(prefs?.getAll().language ?? 'system', app.getLocale());
 }
-function pushDefaultMailStatus(): void {
-  mainWindow?.webContents.send(IPC.MAIL_DEFAULT_STATUS, app.isDefaultProtocolClient('mailto'));
+function pushPrefs(): void {
+  if (prefs) mainWindow?.webContents.send(IPC.PREFS_CHANGED, { ...prefs.getAll(), locale: currentLocale() });
+}
+// On Windows the truth lives in UrlAssociations\mailto\UserChoice, not in the legacy
+// HKCU\Software\Classes\mailto key, so ask the registry which ProgId actually wins.
+async function pushDefaultMailStatus(): Promise<void> {
+  const isDefault =
+    process.platform === 'win32'
+      ? isOurProgId(await readMailtoProgId())
+      : app.isDefaultProtocolClient('mailto');
+  mainWindow?.webContents.send(IPC.MAIL_DEFAULT_STATUS, isDefault);
 }
 
 function clearProbeTimer(): void {
@@ -1628,6 +1647,9 @@ function createWindow(): void {
   firstWindow = false;
   mainWindow.on('show', refreshBadge);
   mainWindow.on('restore', refreshBadge);
+  // The user leaves for Windows Settings to pick a mail app and comes back, so re-read
+  // the association on focus rather than trusting what we last showed.
+  mainWindow.on('focus', () => void pushDefaultMailStatus());
   colors = new ColorStore(join(app.getPath('userData'), 'colors.json'));
   oauthTokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
   history = new HistoryStore(join(app.getPath('userData'), 'gmail-history.json'));
@@ -1682,7 +1704,7 @@ function createWindow(): void {
     loadDelegatedProfiles();
     pushProfiles();
     pushPrefs();
-    pushDefaultMailStatus();
+    void pushDefaultMailStatus();
     if (!delegatedScanStarted) {
       delegatedScanStarted = true;
       setTimeout(() => void refreshAndSuggestDelegated(), 7000);
@@ -1810,10 +1832,26 @@ function setLaunchMinimized(v: boolean): void {
   prefs!.setLaunchMinimized(v);
   pushPrefs();
 }
-function setDefaultMail(v: boolean): void {
-  if (v) app.setAsDefaultProtocolClient('mailto');
-  else app.removeAsDefaultProtocolClient('mailto');
-  pushDefaultMailStatus();
+// Only a packaged build has an exe worth registering; in dev process.execPath is
+// electron.exe, which would leave a bogus app sitting in Windows Settings.
+function ensureMailClientRegistered(): Promise<void> {
+  if (process.platform !== 'win32' || !app.isPackaged) return Promise.resolve();
+  return registerMailClient(process.execPath);
+}
+
+// Windows picks the mailto: handler from a UserChoice hash it signs itself, so an app
+// cannot make itself the default however much it would like to. Registering the
+// capability and opening the page where the user picks us is the whole of what we can
+// do. Other platforms still let us claim it outright.
+function requestDefaultMail(): void {
+  if (process.platform !== 'win32') {
+    app.setAsDefaultProtocolClient('mailto');
+    void pushDefaultMailStatus();
+    return;
+  }
+  void ensureMailClientRegistered().then(() =>
+    shell.openExternal(`ms-settings:defaultapps?registeredAppUser=${encodeURIComponent(MAIL_APP_NAME)}`),
+  );
 }
 function setSnooze(minutes: number | null): void {
   if (!prefs) return;
@@ -2289,7 +2327,7 @@ function registerIpc(): void {
   ipcMain.on(IPC.DOWNLOAD_HISTORY_OPEN, (_e, path: unknown) => {
     if (typeof path === 'string' && knownDownloadPath(path)) void shell.openPath(path);
   });
-  ipcMain.on(IPC.SET_DEFAULT_MAIL, (_e, v: boolean) => setDefaultMail(v === true));
+  ipcMain.on(IPC.SET_DEFAULT_MAIL, () => requestDefaultMail());
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => ({ items: lastDropPreview }));
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => {
     dropOverlay?.close();
@@ -2563,6 +2601,11 @@ function registerIpc(): void {
     pushPrefs();
     applyTitleBarOverlay();
   });
+  ipcMain.on(IPC.SET_LANGUAGE, (_e, v: LanguagePref) => {
+    if (v !== 'system' && v !== 'en' && v !== 'nl') return;
+    prefs!.setLanguage(v);
+    pushPrefs();
+  });
   ipcMain.on(IPC.SET_NOTIFICATION_OPEN, (_e, v: 'app' | 'window') => {
     prefs!.setNotificationOpen(v);
     pushPrefs();
@@ -2608,6 +2651,9 @@ app.whenReady().then(() => {
   registerIpc();
   nativeTheme.on('updated', () => applyTitleBarOverlay());
   createWindow();
+  // Registering every launch keeps the exe path right after an update or a move, and
+  // is what makes the app show up in Windows Settings at all.
+  void ensureMailClientRegistered();
   const initialMailto = extractMailtoFromArgv(process.argv);
   if (initialMailto) pendingMailto = initialMailto;
   startNotifyTimer();

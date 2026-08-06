@@ -94,9 +94,10 @@ contextBridge.exposeInMainWorld('desktop', {
   setNotifications: (arg: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } }): void =>
     ipcRenderer.send(IPC.SET_NOTIFICATIONS, arg),
   setTheme: (theme: 'system' | 'light' | 'dark'): void => ipcRenderer.send(IPC.SET_THEME, theme),
+  setLanguage: (v: 'system' | 'en' | 'nl'): void => ipcRenderer.send(IPC.SET_LANGUAGE, v),
   setNotificationOpen: (v: 'app' | 'window'): void => ipcRenderer.send(IPC.SET_NOTIFICATION_OPEN, v),
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
-  setDefaultMail: (v: boolean): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL, v),
+  requestDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
   onMailDropPreview: (cb: (arg: { items: unknown[] }) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
   },

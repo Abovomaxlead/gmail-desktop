@@ -75,7 +75,7 @@ export function SettingsPanel({
   onSetLaunchMinimized,
   onSetNotifications,
   isDefaultMail,
-  onSetDefaultMail,
+  onRequestDefaultMail,
 }: {
   profiles: Profile[];
   onClose: () => void;
@@ -92,12 +92,12 @@ export function SettingsPanel({
     quietHours: { enabled: boolean; start: string; end: string };
   }) => void;
   isDefaultMail: boolean;
-  onSetDefaultMail: (v: boolean) => void;
+  onRequestDefaultMail: () => void;
 }) {
   const [section, setSection] = useState<SettingsSection>(DEFAULT_SECTION);
 
   const rene = prefs?.reneMode === true;
-  const S = getStrings(rene);
+  const S = getStrings(prefs?.locale ?? 'en', rene);
   const uiLang: 'en' | 'nl' = rene ? 'nl' : 'en';
 
   const seqProgress = useRef(0);
@@ -139,7 +139,7 @@ export function SettingsPanel({
                 isDefaultMail={isDefaultMail}
                 onSetAutoStart={onSetAutoStart}
                 onSetLaunchMinimized={onSetLaunchMinimized}
-                onSetDefaultMail={onSetDefaultMail}
+                onRequestDefaultMail={onRequestDefaultMail}
               />
             );
           case 'accounts':

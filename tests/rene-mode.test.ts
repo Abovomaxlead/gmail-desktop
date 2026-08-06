@@ -48,7 +48,7 @@ describe('UI strings', () => {
   });
 
   it('getStrings picks the table by mode', () => {
-    expect(getStrings(false)).toBe(STRINGS_NORMAL);
-    expect(getStrings(true)).toBe(STRINGS_RENE);
+    expect(getStrings('en', false)).toBe(STRINGS_NORMAL);
+    expect(getStrings('en', true)).toBe(STRINGS_RENE);
   });
 });

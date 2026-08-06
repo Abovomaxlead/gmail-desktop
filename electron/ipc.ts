@@ -52,6 +52,7 @@ export const IPC = {
   SET_NOTIFICATIONS: 'prefs:notifications',
   SET_SNOOZE: 'prefs:snooze',
   SET_THEME: 'prefs:theme',
+  SET_LANGUAGE: 'prefs:language',
   SET_NOTIFICATION_OPEN: 'prefs:notification-open',
   SET_RENE_MODE: 'prefs:rene-mode',
   SET_DEFAULT_MAIL: 'mail:set-default',

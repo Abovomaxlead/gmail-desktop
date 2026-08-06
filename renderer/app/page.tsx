@@ -129,6 +129,8 @@ export interface Prefs {
   };
   advanced: { hardwareAcceleration: boolean };
   reneMode: boolean;
+  language: 'system' | 'en' | 'nl';
+  locale: 'en' | 'nl';
 }
 
 export interface DownloadRecord {
@@ -217,9 +219,10 @@ interface DesktopBridge {
   setAccountOrder(emails: string[]): void;
   setNotifications(arg: { dnd: boolean; quietHours: { enabled: boolean; start: string; end: string } }): void;
   setTheme(theme: 'system' | 'light' | 'dark'): void;
+  setLanguage(v: 'system' | 'en' | 'nl'): void;
   setNotificationOpen(v: 'app' | 'window'): void;
   setReneMode(v: boolean): void;
-  setDefaultMail(v: boolean): void;
+  requestDefaultMail(): void;
   isOverlay: boolean;
   onMailDropPreview(cb: (arg: { items: MailDropItem[] }) => void): void;
   closeMailDropPreview(): void;
@@ -261,7 +264,7 @@ export default function AppShell() {
   const [suggestions, setSuggestions] = useState<DelegatedSuggestion[]>([]);
   const [scanning, setScanning] = useState(false);
   const [scanDone, setScanDone] = useState(false);
-  const S = getStrings(prefs?.reneMode === true);
+  const S = getStrings(prefs?.locale ?? 'en', prefs?.reneMode === true);
   const [isDefaultMail, setIsDefaultMail] = useState(false);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
@@ -416,7 +419,7 @@ export default function AppShell() {
           onSetLaunchMinimized={(v) => window.desktop?.setLaunchMinimized(v)}
           onSetNotifications={(a) => window.desktop?.setNotifications(a)}
           isDefaultMail={isDefaultMail}
-          onSetDefaultMail={(v) => window.desktop?.setDefaultMail(v)}
+          onRequestDefaultMail={() => window.desktop?.requestDefaultMail()}
         />
       )}
     </div>
