@@ -142,11 +142,18 @@ existing `findThreadIdBySubject` → `NOTIFICATION_ACTIVATE` path runs unchanged
 `rerouteServiceWorkerNotifications` needs no change: it goes through
 `window.Notification` and inherits the new behaviour.
 
-`notificationOptionsFor` and `notificationTitleFor` keep their jobs — the hidden
-sender and subject still have to be applied before the text leaves the view — but
-`persist` leaves both `NotifyState` and the options they build. A toast we draw
-ourselves has no use for `requireInteraction`, and main knows which account the view
-belongs to, so it decides whether that toast stays without the view having to be told.
+`notificationOptionsFor` and `notificationTitleFor` are deleted rather than adapted.
+They exist to build a `NotificationOptions` for a constructor that is no longer called,
+and the privacy replacement they applied moves to main, which already does exactly that
+for push mail in `notifyNewMail` — one place deciding it for both paths beats two. What
+replaces them is one small function that packages the id, title and raw body for the
+relay.
+
+`NotifyState` shrinks to `{ show, silent }` with it. `persist` goes because nothing
+needs `requireInteraction` any more and main knows the account anyway; the hidden texts
+go because main now applies them. `silent` stays — it is not about notifications at all
+but about `setAudioMuted` on the view, which is how the Gmail page is stopped from
+playing its own ding.
 
 **8. Failure and edges.**
 
@@ -167,8 +174,14 @@ expiry applies only to non-persist toasts.
 margins, clamping to a work area too short for the stack, the zoom factor multiplied
 into the measured size.
 
-The preload notification tests move to asserting the IPC send instead of a constructed
-`Notification`. `tests/notification-policy.test.ts` stays as it is, unchanged and green.
+`tests/preload-notification-options.test.ts` is deleted with the function it covers, and
+a smaller file takes its place asserting what the relay packages. The service-worker
+reroute test is untouched: it goes through `window.Notification` and inherits whatever
+that now does.
+
+`tests/notification-policy.test.ts` changes in one place. Its five `notificationPersist`
+cases assert the old default, so inverting that default has to be written as a failing
+test first — five lines that say the opposite of what they say today.
 
 ## Out of scope
 
