@@ -4,9 +4,9 @@
 //
 // Two conventions to keep. Settings arrive as one patch channel per settings tab
 // rather than a channel per field, which would be twenty-odd identical handlers. And
-// NotifyState's `hiddenSender`/`hiddenSubject` are replacement texts, not flags,
-// because the preload runs inside Gmail's own page and has no language of its own —
-// `undefined` means "keep what the page said".
+// NotifyState carries only what the Gmail page itself has to decide — whether a
+// notification may be raised at all, and whether that page may make noise. The text,
+// the privacy replacements and how long it stays are main's, because main draws it.
 
 export const IPC = {
   UNREAD_UPDATE: 'unread:update',
@@ -78,6 +78,15 @@ export const IPC = {
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
   COMPOSE_ACCOUNT_SIZE: 'compose:account-size',
+  TOAST_STATE: 'toast:state',
+  TOAST_SIZE: 'toast:size',
+  TOAST_ACTIVATE: 'toast:activate',
+  TOAST_DISMISS: 'toast:dismiss',
+  TOAST_DISMISS_ALL: 'toast:dismiss-all',
+  TOAST_ACTION: 'toast:action',
+  TOAST_HOVER: 'toast:hover',
+  WEB_NOTIFY_SHOW: 'web-notify:show',
+  WEB_NOTIFY_CLICK: 'web-notify:click',
 } as const;
 
 export interface MailDropItem {
@@ -132,9 +141,6 @@ export interface DownloadRecord {
 export type NotifyState = {
   show: boolean;
   silent: boolean;
-  persist: boolean;
-  hiddenSender?: string;
-  hiddenSubject?: string;
 };
 
 export type { ChangelogVersion, ChangelogEntry } from './changelog';

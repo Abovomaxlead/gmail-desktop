@@ -850,8 +850,6 @@ function refreshNotifyAllowed(): void {
       manager?.pushNotifyAllowed(keyOf(profile), surface, {
         show: notificationsAllowed(p, profile.email, now, surface, coverage.has(profile.email)),
         silent: notificationSilent(p, profile.email, surface),
-        persist: notificationPersist(p, profile.email),
-        ...hiddenNotificationText(p),
       });
     }
   }

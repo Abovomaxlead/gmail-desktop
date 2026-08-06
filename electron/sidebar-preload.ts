@@ -132,4 +132,15 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.send(IPC.COMPOSE_ACCOUNT_PICK, index),
   reportComposeAccountSize: (size: { width: number; height: number }): void =>
     ipcRenderer.send(IPC.COMPOSE_ACCOUNT_SIZE, size),
+  onToastState: (cb: (state: unknown) => void): void => {
+    ipcRenderer.on(IPC.TOAST_STATE, (_e, state) => cb(state));
+  },
+  reportToastSize: (size: { width: number; height: number }): void =>
+    ipcRenderer.send(IPC.TOAST_SIZE, size),
+  activateToast: (id: string): void => ipcRenderer.send(IPC.TOAST_ACTIVATE, id),
+  dismissToast: (id: string): void => ipcRenderer.send(IPC.TOAST_DISMISS, id),
+  dismissAllToasts: (): void => ipcRenderer.send(IPC.TOAST_DISMISS_ALL),
+  runToastAction: (arg: { id: string; action: 'archive' | 'read' }): void =>
+    ipcRenderer.send(IPC.TOAST_ACTION, arg),
+  setToastHovered: (hovered: boolean): void => ipcRenderer.send(IPC.TOAST_HOVER, hovered),
 });

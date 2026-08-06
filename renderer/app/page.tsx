@@ -16,6 +16,7 @@ import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 import type { ComposeAccountAsk } from '../lib/compose-account';
+import type { ToastAction, ToastState } from '../lib/toast';
 
 // The page that carries the bar and the settings panel: all state and all IPC live
 // here, the drawing lives in Topbar and SettingsPanel. The Prefs, UpdateState and
@@ -237,6 +238,13 @@ interface DesktopBridge {
   onComposeAccountAsk(cb: (arg: ComposeAccountAsk) => void): void;
   pickComposeAccount(index: number | null): void;
   reportComposeAccountSize(size: { width: number; height: number }): void;
+  onToastState(cb: (state: ToastState) => void): void;
+  reportToastSize(size: { width: number; height: number }): void;
+  activateToast(id: string): void;
+  dismissToast(id: string): void;
+  dismissAllToasts(): void;
+  runToastAction(arg: { id: string; action: ToastAction }): void;
+  setToastHovered(hovered: boolean): void;
 }
 
 declare global {

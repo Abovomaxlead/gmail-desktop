@@ -99,8 +99,20 @@ export function rerouteServiceWorkerNotifications(
   };
 }
 
+// LegacyNotifyState is scaffolding: Task 3 shrank NotifyState to the two fields the
+// Gmail page itself still decides, but these two functions still need the fields main
+// used to push through this channel. Task 9 rewrites this path and deletes both
+// functions and this type.
+type LegacyNotifyState = {
+  show: boolean;
+  silent: boolean;
+  persist?: boolean;
+  hiddenSender?: string;
+  hiddenSubject?: string;
+};
+
 export function notificationOptionsFor(
-  state: NotifyState,
+  state: LegacyNotifyState,
   options?: NotificationOptions,
 ): NotificationOptions | undefined {
   const hideBody = typeof state.hiddenSubject === 'string';
@@ -113,7 +125,7 @@ export function notificationOptionsFor(
   };
 }
 
-export function notificationTitleFor(state: NotifyState, title: string): string {
+export function notificationTitleFor(state: LegacyNotifyState, title: string): string {
   return typeof state.hiddenSender === 'string' ? state.hiddenSender : title;
 }
 
@@ -303,7 +315,7 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
 if (typeof document !== 'undefined') {
   const { ipcRenderer } = require('electron') as typeof import('electron');
 
-  let notifyState: NotifyState = { show: true, silent: false, persist: false };
+  let notifyState: NotifyState = { show: true, silent: false };
   ipcRenderer.on(IPC.NOTIFY_ALLOWED, (_e: unknown, state: NotifyState) => {
     notifyState = state;
   });
