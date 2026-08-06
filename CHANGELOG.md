@@ -54,6 +54,14 @@ to [Semantic Versioning](https://semver.org/).
   een tabblad er meteen staat als je het aanklikt. Daarna mag de weergave weer
   rusten, dus het kost geen geheugen dat de hele dag warm blijft — een tabblad dat
   je na lange tijd aanklikt kan zichzelf nog even bijwerken.
+- **Eigen meldingen in plaats van Windows-meldingen.** Meldingen verschijnen nu
+  rechtsonder in een eigen venster en stapelen wél: tot vijf kaartjes onder elkaar,
+  en komt er een zesde bij, dan maakt de app er één melding van met het totaal
+  erop. Ze blijven staan tot je ze wegklikt — dat deed Windows nooit, hoe vaak je
+  het ook vroeg. Per account kun je dat uitzetten bij Instellingen → Meldingen;
+  die meldingen verdwijnen dan na een paar tellen, en blijven staan zolang je
+  muis erop staat. Beweeg je over een mailmelding, dan verschijnen Archiveren en
+  Gelezen, zodat je een bericht kunt wegwerken zonder de app te openen.
 
 ### Gewijzigd
 - **"Altijd in een nieuw venster" gaat nu voor op een uitgesloten app.** Eerst won
