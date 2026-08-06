@@ -6,7 +6,10 @@
 // prefs for its own language would risk one frame in the wrong one. shortcutFor and
 // rowForKey are the two ends of the same mapping — the digit a row shows, and the row a
 // keypress picks — kept as separate functions because a row past the ninth is still
-// pickable by click even though it has no digit left to show.
+// pickable by click even though it has no digit left to show. nextFocusIndex is the arrow
+// keys' wrap-around, pulled out of the component so the wrap is assertable: the page
+// draws its focus ring from the index it tracks rather than from :focus-visible, which
+// Chromium will not match for a programmatic .focus().
 
 export interface ComposeAccountChoice {
   index: number;
@@ -34,4 +37,10 @@ export function rowForKey(key: string, count: number): number | null {
   if (!/^[1-9]$/.test(key)) return null;
   const row = Number(key) - 1;
   return row < count ? row : null;
+}
+
+/** The row an arrow key moves to, wrapping at both ends. `dir` is 1 for down, -1 for up. */
+export function nextFocusIndex(current: number, count: number, dir: 1 | -1): number {
+  if (count <= 0) return 0;
+  return (((current + dir) % count) + count) % count;
 }

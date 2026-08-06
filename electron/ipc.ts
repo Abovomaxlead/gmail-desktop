@@ -77,6 +77,7 @@ export const IPC = {
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
+  COMPOSE_ACCOUNT_SIZE: 'compose:account-size',
 } as const;
 
 export interface MailDropItem {

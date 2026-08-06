@@ -130,4 +130,6 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   pickComposeAccount: (index: number | null): void =>
     ipcRenderer.send(IPC.COMPOSE_ACCOUNT_PICK, index),
+  reportComposeAccountSize: (size: { width: number; height: number }): void =>
+    ipcRenderer.send(IPC.COMPOSE_ACCOUNT_SIZE, size),
 });

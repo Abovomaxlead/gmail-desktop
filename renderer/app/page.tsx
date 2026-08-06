@@ -236,6 +236,7 @@ interface DesktopBridge {
   getChangelog(): Promise<ChangelogVersion[]>;
   onComposeAccountAsk(cb: (arg: ComposeAccountAsk) => void): void;
   pickComposeAccount(index: number | null): void;
+  reportComposeAccountSize(size: { width: number; height: number }): void;
 }
 
 declare global {

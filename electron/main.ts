@@ -120,6 +120,11 @@ import { googleAppTarget } from './google-apps-open';
 import { DownloadHistoryStore } from './download-history';
 import { overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
 import { OverlayView } from './overlay-view';
+import { ComposePicker } from './compose-picker';
+import {
+  openComposeAccountWindow,
+  resizeAndShowComposeAccountWindow,
+} from './compose-account-window';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
   fetchLabels,
@@ -219,8 +224,12 @@ let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 let notifiedUpdateVersion: string | null = null;
 let lastCheckBackground = false;
 let pendingMailto: string | null = null;
-let composeAccountOverlay: OverlayView | null = null;
-let composeAccountResolve: ((index: number | null) => void) | null = null;
+let composeAccountWindow: BrowserWindow | null = null;
+const composePicker = new ComposePicker<ComposeAccountAsk, string>({
+  open: (ask) => showComposeAccountWindow(ask),
+  close: () => closeComposeAccountWindow(),
+  redispatch: (url) => void dispatchMailto(url),
+});
 
 const SESSION_PARTITION = 'persist:google';
 
@@ -637,23 +646,41 @@ function activeView(): { ref: AccountRef; surface: Surface } | null {
   return p && surface ? { ref: p.ref, surface } : null;
 }
 
-// Resolves the pending picker with `index` and forgets it, so a stray reply after the
-// picker has already been answered (or the window has closed) is a no-op rather than a
-// second resolution of an already-settled promise.
-function settleComposeAccount(index: number | null): void {
-  const resolve = composeAccountResolve;
-  composeAccountResolve = null;
-  composeAccountOverlay?.close();
-  resolve?.(index);
+// One window per ask, destroyed on settle: reuse would carry the previous recipient into
+// an unrelated next question for no gain, since the picker is short-lived. The module
+// variable is nulled before the window is destroyed, so a stale instance can never be
+// left behind to wedge the feature, and the `closed` that destroying triggers finds the
+// resolver already cleared and harmlessly no-ops.
+function closeComposeAccountWindow(): void {
+  const win = composeAccountWindow;
+  composeAccountWindow = null;
+  if (win && !win.isDestroyed()) win.destroy();
 }
 
-function chooseComposeAccount(fields: MailtoFields): Promise<number | null> {
+function showComposeAccountWindow(ask: ComposeAccountAsk): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  closeComposeAccountWindow();
+  const win = openComposeAccountWindow(
+    mainWindow,
+    SIDEBAR_PRELOAD_PATH,
+    DEV_URL ? `${DEV_URL}/compose-account` : 'app://bundle/compose-account.html',
+    ask.accounts.length,
+    prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1,
+  );
+  composeAccountWindow = win;
+  win.webContents.on('did-finish-load', () => {
+    if (!win.isDestroyed()) win.webContents.send(IPC.COMPOSE_ACCOUNT_ASK, ask);
+  });
+  win.on('closed', () => {
+    if (composeAccountWindow === win) composeAccountWindow = null;
+    composePicker.settle(null);
+  });
+}
+
+function chooseComposeAccount(fields: MailtoFields, mailtoUrl: string): Promise<number | null> {
   const authusers = profiles.filter((p) => p.ref.kind === 'authuser');
   if (authusers.length === 0) return Promise.resolve(null);
   if (authusers.length === 1) return Promise.resolve(authIdx(authusers[0]));
-  // A second mailto: arriving while the picker is already open is ignored rather than
-  // stacking a second dialog whose answer could cross with the first.
-  if (composeAccountResolve) return Promise.resolve(null);
   if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(null);
 
   const accounts: ComposeAccountChoice[] = authusers.map((p) => ({
@@ -671,19 +698,7 @@ function chooseComposeAccount(fields: MailtoFields): Promise<number | null> {
     reneMode: prefs?.getAll().reneMode === true,
   };
 
-  if (!composeAccountOverlay) {
-    composeAccountOverlay = new OverlayView(
-      mainWindow,
-      SIDEBAR_PRELOAD_PATH,
-      DEV_URL ? `${DEV_URL}/compose-account` : 'app://bundle/compose-account.html',
-      IPC.COMPOSE_ACCOUNT_ASK,
-    );
-  }
-  composeAccountOverlay.open(ask);
-
-  return new Promise<number | null>((resolve) => {
-    composeAccountResolve = resolve;
-  });
+  return composePicker.ask(ask, mailtoUrl);
 }
 
 async function dispatchMailto(mailtoUrl: string): Promise<void> {
@@ -699,7 +714,7 @@ async function dispatchMailto(mailtoUrl: string): Promise<void> {
     pendingMailto = mailtoUrl;
     return;
   }
-  const index = await chooseComposeAccount(fields);
+  const index = await chooseComposeAccount(fields, mailtoUrl);
   if (index == null) return;
   openComposeWindow(index, fields);
 }
@@ -1767,8 +1782,12 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
     mainWindow = null;
-    settleComposeAccount(null);
+    composePicker.settle(null);
   });
+  // shouldHideOnClose turns a close into a hide unless the app is quitting, so 'closed'
+  // fires only on quit; the tray toggle and the close box both end up here instead, and
+  // an unanswered picker has to go with the window that its parent hid behind.
+  mainWindow.on('hide', () => composePicker.settle(null));
 
   mainWindow.webContents.on('before-input-event', (_e, input) => {
     handleInput(input as unknown as KeyInput);
@@ -2637,7 +2656,21 @@ function registerIpc(): void {
   // left registered by a cancelled dialog would answer the next one instead, a bug that
   // only shows up on the third mailto:.
   ipcMain.on(IPC.COMPOSE_ACCOUNT_PICK, (_e, index: number | null) => {
-    settleComposeAccount(typeof index === 'number' ? index : null);
+    composePicker.settle(typeof index === 'number' ? index : null);
+  });
+  // The picker measures its own card once it has laid out, because no constant over a row
+  // count can know how a subject wraps or what the OS font metrics are. The window is
+  // still hidden at this point, so the resize is invisible and the reveal happens here.
+  ipcMain.on(IPC.COMPOSE_ACCOUNT_SIZE, (e, size: { width: number; height: number }) => {
+    const win = composeAccountWindow;
+    if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
+    if (!Number.isFinite(size?.width) || !Number.isFinite(size?.height)) return;
+    const applied = resizeAndShowComposeAccountWindow(win, size.width, size.height);
+    if (DEV_URL) {
+      console.log(
+        `[picker] measured ${size.width}x${size.height} css, setContentSize ${applied.width}x${applied.height}`,
+      );
+    }
   });
 }
 

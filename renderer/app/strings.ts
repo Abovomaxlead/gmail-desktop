@@ -255,6 +255,7 @@ export interface UiStrings {
   composePickerSubject: string;
   composePickerFrom: string;
   composePickerEsc: string;
+  composePickerCancel: string;
 }
 
 function categoryKey(heading: string): 'added' | 'fixed' | 'changed' | 'removed' | 'security' | null {
@@ -630,6 +631,7 @@ export const STRINGS_NORMAL: UiStrings = {
   composePickerSubject: 'Subject:',
   composePickerFrom: 'Send from',
   composePickerEsc: 'Esc closes',
+  composePickerCancel: 'Cancel',
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -900,9 +902,10 @@ export const STRINGS_RENE: UiStrings = {
   settingsTooltip: 'Knopjes',
 
   composePickerTo: 'Een mailtje naar',
-  composePickerSubject: 'Waarover:',
-  composePickerFrom: 'Van wie komt het?',
-  composePickerEsc: 'Esc is weg',
+  composePickerSubject: 'Dit gaat over:',
+  composePickerFrom: 'Van wie moet het komen?',
+  composePickerEsc: 'Met Esc ga je weg',
+  composePickerCancel: 'Laat maar',
 };
 
 export const STRINGS_NL: UiStrings = {
@@ -1195,6 +1198,7 @@ export const STRINGS_NL: UiStrings = {
   composePickerSubject: 'Betreft:',
   composePickerFrom: 'Verstuur vanaf',
   composePickerEsc: 'Esc sluit',
+  composePickerCancel: 'Annuleren',
 };
 
 export function getStrings(locale: Locale, reneMode: boolean): UiStrings {
