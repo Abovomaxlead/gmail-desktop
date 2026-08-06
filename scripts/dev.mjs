@@ -112,7 +112,7 @@ const mainCtx = await context({
 });
 const preloadCtx = await context({
   ...shared,
-  entryPoints: ['electron/preload.ts', 'electron/sidebar-preload.ts', 'electron/compose-preload.ts'],
+  entryPoints: ['electron/preload.ts', 'electron/sidebar-preload.ts'],
   plugins: [afterBuild('preload', () => console.log('\n› preload opnieuw gebouwd — views herladen\n'))],
 });
 
