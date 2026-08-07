@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import type { Profile } from '../page';
 import type { UiStrings } from '../strings';
+import { AccountOAuthRow, useOAuthStatuses } from './AccountOAuthRow';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import {
@@ -100,6 +101,7 @@ export function AccountsSection({
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [overEmail, setOverEmail] = useState<string | null>(null);
+  const oauthStatuses = useOAuthStatuses();
 
   const nameFields = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -141,6 +143,11 @@ export function AccountsSection({
           {profiles.map((p) => {
             const showImg = p.avatarUrl && !brokenAvatars[p.avatarUrl];
             const delegated = p.kind === 'delegated';
+            // Only own accounts have a link of their own; a delegated mailbox is reached through
+            // the account that delegates it. An account with no entry has no status line either —
+            // that covers OAuth not being configured at all, and the moment before the first
+            // health check has run.
+            const oauth = delegated ? undefined : oauthStatuses.find((s) => s.email === p.email);
             const dragging = dragEmail === p.email;
             const target = overEmail === p.email && dragEmail !== null && !dragging;
 
@@ -223,6 +230,7 @@ export function AccountsSection({
                         </>
                       )}
                     </span>
+                    {oauth ? <AccountOAuthRow S={S} email={p.email} status={oauth.status} /> : null}
 
                     <span
                       role="group"
