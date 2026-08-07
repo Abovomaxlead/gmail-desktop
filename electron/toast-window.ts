@@ -57,7 +57,7 @@
 // again, and clears the flag the moment it reports a size again.
 
 import { BrowserWindow, screen } from 'electron';
-import { exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
+import { containsPoint, exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
 import { TOAST_WIDTH } from '../renderer/lib/toast';
 
 /** Stage one: how long the page gets, from window creation, to load its document at all.
@@ -90,8 +90,6 @@ export class ToastWindow {
     private readonly preloadPath: string,
     private readonly url: string,
     private readonly zoom: () => number,
-    /** The window whose display the stack should appear on; null falls back to primary. */
-    private readonly anchor: () => BrowserWindow | null,
     private readonly onReady: () => void,
     /** The stack has just stopped being able to appear. Called once per transition into
      * broken, never on the way back out, and never while destroyed — whatever is queued
@@ -237,13 +235,31 @@ export class ToastWindow {
     this.win.setIgnoreMouseEvents(!on, { forward: true });
   }
 
+  /** Whether the pointer is over the stack at all, asked of the system rather than of the
+   * page. The page cannot answer it: `forward: true` keeps mouse moves coming to a
+   * click-through window but there is no leave to go with them, so a pointer that goes
+   * off the window edge in one movement never reports anything again and the card it was
+   * last over stays hovered — its close box lit, its expiry paused — until another
+   * notification arrives. False when there is no window, which is the honest answer.
+   *
+   * Cheap because it is only ever asked while something is hovered, and only then. */
+  containsCursor(): boolean {
+    if (!this.win || this.win.isDestroyed() || !this.win.isVisible()) return false;
+    try {
+      return containsPoint(this.win.getBounds(), screen.getCursorScreenPoint());
+    } catch {
+      return false;
+    }
+  }
+
+  /** Always the primary display. The stack used to follow the display the app window was
+   * on, which put the notifications on a second monitor as soon as the window was dragged
+   * there — and a monitor the user is not looking at is the one place a notification must
+   * not go. There is exactly one screen worth watching for mail, it is the same one the
+   * taskbar and every other system notification uses, and it does not move when a window
+   * does. */
   private workArea(): ToastRect {
-    const anchor = this.anchor();
-    const display =
-      anchor && !anchor.isDestroyed()
-        ? screen.getDisplayMatching(anchor.getBounds())
-        : screen.getPrimaryDisplay();
-    return display.workArea;
+    return screen.getPrimaryDisplay().workArea;
   }
 
   /** True when a stack of this measured height would not fit the screen it is on. */

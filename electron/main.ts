@@ -113,6 +113,8 @@ import {
   mergeNotificationsFromPanel,
 } from './notification-policy';
 import { updateCheckPopup } from './update-popup';
+import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
+import { createUpdateLog, type UpdateLogger } from './update-log';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './context-menu';
 import { attachExternalLinkHandling, setExternalOpener } from './external-links';
@@ -129,6 +131,7 @@ import { ToastWindow } from './toast-window';
 import { ToastController, type ToastInput } from './toast-controller';
 import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } from '../renderer/lib/toast';
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
+import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './app-scheme';
 import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
 import {
   fetchLabels,
@@ -223,12 +226,23 @@ let pushManager: { stop(): void; refresh(): void } | null = null;
 const syncRunners = new Map<string, { run(): Promise<void> }>();
 let reconnectBanner: OverlayView | null = null;
 let reconnectAccounts: ReconnectAccount[] = [];
+// Every overlay that has to stay above the Gmail layer, raised together whenever the
+// manager attaches a view — which appends and therefore covers whatever was there.
+// Closed overlays ignore the call, so this needs no bookkeeping about which is up.
+function raiseOverlays(): void {
+  dropOverlay?.raise();
+  reconnectBanner?.raise();
+}
 let toasts: ToastController | null = null;
 // Kept beside the controller because two callers need the window itself and not the stack
 // it holds: showToast has to ask whether it still works, and the Rene toggle has to push a
 // new zoom factor into it.
 let toastWindow: ToastWindow | null = null;
 let updateRequested = false;
+let downloadAttempt = 0;
+let downloadInFlight = false;
+let downloadRetryTimer: ReturnType<typeof setTimeout> | null = null;
+let updateLog: UpdateLogger | null = null;
 let pendingTrayUpdateCheck = false;
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 let notifiedUpdateVersion: string | null = null;
@@ -258,11 +272,11 @@ const SEED_KEY_PREFIX = 'seed:';
 const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  { scheme: APP_SCHEME, privileges: { ...APP_SCHEME_PRIVILEGES } },
 ]);
 
 function registerAppProtocol(): void {
-  protocol.handle('app', (request) => {
+  protocol.handle(APP_SCHEME, (request) => {
     const url = new URL(request.url);
     const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     return net.fetch(pathToFileURL(join(RENDERER_DIST, rel)).toString());
@@ -1906,15 +1920,16 @@ function createWindow(): void {
     () => prefs?.getAll().notificationOpen ?? 'app',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
+    () => raiseOverlays(),
   );
 
-  // Built with the main window because that is what decides which display the stack
-  // appears on, and torn down with it: a stack floating over a closed app is nonsense.
+  // Built and torn down with the main window: a stack floating over a closed app is
+  // nonsense. Where it appears is not the window's business — the stack always goes to
+  // the primary display, whichever screen the app itself has been dragged to.
   toastWindow = new ToastWindow(
     SIDEBAR_PRELOAD_PATH,
     DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
-    () => mainWindow,
     () => toasts?.markReady(),
     () => drainQueuedToasts(),
   );
@@ -2071,11 +2086,54 @@ function maybeNotifyUpdate(version: string): void {
   // playNotificationSound is what keeps a burst from turning into a chord.
   if (prefs) playNotificationSound(prefs.getAll());
 }
+// A download that failed once is not a download that cannot be done. The sha512 mismatch
+// reported from the field was answered by clicking download again a few times, which is
+// the shape of a bad transfer rather than a bad release: electron-updater throws the
+// cached file away behind a failed attempt, so the next one starts clean and there is
+// nothing left over to fail the same way. Doing that here means the person is not asked to
+// work it out. The error is still shown, just only once there is nothing left to try — and
+// the failures that will never come good, an invalid signature above all, are not retried
+// at all. See update-retry.ts.
 function downloadUpdate(): void {
   updateRequested = true;
+  if (downloadRetryTimer) {
+    clearTimeout(downloadRetryTimer);
+    downloadRetryTimer = null;
+  }
+  downloadAttempt = 0;
+  attemptUpdateDownload();
+}
+
+function attemptUpdateDownload(): void {
+  downloadRetryTimer = null;
+  downloadAttempt += 1;
+  const attempt = downloadAttempt;
+  // A failed download reports itself twice: electron-updater emits `error` on its way to
+  // rejecting the promise. The event arrives first and knows nothing about the retry that
+  // is about to happen, so on its own it would flash an error state this function takes
+  // back a moment later — and an error state is what pops the tray dialog. Whether a
+  // download failure is worth reporting is decided here and nowhere else.
+  downloadInFlight = true;
   autoUpdater
     .downloadUpdate()
-    .catch((err) => sendUpdate({ state: 'error', message: String(err?.message || err) }));
+    .then(() => {
+      downloadInFlight = false;
+    })
+    .catch((err) => {
+      downloadInFlight = false;
+      const message = String(err?.message || err);
+      if (!shouldRetryDownload(message, attempt)) {
+        updateLog?.error(`download failed after ${attempt} attempt(s): ${message}`);
+        sendUpdate({ state: 'error', message });
+        return;
+      }
+      updateLog?.warn(`download attempt ${attempt} failed, retrying: ${message}`);
+      // Held at downloading rather than flashed through error: nothing has gone wrong yet
+      // that the person could act on, and a percentage that starts over is the honest
+      // picture of a transfer that is starting over.
+      sendUpdate({ state: 'downloading', percent: 0 });
+      downloadRetryTimer = setTimeout(attemptUpdateDownload, UPDATE_RETRY_DELAY_MS);
+    });
 }
 function installUpdate(): void {
   isQuitting = true;
@@ -2434,6 +2492,11 @@ function applyAutoUpdateCheck(): void {
 }
 
 function setupUpdater(): void {
+  // electron-updater logs to `console` by default, which a packaged Windows build has no
+  // attachment for, so everything it says about a failed update is written to nowhere.
+  // That is why the sha512 report could not be traced any further than its dialog.
+  updateLog = createUpdateLog(join(app.getPath('userData'), 'update.log'));
+  autoUpdater.logger = updateLog;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
@@ -2442,7 +2505,12 @@ function setupUpdater(): void {
     maybeNotifyUpdate(info.version);
   });
   autoUpdater.on('update-not-available', (info) => sendUpdate({ state: 'not-available', version: info.version }));
-  autoUpdater.on('error', (err) => sendUpdate({ state: 'error', message: String(err?.message || err) }));
+  autoUpdater.on('error', (err) => {
+    // A download decides its own reporting in attemptUpdateDownload, which may be about to
+    // retry this. Everything else — a failed check above all — is reported here.
+    if (downloadInFlight) return;
+    sendUpdate({ state: 'error', message: String(err?.message || err) });
+  });
   autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }));
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdate({ state: 'downloaded', version: info.version });

@@ -29,6 +29,15 @@ import {
 // keeps the window click-through so the transparent gaps between cards do not swallow
 // clicks meant for the desktop, and a click-through window gets mouse moves but no enter
 // or leave events; elementFromPoint is what still works under that.
+//
+// Which card is lit is therefore state here and not a `:hover` variant, for the same
+// reason. CSS hover is Chromium's own idea of where the pointer is, and Chromium updates
+// that from the events this window does not get: move the pointer off the stack in one
+// go — off the edge, not into a gap — and there is no leave to clear it, so the card that
+// was last under the pointer keeps its close box and its buttons showing over an app the
+// pointer left entirely. Nothing on this side can notice, since the giveaway is the
+// absence of an event. Main watches the cursor for us and says so on onToastHoverEnd,
+// which is the only signal that ends a hover nobody saw end.
 
 // Windows at a fractional display scale rounds the content size and then divides the CSS
 // viewport by the zoom factor, so an exact fit can land a pixel short and clip a shadow.
@@ -36,6 +45,7 @@ const ROUNDING_SLACK = 2;
 
 export default function ToastsPage() {
   const [state, setState] = useState<ToastState | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const hoveredRef = useRef(false);
 
@@ -45,8 +55,18 @@ export default function ToastsPage() {
       // no cards left there is nothing to be hovered over, and leaving this set would make
       // the next toast arrive with the page believing the pointer is still parked on a
       // card that no longer exists.
-      if (next.toasts.length === 0 && next.summary === null) hoveredRef.current = false;
+      if (next.toasts.length === 0 && next.summary === null) {
+        hoveredRef.current = false;
+        setHoveredId(null);
+      }
       setState(next);
+    });
+    // Main saw the cursor leave the window. Both halves are cleared, not just the lit
+    // card: the pointer is gone, so the ref has to agree or the next real move over a
+    // card reads as no change and main is never told the hover started again.
+    window.desktop?.onToastHoverEnd(() => {
+      hoveredRef.current = false;
+      setHoveredId(null);
     });
   }, []);
 
@@ -71,12 +91,18 @@ export default function ToastsPage() {
   useEffect(() => {
     const onMove = (e: MouseEvent): void => {
       const el = document.elementFromPoint(e.clientX, e.clientY);
-      const over = el instanceof Element && el.closest('[data-toast-card]') !== null;
+      const card = el instanceof Element ? el.closest('[data-toast-card]') : null;
+      // Same lookup, two answers: whether anything is hovered, which main needs for the
+      // click-through and the expiry pause, and which card it is, which only the page
+      // needs. Setting the id to what it already is does not re-render.
+      setHoveredId(card?.getAttribute('data-toast-id') ?? null);
+      const over = card !== null;
       if (over === hoveredRef.current) return;
       hoveredRef.current = over;
       window.desktop?.setToastHovered(over);
     };
     const onLeave = (): void => {
+      setHoveredId(null);
       if (!hoveredRef.current) return;
       hoveredRef.current = false;
       window.desktop?.setToastHovered(false);
@@ -132,6 +158,7 @@ export default function ToastsPage() {
                 count={state.summary.count}
                 label={S.toastSummary(state.summary.count)}
                 dismissLabel={S.toastDismiss}
+                hovered={hoveredId === SUMMARY_ID}
               />
             ) : (
               state.toasts.map((t) => (
@@ -141,6 +168,7 @@ export default function ToastsPage() {
                   archiveLabel={S.toastArchive}
                   readLabel={S.toastMarkRead}
                   dismissLabel={S.toastDismiss}
+                  hovered={hoveredId === t.id}
                 />
               ))
             )}
@@ -151,20 +179,25 @@ export default function ToastsPage() {
   );
 }
 
-const CARD = `group relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white`;
+const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white`;
 const ACTION =
   'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none';
+
+/** The summary has no toast id of its own; it needs one to be hovered like the rest. */
+const SUMMARY_ID = 'summary';
 
 function ToastCard({
   toast,
   archiveLabel,
   readLabel,
   dismissLabel,
+  hovered,
 }: {
   toast: Toast;
   archiveLabel: string;
   readLabel: string;
   dismissLabel: string;
+  hovered: boolean;
 }) {
   const color = toast.account?.color ?? '#5f6368';
   const hasActions = Boolean(toast.messageId);
@@ -173,8 +206,10 @@ function ToastCard({
     [toast.id],
   );
 
+  const showActions = hasActions && hovered;
+
   return (
-    <div data-toast-card className={CARD}>
+    <div data-toast-card data-toast-id={toast.id} className={CARD}>
       <span aria-hidden className="w-[5px] shrink-0" style={{ backgroundColor: color }} />
 
       <button
@@ -190,12 +225,12 @@ function ToastCard({
           <span className="truncate text-[13px] text-neutral-600">{toast.body}</span>
           <span className="mt-1 flex h-5 items-center gap-1">
             <span
-              className={`truncate text-xs text-neutral-400 ${hasActions ? 'group-hover:hidden' : ''}`}
+              className={`truncate text-xs text-neutral-400 ${showActions ? 'hidden' : ''}`}
             >
               {toast.account?.email ?? ''}
             </span>
-            {hasActions ? (
-              <span className="hidden gap-1 group-hover:flex">
+            {showActions ? (
+              <span className="flex gap-1">
                 <span
                   role="button"
                   tabIndex={0}
@@ -224,7 +259,11 @@ function ToastCard({
         </span>
       </button>
 
-      <CloseBox label={dismissLabel} onClick={() => window.desktop?.dismissToast(toast.id)} />
+      <CloseBox
+        label={dismissLabel}
+        hovered={hovered}
+        onClick={() => window.desktop?.dismissToast(toast.id)}
+      />
     </div>
   );
 }
@@ -233,13 +272,15 @@ function SummaryCard({
   count,
   label,
   dismissLabel,
+  hovered,
 }: {
   count: number;
   label: string;
   dismissLabel: string;
+  hovered: boolean;
 }) {
   return (
-    <div data-toast-card className={CARD}>
+    <div data-toast-card data-toast-id={SUMMARY_ID} className={CARD}>
       <span aria-hidden className="w-[5px] shrink-0 bg-neutral-800" />
       <button
         type="button"
@@ -254,19 +295,31 @@ function SummaryCard({
         </span>
         <span className="truncate pr-6 text-[13.5px] font-medium text-neutral-900">{label}</span>
       </button>
-      <CloseBox label={dismissLabel} onClick={() => window.desktop?.dismissAllToasts()} />
+      <CloseBox
+        label={dismissLabel}
+        hovered={hovered}
+        onClick={() => window.desktop?.dismissAllToasts()}
+      />
     </div>
   );
 }
 
-function CloseBox({ label, onClick }: { label: string; onClick: () => void }) {
+function CloseBox({
+  label,
+  hovered,
+  onClick,
+}: {
+  label: string;
+  hovered: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 opacity-0 transition hover:bg-black/[0.06] hover:text-neutral-700 group-hover:opacity-100 motion-reduce:transition-none"
+      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/[0.06] hover:text-neutral-700 motion-reduce:transition-none ${hovered ? 'opacity-100' : 'opacity-0'}`}
     >
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
         <path

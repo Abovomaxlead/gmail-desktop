@@ -61,6 +61,11 @@ export class ProfileViewManager {
     private readonly getOpenMode: () => 'app' | 'window',
     private readonly getUiScale: () => number = () => 1,
     private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
+    /** A view has just been attached, and contentView paints its children in order, so
+     * anything that has to stay above the Gmail layer has just been covered by it. Fired
+     * for the warm-up and the hidden scratch view too: both attach a real child and both
+     * bury an open overlay exactly as thoroughly as a visible one does. */
+    private readonly onViewAttached: () => void = () => {},
   ) {
     this.win.on('resize', () => this.relayout());
   }
@@ -115,6 +120,7 @@ export class ProfileViewManager {
       }
     });
     this.win.contentView.addChildView(view);
+    this.onViewAttached();
     view.setVisible(false);
     this.views.set(k, view);
     if (visible) this.show(ref, surface);
@@ -288,6 +294,7 @@ export class ProfileViewManager {
       },
     });
     this.win.contentView.addChildView(view);
+    this.onViewAttached();
     view.setBounds({ x: -4000, y: 0, width: 1280, height: 900 });
     try {
       await view.webContents.loadURL(url);

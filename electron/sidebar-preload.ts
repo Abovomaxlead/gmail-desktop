@@ -135,6 +135,11 @@ contextBridge.exposeInMainWorld('desktop', {
   onToastState: (cb: (state: unknown) => void): void => {
     ipcRenderer.on(IPC.TOAST_STATE, (_e, state) => cb(state));
   },
+  // Main watching the cursor leave the stack, which is the one way the page can learn
+  // that a hover ended when the pointer left the window without an event to say so.
+  onToastHoverEnd: (cb: () => void): void => {
+    ipcRenderer.on(IPC.TOAST_HOVER_END, () => cb());
+  },
   reportToastSize: (size: { width: number; height: number }): void =>
     ipcRenderer.send(IPC.TOAST_SIZE, size),
   activateToast: (id: string): void => ipcRenderer.send(IPC.TOAST_ACTIVATE, id),

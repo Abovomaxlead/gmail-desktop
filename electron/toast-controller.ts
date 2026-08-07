@@ -43,6 +43,12 @@ export const TOAST_LIFETIME_MS = 6000;
 
 const TICK_MS = 500;
 
+/** How often the pointer is checked against the window while the stack is hovered. Runs
+ * only while something is hovered and stops itself the moment it is not, so this is a
+ * handful of cursor reads around an actual hover rather than a background poll. Fast
+ * enough that the close box going out is not seen as a delay. */
+export const HOVER_WATCH_MS = 120;
+
 export type ToastInput = Omit<Toast, 'id' | 'expiresAt'> & { persist: boolean };
 
 export interface ToastControllerHooks {
@@ -66,6 +72,7 @@ export class ToastController {
   private stack: ToastStack = EMPTY_STACK;
   private seq = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private hoverWatch: ReturnType<typeof setInterval> | null = null;
   private hoveredSince: number | null = null;
   private ready = false;
 
@@ -145,12 +152,42 @@ export class ToastController {
     this.hooks.window.setInteractive(hovered);
     if (hovered) {
       if (this.hoveredSince === null) this.hoveredSince = this.hooks.now();
+      // The page is the only thing that can say a hover started, and the last thing that
+      // can be relied on to say it ended, so the watch starts with every hover.
+      this.startHoverWatch();
       return;
     }
+    this.stopHoverWatch();
     if (this.hoveredSince === null) return;
     const paused = this.hooks.now() - this.hoveredSince;
     this.hoveredSince = null;
     this.setStack(delayExpiries(this.stack, paused));
+  }
+
+  private startHoverWatch(): void {
+    if (this.hoverWatch) return;
+    this.hoverWatch = setInterval(() => this.checkHover(), HOVER_WATCH_MS);
+  }
+
+  private stopHoverWatch(): void {
+    if (!this.hoverWatch) return;
+    clearInterval(this.hoverWatch);
+    this.hoverWatch = null;
+  }
+
+  /** The half of hover the page cannot report. A pointer leaving a click-through window
+   * generates no event, so the last card the page saw under it stays hovered for good:
+   * close box lit, actions showing, expiry paused. Asking the system where the cursor is
+   * settles it. Self-terminating — anything that ends a hover by another route (the stack
+   * emptying, a drain, the page reporting it first) leaves hoveredSince null and the next
+   * tick stops the watch — so no other path has to remember this exists. */
+  private checkHover(): void {
+    if (this.hoveredSince === null) return this.stopHoverWatch();
+    if (this.hooks.window.containsCursor()) return;
+    this.setHovered(false);
+    // The page keeps the visual half of the hover — which card is lit — and it has no way
+    // of learning this by itself, for exactly the reason the watch exists.
+    this.hooks.window.send(IPC.TOAST_HOVER_END, null);
   }
 
   /** The page measured itself. Collapse if it does not fit, otherwise size the window to it. */
@@ -187,6 +224,7 @@ export class ToastController {
     const held = this.stack;
     if (held.toasts.length === 0 && held.summary === null) return held;
     this.stopTimer();
+    this.stopHoverWatch();
     this.hoveredSince = null;
     this.setStack(EMPTY_STACK);
     this.push();
@@ -204,6 +242,7 @@ export class ToastController {
 
   destroy(): void {
     this.stopTimer();
+    this.stopHoverWatch();
     this.setStack(EMPTY_STACK);
     this.ready = false;
     this.hooks.window.destroy();

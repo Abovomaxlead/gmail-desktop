@@ -5,6 +5,19 @@
 // completely. Bounds default to the area below the topbar rather than the whole
 // window (our bar is the titlebar, and covering it makes the window undraggable),
 // and follow the renderer zoom factor, which is 2 in Rene mode.
+//
+// Being on top is not something a view keeps by itself. contentView paints its children
+// in order and every addChildView appends, so any view attached after this one covers it
+// — and the manager attaches one the first time each account and surface is opened, plus
+// one per account during the background warm-up that runs over the first half-minute of
+// a session. An overlay opened before those is buried by them while still believing it is
+// open: setVisible(true), correct bounds, nothing on screen. That is how the reconnect
+// banner, which opens about a second and a half after start and from then on only ever
+// update()s, could be up for a whole session without once being seen. So the overlay
+// re-asserts its place whenever it is opened or updated, and raise() lets the owner do
+// the same after attaching a view of its own. Re-adding a view that is already a child
+// moves it to the top rather than duplicating it, which is what makes this cheap enough
+// to do unconditionally.
 import { BrowserWindow, WebContentsView } from 'electron';
 import { contentBounds } from './layout';
 
@@ -55,6 +68,17 @@ export class OverlayView {
     this.flush();
   }
 
+  /** Puts the overlay back on top of whatever has been attached since. Safe to call at
+   * any time: it does nothing while closed, and re-adding an existing child reorders
+   * rather than duplicates. */
+  raise(): void {
+    if (!this.view || !this.visible || this.win.isDestroyed()) return;
+    try {
+      this.win.contentView.addChildView(this.view);
+    } catch {
+    }
+  }
+
   close(): void {
     if (!this.view || this.win.isDestroyed()) return;
     this.view.setVisible(false);
@@ -90,6 +114,9 @@ export class OverlayView {
     if (!this.view || this.win.isDestroyed()) return;
     this.pending = payload;
     this.rows = rows;
+    // An overlay that is only ever updated after its first open would otherwise never
+    // get another chance to be on top, which is exactly the reconnect banner's shape.
+    this.raise();
     this.applyBounds();
     this.flush();
   }

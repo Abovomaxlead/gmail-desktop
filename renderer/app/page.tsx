@@ -239,6 +239,7 @@ interface DesktopBridge {
   pickComposeAccount(index: number | null): void;
   reportComposeAccountSize(size: { width: number; height: number }): void;
   onToastState(cb: (state: ToastState) => void): void;
+  onToastHoverEnd(cb: () => void): void;
   reportToastSize(size: { width: number; height: number }): void;
   activateToast(id: string): void;
   dismissToast(id: string): void;

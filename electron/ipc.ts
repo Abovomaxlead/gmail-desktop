@@ -85,6 +85,7 @@ export const IPC = {
   TOAST_DISMISS_ALL: 'toast:dismiss-all',
   TOAST_ACTION: 'toast:action',
   TOAST_HOVER: 'toast:hover',
+  TOAST_HOVER_END: 'toast:hover-end',
   WEB_NOTIFY_SHOW: 'web-notify:show',
   WEB_NOTIFY_CLICK: 'web-notify:click',
 } as const;

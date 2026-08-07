@@ -35,6 +35,20 @@ export function toastWindowBounds(
   };
 }
 
+/** True when a screen point falls inside a rect. Used to ask whether the pointer is still
+ * over the stack at all, which is not something the page can answer for itself: a
+ * click-through window is forwarded mouse moves but not the leave that ends them, so a
+ * pointer that goes straight off the window edge simply stops saying anything, and
+ * whatever was hovered stays hovered. Half-open on the far edges, as pixel bounds are. */
+export function containsPoint(rect: ToastRect, point: { x: number; y: number }): boolean {
+  return (
+    point.x >= rect.x &&
+    point.x < rect.x + rect.width &&
+    point.y >= rect.y &&
+    point.y < rect.y + rect.height
+  );
+}
+
 /** True when a stack this tall would not fit, which is a second reason to collapse it. */
 export function exceedsWorkArea(workArea: ToastRect, cssHeight: number, zoom: number): boolean {
   return Math.round(cssHeight * zoom) > usableHeight(workArea);
