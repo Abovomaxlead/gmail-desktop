@@ -2843,6 +2843,12 @@ function registerIpc(): void {
     prefs!.setReneMode(v === true);
     applyReneZoom();
     pushPrefs();
+    // applyReneZoom only reaches the main window and the profile views. The toast window
+    // is created lazily and then lives for the session, so it has to be told separately,
+    // and refresh() on its own is not enough: re-sending the stack makes the page lay out
+    // again but the CSS did not change, so it reports the same numbers into a window whose
+    // factor moved underneath them.
+    toastWindow?.applyZoom();
     toasts?.refresh();
   });
   ipcMain.handle(IPC.CHANGELOG_GET, () => loadChangelog());
