@@ -109,13 +109,23 @@ export function webNotifyPageId(loadNonce: string, seq: number): string {
   return `${loadNonce}-${seq}`;
 }
 
+// Both fields are coerced, and the title is the one that has to be. `title: string` is
+// what the DOM signature says, not what arrives: this runs on `new Notification(x)` inside
+// Google's own page, so x is whatever that page passed. A non-primitive travels to main,
+// goes onto a card and is handed to React as a child, which throws "Objects are not valid
+// as a React child" and unmounts the toasts page - and a page that is not there reports no
+// size and raises no card, so every later notification goes with it.
 export function webNotifyPayload(
   id: string,
   title: string,
   options?: NotificationOptions,
 ): { id: string; title: string; body: string } {
   const raw = options?.body;
-  return { id, title, body: raw === undefined || raw === null ? '' : String(raw) };
+  return {
+    id,
+    title: title === undefined || title === null ? '' : String(title),
+    body: raw === undefined || raw === null ? '' : String(raw),
+  };
 }
 
 export function isEditableTarget(

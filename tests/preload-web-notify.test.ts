@@ -26,6 +26,20 @@ describe('webNotifyPayload', () => {
   it('stringifies a body that is not a string', () => {
     expect(webNotifyPayload('w4', 'Ada', { body: 42 as unknown as string }).body).toBe('42');
   });
+
+  // The title comes out of `new Notification(x)` inside Google's own page, so its type is
+  // whatever that page passed and not what the signature claims. An object reaching the
+  // card is rendered as a React child, which throws and unmounts the whole toasts page -
+  // taking every later notification with it.
+  it('stringifies a title that is not a string', () => {
+    expect(webNotifyPayload('w5', { a: 1 } as unknown as string).title).toBe('[object Object]');
+    expect(webNotifyPayload('w6', 42 as unknown as string).title).toBe('42');
+  });
+
+  it('sends an empty title when the page passed none', () => {
+    expect(webNotifyPayload('w7', undefined as unknown as string).title).toBe('');
+    expect(webNotifyPayload('w8', null as unknown as string).title).toBe('');
+  });
 });
 
 // A reload keeps the same WebContents, so pairing the counter with the view's id is not

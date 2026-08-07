@@ -2520,6 +2520,11 @@ function registerIpc(): void {
   // notificationsAllowed already told that view to keep quiet.
   ipcMain.on(IPC.WEB_NOTIFY_SHOW, (e, arg: { id: string; title: string; body: string }) => {
     if (!prefs) return;
+    // The id is template-stringified into the source key, so any type would be accepted
+    // and would file the click under a name nothing can look up again. Checked the same
+    // way profile-view-manager checks NOTIFICATION_ACTIVATE's thread id, and for the same
+    // reason: what is on the other end of this channel is Google's page, not ours.
+    if (typeof arg?.id !== 'string') return;
     const accountKey = manager?.keyForWebContents(e.sender) ?? null;
     const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
     if (!profile) return;
