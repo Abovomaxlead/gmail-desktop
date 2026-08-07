@@ -1535,19 +1535,55 @@ function toastAccountFor(email: string): ToastAccount | undefined {
 // happens twice in the app's life, before createWindow and after the main window closes.
 // A window that was built but never painted is the failure that can last all session:
 // isBroken() is what asks about it, per notification rather than once, so a page that
-// comes back stops the fallback again. The whole call is guarded because a throw here
-// would take the notification down with it, which is the outcome the fallback exists to
-// prevent.
+// comes back stops the fallback again. This question only covers what has not been raised
+// yet, though — whatever was already in the stack when the window went broken is past this
+// fork, and drainQueuedToasts below is what gets that out.
 function showToast(input: ToastInput): void {
   if (toasts && !(toastWindow?.isBroken() ?? false)) {
     toasts.show(input);
     return;
   }
+  systemNotify(input.title, input.body);
+}
+
+// The degraded stand-in itself. Guarded rather than trusted, because the whole reason it
+// is here is that a notification must not be lost, and an unguarded throw would lose it
+// just as thoroughly as the window that failed.
+function systemNotify(title: string, body: string): void {
   try {
     if (!Notification.isSupported()) return;
-    new Notification({ title: input.title, body: input.body }).show();
+    new Notification({ title, body }).show();
   } catch (e) {
     console.warn('[toast] system notification fallback failed:', e);
+  }
+}
+
+// What the flag alone cannot do anything about. isBroken() only redirects the next
+// notification; the ones that are already in the stack were accepted before the page was
+// known to be dead — showToast put them there, the window was created for the first of
+// them, and the watchdog only trips a second or two later. A startup burst across several
+// accounts is entirely in that window, and past five it is not even five toasts any more
+// but a summary nobody will ever see. Nothing else revisits the stack, so this does: it
+// takes what is queued and raises each one the degraded way instead.
+//
+// Emptying and reading are one call, so a raise cannot ripple back into a stack that is
+// about to be raised anyway, and a second trip through here finds nothing. It runs once
+// per transition into broken rather than once per notification, because the window
+// announces the transition and everything after it takes the fallback in showToast. A
+// summary has no cards left to raise — they were released as they were folded into it —
+// so what goes out is the line it stands for, which is less than the mail it counts but is
+// not the silence the alternative is.
+function drainQueuedToasts(): void {
+  try {
+    const held = toasts?.drain();
+    if (!held) return;
+    for (const toast of held.toasts) systemNotify(toast.title, toast.body);
+    if (held.summary) {
+      const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+      systemNotify(L.toastSummaryTitle(held.summary.count), '');
+    }
+  } catch (e) {
+    console.warn('[toast] draining the queued stack failed:', e);
   }
 }
 
@@ -1880,6 +1916,7 @@ function createWindow(): void {
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     () => mainWindow,
     () => toasts?.markReady(),
+    () => drainQueuedToasts(),
   );
   toasts = new ToastController({
     window: toastWindow,

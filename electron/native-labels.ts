@@ -26,6 +26,8 @@ export interface NativeLabels {
   readonly accountNotAddedTitle: string;
   readonly accountNotAddedBody: (email: string, error: string) => string;
   readonly testNotificationBody: string;
+  /** The stand-in a collapsed stack goes out as when the toast window cannot show it. */
+  readonly toastSummaryTitle: (count: number) => string;
   readonly downloadCompleteTitle: string;
   readonly downloadCancelledTitle: string;
   readonly downloadFailedTitle: string;
@@ -54,6 +56,7 @@ const EN: NativeLabels = Object.freeze({
   accountNotAddedBody: (email: string, error: string) =>
     `${email} is not linked to Gmail, so the account was not added. ${error}`,
   testNotificationBody: 'This is what a notification looks like.',
+  toastSummaryTitle: (count: number) => `${count} new notifications`,
   downloadCompleteTitle: 'Download complete',
   downloadCancelledTitle: 'Download cancelled',
   downloadFailedTitle: 'Download failed',
@@ -82,6 +85,7 @@ const NL: NativeLabels = Object.freeze({
   accountNotAddedBody: (email: string, error: string) =>
     `${email} is niet gekoppeld aan Gmail, dus het account is niet toegevoegd. ${error}`,
   testNotificationBody: 'Zo ziet een melding eruit.',
+  toastSummaryTitle: (count: number) => `${count} nieuwe meldingen`,
   downloadCompleteTitle: 'Download voltooid',
   downloadCancelledTitle: 'Download geannuleerd',
   downloadFailedTitle: 'Download mislukt',
@@ -110,6 +114,7 @@ const RENE: NativeLabels = Object.freeze({
   accountNotAddedBody: (email: string, error: string) =>
     `${email} hoort niet bij Gmail, dus dit account doet niet mee. ${error}`,
   testNotificationBody: 'Zo ziet een berichtje eruit.',
+  toastSummaryTitle: (count: number) => `${count} nieuwe berichtjes`,
   downloadCompleteTitle: 'Het is opgehaald',
   downloadCancelledTitle: 'Ophalen gestopt',
   downloadFailedTitle: 'Ophalen lukte niet',

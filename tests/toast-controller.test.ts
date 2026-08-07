@@ -202,6 +202,74 @@ describe('ToastController onDiscard', () => {
   });
 });
 
+// What the window's owner needs when the watchdog trips. The toasts that were already in
+// the stack when the page went broken were accepted, never drawn, and nothing looks at
+// them again — a startup burst across several accounts is lost in full, which is the
+// silence decision 8 exists to prevent. They are only recoverable if the controller will
+// hand them over, and hand them over in one go: main raises a system notification per
+// toast, and a stack that was not emptied first would let that ripple back in.
+describe('ToastController drain', () => {
+  it('hands back what was queued and leaves nothing behind', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    const held = h.controller.drain();
+    expect(ids(held.toasts)).toEqual(['src-1', 'src-2']);
+    expect(h.controller.drain().toasts).toEqual([]);
+  });
+
+  it('hands back the summary a collapsed stack stands for', () => {
+    const h = harness();
+    for (let n = 1; n <= 6; n += 1) h.controller.show(mailInput(n));
+    const held = h.controller.drain();
+    expect(held.toasts).toEqual([]);
+    expect(held.summary).toEqual({ count: 6, accountKey: null });
+    expect(h.controller.drain().summary).toBeNull();
+  });
+
+  it('releases what the drained cards were pinning', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    h.controller.drain();
+    expect(ids(h.discarded)).toEqual(['src-1', 'src-2']);
+  });
+
+  it('hides the window and stops the expiry clock', () => {
+    vi.useFakeTimers();
+    let hidden = 0;
+    const h = harness(fakeWindow({ hide: () => (hidden += 1) }));
+    h.controller.show(mailInput(1, false));
+    h.controller.drain();
+    expect(hidden).toBe(1);
+    // A surviving interval would tick over an empty stack for the rest of the session.
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  // main raises one system notification per drained toast, so a drain that handed the same
+  // toast over twice would be a duplicate notification, not just a wasted call.
+  it('hands each toast over once even if the window reports broken again', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    const first = h.controller.drain();
+    const second = h.controller.drain();
+    expect(ids(first.toasts)).toEqual(['src-1']);
+    expect(ids(second.toasts)).toEqual([]);
+    expect(ids(h.discarded)).toEqual(['src-1']);
+  });
+
+  it('is a no-op on an empty stack rather than a hide and a push', () => {
+    let hidden = 0;
+    let sent = 0;
+    const h = harness(fakeWindow({ hide: () => (hidden += 1), send: () => (sent += 1) }));
+    const held = h.controller.drain();
+    expect(held.toasts).toEqual([]);
+    expect(held.summary).toBeNull();
+    expect(hidden).toBe(0);
+    expect(sent).toBe(0);
+  });
+});
+
 // The window's watchdog declares the page broken unless a size report reaches it, and the
 // report reaches it through the controller. Two of the controller's own paths never call
 // window.applySize — an empty stack drops the report, and a stack that does not fit

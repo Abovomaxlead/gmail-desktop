@@ -173,6 +173,26 @@ export class ToastController {
     this.hooks.window.applySize(cssWidth, cssHeight);
   }
 
+  /** Hands the stack over and empties it, for an owner that has to get these notifications
+   * out some other way — the window went broken with cards already queued, and a queue
+   * nobody will ever draw is the silence decision 8 forbids.
+   *
+   * One call does both halves on purpose. The caller raises a system notification per
+   * toast, which is a good deal of work to do while a stack still holds them; emptying
+   * first means anything that ripples back cannot land on toasts that are about to be
+   * raised anyway, and a second call finds nothing, so nothing is raised twice. The cards
+   * leave the stack for good, so what they pinned is released with them — the notification
+   * that stands in for them carries no click back to it. */
+  drain(): ToastStack {
+    const held = this.stack;
+    if (held.toasts.length === 0 && held.summary === null) return held;
+    this.stopTimer();
+    this.hoveredSince = null;
+    this.setStack(EMPTY_STACK);
+    this.push();
+    return held;
+  }
+
   /** Re-sends the current stack, for a language or Rene-mode change. */
   refresh(): void {
     this.push();

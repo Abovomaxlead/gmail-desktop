@@ -38,6 +38,16 @@
 // report: the page rendered, reached the bridge, and measured itself. Anything short of
 // that eventually reads as broken, which is the honest answer — nothing is on screen.
 //
+// Going broken is announced, not only recorded, because by the time it is noticed the
+// stack is usually not empty: the notification that created this window was accepted a
+// second earlier and is sitting in the controller, and so is every one that followed it.
+// The flag alone only redirects the next notification; these are already past that fork
+// and nothing would ever look at them again. So the owner is told once per transition and
+// gets those out by another route. Told a turn late, deliberately — going broken can be
+// discovered inside ensure(), which is inside a send() the controller is in the middle of,
+// and the owner's answer is to empty that same controller. The flag is set immediately
+// either way, so nothing arriving in between is lost.
+//
 // noteAlive is public for that reason. A size report is proof of life whoever ends up
 // wanting it, and the controller drops some of them (an empty stack, a collapse that
 // re-lays out instead of resizing); dropping one must not cost the window its health.
@@ -83,6 +93,10 @@ export class ToastWindow {
     /** The window whose display the stack should appear on; null falls back to primary. */
     private readonly anchor: () => BrowserWindow | null,
     private readonly onReady: () => void,
+    /** The stack has just stopped being able to appear. Called once per transition into
+     * broken, never on the way back out, and never while destroyed — whatever is queued
+     * has to leave by another route now. */
+    private readonly onBroken: () => void,
   ) {}
 
   /** Creates the window on first use. Returns null when creation failed, or once destroyed. */
@@ -176,6 +190,17 @@ export class ToastWindow {
     if (this.broken) return;
     console.warn(`[toast] ${reason}`);
     this.broken = true;
+    // Next turn, not this one: this can be reached from inside a send() the controller is
+    // running, and the owner answers by emptying that controller. A page that came back in
+    // the meantime, or a window torn down in the meantime, has nothing to announce.
+    setImmediate(() => {
+      if (this.destroyed || !this.broken) return;
+      try {
+        this.onBroken();
+      } catch (e) {
+        console.warn('[toast] broken handler failed:', e);
+      }
+    });
   }
 
   private setZoomFactor(win: BrowserWindow): void {
