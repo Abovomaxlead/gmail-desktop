@@ -224,6 +224,10 @@ const syncRunners = new Map<string, { run(): Promise<void> }>();
 let reconnectBanner: OverlayView | null = null;
 let reconnectAccounts: ReconnectAccount[] = [];
 let toasts: ToastController | null = null;
+// Kept beside the controller because two callers need the window itself and not the stack
+// it holds: showToast has to ask whether it still works, and the Rene toggle has to push a
+// new zoom factor into it.
+let toastWindow: ToastWindow | null = null;
 let updateRequested = false;
 let pendingTrayUpdateCheck = false;
 let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
@@ -1525,13 +1529,25 @@ function toastAccountFor(email: string): ToastAccount | undefined {
 // silently. The fallback is a degraded one, not the behaviour this feature replaced - it
 // carries only a title and a body, so unlike the notification it stands in for it cannot
 // be clicked to open the mail and it auto-dismisses on the OS timeout.
+//
+// "Not there" is two things, and the second is the one that matters. A null controller
+// happens twice in the app's life, before createWindow and after the main window closes.
+// A window that was built but never painted is the failure that can last all session:
+// isBroken() is what asks about it, per notification rather than once, so a page that
+// comes back stops the fallback again. The whole call is guarded because a throw here
+// would take the notification down with it, which is the outcome the fallback exists to
+// prevent.
 function showToast(input: ToastInput): void {
-  if (toasts) {
+  if (toasts && !(toastWindow?.isBroken() ?? false)) {
     toasts.show(input);
     return;
   }
-  if (!Notification.isSupported()) return;
-  new Notification({ title: input.title, body: input.body }).show();
+  try {
+    if (!Notification.isSupported()) return;
+    new Notification({ title: input.title, body: input.body }).show();
+  } catch (e) {
+    console.warn('[toast] system notification fallback failed:', e);
+  }
 }
 
 function activateToast(toast: Toast): void {
@@ -1845,7 +1861,7 @@ function createWindow(): void {
 
   // Built with the main window because that is what decides which display the stack
   // appears on, and torn down with it: a stack floating over a closed app is nonsense.
-  const toastWindow = new ToastWindow(
+  toastWindow = new ToastWindow(
     SIDEBAR_PRELOAD_PATH,
     DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
@@ -1871,6 +1887,7 @@ function createWindow(): void {
   mainWindow.on('closed', () => {
     toasts?.destroy();
     toasts = null;
+    toastWindow = null;
   });
 
   if (DEV_URL) void mainWindow.loadURL(DEV_URL);
