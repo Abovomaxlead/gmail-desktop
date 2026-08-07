@@ -120,7 +120,7 @@ export default function ToastsPage() {
                   type="button"
                   data-toast-card
                   onClick={() => window.desktop?.dismissAllToasts()}
-                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 shadow-lg backdrop-blur hover:bg-white`}
+                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur hover:bg-white`}
                 >
                   {S.toastDismissAll}
                 </button>
@@ -151,7 +151,7 @@ export default function ToastsPage() {
   );
 }
 
-const CARD = `group relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white shadow-2xl`;
+const CARD = `group relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white`;
 const ACTION =
   'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none';
 
