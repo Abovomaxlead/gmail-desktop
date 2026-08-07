@@ -1,27 +1,31 @@
-// Does domain-wide delegation actually work yet?
+// Does domain-wide delegation actually work yet, and if not, which of the several very
+// different causes is it?
 //
-// Granting DWD in the Workspace admin console is not instant — it propagates, and until it
-// has, Google answers `unauthorized_client`, which reads like a misconfiguration rather than
-// "come back later". So this is built to be run repeatedly: it says which of the three
-// states you are in, and the difference matters because two of them need you to change
-// something and one needs you to wait.
+// Google answers `unauthorized_client` to all of them, which is the whole problem: a grant
+// that is still propagating, a client ID that was never registered, and a scope list that
+// does not match are one word from the outside, and two of them need you to change
+// something while the third needs you to wait.
 //
-// Usage:
-//   node scripts/check-dwd.mjs <service-account-key.json> <mailbox@yourdomain>
+// So this asks three questions instead of one:
 //
-// It mints a token for the target mailbox and asks Gmail whose mailbox `me` is. That is the
-// sharpest possible check: a token that mints fine but comes back with YOUR address means
-// the `sub` claim did not take effect, and anything writing through it would land silently
-// in the wrong mailbox. Read-only — it calls users/me/profile and nothing else.
+//   1. Can the key mint a token with no `sub` at all? That involves no delegation, so a
+//      failure here is the key, the account or the clock — not the Workspace.
+//   2. Can it mint one *with* `sub` for the full scope set?
+//   3. If not, can it for each scope on its own? A registered client ID with the wrong
+//      scopes still works for the scopes it does have, so any single success means the
+//      entry exists and the list is wrong. Every scope failing means the entry is not
+//      being matched at all.
 //
-// Nothing is logged that would leak the key: no assertion, no access token, no private key.
+// Then, on success, it asks Gmail whose mailbox `me` is — a token that mints fine but comes
+// back with the wrong address means the `sub` claim did not take effect, and anything
+// written through it would land in the wrong mailbox.
+//
+// Read-only. Nothing is logged that would leak the key: no assertion, no token.
 
 import { readFileSync } from 'node:fs';
 import { createSign } from 'node:crypto';
 
-// Must match SCOPES in electron/google-oauth.ts — these are the scopes that have to be
-// authorised for the service account's client ID in the admin console. Authorising a
-// different set is the other common reason for `unauthorized_client`.
+// Must match SCOPES in electron/google-oauth.ts.
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.insert',
@@ -51,74 +55,123 @@ if (key.type !== 'service_account' || !key.client_email || !key.private_key) {
 const b64url = (buf) =>
   Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
-const now = Math.floor(Date.now() / 1000);
-const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-const claims = b64url(
-  JSON.stringify({
+const TOKEN_URI = key.token_uri ?? 'https://oauth2.googleapis.com/token';
+
+/** Mints a token. `subject` null means no impersonation, which needs no delegation at all. */
+async function mint(scopes, subject) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const claims = {
     iss: key.client_email,
-    sub: target, // the impersonation — this is the whole point of DWD
-    scope: SCOPES.join(' '),
-    aud: key.token_uri ?? 'https://oauth2.googleapis.com/token',
+    scope: scopes.join(' '),
+    aud: TOKEN_URI,
     iat: now,
     exp: now + 3600,
-  }),
-);
-const signer = createSign('RSA-SHA256');
-signer.update(`${header}.${claims}`);
-const assertion = `${header}.${claims}.${b64url(signer.sign(key.private_key))}`;
+  };
+  if (subject) claims.sub = subject;
+  const payload = b64url(JSON.stringify(claims));
+  const signer = createSign('RSA-SHA256');
+  signer.update(`${header}.${payload}`);
+  const assertion = `${header}.${payload}.${b64url(signer.sign(key.private_key))}`;
+
+  let res;
+  try {
+    res = await fetch(TOKEN_URI, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      }),
+    });
+  } catch (e) {
+    return { ok: false, error: `unreachable: ${e.message}` };
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) return { ok: false, error: String(json.error ?? `HTTP ${res.status}`), description: json.error_description };
+  return { ok: true, accessToken: json.access_token };
+}
+
+const CLIENT_ID = key.client_id ?? '(not in the key file)';
 
 console.log(`service account : ${key.client_email}`);
-console.log(`client id       : ${key.client_id ?? '(not in key file)'}`);
-console.log(`impersonating   : ${target}`);
-console.log(`scopes          : ${SCOPES.length} requested\n`);
+console.log(`project         : ${key.project_id ?? '(none in key)'}`);
+console.log(`client id       : ${CLIENT_ID}`);
+console.log(`impersonating   : ${target}\n`);
 
-const tokenRes = await fetch(key.token_uri ?? 'https://oauth2.googleapis.com/token', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({
-    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-    assertion,
-  }),
-});
-const tokenJson = await tokenRes.json().catch(() => ({}));
+// 1. No delegation involved.
+const bare = await mint(['https://www.googleapis.com/auth/cloud-platform'], null);
+console.log(`key alone, no sub          ${bare.ok ? 'OK' : `FAILED — ${bare.error}`}`);
+if (!bare.ok) {
+  console.log('\nRESULT: the key itself cannot mint a token, so this is not a delegation problem.');
+  console.log('Check that the key has not been disabled or deleted, and that the clock is right —');
+  console.log('an assertion is rejected if the machine is more than a few minutes off.');
+  process.exit(1);
+}
 
-if (!tokenRes.ok) {
-  const err = tokenJson.error ?? `HTTP ${tokenRes.status}`;
-  const desc = tokenJson.error_description ?? '';
-  console.log(`RESULT: no token — ${err}${desc ? ` (${desc})` : ''}\n`);
-  if (err === 'unauthorized_client') {
-    console.log('This is the "not yet" answer, and it has two causes that look identical:');
-    console.log('  1. The grant is still propagating. It can take a while; just run this again.');
-    console.log('  2. The scopes authorised in the admin console do not match the ones above.');
-    console.log('     Admin console → Security → API controls → Domain-wide delegation.');
-    console.log(`     The client ID there must be the service account's: ${key.client_id ?? '(see the key file)'}`);
-    console.log('     The scopes must be listed exactly, comma separated, no spaces.');
-  } else if (err === 'invalid_grant') {
-    console.log(`Google accepted the key but not the impersonation of ${target}.`);
-    console.log('Usually: that mailbox does not exist, or it is not in the delegating domain.');
+// 2. The real request.
+const full = await mint(SCOPES, target);
+console.log(`all ${SCOPES.length} scopes with sub      ${full.ok ? 'OK' : `FAILED — ${full.error}`}`);
+
+if (!full.ok) {
+  // 3. Which, if any, are actually granted.
+  console.log('\nper scope, to tell a missing registration from a wrong scope list:');
+  const granted = [];
+  for (const scope of SCOPES) {
+    const one = await mint([scope], target);
+    if (one.ok) granted.push(scope);
+    console.log(`  ${scope.replace('https://www.googleapis.com/auth/', '').padEnd(18)} ${one.ok ? 'OK' : one.error}`);
+  }
+
+  console.log('');
+  if (granted.length === 0) {
+    console.log('RESULT: the client ID is not being matched at all.');
+    console.log('');
+    console.log('Every scope fails, including on its own. A registered client ID with the wrong');
+    console.log('scope list still works for the scopes it does have, so this is not a scope');
+    console.log('problem — the entry is absent, holds a different value, or has not propagated.');
+    console.log('');
+    console.log('In the Google Workspace admin console, as a super administrator:');
+    console.log('  Security → Access and data control → API controls → Manage Domain Wide Delegation');
+    console.log('');
+    console.log(`  Client ID must be exactly:  ${CLIENT_ID}`);
+    console.log('  (not the service account address, and not an OAuth client ID)');
+    console.log('');
+    console.log('  Scopes, comma separated, no spaces:');
+    console.log(`  ${SCOPES.join(',')}`);
+    console.log('');
+    console.log('Check too that this is the same Workspace the target mailbox lives in.');
+    console.log('If all of that is already right, it is propagation — re-run this in a while.');
+  } else {
+    console.log('RESULT: the client ID is registered, but the scope list does not match.');
+    console.log(`Working: ${granted.length}/${SCOPES.length}. Add the missing ones to the same entry:`);
+    for (const s of SCOPES.filter((s) => !granted.includes(s))) console.log(`  ${s}`);
   }
   process.exit(1);
 }
 
+// 4. Whose mailbox did we actually get?
 const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
-  headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+  headers: { Authorization: `Bearer ${full.accessToken}` },
 });
 const profile = await profileRes.json().catch(() => ({}));
 
 if (!profileRes.ok) {
-  console.log(`RESULT: token minted, but Gmail refused it — ${profile?.error?.message ?? profileRes.status}`);
-  console.log('A token that mints but cannot call Gmail usually means the Gmail API is not');
-  console.log('enabled on the project, or the scope set is narrower than it looks.');
+  const message = profile?.error?.message ?? `HTTP ${profileRes.status}`;
+  console.log(`\nRESULT: the token minted, but Gmail refused it — ${message}`);
+  if (/has not been used in project|is disabled/.test(message)) {
+    console.log('The Gmail API is not enabled in this project. Enable it and try again.');
+  }
   process.exit(1);
 }
 
 const got = profile.emailAddress;
 if (got?.toLowerCase() !== target.toLowerCase()) {
-  console.log(`RESULT: WRONG MAILBOX — asked for ${target}, got ${got}`);
-  console.log('The sub claim did not take effect, so anything written through this token');
-  console.log('would land in the wrong mailbox. Do not use it until this reads correctly.');
+  console.log(`\nRESULT: WRONG MAILBOX — asked for ${target}, got ${got}`);
+  console.log('The sub claim did not take effect, so anything written through this token would');
+  console.log('land in the wrong mailbox. Do not use it until this reads correctly.');
   process.exit(1);
 }
 
-console.log(`RESULT: domain-wide delegation works for ${got}`);
+console.log(`\nRESULT: domain-wide delegation works for ${got}`);
 console.log(`        ${profile.messagesTotal} messages, historyId ${profile.historyId}`);
