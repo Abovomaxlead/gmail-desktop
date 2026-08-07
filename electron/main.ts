@@ -134,6 +134,14 @@ import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './app-scheme';
 import { checkOAuthConfigFile } from './oauth-config-file';
 import { chooseOAuthConfigText } from './oauth-source';
+import {
+  cacheEntry,
+  isUsable,
+  requestDelegatedToken,
+  shouldTryAnotherRequester,
+  type CachedToken,
+  type DelegatedTokenOutcome,
+} from './delegated-token';
 import { readBundledOAuthConfig } from './oauth-bundled';
 import {
   accountOAuthStatuses,
@@ -1119,6 +1127,79 @@ function readIfPresent(path: string): string | null {
  * precedence and oauth-bundled.ts for where the shipped copy lives. */
 function oauthConfigText(): string | null {
   return chooseOAuthConfigText(readIfPresent(OAUTH_CONFIG_PATH), readBundledOAuthConfig());
+}
+
+/** Whether this address is a mailbox reached by delegation rather than one of the user's own
+ * accounts. Read from the profiles rather than guessed from the address, so a mailbox the
+ * app does not know about is not quietly treated as delegated. */
+function isDelegatedMailbox(email: string): boolean {
+  const wanted = email.trim().toLowerCase();
+  return profiles.some((p) => p.kind === 'delegated' && p.email.toLowerCase() === wanted);
+}
+
+/** Where to ask for a token for a mailbox nobody signed into. Absent means the relay is not
+ * configured, and copying to delegated mailboxes stays off — the same optional shape push
+ * config has. */
+function delegatedTokenUrl(): string | null {
+  const text = oauthConfigText();
+  if (text === null) return null;
+  try {
+    const raw = JSON.parse(text) as { delegatedTokenUrl?: unknown };
+    const url = typeof raw.delegatedTokenUrl === 'string' ? raw.delegatedTokenUrl.trim() : '';
+    return url === '' ? null : url;
+  } catch {
+    return null;
+  }
+}
+
+/** Tokens the relay handed out, per mailbox. They live an hour; without this every drag
+ * would cost a fresh mint and a delegates-list read per mailbox. */
+const delegatedTokens = new Map<string, CachedToken>();
+
+/** A token for a mailbox that has none of its own, via the relay.
+ *
+ * The user's own accounts are tried, active one first, and the first token the relay grants
+ * is used. That cannot widen anyone's access: the relay checks Google's delegation record on
+ * every attempt, so trying is how the app finds the access you already have rather than how
+ * it gets any. It also means a copy does not fail merely because the wrong tab was in front.
+ *
+ * Returns null with a reason, so the caller can report something truer than "Verbinding
+ * verlopen" — which is what a delegated mailbox used to get, for an expiry it never had. */
+async function delegatedTokenFor(email: string): Promise<DelegatedTokenOutcome> {
+  const url = delegatedTokenUrl();
+  if (!url) return { ok: false, error: 'Relay voor gedelegeerde postvakken niet ingesteld' };
+
+  const cached = delegatedTokens.get(email.toLowerCase());
+  if (isUsable(cached, Date.now())) return { ok: true, token: cached!.accessToken };
+
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens) return { ok: false, error: 'Koppeling niet ingesteld' };
+
+  // Active account first: it is the one the person was looking at, and usually the one whose
+  // delegation they are thinking of.
+  const active = manager?.activeKey();
+  const own = profiles.filter((p) => p.kind === 'authuser');
+  const ordered = [
+    ...own.filter((p) => keyOf(p) === active),
+    ...own.filter((p) => keyOf(p) !== active),
+  ];
+
+  let lastError = 'Geen van je accounts heeft toegang tot dit postvak';
+  for (const requester of ordered) {
+    const requesterToken = await accessTokenFor(cfg, oauthTokens, requester.email);
+    if (!requesterToken) continue;
+    const result = await requestDelegatedToken({ url, requesterToken, target: email });
+    if (result.ok) {
+      delegatedTokens.set(email.toLowerCase(), cacheEntry(result.accessToken, result.expiresIn, Date.now()));
+      console.log(`[delegated] ${requester.email} -> ${email}: granted`);
+      return { ok: true, token: result.accessToken };
+    }
+    lastError = result.error;
+    // Only a delegation refusal says nothing about the next account; everything else is
+    // about the request or the relay, and asking again would just repeat it.
+    if (!shouldTryAnotherRequester(result.status)) break;
+  }
+  return { ok: false, error: lastError };
 }
 
 function oauthConfig(): OAuthConfig | null {
@@ -2854,9 +2935,23 @@ function registerIpc(): void {
     for (const target of targets) {
       progress('copy', target.email);
       let token = await accessTokenFor(cfg, oauthTokens, target.email);
+      // A delegated mailbox has no token of its own and never will — nobody signs in as a
+      // shared mailbox. Asking the local store for one and reporting the miss as an expiry
+      // was a message about something that never existed; the relay is where such a token
+      // comes from, and it checks Google's delegation record before handing one over.
+      let delegatedError: string | null = null;
+      if (!token && isDelegatedMailbox(target.email)) {
+        const delegated = await delegatedTokenFor(target.email);
+        if (delegated.ok) token = delegated.token;
+        else delegatedError = delegated.error;
+      }
       if (!token) {
-        refreshFailures.add(target.email);
-        scheduleOAuthHealthCheck();
+        // Only an own account can have an expired link; a delegated mailbox has nothing to
+        // expire, so it must not be flagged as needing a reconnect.
+        if (!delegatedError) {
+          refreshFailures.add(target.email);
+          scheduleOAuthHealthCheck();
+        }
         done += files.length;
         progress('copy', target.email);
         accounts.push({
@@ -2864,7 +2959,7 @@ function registerIpc(): void {
           copied: 0,
           skipped: 0,
           total: files.length,
-          error: 'Verbinding verlopen',
+          error: delegatedError ?? 'Verbinding verlopen',
         });
         continue;
       }
