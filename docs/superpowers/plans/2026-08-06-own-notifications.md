@@ -418,7 +418,7 @@ export function stackCount(stack: ToastStack): number {
 - [ ] **Step 5: Run the tests and watch them pass**
 
 Run: `npx vitest run tests/toast-model.test.ts`
-Expected: PASS, 24 tests.
+Expected: PASS, 26 tests.
 
 - [ ] **Step 6: Typecheck**
 
@@ -739,7 +739,7 @@ The Electron half. No unit test — it is all `BrowserWindow` calls — so it is
 
 **Interfaces:**
 - Consumes: `toastWindowBounds`, `exceedsWorkArea`, `TOAST_MARGIN`, `TOAST_WIDTH` (Task 2); the whole of `electron/toast-model` and `renderer/lib/toast` (Task 1); `IPC.TOAST_STATE` (Task 3).
-- Produces: `ToastWindow` class with `send`, `setInteractive`, `wouldOverflow`, `applySize`, `reposition`, `hide`, `destroy`; `ToastController` class with `show(input: ToastInput): void`, `dismiss(id)`, `dismissAll()`, `activate(id)`, `actionFor(id)`, `setHovered(bool)`, `applySize(w, h)`, `refresh()`, `destroy()`; type `ToastInput`.
+- Produces: `ToastWindow` class with `send`, `setInteractive`, `wouldOverflow`, `applySize`, `reposition`, `hide`, `destroy`; `ToastController` class with `show(input: ToastInput): void`, `markReady()`, `dismiss(id)`, `dismissAll()`, `activate(id)`, `activateSummary()`, `runAction(id, action)`, `setHovered(bool)`, `applySize(w, h)`, `refresh()`, `reposition()`, `destroy()`; type `ToastInput`.
 
 - [ ] **Step 1: Write the window**
 
@@ -1491,6 +1491,18 @@ Everything meets here. After this task the app raises its own toasts and Windows
 **Interfaces:**
 - Consumes: `ToastWindow`, `ToastController`, `ToastInput` (Task 4); `IPC.TOAST_*` (Task 3); the `toasts` route (Task 5).
 - Produces: `showToast(input: ToastInput): void` and `toastAccountFor(email: string): ToastAccount | undefined` inside `main.ts`.
+
+> **Correction, after review.** The `showToast` written below narrows the spec. Decision 8
+> says the fallback is for a toast window that *fails to load*; the code below falls back
+> only when the controller is `null`, which happens exactly twice in the app's life —
+> before `createWindow` and after the main window closes. It never fires for a window that
+> was built and then never painted, and since nothing but a size report from the page ever
+> calls `showInactive()`, that case ends in every notification vanishing with no window, no
+> system toast and no log line. What is shipped is wider than this task describes:
+> `ToastWindow` carries a `did-fail-load` handler and a `TOAST_READY_TIMEOUT_MS` watchdog
+> that together set an `isBroken()` flag, and `showToast` consults it per notification
+> before choosing the controller. Read the version in `electron/toast-window.ts`, not the
+> block below.
 
 - [ ] **Step 1: Import what the controller needs**
 
