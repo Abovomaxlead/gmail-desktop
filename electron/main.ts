@@ -1202,6 +1202,25 @@ async function delegatedTokenFor(email: string): Promise<DelegatedTokenOutcome> 
   return { ok: false, error: lastError };
 }
 
+/** Drops a cached relay token, for when Gmail rejects it. A delegation can be revoked while
+ * a token from it is still inside its hour, and the cache would otherwise keep handing out
+ * the dead one until it expired on the clock. */
+function forgetDelegatedToken(email: string): void {
+  delegatedTokens.delete(email.toLowerCase());
+}
+
+/** A token for a mailbox, whichever kind it is: the user's own OAuth token, or one the relay
+ * mints for a mailbox they are a delegate of. One entry point so every caller treats the two
+ * the same — the label list and the copy path both used to know only about the first, which
+ * is why a shared mailbox could not be picked at all. */
+async function mailboxToken(email: string): Promise<DelegatedTokenOutcome> {
+  if (isDelegatedMailbox(email)) return delegatedTokenFor(email);
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens) return { ok: false, error: 'Niet gekoppeld' };
+  const token = await accessTokenFor(cfg, oauthTokens, email);
+  return token ? { ok: true, token } : { ok: false, error: 'Verbinding verlopen' };
+}
+
 function oauthConfig(): OAuthConfig | null {
   const text = oauthConfigText();
   if (text === null) return null;
@@ -2836,28 +2855,49 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC.LABELS_GET, async () => {
     const cfg = oauthConfig();
-    const own = profiles.filter(
-      (p) => p.kind === 'authuser' && (!lastDropSource || p.email !== lastDropSource),
+    // Delegated mailboxes belong in this list. They were filtered out because they have no
+    // OAuth token of their own and there was no other way to read their labels, which meant
+    // a shared mailbox could never be picked as a copy target — it was simply not offered,
+    // so it read as "I cannot find it" rather than as a missing feature. The relay supplies
+    // the token now.
+    const targetable = profiles.filter(
+      (p) =>
+        (p.kind === 'authuser' || p.kind === 'delegated') &&
+        (!lastDropSource || p.email !== lastDropSource),
     );
     if (!cfg || !oauthTokens) {
-      return { accounts: own.map((p) => ({ email: p.email, labels: [], error: 'Niet gekoppeld' })) };
+      return {
+        accounts: targetable.map((p) => ({ email: p.email, labels: [], error: 'Niet gekoppeld' })),
+      };
     }
     const accounts: AccountLabels[] = [];
-    for (const p of own) {
-      const token = await accessTokenFor(cfg, oauthTokens, p.email);
-      if (!token) {
-        accounts.push({ email: p.email, labels: [], error: 'Verbinding verlopen' });
+    for (const p of targetable) {
+      const got = await mailboxToken(p.email);
+      if (!got.ok) {
+        accounts.push({ email: p.email, labels: [], error: got.error });
         continue;
       }
+      const token = got.token;
       try {
         accounts.push({ email: p.email, labels: await fetchLabels(token) });
       } catch (e) {
         const unauthorized = e instanceof GmailHttpError && e.status === 401;
-        const fresh = unauthorized ? await forceRefresh(cfg, oauthTokens, p.email) : null;
+        // Recovering from a 401 differs per kind, and using the wrong one is silent: a
+        // delegated mailbox has no refresh token to force, and an own account has no relay
+        // entry to forget. A delegation can be revoked while a token from it is still inside
+        // its hour, so the cached one has to go before asking again.
+        let fresh: string | null = null;
+        if (unauthorized && isDelegatedMailbox(p.email)) {
+          forgetDelegatedToken(p.email);
+          const again = await delegatedTokenFor(p.email);
+          fresh = again.ok ? again.token : null;
+        } else if (unauthorized) {
+          fresh = await forceRefresh(cfg, oauthTokens, p.email);
+        }
         if (fresh) {
           try {
             accounts.push({ email: p.email, labels: await fetchLabels(fresh) });
-            refreshFailures.delete(p.email);
+            if (!isDelegatedMailbox(p.email)) refreshFailures.delete(p.email);
             continue;
           } catch (e2) {
             accounts.push({ email: p.email, labels: [], error: (e2 as Error).message });
@@ -2865,9 +2905,17 @@ function registerIpc(): void {
           }
         }
         if (unauthorized) {
-          refreshFailures.add(p.email);
-          scheduleOAuthHealthCheck();
-          accounts.push({ email: p.email, labels: [], error: 'Verbinding verlopen' });
+          // Only an own account can have a link that expired; a delegated mailbox has none,
+          // so it must not be flagged as needing a reconnect.
+          if (!isDelegatedMailbox(p.email)) {
+            refreshFailures.add(p.email);
+            scheduleOAuthHealthCheck();
+          }
+          accounts.push({
+            email: p.email,
+            labels: [],
+            error: isDelegatedMailbox(p.email) ? 'Geen toegang tot dit postvak' : 'Verbinding verlopen',
+          });
         } else {
           accounts.push({ email: p.email, labels: [], error: (e as Error).message });
         }
@@ -2934,21 +2982,14 @@ function registerIpc(): void {
 
     for (const target of targets) {
       progress('copy', target.email);
-      let token = await accessTokenFor(cfg, oauthTokens, target.email);
-      // A delegated mailbox has no token of its own and never will — nobody signs in as a
-      // shared mailbox. Asking the local store for one and reporting the miss as an expiry
-      // was a message about something that never existed; the relay is where such a token
-      // comes from, and it checks Google's delegation record before handing one over.
-      let delegatedError: string | null = null;
-      if (!token && isDelegatedMailbox(target.email)) {
-        const delegated = await delegatedTokenFor(target.email);
-        if (delegated.ok) token = delegated.token;
-        else delegatedError = delegated.error;
-      }
-      if (!token) {
-        // Only an own account can have an expired link; a delegated mailbox has nothing to
-        // expire, so it must not be flagged as needing a reconnect.
-        if (!delegatedError) {
+      // One entry point for both kinds. A delegated mailbox has no token of its own and
+      // never will — nobody signs in as a shared mailbox — so its token comes from the
+      // relay, which checks Google's delegation record before handing one over.
+      const got = await mailboxToken(target.email);
+      if (!got.ok) {
+        // Only an own account can have a link that expired; a delegated mailbox has none, so
+        // it must not be flagged as needing a reconnect.
+        if (!isDelegatedMailbox(target.email)) {
           refreshFailures.add(target.email);
           scheduleOAuthHealthCheck();
         }
@@ -2959,10 +3000,11 @@ function registerIpc(): void {
           copied: 0,
           skipped: 0,
           total: files.length,
-          error: delegatedError ?? 'Verbinding verlopen',
+          error: got.error,
         });
         continue;
       }
+      let token = got.token;
 
       let ok = 0;
       let over = 0;
