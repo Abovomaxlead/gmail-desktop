@@ -256,6 +256,12 @@ export interface UiStrings {
   oauthReallow: string;
   oauthBusy: string;
   oauthFailed: string;
+  // Shown when the machine itself has no Google link set up, which is a different problem
+  // from an account that lost its link: nothing here can be connected until it is fixed.
+  oauthNotSetUpTitle: string;
+  oauthNotSetUpBody: string;
+  oauthImport: string;
+  oauthImportInvalid: string;
   accountsFootnoteBefore: string;
   accountsFootnoteAfter: string;
 
@@ -643,6 +649,11 @@ export const STRINGS_NORMAL: UiStrings = {
   oauthReallow: 'Allow again',
   oauthBusy: 'Working…',
   oauthFailed: 'Did not work',
+  oauthNotSetUpTitle: 'This computer has no Google connection set up',
+  oauthNotSetUpBody:
+    'Without it no account can be connected, so there are no notifications and mail cannot be moved. Pick the settings file you were given.',
+  oauthImport: 'Set up connection…',
+  oauthImportInvalid: 'That file is not a Google connection file.',
   accountsFootnoteBefore:
     'Accounts are detected from the Google accounts you are signed into. Use the ',
   accountsFootnoteAfter:
@@ -932,6 +943,11 @@ export const STRINGS_RENE: UiStrings = {
   oauthReallow: 'Meldingen aanzetten',
   oauthBusy: 'Momentje…',
   oauthFailed: 'Het lukte niet',
+  oauthNotSetUpTitle: 'Deze computer is nog niet ingesteld',
+  oauthNotSetUpBody:
+    'Daardoor kan er geen enkel account aan. Je krijgt geen meldingen en mail verplaatsen gaat niet. Kies het instelbestand dat je gekregen hebt.',
+  oauthImport: 'Instelbestand kiezen…',
+  oauthImportInvalid: 'Dit is niet het goede bestand.',
   accountsFootnoteBefore: 'De app zoekt zelf wie er mee doet. Druk op de ',
   accountsFootnoteAfter: ' om er iemand bij te doen.',
 
@@ -1236,6 +1252,11 @@ export const STRINGS_NL: UiStrings = {
   oauthReallow: 'Opnieuw toestaan',
   oauthBusy: 'Bezig…',
   oauthFailed: 'Mislukt',
+  oauthNotSetUpTitle: 'Op deze computer is de Google-koppeling niet ingesteld',
+  oauthNotSetUpBody:
+    'Zonder die koppeling kan er geen account verbonden worden, komen er geen meldingen en kan er geen mail verplaatst worden. Kies het instelbestand dat je hebt gekregen.',
+  oauthImport: 'Koppeling instellen…',
+  oauthImportInvalid: 'Dat bestand is geen Google-koppeling.',
   accountsFootnoteBefore:
     'Accounts worden gevonden via de Google-accounts waarop je bent ingelogd. Gebruik de ',
   accountsFootnoteAfter:

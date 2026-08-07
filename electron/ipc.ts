@@ -56,6 +56,7 @@ export const IPC = {
   OAUTH_RECONNECT_GET: 'oauth:reconnect-get',
   OAUTH_RECONNECT: 'oauth:reconnect',
   OAUTH_STATUS_GET: 'oauth:status-get',
+  OAUTH_CONFIG_IMPORT: 'oauth:config-import',
   OAUTH_STATUS_CHANGED: 'oauth:status-changed',
   MAIL_DROP_FOLDER_GET: 'maildrop:folder-get',
   MAIL_DROP_FOLDER_PICK: 'maildrop:folder-pick',

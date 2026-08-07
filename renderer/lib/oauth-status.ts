@@ -18,3 +18,19 @@ export interface AccountOAuthStatus {
   email: string;
   status: OAuthStatus;
 }
+
+/** What main reports about linking on this machine.
+ *
+ * `configured` exists because its absence cost a colleague a working install. The OAuth
+ * client credentials live in a file in userData that the installer cannot carry — it holds
+ * a secret — so a fresh machine has no way to link anything, and every path that needs the
+ * config gives up quietly: no consent screen when an account is added, no statuses, no
+ * banner. An earlier version of this type left the flag out on the grounds that an account
+ * with no entry simply gets no status line, which covered a delegated mailbox, an
+ * unconfigured machine and the moment before the first check with one rule. It covered them
+ * by making them indistinguishable, and "nothing to say" renders exactly like "all is
+ * well". This flag is the difference between those two. */
+export interface OAuthStatusReport {
+  configured: boolean;
+  accounts: AccountOAuthStatus[];
+}

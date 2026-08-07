@@ -18,7 +18,7 @@
 // oscillates; and reveal/open accept only paths already in the download log.
 
 import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, Notification, nativeTheme } from 'electron';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -132,6 +132,7 @@ import { ToastController, type ToastInput } from './toast-controller';
 import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } from '../renderer/lib/toast';
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './app-scheme';
+import { checkOAuthConfigFile } from './oauth-config-file';
 import {
   accountOAuthStatuses,
   accountsNeedingReconnect,
@@ -1129,9 +1130,28 @@ const refreshFailures = new Set<string>();
 
 const pushRefusals = new Set<string>();
 
+/** The one place the panel's picture of linking is sent. Reports whether this machine can
+ * link at all as well as the per-account statuses, because those are different facts and
+ * an empty list is the honest answer to both "nothing is wrong" and "nothing is possible". */
+function pushOAuthStatus(): void {
+  mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, {
+    configured: oauthConfig() !== null,
+    accounts: oauthStatuses,
+  });
+}
+
 async function checkOAuthHealth(): Promise<void> {
   const cfg = oauthConfig();
-  if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
+  // Split from the guard below on purpose. A machine with no OAuth config is not a machine
+  // with nothing to report — it is the one state where the panel would otherwise look
+  // identical to a healthy one, which is how an install with no consent screen, no status
+  // and no banner reached someone who then had to ask why.
+  if (!cfg) {
+    oauthStatuses = [];
+    pushOAuthStatus();
+    return;
+  }
+  if (!oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
 
   const ownEmails = profiles.filter((p) => p.kind === 'authuser').map((p) => p.email);
   for (const email of ownEmails) {
@@ -1161,7 +1181,7 @@ async function checkOAuthHealth(): Promise<void> {
     pushRefused: (e: string) => pushRefusals.has(e),
   };
   oauthStatuses = accountOAuthStatuses(health);
-  mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, { accounts: oauthStatuses });
+  pushOAuthStatus();
   showReconnectBanner(accountsNeedingReconnect(health));
 }
 
@@ -2911,7 +2931,43 @@ function registerIpc(): void {
     },
   );
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
-  ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({ accounts: oauthStatuses }));
+  ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({
+    configured: oauthConfig() !== null,
+    accounts: oauthStatuses,
+  }));
+  // Setting the machine up from inside the app, because the alternative is what happened:
+  // an install where nothing links and nothing says why, fixed by someone else copying a
+  // file into AppData. The file is written through byte for byte — see oauth-config-file.ts
+  // for why rebuilding it from the fields we validate would quietly break push.
+  ipcMain.handle(IPC.OAUTH_CONFIG_IMPORT, async () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
+    const res = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (res.canceled || res.filePaths.length === 0) return { ok: false };
+    let checked;
+    try {
+      checked = checkOAuthConfigFile(readFileSync(res.filePaths[0], 'utf8'));
+    } catch {
+      // Unreadable is the same answer as unusable to whoever picked it.
+      return { ok: false, invalid: true };
+    }
+    if (!checked.ok) return { ok: false, invalid: true };
+    try {
+      mkdirSync(dirname(OAUTH_CONFIG_PATH), { recursive: true });
+      writeFileSync(OAUTH_CONFIG_PATH, checked.text, 'utf8');
+    } catch (e) {
+      console.warn('[oauth] could not write the config:', e);
+      return { ok: false, invalid: true };
+    }
+    // Nothing caches the config — oauthConfig() re-reads it — so the app is linkable from
+    // here on. The health check republishes the statuses, which turns every account into a
+    // Verbinden button, and push can start now that it has a relay to talk to.
+    void checkOAuthHealth();
+    startPush();
+    return { ok: true };
+  });
   ipcMain.handle(IPC.OAUTH_RECONNECT, async (_e, arg: { email: string }) => {
     const cfg = oauthConfig();
     if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) {

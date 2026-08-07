@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { AccountOAuthStatus, OAuthStatus } from '../../lib/oauth-status';
+import type { OAuthStatus, OAuthStatusReport } from '../../lib/oauth-status';
 import type { UiStrings } from '../strings';
-import { BUTTON, DANGER_TEXT } from './tokens';
+import { BUTTON, DANGER_TEXT, PANEL } from './tokens';
 
 // Whether an account's Gmail link actually works, in the account's own card. Until this
 // existed the only place that said so was a banner in the bottom-right corner, and only
@@ -25,19 +25,23 @@ import { BUTTON, DANGER_TEXT } from './tokens';
 // mounted. The section unmounts every time the user visits another settings section, and
 // the bridge's `on` has no removal, so subscribing per mount would stack listeners for as
 // long as the panel is open. This is the same shape DownloadHistorySection uses.
-const listeners = new Set<(accounts: AccountOAuthStatus[]) => void>();
+const listeners = new Set<(report: OAuthStatusReport) => void>();
 let subscribed = false;
-// The last list seen, so re-opening the section shows what is known instead of flashing
-// blank until the next check — which can be five minutes away.
-let known: AccountOAuthStatus[] = [];
+// The last report seen, so re-opening the section shows what is known instead of flashing
+// blank until the next check — which can be five minutes away. `configured: true` is the
+// safe thing to assume before anything has arrived: it draws nothing, where a hasty `false`
+// would accuse a working machine of having no link at all.
+let known: OAuthStatusReport = { configured: true, accounts: [] };
+let seenAnything = false;
 
-function subscribeToStatus(cb: (accounts: AccountOAuthStatus[]) => void): () => void {
+function subscribeToStatus(cb: (report: OAuthStatusReport) => void): () => void {
   listeners.add(cb);
   if (!subscribed) {
     subscribed = true;
-    window.desktop?.onOAuthStatus(({ accounts }) => {
-      known = accounts;
-      for (const l of listeners) l(accounts);
+    window.desktop?.onOAuthStatus((report) => {
+      known = report;
+      seenAnything = true;
+      for (const l of listeners) l(report);
     });
   }
   return () => {
@@ -45,29 +49,31 @@ function subscribeToStatus(cb: (accounts: AccountOAuthStatus[]) => void): () => 
   };
 }
 
-/** The statuses main has computed, live. Empty until the first health check has run, which
- *  is the honest answer: no entry means no status line, which is also what a delegated
- *  mailbox and a machine without OAuth configured get. */
-export function useOAuthStatuses(): AccountOAuthStatus[] {
-  const [accounts, setAccounts] = useState<AccountOAuthStatus[]>(known);
+/** What main reports about linking on this machine, live. Two separate facts: whether this
+ *  machine can link at all, and the per-account statuses. An account with no entry gets no
+ *  status line — a delegated mailbox has no link of its own, and nothing has been computed
+ *  yet before the first health check. */
+export function useOAuthStatuses(): OAuthStatusReport {
+  const [report, setReport] = useState<OAuthStatusReport>(known);
 
   useEffect(() => {
-    const unsubscribe = subscribeToStatus(setAccounts);
+    const unsubscribe = subscribeToStatus(setReport);
     const pending = window.desktop?.getOAuthStatus();
     if (pending) {
-      void pending.then(({ accounts: fetched }) => {
+      void pending.then((fetched) => {
         // Only if nothing has arrived by push in the meantime: this answer was true when
         // it was asked for, and a push that landed first is newer.
-        if (known.length === 0) {
+        if (!seenAnything) {
           known = fetched;
-          setAccounts(fetched);
+          seenAnything = true;
+          setReport(fetched);
         }
       });
     }
     return unsubscribe;
   }, []);
 
-  return accounts;
+  return report;
 }
 
 function statusLabel(status: OAuthStatus, S: UiStrings): string {
@@ -130,6 +136,68 @@ function WarningIcon({ className = '' }: { className?: string }) {
     >
       <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" />
     </svg>
+  );
+}
+
+// Shown instead of the per-account rows when this machine has no OAuth config at all.
+//
+// It exists because its absence was a support call. The config is a file in userData
+// holding a client secret, so the installer cannot carry it; a fresh machine therefore has
+// nothing to link with, and every path that needs it gives up quietly — no consent screen
+// when an account is added, no statuses, no banner. The panel showed nothing, which looks
+// exactly like nothing being wrong, and the person had to ask someone else why their mail
+// app did not work.
+//
+// One notice rather than a line per account: not being set up is a property of the
+// computer, not of any mailbox, and repeating it under four names would say the same thing
+// four times while still not offering a way out. The button is the way out — it takes the
+// same file someone would otherwise copy into AppData by hand.
+export function OAuthNotConfiguredNotice({ S }: { S: UiStrings }) {
+  const [busy, setBusy] = useState(false);
+  const [invalid, setInvalid] = useState(false);
+
+  function importConfig(): void {
+    setBusy(true);
+    setInvalid(false);
+    const pending = window.desktop?.importOAuthConfig();
+    if (!pending) {
+      setBusy(false);
+      return;
+    }
+    void pending.then((r) => {
+      setBusy(false);
+      // Only a file that was picked and rejected is worth a message. A cancelled picker
+      // comes back not-ok with nothing wrong, and saying so would scold the user for
+      // changing their mind.
+      setInvalid(r.invalid === true);
+    });
+  }
+
+  return (
+    <div className={`${PANEL} mb-3 flex items-start gap-2.5 px-4 py-3`}>
+      <WarningIcon className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-500" />
+      <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[13.5px] font-medium text-neutral-900 dark:text-neutral-100">
+            {S.oauthNotSetUpTitle}
+          </span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+            {S.oauthNotSetUpBody}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={importConfig}
+          disabled={busy}
+          className={`${BUTTON} self-start`}
+        >
+          {busy ? S.oauthBusy : S.oauthImport}
+        </button>
+        {invalid ? (
+          <span className={`text-xs ${DANGER_TEXT}`}>{S.oauthImportInvalid}</span>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
