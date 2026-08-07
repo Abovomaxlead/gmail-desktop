@@ -55,6 +55,8 @@ export const IPC = {
   LABELS_GET: 'gmail:labels-get',
   OAUTH_RECONNECT_GET: 'oauth:reconnect-get',
   OAUTH_RECONNECT: 'oauth:reconnect',
+  OAUTH_STATUS_GET: 'oauth:status-get',
+  OAUTH_STATUS_CHANGED: 'oauth:status-changed',
   MAIL_DROP_FOLDER_GET: 'maildrop:folder-get',
   MAIL_DROP_FOLDER_PICK: 'maildrop:folder-pick',
   MAIL_DROP_FOLDER_OPEN: 'maildrop:folder-open',

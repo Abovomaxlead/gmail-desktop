@@ -8,6 +8,7 @@ import { IPC } from './ipc';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from './oauth-health';
+import type { AccountOAuthStatus } from '../renderer/lib/oauth-status';
 
 interface Profile {
   key: string;
@@ -118,6 +119,13 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.invoke(IPC.OAUTH_RECONNECT_GET),
   reconnectOAuth: (email: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.OAUTH_RECONNECT, { email }),
+  getOAuthStatus: (): Promise<{ accounts: AccountOAuthStatus[] }> =>
+    ipcRenderer.invoke(IPC.OAUTH_STATUS_GET),
+  // Pushed after every health check. Paired with the get above because main may have sent
+  // a list before the settings panel existed — the same reason the reconnect page does both.
+  onOAuthStatus: (cb: (arg: { accounts: AccountOAuthStatus[] }) => void): void => {
+    ipcRenderer.on(IPC.OAUTH_STATUS_CHANGED, (_e, arg) => cb(arg));
+  },
   getMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_GET),
   pickMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_PICK),
   openMailDropFolder: (): void => ipcRenderer.send(IPC.MAIL_DROP_FOLDER_OPEN),

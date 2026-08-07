@@ -132,7 +132,13 @@ import { ToastController, type ToastInput } from './toast-controller';
 import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } from '../renderer/lib/toast';
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './app-scheme';
-import { accountsNeedingReconnect, bannerBounds, type ReconnectAccount } from './oauth-health';
+import {
+  accountOAuthStatuses,
+  accountsNeedingReconnect,
+  bannerBounds,
+  type ReconnectAccount,
+} from './oauth-health';
+import type { AccountOAuthStatus } from '../renderer/lib/oauth-status';
 import {
   fetchLabels,
   fetchLabelId,
@@ -226,6 +232,12 @@ let pushManager: { stop(): void; refresh(): void } | null = null;
 const syncRunners = new Map<string, { run(): Promise<void> }>();
 let reconnectBanner: OverlayView | null = null;
 let reconnectAccounts: ReconnectAccount[] = [];
+// The last statuses the health check computed, for a settings panel that opens between
+// two checks. Set in the same pass as the banner's list so the two cannot describe
+// different moments. A removed account lingers here until the next check, which is
+// harmless: the panel matches these against the profiles it has and an entry no profile
+// claims is never drawn.
+let oauthStatuses: AccountOAuthStatus[] = [];
 // Every overlay that has to stay above the Gmail layer, raised together whenever the
 // manager attaches a view — which appends and therefore covers whatever was there.
 // Closed overlays ignore the call, so this needs no bookkeeping about which is up.
@@ -1130,18 +1142,22 @@ async function checkOAuthHealth(): Promise<void> {
     else refreshFailures.add(email);
   }
 
-  const needing = accountsNeedingReconnect({
+  // One set of inputs, read once, for both answers. The banner and the accounts panel
+  // describing the same accounts differently would be a bug nobody could see.
+  const health = {
     ownEmails,
-    hasToken: (e) => oauthTokens!.get(e) !== undefined,
-    refreshFailed: (e) => refreshFailures.has(e),
+    hasToken: (e: string) => oauthTokens!.get(e) !== undefined,
+    refreshFailed: (e: string) => refreshFailures.has(e),
     pushConfigured: pushConfig() !== null,
-    missingScopes: (e) => {
+    missingScopes: (e: string) => {
       const token = oauthTokens!.get(e);
       return token !== undefined && !hasScopes(token);
     },
-    pushRefused: (e) => pushRefusals.has(e),
-  });
-  showReconnectBanner(needing);
+    pushRefused: (e: string) => pushRefusals.has(e),
+  };
+  oauthStatuses = accountOAuthStatuses(health);
+  mainWindow.webContents.send(IPC.OAUTH_STATUS_CHANGED, { accounts: oauthStatuses });
+  showReconnectBanner(accountsNeedingReconnect(health));
 }
 
 function showReconnectBanner(accounts: ReconnectAccount[]): void {
@@ -2890,6 +2906,7 @@ function registerIpc(): void {
     },
   );
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
+  ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({ accounts: oauthStatuses }));
   ipcMain.handle(IPC.OAUTH_RECONNECT, async (_e, arg: { email: string }) => {
     const cfg = oauthConfig();
     if (!cfg || !oauthTokens || !mainWindow || mainWindow.isDestroyed()) {

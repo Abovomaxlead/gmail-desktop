@@ -15,6 +15,7 @@ import { googleAppTarget } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
+import type { AccountOAuthStatus } from '../lib/oauth-status';
 import type { ComposeAccountAsk } from '../lib/compose-account';
 import type { ToastAction, ToastState } from '../lib/toast';
 
@@ -230,6 +231,8 @@ interface DesktopBridge {
   onReconnectList(cb: (arg: { accounts: ReconnectAccount[] }) => void): void;
   getReconnectList(): Promise<{ accounts: ReconnectAccount[] }>;
   reconnectOAuth(email: string): Promise<{ ok: boolean; error?: string }>;
+  getOAuthStatus(): Promise<{ accounts: AccountOAuthStatus[] }>;
+  onOAuthStatus(cb: (arg: { accounts: AccountOAuthStatus[] }) => void): void;
   getMailDropFolder(): Promise<string>;
   pickMailDropFolder(): Promise<string>;
   openMailDropFolder(): void;
