@@ -1,5 +1,3 @@
-import type { AccountOAuthStatus, OAuthStatus } from '../renderer/lib/oauth-status';
-
 // Which accounts lost their Gmail link, and how big the banner about it should be.
 // The two reasons are not interchangeable: 'expired' means the link is really gone
 // and moving mail no longer works, 'push' means only notifications are down. Push
@@ -7,6 +5,8 @@ import type { AccountOAuthStatus, OAuthStatus } from '../renderer/lib/oauth-stat
 // token predates the push-only scope and would otherwise banner every machine after
 // an update. The banner is placed bottom-right and sized to itself, because a view
 // over the whole window would swallow every click meant for Gmail.
+import type { AccountOAuthStatus, OAuthStatus } from '../renderer/lib/oauth-status';
+
 export type ReconnectReason = 'expired' | 'push';
 
 export interface ReconnectAccount {
@@ -44,9 +44,14 @@ function statusFor(input: HealthInput, email: string): OAuthStatus {
 
 /** How each status reads to the banner, which has only two reasons and only needs two: a
  * link that is gone is 'expired' whether it expired or was never made, because the
- * sentence the banner writes about it is the same either way. `linked` is absent from this
- * map, which is what keeps a healthy account out of the banner. */
-const RECONNECT_REASON: Partial<Record<OAuthStatus, ReconnectReason>> = {
+ * sentence the banner writes about it is the same either way. `linked` maps explicitly to
+ * `null`, which is what keeps a healthy account out of the banner. The map is total rather
+ * than `Partial` on purpose: a `Partial` map answers `undefined` for any status nobody
+ * mapped, so a fifth `OAuthStatus` added later would drop its accounts out of the banner
+ * silently, with a green test suite. A total map turns that same mistake into a compile
+ * error right here, at the point where the omission happens. */
+const RECONNECT_REASON: Record<OAuthStatus, ReconnectReason | null> = {
+  linked: null,
   unlinked: 'expired',
   expired: 'expired',
   'push-only': 'push',

@@ -194,8 +194,12 @@ describe('accountOAuthStatuses', () => {
 // The test that protects the decision this change is built on. The banner and the accounts
 // panel must never disagree about the same account, which is guaranteed only while the
 // reconnect list is a projection of the statuses. Every combination of the five inputs is
-// checked, so a future state added to OAuthStatus without a mapping fails here rather than
-// silently dropping an account out of the banner.
+// checked, which pins the mapping for the four states those five booleans can actually
+// produce. It does not guard against a fifth OAuthStatus: that state would need a new field
+// on HealthInput, so no table of these five booleans could ever construct it, and this suite
+// would stay green. What catches an unmapped fifth state is the total Record type on
+// RECONNECT_REASON in electron/oauth-health.ts, which turns the omission into a compile
+// error there instead.
 describe('accountsNeedingReconnect follows accountOAuthStatuses', () => {
   const bools = [true, false];
   const cases: Parameters<typeof accountsNeedingReconnect>[0][] = [];

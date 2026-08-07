@@ -1142,8 +1142,13 @@ async function checkOAuthHealth(): Promise<void> {
     else refreshFailures.add(email);
   }
 
-  // One set of inputs, read once, for both answers. The banner and the accounts panel
-  // describing the same accounts differently would be a bug nobody could see.
+  // One object, handed to both functions, so the banner and the accounts panel can never
+  // describe the same accounts differently. Its closures are not read once — OAuthStore.get
+  // hits the filesystem on every call, and accountsNeedingReconnect below calls
+  // accountOAuthStatuses again internally, so the token file is read roughly twice as often
+  // per health check as a single pass would suggest. That is fine here: both passes are
+  // synchronous with no `await` between them, so nothing can change underneath them, and at
+  // a handful of accounts every five minutes the extra reads cost nothing worth avoiding.
   const health = {
     ownEmails,
     hasToken: (e: string) => oauthTokens!.get(e) !== undefined,
@@ -1156,7 +1161,7 @@ async function checkOAuthHealth(): Promise<void> {
     pushRefused: (e: string) => pushRefusals.has(e),
   };
   oauthStatuses = accountOAuthStatuses(health);
-  mainWindow.webContents.send(IPC.OAUTH_STATUS_CHANGED, { accounts: oauthStatuses });
+  mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, { accounts: oauthStatuses });
   showReconnectBanner(accountsNeedingReconnect(health));
 }
 

@@ -145,6 +145,13 @@ export function AccountOAuthRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // A failure belongs to the attempt that produced it. When the status changes underneath —
+  // main re-checked, or the account was linked from somewhere else — the message describes a
+  // state that no longer exists.
+  useEffect(() => {
+    setError('');
+  }, [status]);
+
   const action = actionLabel(status, S);
   const broken = status !== 'linked';
 
