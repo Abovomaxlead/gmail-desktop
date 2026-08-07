@@ -243,6 +243,19 @@ export interface UiStrings {
   redetect: string;
   redetectDescription: string;
   noAccounts: string;
+  // The OAuth link state of one account, in the accounts list. Three broken states get
+  // three different button words because they ask for three different things: an account
+  // that was never linked cannot be "reconnected", and a push fault needs consent for a
+  // scope rather than a new link.
+  oauthLinked: string;
+  oauthUnlinked: string;
+  oauthExpired: string;
+  oauthPushOnly: string;
+  oauthConnect: string;
+  oauthReconnect: string;
+  oauthReallow: string;
+  oauthBusy: string;
+  oauthFailed: string;
   accountsFootnoteBefore: string;
   accountsFootnoteAfter: string;
 
@@ -621,6 +634,15 @@ export const STRINGS_NORMAL: UiStrings = {
   redetect: 'Re-detect accounts',
   redetectDescription: 'Looks again at the Google accounts you are signed in to.',
   noAccounts: 'No accounts detected yet.',
+  oauthLinked: 'Connected',
+  oauthUnlinked: 'Not connected yet',
+  oauthExpired: 'Connection expired',
+  oauthPushOnly: 'Notifications are off',
+  oauthConnect: 'Connect',
+  oauthReconnect: 'Reconnect',
+  oauthReallow: 'Allow again',
+  oauthBusy: 'Working…',
+  oauthFailed: 'Did not work',
   accountsFootnoteBefore:
     'Accounts are detected from the Google accounts you are signed into. Use the ',
   accountsFootnoteAfter:
@@ -901,6 +923,15 @@ export const STRINGS_RENE: UiStrings = {
   redetect: 'Zoek nog een keer',
   redetectDescription: 'De app kijkt nog een keer wie er mee doet.',
   noAccounts: 'Er is nog niemand.',
+  oauthLinked: 'Alles in orde',
+  oauthUnlinked: 'Nog niet aangezet',
+  oauthExpired: 'De verbinding is weg',
+  oauthPushOnly: 'Je krijgt geen meldingen',
+  oauthConnect: 'Aanzetten',
+  oauthReconnect: 'Opnieuw aanzetten',
+  oauthReallow: 'Meldingen aanzetten',
+  oauthBusy: 'Momentje…',
+  oauthFailed: 'Het lukte niet',
   accountsFootnoteBefore: 'De app zoekt zelf wie er mee doet. Druk op de ',
   accountsFootnoteAfter: ' om er iemand bij te doen.',
 
@@ -1196,6 +1227,15 @@ export const STRINGS_NL: UiStrings = {
   redetect: 'Accounts opnieuw zoeken',
   redetectDescription: 'Zoekt opnieuw in de Google-accounts waarop je bent ingelogd.',
   noAccounts: 'Nog geen accounts gevonden.',
+  oauthLinked: 'Verbonden',
+  oauthUnlinked: 'Nog niet verbonden',
+  oauthExpired: 'Verbinding verlopen',
+  oauthPushOnly: 'Meldingen staan stil',
+  oauthConnect: 'Verbinden',
+  oauthReconnect: 'Opnieuw verbinden',
+  oauthReallow: 'Opnieuw toestaan',
+  oauthBusy: 'Bezig…',
+  oauthFailed: 'Mislukt',
   accountsFootnoteBefore:
     'Accounts worden gevonden via de Google-accounts waarop je bent ingelogd. Gebruik de ',
   accountsFootnoteAfter:
