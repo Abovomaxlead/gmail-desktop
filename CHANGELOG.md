@@ -64,6 +64,12 @@ to [Semantic Versioning](https://semver.org/).
   Gelezen, zodat je een bericht kunt wegwerken zonder de app te openen.
 
 ### Gewijzigd
+- **Nieuwe meldingsgeluiden.** De vijf geluidjes die de app zelf in elkaar zette met
+  de Web Audio API zijn vervangen door vier echte geluidsbestanden: Melding 1 tot
+  Melding 4, met Melding 1 als standaard. Had je Belsignaal, Ping, Arpeggio, Klop of
+  Tik gekozen, dan bestaat dat geluid niet meer en valt je melding terug op het
+  standaardgeluid — je hoort dus wel iets, maar iets anders dan eerst. Bij
+  Instellingen → Meldingen kies je opnieuw, met de knop ernaast om te proefhoren.
 - **"Altijd in een nieuw venster" gaat nu voor op een uitgesloten app.** Eerst won
   uitsluiten: een app op die lijst ging naar de browser, ook met nieuw-venster aan.
   Dat maakte de twee instellingen tegenstrijdig — je zette iets aan en de lijst

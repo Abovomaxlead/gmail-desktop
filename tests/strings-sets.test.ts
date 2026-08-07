@@ -82,8 +82,6 @@ const SAME_IN_BOTH = new Set([
   'navUpdates',
   'updates',
   'dhBytes',
-  'soundPing',
-  'soundArpeggio',
   'volumeLabel',
   'mailToggle',
   'perAccountNotifications',

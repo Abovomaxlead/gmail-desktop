@@ -16,18 +16,19 @@ import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HI
 // because it is off until you turn it on. A cell whose setting does not exist for an
 // account (calendar on a delegated mailbox) stays empty, keeping the grid aligned.
 
+// The switch rather than a label on SoundSpec, because a sound's name is a stored
+// preference key and must not move with the interface language. Falling back to the raw
+// name keeps a sound listed even if its label is ever forgotten.
 function soundLabel(S: UiStrings, name: string): string {
   switch (name) {
-    case 'chime':
-      return S.soundChime;
-    case 'ping':
-      return S.soundPing;
-    case 'arpeggio':
-      return S.soundArpeggio;
-    case 'knock':
-      return S.soundKnock;
-    case 'tick':
-      return S.soundTick;
+    case 'notify-1':
+      return S.soundNotify1;
+    case 'notify-2':
+      return S.soundNotify2;
+    case 'notify-3':
+      return S.soundNotify3;
+    case 'notify-4':
+      return S.soundNotify4;
     default:
       return name;
   }
@@ -253,9 +254,11 @@ export function NotificationsSection({
           >
             {/* The empty value is what an untouched prefs file holds, and it resolves to
                 DEFAULT_SOUND rather than to silence - which makes it the same sound as the
-                Chime entry below it. The label says so, because two entries that produce
+                first entry below it. The label says so, because two entries that produce
                 one sound is a trap in a list opened to choose between them. Removing the
-                option instead would leave every stored '' with nothing selected. */}
+                option instead would leave every stored '' with nothing selected, and every
+                preference naming one of the synthesised sounds this replaced lands here
+                too. */}
             <option value="">{S.soundDefault}</option>
             {SOUNDS.map((s) => (
               <option key={s.name} value={s.name}>

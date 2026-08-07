@@ -141,11 +141,10 @@ export interface UiStrings {
   soundChoice: string;
   soundChoiceDescription: string;
   soundDefault: string;
-  soundChime: string;
-  soundPing: string;
-  soundArpeggio: string;
-  soundKnock: string;
-  soundTick: string;
+  soundNotify1: string;
+  soundNotify2: string;
+  soundNotify3: string;
+  soundNotify4: string;
   soundPreview: string;
   volumeLabel: (percent: number) => string;
   volumeDescription: string;
@@ -504,12 +503,11 @@ export const STRINGS_NORMAL: UiStrings = {
 
   soundChoice: 'Sound',
   soundChoiceDescription: 'Select the sound to play for notifications.',
-  soundDefault: 'Default sound (Chime)',
-  soundChime: 'Chime',
-  soundPing: 'Ping',
-  soundArpeggio: 'Arpeggio',
-  soundKnock: 'Knock',
-  soundTick: 'Tick',
+  soundDefault: 'Default sound (Notification 1)',
+  soundNotify1: 'Notification 1',
+  soundNotify2: 'Notification 2',
+  soundNotify3: 'Notification 3',
+  soundNotify4: 'Notification 4',
   soundPreview: 'Play',
   volumeLabel: (percent) => `Volume ${percent}%`,
   volumeDescription: 'Set the volume level for notification sounds.',
@@ -792,11 +790,10 @@ export const STRINGS_RENE: UiStrings = {
   soundChoice: 'Welk geluidje',
   soundChoiceDescription: 'Kies wat je hoort bij een melding.',
   soundDefault: 'Het gewone geluidje',
-  soundChime: 'Belletje',
-  soundPing: 'Piepje',
-  soundArpeggio: 'Trapje omhoog',
-  soundKnock: 'Klopje',
-  soundTick: 'Tikje',
+  soundNotify1: 'Geluidje 1',
+  soundNotify2: 'Geluidje 2',
+  soundNotify3: 'Geluidje 3',
+  soundNotify4: 'Geluidje 4',
   soundPreview: 'Laat horen',
   volumeLabel: (percent) => `Hoe hard: ${percent}%`,
   volumeDescription: 'Hoe hard het geluidje is.',
@@ -1078,12 +1075,11 @@ export const STRINGS_NL: UiStrings = {
 
   soundChoice: 'Geluid',
   soundChoiceDescription: 'Kies het geluid dat bij meldingen wordt afgespeeld.',
-  soundDefault: 'Standaardgeluid (Chime)',
-  soundChime: 'Belsignaal',
-  soundPing: 'Ping',
-  soundArpeggio: 'Arpeggio',
-  soundKnock: 'Klop',
-  soundTick: 'Tik',
+  soundDefault: 'Standaardgeluid (Melding 1)',
+  soundNotify1: 'Melding 1',
+  soundNotify2: 'Melding 2',
+  soundNotify3: 'Melding 3',
+  soundNotify4: 'Melding 4',
   soundPreview: 'Afspelen',
   volumeLabel: (percent) => `Volume ${percent}%`,
   volumeDescription: 'Stel het volume van meldingsgeluiden in.',

@@ -1,142 +1,52 @@
-// The app's notification sounds, synthesised with the Web Audio API. Nothing here
-// touches Web Audio at module level: `AudioContext` does not exist under Node, where
-// the tests import this module, so every call sits inside playSound behind a check.
-// One AudioContext is shared for the window's lifetime - Chromium allows only a
-// handful per page. Sound names are preference keys (`notifications.soundName`), so
-// renaming one makes a stored preference play nothing at all - there is no system sound
-// to fall back to now that the app draws its own notifications, which is why the empty
-// preference resolves to DEFAULT_SOUND rather than to silence.
-// `exponentialRampToValueAtTime` cannot target 0, hence the near-silent SILENCE, and
-// 'custom' stays in OscillatorType only so a real OscillatorNode remains assignable.
-
-export type OscillatorType = 'sine' | 'square' | 'sawtooth' | 'triangle' | 'custom';
-
-export type SoundWave = Exclude<OscillatorType, 'custom'>;
-
-interface AudioParamLike {
-  setValueAtTime(value: number, startTime: number): void;
-  linearRampToValueAtTime(value: number, endTime: number): void;
-  exponentialRampToValueAtTime(value: number, endTime: number): void;
-}
-
-interface AudioNodeLike {
-  connect(destination: AudioNodeLike): void;
-}
-
-interface OscillatorLike extends AudioNodeLike {
-  type: OscillatorType;
-  readonly frequency: AudioParamLike;
-  start(when: number): void;
-  stop(when: number): void;
-}
-
-interface GainLike extends AudioNodeLike {
-  readonly gain: AudioParamLike;
-}
-
-export interface AudioContextLike {
-  readonly currentTime: number;
-  readonly destination: AudioNodeLike;
-  createOscillator(): OscillatorLike;
-  createGain(): GainLike;
-  readonly state?: string;
-  resume?(): Promise<void>;
-}
-
-export interface SoundNote {
-  freq: number;
-  startMs: number;
-  durationMs: number;
-  type: SoundWave;
-  gain: number;
-}
+// The app's notification sounds. They are audio files under renderer/public/sounds, which
+// Next copies verbatim into the export, so a root-relative path resolves against the dev
+// server and against app://bundle alike and the page never has to know which one it is
+// running under. Nothing here touches `Audio` at module level: it does not exist under
+// Node, where the tests import this module, so the constructor sits inside playSound
+// behind a check.
+//
+// Sound names are preference keys (`notifications.soundName`). A stored name that no longer
+// exists — a renamed file, or a sound dropped from the list — must not resolve to silence:
+// there is no system sound to fall back on now that the app draws its own notifications.
+// That is why soundNameOrDefault resolves anything it cannot find rather than only the
+// empty string, and why the test asserting DEFAULT_SOUND names a real entry is the one that
+// matters most in this file. The synthesised sounds these replaced were removed with their
+// names, so every preference written before this change lands on that path.
+//
+// A fresh element per play, rather than one reused per sound, so two notifications close
+// together overlap instead of the second cutting the first off. Main's SOUND_GAP_MS
+// throttle is what keeps that from becoming a pile.
 
 export interface SoundSpec {
   name: string;
   label: string;
-  readonly notes: readonly SoundNote[];
+  /** Root-relative, so it resolves under both the dev origin and app://bundle. */
+  file: string;
 }
 
 export const SOUNDS: readonly SoundSpec[] = [
-  {
-    name: 'chime',
-    label: 'Chime',
-    notes: [
-      { freq: 523.25, startMs: 0, durationMs: 190, type: 'triangle', gain: 0.5 },
-      { freq: 783.99, startMs: 110, durationMs: 260, type: 'triangle', gain: 0.45 },
-    ],
-  },
-  {
-    name: 'ping',
-    label: 'Ping',
-    notes: [{ freq: 880, startMs: 0, durationMs: 220, type: 'sine', gain: 0.42 }],
-  },
-  {
-    name: 'arpeggio',
-    label: 'Arpeggio',
-    notes: [
-      { freq: 523.25, startMs: 0, durationMs: 150, type: 'triangle', gain: 0.4 },
-      { freq: 659.25, startMs: 90, durationMs: 150, type: 'triangle', gain: 0.4 },
-      { freq: 783.99, startMs: 180, durationMs: 220, type: 'triangle', gain: 0.38 },
-    ],
-  },
-  {
-    name: 'knock',
-    label: 'Knock',
-    notes: [
-      { freq: 146.83, startMs: 0, durationMs: 90, type: 'sine', gain: 0.6 },
-      { freq: 110, startMs: 100, durationMs: 130, type: 'sine', gain: 0.55 },
-    ],
-  },
-  {
-    name: 'tick',
-    label: 'Tick',
-    notes: [{ freq: 1318.51, startMs: 0, durationMs: 45, type: 'triangle', gain: 0.22 }],
-  },
+  { name: 'notify-1', label: 'Notification 1', file: '/sounds/notify-1.mp3' },
+  { name: 'notify-2', label: 'Notification 2', file: '/sounds/notify-2.mp3' },
+  { name: 'notify-3', label: 'Notification 3', file: '/sounds/notify-3.mp3' },
+  { name: 'notify-4', label: 'Notification 4', file: '/sounds/notify-4.mp3' },
 ];
 
 export function soundByName(name: string): SoundSpec | null {
   return SOUNDS.find((s) => s.name === name) ?? null;
 }
 
-export const DEFAULT_SOUND = 'chime';
+export const DEFAULT_SOUND = 'notify-1';
 
-/** The sound to actually play for a stored preference. Empty means the default, which
- *  used to mean "let Windows do it" — it no longer can, because the app draws its own
- *  notifications and Windows exposes no API for its notification chime. */
+/** The sound to actually play for a stored preference. Resolves an empty *or* unknown name
+ *  to the default, so a preference written before a sound was removed is still audible. */
 export function soundNameOrDefault(name: string): string {
-  return name || DEFAULT_SOUND;
+  return soundByName(name) ? name : DEFAULT_SOUND;
 }
 
-export function totalDurationMs(spec: SoundSpec): number {
-  let end = 0;
-  for (const note of spec.notes) {
-    const noteEnd = note.startMs + note.durationMs;
-    if (noteEnd > end) end = noteEnd;
-  }
-  return end;
-}
-
-const ATTACK_S = 0.008;
-const SILENCE = 0.0001;
-const STOP_PADDING_S = 0.02;
-
-let sharedCtx: AudioContextLike | null = null;
-
-function defaultCtxFactory(): AudioContextLike | null {
-  const g = globalThis as unknown as { AudioContext?: unknown };
-  const ctor = g.AudioContext;
-  if (typeof ctor !== 'function') return null;
-  try {
-    return new (ctor as new () => AudioContextLike)();
-  } catch {
-    return null;
-  }
-}
-
-function resumeIfSuspended(ctx: AudioContextLike): void {
-  if (ctx.state !== 'suspended' || !ctx.resume) return;
-  void ctx.resume().catch(() => {});
+/** The slice of HTMLAudioElement this module uses, so the tests can stand in for it. */
+export interface AudioLike {
+  volume: number;
+  play(): Promise<void> | void;
 }
 
 function clampVolume(volume: number): number {
@@ -144,10 +54,25 @@ function clampVolume(volume: number): number {
   return Math.min(1, Math.max(0, volume));
 }
 
+function defaultAudioFactory(src: string): AudioLike | null {
+  const g = globalThis as unknown as { Audio?: unknown };
+  const ctor = g.Audio;
+  if (typeof ctor !== 'function') return null;
+  try {
+    return new (ctor as new (src: string) => AudioLike)(src);
+  } catch {
+    return null;
+  }
+}
+
+/** Plays one sound. False means there was nothing to play — an unknown name, a muted
+ *  volume, or an environment without Audio — so a caller can tell those apart from a
+ *  sound that played and simply was not heard. A rejected play() is swallowed: Chromium
+ *  rejects it when the page has had no user gesture, and there is nothing useful to do. */
 export function playSound(
   name: string,
   volume: number,
-  ctxFactory?: () => AudioContextLike | null,
+  audioFactory: (src: string) => AudioLike | null = defaultAudioFactory,
 ): boolean {
   const spec = soundByName(name);
   if (!spec) return false;
@@ -155,40 +80,17 @@ export function playSound(
   const level = clampVolume(volume);
   if (level <= 0) return false;
 
-  let ctx: AudioContextLike | null;
-  if (ctxFactory) {
-    ctx = ctxFactory();
-  } else {
-    sharedCtx ??= defaultCtxFactory();
-    ctx = sharedCtx;
+  const audio = audioFactory(spec.file);
+  if (!audio) return false;
+
+  audio.volume = level;
+  try {
+    const played = audio.play() as Promise<void> | void;
+    if (played && typeof (played as Promise<void>).then === 'function') {
+      void (played as Promise<void>).catch(() => {});
+    }
+  } catch {
+    return false;
   }
-  if (!ctx) return false;
-
-  resumeIfSuspended(ctx);
-
-  const now = ctx.currentTime;
-
-  for (const note of spec.notes) {
-    const start = now + note.startMs / 1000;
-    const end = start + note.durationMs / 1000;
-    const peak = note.gain * level;
-    const attackEnd = start + Math.min(ATTACK_S, note.durationMs / 3000);
-
-    const osc = ctx.createOscillator();
-    const env = ctx.createGain();
-
-    osc.type = note.type;
-    osc.frequency.setValueAtTime(note.freq, start);
-
-    env.gain.setValueAtTime(SILENCE, start);
-    env.gain.linearRampToValueAtTime(peak, attackEnd);
-    env.gain.exponentialRampToValueAtTime(SILENCE, end);
-
-    osc.connect(env);
-    env.connect(ctx.destination);
-    osc.start(start);
-    osc.stop(end + STOP_PADDING_S);
-  }
-
   return true;
 }
