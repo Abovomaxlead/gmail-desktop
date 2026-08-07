@@ -142,6 +142,11 @@ export class ToastController {
 
   /** The page measured itself. Collapse if it does not fit, otherwise size the window to it. */
   applySize(cssWidth: number, cssHeight: number): void {
+    // Before anything is decided about the measurement: the report arriving at all is what
+    // the window's watchdog is waiting for, and the two paths below that never reach
+    // window.applySize — an empty stack, a collapse that re-lays out instead of resizing —
+    // would otherwise leave a perfectly healthy page counted as broken.
+    this.hooks.window.noteAlive();
     if (this.stack.toasts.length === 0 && this.stack.summary === null) return;
     if (this.hooks.window.wouldOverflow(cssHeight)) {
       const folded = collapse(this.stack);

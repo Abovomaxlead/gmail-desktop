@@ -24,24 +24,46 @@
 // place: a window stuck at show: false, forever, while main still believes it has a
 // working stack and keeps handing it notifications. The result is not a broken toast, it
 // is total silence, with no window, no system toast and no log line. Mail arriving
-// silently is the one outcome the design says must not happen (spec decision 8), so a
-// load failure and a missed handshake are both turned into a flag main can ask about, and
-// showToast falls back to a system Notification while that flag is set. The watchdog is
-// what covers the failures that are not a load error at all — did-finish-load fires
-// happily on a page that then throws in React, and only the absent size report tells us.
+// silently is the one outcome the design says must not happen (spec decision 8), so every
+// one of those endings is turned into a flag main can ask about, and showToast falls back
+// to a system Notification while that flag is set.
 //
-// The flag clears itself if the page ever does come up, because did-finish-load is bound
-// with `on` rather than `once`: a renderer that crashes and reloads gets its zoom factor
-// back and its stack back with it.
+// The watchdog behind that flag runs in two stages, because did-finish-load proves far
+// less than it looks like it proves. It fires happily on a page whose preload exposed no
+// bridge, on one that then throws in React, on one whose ResizeObserver never runs — and
+// on a local app:// load it fires within a few dozen milliseconds, so a single timer that
+// it cancels is cancelled long before any of those can be noticed. Every failure this
+// watchdog exists for would have slipped straight through. So loading the document only
+// re-arms the timer for the second stage, and the one signal that clears it is a real size
+// report: the page rendered, reached the bridge, and measured itself. Anything short of
+// that eventually reads as broken, which is the honest answer — nothing is on screen.
+//
+// noteAlive is public for that reason. A size report is proof of life whoever ends up
+// wanting it, and the controller drops some of them (an empty stack, a collapse that
+// re-lays out instead of resizing); dropping one must not cost the window its health.
+//
+// Recovery is intact: did-finish-load is bound with `on` rather than `once`, so a renderer
+// that crashes and reloads gets its zoom factor back, gets the queued stack pushed at it
+// again, and clears the flag the moment it reports a size again.
 
 import { BrowserWindow, screen } from 'electron';
 import { exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
 import { TOAST_WIDTH } from '../renderer/lib/toast';
 
-/** How long the page gets, from window creation, to finish loading and report a size
- * before the window is declared broken. Generous next to a local file load, and it costs
- * nothing when the page is fine: the first of the two signals clears the timer. */
-export const TOAST_READY_TIMEOUT_MS = 1000;
+/** Stage one: how long the page gets, from window creation, to load its document at all.
+ * Only a load that neither finishes nor fails ever reaches this — a real load error
+ * arrives on did-fail-load in milliseconds — so it is set generously. In dev the page
+ * comes from the Next server, which compiles the route on the first request, and treating
+ * a slow compile as a dead window would drain perfectly good toasts to the OS. */
+export const TOAST_LOAD_TIMEOUT_MS = 5000;
+
+/** Stage two: how long the page then gets, from did-finish-load, to report its first
+ * size. This is the stage that catches a document that loaded and a page that does not
+ * work. It covers script evaluation, React mounting, the state round trip through main and
+ * a layout pass, so it is not tight either: a false positive here costs a working stack,
+ * while being late only costs a few seconds before the same mail arrives as a system
+ * toast. */
+export const TOAST_RENDER_TIMEOUT_MS = 2500;
 
 /** Chromium reports a load cancelled by a newer navigation as a failure. That is not a
  * broken page, and treating it as one would strand the window on a reload. */
@@ -51,7 +73,7 @@ export class ToastWindow {
   private win: BrowserWindow | null = null;
   private lastSize: { width: number; height: number } | null = null;
   private destroyed = false;
-  private loadFailed = false;
+  private broken = false;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -92,19 +114,20 @@ export class ToastWindow {
       // applied again, and needs the queued stack pushed to it again.
       win.webContents.on('did-finish-load', () => {
         this.setZoomFactor(win);
-        this.noteAlive();
+        // Stage two starts here. The document is loaded, which says nothing about whether
+        // the page works, so the timer is re-armed rather than cleared and the flag is
+        // left exactly as it was: only a size report may say this window is healthy.
+        this.armReadyTimer(TOAST_RENDER_TIMEOUT_MS);
         this.onReady();
       });
       win.webContents.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
         if (!isMainFrame || code === ERR_ABORTED) return;
-        console.warn(`[toast] page failed to load (${code} ${description}) at ${url}`);
-        this.loadFailed = true;
-        this.clearReadyTimer();
+        this.markBroken(`page failed to load (${code} ${description}) at ${url}`);
       });
       win.on('closed', () => {
         if (this.win === win) this.win = null;
       });
-      this.armReadyTimer();
+      this.armReadyTimer(TOAST_LOAD_TIMEOUT_MS);
       void win.loadURL(this.url);
       this.win = win;
       return win;
@@ -113,7 +136,7 @@ export class ToastWindow {
       this.win = null;
       // No window at all is as broken as a window that never paints, and main has to be
       // told either way or the notification goes nowhere.
-      this.loadFailed = true;
+      this.markBroken('no window to put a stack in');
       return null;
     }
   }
@@ -121,18 +144,17 @@ export class ToastWindow {
   /** True while the stack cannot be trusted to appear, so main raises a system toast
    * instead. Answered for every notification, not once, because the page can come back. */
   isBroken(): boolean {
-    return this.destroyed || this.loadFailed;
+    return this.destroyed || this.broken;
   }
 
-  private armReadyTimer(): void {
+  private armReadyTimer(ms: number): void {
     this.clearReadyTimer();
     this.readyTimer = setTimeout(() => {
       this.readyTimer = null;
-      // Nothing to log a code for here — the load did not fail, the page simply never
-      // came back with a size, which is indistinguishable from the outside.
-      console.warn(`[toast] page reported nothing within ${TOAST_READY_TIMEOUT_MS}ms`);
-      this.loadFailed = true;
-    }, TOAST_READY_TIMEOUT_MS);
+      // Nothing to log a code for here — nothing failed, the page simply never came back
+      // with a size, which from the outside is indistinguishable from a page that hung.
+      this.markBroken(`page reported no size within ${ms}ms`);
+    }, ms);
   }
 
   private clearReadyTimer(): void {
@@ -141,10 +163,19 @@ export class ToastWindow {
     this.readyTimer = null;
   }
 
-  /** Either half of the handshake proves the page is there, so either clears the flag. */
-  private noteAlive(): void {
+  /** The one signal that proves the whole chain works: the page rendered, reached the
+   * bridge and measured itself. Public because a size report is proof of life even when
+   * the controller has no use for the measurement itself. */
+  noteAlive(): void {
     this.clearReadyTimer();
-    this.loadFailed = false;
+    this.broken = false;
+  }
+
+  private markBroken(reason: string): void {
+    this.clearReadyTimer();
+    if (this.broken) return;
+    console.warn(`[toast] ${reason}`);
+    this.broken = true;
   }
 
   private setZoomFactor(win: BrowserWindow): void {

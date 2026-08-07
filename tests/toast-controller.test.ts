@@ -27,6 +27,7 @@ function fakeWindow(overrides: Partial<ToastWindow> = {}): ToastWindow {
     destroy: () => undefined,
     applyZoom: () => undefined,
     isBroken: () => false,
+    noteAlive: () => undefined,
     ...overrides,
   } as unknown as ToastWindow;
 }
@@ -174,6 +175,38 @@ describe('ToastController onDiscard', () => {
     controller.show(mailInput(1));
     expect(() => controller.dismiss('t1')).not.toThrow();
     warn.mockRestore();
+  });
+});
+
+// The window's watchdog declares the page broken unless a size report reaches it, and the
+// report reaches it through the controller. Two of the controller's own paths never call
+// window.applySize — an empty stack drops the report, and a stack that does not fit
+// collapses and re-lays out instead of resizing — so if either of them swallowed the proof
+// of life as well, a healthy page would be declared dead and every later notification
+// would go out as a degraded system toast for the rest of the session.
+describe('ToastController — a size report is proof of life', () => {
+  it('notes the window alive even when the report is for an empty stack', () => {
+    let alive = 0;
+    const h = harness(fakeWindow({ noteAlive: () => (alive += 1) }));
+    h.controller.applySize(380, 0);
+    expect(alive).toBe(1);
+  });
+
+  it('notes the window alive when the measurement collapses the stack instead of sizing it', () => {
+    let alive = 0;
+    let sized = 0;
+    const h = harness(
+      fakeWindow({
+        wouldOverflow: () => true,
+        noteAlive: () => (alive += 1),
+        applySize: () => (sized += 1),
+      }),
+    );
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    h.controller.applySize(380, 4000);
+    expect(sized).toBe(0);
+    expect(alive).toBe(1);
   });
 });
 
