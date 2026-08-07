@@ -133,6 +133,8 @@ import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } f
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './app-scheme';
 import { checkOAuthConfigFile } from './oauth-config-file';
+import { chooseOAuthConfigText } from './oauth-source';
+import { readBundledOAuthConfig } from './oauth-bundled';
 import {
   accountOAuthStatuses,
   accountsNeedingReconnect,
@@ -1101,9 +1103,29 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
   dropOverlay.open({ items });
 }
 
-function oauthConfig(): OAuthConfig | null {
+function readIfPresent(path: string): string | null {
   try {
-    const raw = JSON.parse(readFileSync(OAUTH_CONFIG_PATH, 'utf8'));
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** The config text in force: the machine's own if it has a usable one, otherwise the copy
+ * shipped in the app. Both readers below go through this so they can never disagree about
+ * which project the app is talking to — the push settings live in the same file as the
+ * credentials, and picking them from different sources would link accounts against one
+ * project and subscribe for notifications against another. See oauth-source.ts for the
+ * precedence and oauth-bundled.ts for where the shipped copy lives. */
+function oauthConfigText(): string | null {
+  return chooseOAuthConfigText(readIfPresent(OAUTH_CONFIG_PATH), readBundledOAuthConfig());
+}
+
+function oauthConfig(): OAuthConfig | null {
+  const text = oauthConfigText();
+  if (text === null) return null;
+  try {
+    const raw = JSON.parse(text);
     if (typeof raw?.clientId === 'string' && typeof raw?.clientSecret === 'string') {
       return { clientId: raw.clientId, clientSecret: raw.clientSecret };
     }
@@ -1113,8 +1135,9 @@ function oauthConfig(): OAuthConfig | null {
 }
 
 function pushConfig(): PushConfig | null {
+  const text = oauthConfigText();
   try {
-    return parsePushConfig(JSON.parse(readFileSync(OAUTH_CONFIG_PATH, 'utf8')), process.env);
+    return parsePushConfig(text === null ? null : JSON.parse(text), process.env);
   } catch {
     return parsePushConfig(null, process.env);
   }

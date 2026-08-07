@@ -26,6 +26,21 @@ jobs:
       - name: Install renderer dependencies
         run: npm ci --prefix renderer
 
+      # The OAuth config ships inside the app so a fresh machine can link accounts without
+      # anyone copying a file into AppData first. It is not in the repository — that is
+      # public, and a client secret in a public repository is found by credential scanners
+      # and withdrawn — so it arrives here from a repository secret holding the whole
+      # google-oauth.json, relayUrl and pushTopic included.
+      #
+      # Without the secret this writes nothing usable and the build still succeeds: the app
+      # then reports that the machine is not set up and offers its import button, which is
+      # also what a fork's build does.
+      - name: Write the bundled OAuth config
+        shell: bash
+        run: printf '%s' "$GOOGLE_OAUTH_JSON" > assets/oauth-defaults.json
+        env:
+          GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
+
       - name: Build and publish release
         run: npm run release
         env:

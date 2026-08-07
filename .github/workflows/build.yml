@@ -22,6 +22,15 @@ jobs:
       - name: Install renderer dependencies
         run: npm ci --prefix renderer
 
+      # Same as the release workflow: a test install has to be able to link accounts too,
+      # or it is not testing the thing people will run. See release.yml for why this comes
+      # from a secret rather than the repository.
+      - name: Write the bundled OAuth config
+        shell: bash
+        run: printf '%s' "$GOOGLE_OAUTH_JSON" > assets/oauth-defaults.json
+        env:
+          GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
+
       - name: Build installer (no publish)
         # electron-builder auto-publishes in CI when a publish config exists;
         # --publish never forces a build-only run (no GH_TOKEN, no release).

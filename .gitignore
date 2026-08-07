@@ -5,3 +5,8 @@ renderer/.next/
 dist/
 *.log
 .claude/
+
+# Ships in the installer, never in the repo: this holds the OAuth client secret and
+# the repository is public. Produced by scripts/bundle-oauth-config.mjs, and in CI by
+# the release workflow from a repository secret.
+assets/oauth-defaults.json
