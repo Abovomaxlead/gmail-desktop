@@ -62,6 +62,31 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// Refuse to replace a bundled config that names a different OAuth client, unless told to.
+// This copies one way — userData into the build — and the day comes when the newer client
+// is the one already bundled, put there by hand while userData still holds the old one.
+// Running this then would swap the build back to the retired client and say "Bundled" while
+// doing it, and the only symptom would be consent screens naming the wrong project.
+const clientOf = (json) => (typeof json?.clientId === 'string' ? json.clientId.split('-')[0] : null);
+if (!process.argv.includes('--force')) {
+  try {
+    const existing = JSON.parse(readFileSync(OUT, 'utf8'));
+    const before = clientOf(existing);
+    const after = clientOf(parsed);
+    if (before && after && before !== after) {
+      console.error(`Refusing to overwrite ${OUT}\n`);
+      console.error(`  it is bundled with project ${before}`);
+      console.error(`  and ${source} holds project ${after}\n`);
+      console.error('If the bundled one is the newer client, copy it the other way instead:');
+      console.error(`  copy "${OUT}" over ${source}\n`);
+      console.error('If you really mean to replace it, pass --force.');
+      process.exit(1);
+    }
+  } catch {
+    // No bundled config yet, or an unreadable one. Nothing to protect.
+  }
+}
+
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, text, 'utf8');
 
