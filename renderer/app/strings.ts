@@ -504,7 +504,7 @@ export const STRINGS_NORMAL: UiStrings = {
 
   soundChoice: 'Sound',
   soundChoiceDescription: 'Select the sound to play for notifications.',
-  soundDefault: 'Default sound',
+  soundDefault: 'Default sound (Chime)',
   soundChime: 'Chime',
   soundPing: 'Ping',
   soundArpeggio: 'Arpeggio',
@@ -1078,7 +1078,7 @@ export const STRINGS_NL: UiStrings = {
 
   soundChoice: 'Geluid',
   soundChoiceDescription: 'Kies het geluid dat bij meldingen wordt afgespeeld.',
-  soundDefault: 'Standaardgeluid',
+  soundDefault: 'Standaardgeluid (Chime)',
   soundChime: 'Belsignaal',
   soundPing: 'Ping',
   soundArpeggio: 'Arpeggio',

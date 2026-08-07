@@ -251,6 +251,11 @@ export function NotificationsSection({
             onChange={(e) => window.desktop?.setNotificationExtras({ soundName: e.target.value })}
             className={`${FIELD} disabled:cursor-not-allowed disabled:opacity-50`}
           >
+            {/* The empty value is what an untouched prefs file holds, and it resolves to
+                DEFAULT_SOUND rather than to silence - which makes it the same sound as the
+                Chime entry below it. The label says so, because two entries that produce
+                one sound is a trap in a list opened to choose between them. Removing the
+                option instead would leave every stored '' with nothing selected. */}
             <option value="">{S.soundDefault}</option>
             {SOUNDS.map((s) => (
               <option key={s.name} value={s.name}>
