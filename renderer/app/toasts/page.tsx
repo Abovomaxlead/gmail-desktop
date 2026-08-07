@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStrings } from '../strings';
 import { HAIRLINE } from '../settings/tokens';
-import { TOAST_WIDTH, type Toast, type ToastAction, type ToastState } from '../../lib/toast';
+import {
+  TOAST_WIDTH,
+  type Toast,
+  type ToastAction,
+  type ToastKind,
+  type ToastState,
+} from '../../lib/toast';
 
 // The notification stack, one card per notification, anchored to the bottom-right of the
 // screen by main and growing upward. It is its own frameless transparent window, so as in
@@ -275,9 +281,23 @@ function CloseBox({ label, onClick }: { label: string; onClick: () => void }) {
   );
 }
 
+// A toast with no mailbox behind it gets a glyph where the avatar would be, because the
+// initial it would fall back to is the first letter of a sentence main wrote: a finished
+// download showed "D" for "Download complete" and "D" again for "Download voltooid", and
+// an update showed "U" or "N" depending on the language. A letter that changes meaning
+// with the locale is worse than no letter. Drawn in the card's own language - currentColor
+// on a 16-unit box with thin round strokes, the same as the close box.
+function statusIconPath(kind: ToastKind): string | null {
+  if (kind === 'download') return 'M8 2.8v7.4M4.9 7.5L8 10.6l3.1-3.1M3.6 13.2h8.8';
+  if (kind === 'update') return 'M8 13.2V3.6M4.4 7.2L8 3.6l3.6 3.6';
+  if (kind === 'error') return 'M8 2.6L1.5 13.4h13L8 2.6zM8 6.6v3.2M8 11.7v.3';
+  return null;
+}
+
 function Avatar({ toast, color }: { toast: Toast; color: string }) {
   const [broken, setBroken] = useState(false);
   const url = toast.account?.avatarUrl;
+  const status = toast.account ? null : statusIconPath(toast.kind);
   const initial =
     (toast.account?.label || toast.account?.email || toast.title || '?').trim().charAt(0).toUpperCase() ||
     '?';
@@ -296,6 +316,17 @@ function Avatar({ toast, color }: { toast: Toast; color: string }) {
           onError={() => setBroken(true)}
           className="h-full w-full object-cover"
         />
+      ) : status ? (
+        <svg viewBox="0 0 16 16" className="h-4 w-4">
+          <path
+            d={status}
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </svg>
       ) : (
         initial
       )}
