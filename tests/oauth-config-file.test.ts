@@ -72,6 +72,51 @@ describe('checkOAuthConfigFile', () => {
     );
   });
 
+  // The file a person actually has after creating a client in the Cloud console. Refusing
+  // it would mean refusing the obvious thing and asking for a hand-written translation.
+  it("accepts Google's own download for a desktop client", () => {
+    const download = JSON.stringify({
+      installed: {
+        client_id: '551331329724-abc.apps.googleusercontent.com',
+        project_id: 'app-gmail-desktop',
+        client_secret: 'GOCSPX-downloaded',
+        redirect_uris: ['http://localhost'],
+      },
+    });
+    const r = checkOAuthConfigFile(download);
+    expect(r.ok).toBe(true);
+    const written = JSON.parse((r as { text: string }).text);
+    expect(written.clientId).toBe('551331329724-abc.apps.googleusercontent.com');
+    expect(written.clientSecret).toBe('GOCSPX-downloaded');
+  });
+
+  it("accepts the 'web' wrapper too, since that is the other shape Google emits", () => {
+    const r = checkOAuthConfigFile(
+      JSON.stringify({ web: { client_id: 'a.apps.googleusercontent.com', client_secret: 'b' } }),
+    );
+    expect(r.ok).toBe(true);
+    expect(JSON.parse((r as { text: string }).text).clientId).toBe('a.apps.googleusercontent.com');
+  });
+
+  // Our own shape must still pass through untouched — converting it would drop relayUrl
+  // and pushTopic, which is the whole reason the pass-through exists.
+  it('prefers our own shape and leaves it verbatim when both could apply', () => {
+    const ours = JSON.stringify({
+      clientId: 'ours',
+      clientSecret: 'ours-secret',
+      relayUrl: 'ws://localhost:8099',
+      installed: { client_id: 'theirs', client_secret: 'theirs-secret' },
+    });
+    const r = checkOAuthConfigFile(ours);
+    expect(r.ok && r.text).toBe(ours);
+    expect(JSON.parse((r as { text: string }).text).relayUrl).toBe('ws://localhost:8099');
+  });
+
+  it('rejects a Google download that is missing half of its credentials', () => {
+    expect(checkOAuthConfigFile(JSON.stringify({ installed: { client_id: 'a' } })).ok).toBe(false);
+    expect(checkOAuthConfigFile(JSON.stringify({ installed: {} })).ok).toBe(false);
+  });
+
   it('rejects credentials of the wrong type', () => {
     expect(checkOAuthConfigFile(JSON.stringify({ clientId: 1, clientSecret: 'b' })).ok).toBe(false);
     expect(
