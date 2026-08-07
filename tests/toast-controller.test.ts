@@ -1,0 +1,186 @@
+// The controller's onDiscard hook. Main pins two things for as long as a card is up — the
+// WebContents that raised a relayed notification, and the path a download card would open —
+// and only a click ever released them. Every other way off the stack left the entry behind,
+// which for the relayed ones means a live WebContents reference kept alive by a card nobody
+// can reach any more, in a map Gmail's page can grow in a loop.
+//
+// The hook is computed by diffing the stack rather than called from each mutator, so the
+// test that matters is that it covers the paths nobody remembered: not just dismiss, but the
+// expiry timer and the collapse into a summary — collapsed cards are especially easy to miss
+// because the summary's click goes to activateSummary, which never looks at webNotifyId, so
+// their sources become unreachable without ever passing through activate.
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastController, TOAST_LIFETIME_MS } from '../electron/toast-controller';
+import type { ToastInput } from '../electron/toast-controller';
+import type { ToastWindow } from '../electron/toast-window';
+import type { Toast } from '../renderer/lib/toast';
+
+function fakeWindow(overrides: Partial<ToastWindow> = {}): ToastWindow {
+  return {
+    send: () => undefined,
+    setInteractive: () => undefined,
+    wouldOverflow: () => false,
+    applySize: () => undefined,
+    reposition: () => undefined,
+    hide: () => undefined,
+    destroy: () => undefined,
+    applyZoom: () => undefined,
+    isBroken: () => false,
+    ...overrides,
+  } as unknown as ToastWindow;
+}
+
+function mailInput(n: number, persist = true): ToastInput {
+  return {
+    kind: 'mail',
+    title: `Sender ${n}`,
+    body: `Subject ${n}`,
+    webNotifyId: `src-${n}`,
+    persist,
+  };
+}
+
+interface Harness {
+  controller: ToastController;
+  discarded: Toast[];
+  activated: Toast[];
+  acted: Toast[];
+  setNow: (ms: number) => void;
+}
+
+function harness(window: ToastWindow = fakeWindow()): Harness {
+  const discarded: Toast[] = [];
+  const activated: Toast[] = [];
+  const acted: Toast[] = [];
+  let clock = 0;
+  const controller = new ToastController({
+    window,
+    locale: () => 'en',
+    reneMode: () => false,
+    now: () => clock,
+    onActivate: (t) => activated.push(t),
+    onActivateSummary: () => undefined,
+    onAction: (t) => acted.push(t),
+    onDiscard: (t) => discarded.push(t),
+  });
+  return { controller, discarded, activated, acted, setNow: (ms) => (clock = ms) };
+}
+
+const ids = (toasts: Toast[]): string[] => toasts.map((t) => t.webNotifyId ?? t.id);
+
+describe('ToastController onDiscard', () => {
+  it('fires for a card removed by its close box', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    h.controller.dismiss('t1');
+    expect(ids(h.discarded)).toEqual(['src-1']);
+  });
+
+  it('fires for every card cleared by Dismiss all', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    h.controller.show(mailInput(3));
+    h.controller.dismissAll();
+    expect(ids(h.discarded)).toEqual(['src-1', 'src-2', 'src-3']);
+  });
+
+  it('fires for a card that reached its expiry', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.controller.show(mailInput(1, false));
+    h.controller.show(mailInput(2));
+    h.setNow(TOAST_LIFETIME_MS + 1);
+    vi.advanceTimersByTime(TOAST_LIFETIME_MS + 1000);
+    expect(ids(h.discarded)).toEqual(['src-1']);
+  });
+
+  // The one nobody would have written by hand at a call site: the stack collapses inside
+  // addToast, so the five cards leave without any dismiss ever being called on them.
+  it('fires for every card the sixth arrival collapsed into the summary', () => {
+    const h = harness();
+    for (let n = 1; n <= 6; n += 1) h.controller.show(mailInput(n));
+    expect(ids(h.discarded)).toEqual(['src-1', 'src-2', 'src-3', 'src-4', 'src-5']);
+  });
+
+  it('fires for every card the height guard collapsed into the summary', () => {
+    const h = harness(fakeWindow({ wouldOverflow: () => true }));
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    h.controller.applySize(380, 4000);
+    expect(ids(h.discarded)).toEqual(['src-1', 'src-2']);
+  });
+
+  // Activate and runAction hand the toast to a callback that consumes what it pinned, so
+  // firing the hook as well would delete the source before the click could travel back
+  // through it — the bug the leak fix must not introduce.
+  it('does not fire for a card that was clicked', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.activate('t1');
+    expect(h.discarded).toEqual([]);
+    expect(ids(h.activated)).toEqual(['src-1']);
+  });
+
+  it('does not fire for a card whose action button was used', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.runAction('t1', 'archive');
+    expect(h.discarded).toEqual([]);
+    expect(ids(h.acted)).toEqual(['src-1']);
+  });
+
+  it('leaves the other cards alone when one is clicked', () => {
+    const h = harness();
+    h.controller.show(mailInput(1));
+    h.controller.show(mailInput(2));
+    h.controller.activate('t1');
+    expect(h.discarded).toEqual([]);
+    h.controller.dismiss('t2');
+    expect(ids(h.discarded)).toEqual(['src-2']);
+  });
+
+  it('is optional, so a controller without one still runs every path', () => {
+    const controller = new ToastController({
+      window: fakeWindow(),
+      locale: () => 'en',
+      reneMode: () => false,
+      now: () => 0,
+      onActivate: () => undefined,
+      onActivateSummary: () => undefined,
+      onAction: () => undefined,
+    });
+    controller.show(mailInput(1));
+    expect(() => controller.dismissAll()).not.toThrow();
+  });
+
+  // A throwing hook is main's problem, not a reason for the stack to stop updating.
+  it('survives a hook that throws', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const controller = new ToastController({
+      window: fakeWindow(),
+      locale: () => 'en',
+      reneMode: () => false,
+      now: () => 0,
+      onActivate: () => undefined,
+      onActivateSummary: () => undefined,
+      onAction: () => undefined,
+      onDiscard: () => {
+        throw new Error('boom');
+      },
+    });
+    controller.show(mailInput(1));
+    expect(() => controller.dismiss('t1')).not.toThrow();
+    warn.mockRestore();
+  });
+});
+
+beforeEach(() => {
+  vi.useRealTimers();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});

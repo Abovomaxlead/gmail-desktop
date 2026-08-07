@@ -1551,6 +1551,18 @@ function showToast(input: ToastInput): void {
   }
 }
 
+// What a card was holding while it was on screen, released when it leaves by any route
+// other than a click. A click consumes them itself, in activateToast; nothing consumed
+// them on the other four routes, so a dismissed relayed card left an entry in
+// webNotifySources pinning a live WebContents — in a map Gmail's page can grow in a loop —
+// and a dismissed download card left its path behind. Wired to the controller's onDiscard
+// rather than called from each site, because the collapse into a summary is a departure no
+// call site sees.
+function forgetToastResources(toast: Toast): void {
+  if (toast.webNotifyId) webNotifySources.delete(toast.webNotifyId);
+  if (toast.kind === 'download' && toast.threadId) downloadClickPaths.delete(toast.threadId);
+}
+
 function activateToast(toast: Toast): void {
   if (toast.webNotifyId) {
     const source = webNotifySources.get(toast.webNotifyId);
@@ -1884,6 +1896,7 @@ function createWindow(): void {
       }
     },
     onAction: (toast, action) => void runToastAction(toast, action),
+    onDiscard: (toast) => forgetToastResources(toast),
   });
   mainWindow.on('closed', () => {
     toasts?.destroy();
