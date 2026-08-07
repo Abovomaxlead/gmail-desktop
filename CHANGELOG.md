@@ -3,7 +3,7 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Nog niet uitgebracht]
+## [0.3.0] — 2026-08-07
 
 ### Toegevoegd
 - **Dropzone bovenaan Gmail om mail te bewaren.** Begin je een conversatie uit
