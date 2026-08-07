@@ -99,11 +99,35 @@ describe('ToastController onDiscard', () => {
   });
 
   // The one nobody would have written by hand at a call site: the stack collapses inside
-  // addToast, so the five cards leave without any dismiss ever being called on them.
-  it('fires for every card the sixth arrival collapsed into the summary', () => {
+  // addToast, so the five cards leave without any dismiss ever being called on them. The
+  // sixth is one of them — it never lands on the stack it collapsed, so a diff that only
+  // looks at what was there before never sees it leave.
+  it('fires for every card the sixth arrival collapsed into the summary, the sixth included', () => {
     const h = harness();
     for (let n = 1; n <= 6; n += 1) h.controller.show(mailInput(n));
-    expect(ids(h.discarded)).toEqual(['src-1', 'src-2', 'src-3', 'src-4', 'src-5']);
+    expect(ids(h.discarded)).toEqual(['src-1', 'src-2', 'src-3', 'src-4', 'src-5', 'src-6']);
+  });
+
+  // And the map keeps growing for as long as the stack stays collapsed: every arrival after
+  // the sixth goes straight into the count, so nothing about it is ever on the stack. This
+  // is the unbounded one — Gmail's page can raise these in a loop.
+  it('fires for every arrival into an already collapsed stack', () => {
+    const h = harness();
+    for (let n = 1; n <= 9; n += 1) h.controller.show(mailInput(n));
+    expect(ids(h.discarded)).toEqual([
+      'src-1', 'src-2', 'src-3', 'src-4', 'src-5', 'src-6', 'src-7', 'src-8', 'src-9',
+    ]);
+  });
+
+  // The claim activateSummary's comment makes: by the time the summary is clicked, nothing
+  // it stands for is still pinned. The click itself looks at no webNotifyId, so anything
+  // still held here would never be released by anything.
+  it('has released everything the summary stands for before the summary is clicked', () => {
+    const h = harness();
+    for (let n = 1; n <= 7; n += 1) h.controller.show(mailInput(n));
+    expect(ids(h.discarded)).toHaveLength(7);
+    h.controller.activateSummary();
+    expect(ids(h.discarded)).toHaveLength(7);
   });
 
   it('fires for every card the height guard collapsed into the summary', () => {

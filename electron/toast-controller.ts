@@ -17,6 +17,13 @@
 // stack in five ways of which only one is a click. Announcing the departure from each
 // mutator would mean five places to remember, and the one that was actually forgotten is
 // the collapse, where five cards leave inside addToast without any dismiss being called.
+//
+// A departure is not only a card that was on the stack, which is why show() hands its new
+// toast to the diff as well. A toast arriving into a collapse never lands: addToast folds
+// it straight into the count, both for the sixth and for every arrival while the stack
+// stays collapsed. Diffing only what was there before therefore missed every one of them,
+// and since the summary's click looks at no card, nothing would ever have released them —
+// an unbounded map of pinned WebContents that Gmail's page can fill in a loop.
 
 import { IPC } from './ipc';
 import {
@@ -80,8 +87,10 @@ export class ToastController {
     };
     // A sixth arrival collapses the five below it, and those five leave here without any
     // dismiss being called on them — which is why the departure is diffed rather than
-    // announced by each mutator.
-    this.setStack(addToast(this.stack, toast));
+    // announced by each mutator. The new toast is handed to the diff too: when it is the
+    // one that caused the collapse, or when it arrives into a stack already collapsed, it
+    // is swallowed by the count without ever appearing on either side of the diff.
+    this.setStack(addToast(this.stack, toast), { arrived: toast });
     this.push();
     this.retime();
   }
@@ -101,7 +110,7 @@ export class ToastController {
   activate(id: string): void {
     const toast = this.stack.toasts.find((t) => t.id === id);
     if (!toast) return;
-    this.setStack(dismissToast(this.stack, id), toast);
+    this.setStack(dismissToast(this.stack, id), { handled: toast });
     this.push();
     this.retime();
     this.hooks.onActivate(toast);
@@ -110,9 +119,13 @@ export class ToastController {
   activateSummary(): void {
     if (!this.stack.summary) return;
     const accountKey = this.stack.summary.accountKey;
-    // Nothing is discarded here: a summary holds no cards, they were already released when
-    // the collapse took them, which is the only reason a collapsed relayed toast does not
-    // leak — the summary's click never looks at a webNotifyId.
+    // Nothing is left to discard here, and that is a property of the collapse rather than
+    // of this method: a summary holds no cards, and every toast it counts — the five it
+    // replaced, the arrival that replaced them, and each one that has been folded into the
+    // count since — was released as it went in. It has to be, because this click looks at
+    // no webNotifyId, so anything still pinned when a summary is clicked is pinned for
+    // good. dismissAll below therefore has nothing to announce; setStack is left to work
+    // that out rather than being told, as everywhere else.
     this.setStack(dismissAll(this.stack));
     this.push();
     this.retime();
@@ -122,7 +135,7 @@ export class ToastController {
   runAction(id: string, action: ToastAction): void {
     const toast = this.stack.toasts.find((t) => t.id === id);
     if (!toast) return;
-    this.setStack(dismissToast(this.stack, id), toast);
+    this.setStack(dismissToast(this.stack, id), { handled: toast });
     this.push();
     this.retime();
     this.hooks.onAction(toast, action);
@@ -178,17 +191,24 @@ export class ToastController {
 
   /** The only place `stack` is assigned, so that what left it is worked out once instead of
    * being remembered at seven call sites — the point being that the next mutator written
-   * here cannot forget to release what its cards were holding. Anything present before and
-   * absent after departed, except the one card the caller is itself handing to onActivate
-   * or onAction. A throwing hook is main's problem and must not stop the stack updating. */
-  private setStack(next: ToastStack, handled?: Toast): void {
+   * here cannot forget to release what its cards were holding.
+   *
+   * What is compared is everything that was in play — the previous cards plus `arrived`,
+   * the toast this assignment is adding — against what the next stack still shows. Absent
+   * from the next stack means gone, whether it left the stack or never reached it, since a
+   * collapse swallows an arrival exactly as thoroughly as it swallows the five below it.
+   * The exception is `handled`, the one card the caller is itself passing to onActivate or
+   * onAction, which consume what it pinned. A throwing hook is main's problem and must not
+   * stop the stack updating. */
+  private setStack(next: ToastStack, opts: { handled?: Toast; arrived?: Toast } = {}): void {
     const prev = this.stack;
     this.stack = next;
     const onDiscard = this.hooks.onDiscard;
     if (!onDiscard || prev === next) return;
     const kept = new Set(next.toasts.map((t) => t.id));
-    for (const toast of prev.toasts) {
-      if (kept.has(toast.id) || toast.id === handled?.id) continue;
+    const inPlay = opts.arrived ? [...prev.toasts, opts.arrived] : prev.toasts;
+    for (const toast of inPlay) {
+      if (kept.has(toast.id) || toast.id === opts.handled?.id) continue;
       try {
         onDiscard(toast);
       } catch (e) {
