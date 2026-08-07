@@ -123,13 +123,53 @@ if (!full.ok) {
     console.log(`  ${scope.replace('https://www.googleapis.com/auth/', '').padEnd(18)} ${one.ok ? 'OK' : one.error}`);
   }
 
-  console.log('');
+  // Every required scope failing does NOT prove the entry is missing: if what is
+  // registered has no overlap with what we ask for, the answer is identical. That mistake
+  // sent someone hunting for a missing console entry that was there all along, holding one
+  // unrelated scope. So before concluding anything, ask what this client ID *can* have.
+  let alsoGranted = [];
   if (granted.length === 0) {
-    console.log('RESULT: the client ID is not being matched at all.');
+    const PROBES = [
+      'https://mail.google.com/',
+      'https://www.googleapis.com/auth/gmail.settings.basic',
+      'https://www.googleapis.com/auth/gmail.settings.sharing',
+      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/gmail.compose',
+      'https://www.googleapis.com/auth/gmail.labels',
+      'https://www.googleapis.com/auth/gmail.metadata',
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/drive',
+      'https://www.googleapis.com/auth/admin.directory.user.readonly',
+    ];
+    process.stdout.write('\nnone of the required scopes worked — probing for any other');
+    for (const scope of PROBES) {
+      const one = await mint([scope], target);
+      process.stdout.write('.');
+      if (one.ok) alsoGranted.push(scope);
+    }
     console.log('');
-    console.log('Every scope fails, including on its own. A registered client ID with the wrong');
-    console.log('scope list still works for the scopes it does have, so this is not a scope');
-    console.log('problem — the entry is absent, holds a different value, or has not propagated.');
+    if (alsoGranted.length > 0) {
+      console.log('found:');
+      for (const s of alsoGranted) console.log(`  ${s}`);
+    }
+  }
+
+  console.log('');
+  if (granted.length === 0 && alsoGranted.length > 0) {
+    console.log('RESULT: the client ID IS registered — with different scopes.');
+    console.log('');
+    console.log('The entry exists and has propagated; it simply grants none of the scopes this');
+    console.log('app asks for. Edit that same entry and add these, keeping what is already there:');
+    console.log('');
+    for (const s of SCOPES) console.log(`  ${s}`);
+    console.log('');
+    console.log('All of them in one comma separated list, no spaces:');
+    console.log(`  ${[...new Set([...alsoGranted, ...SCOPES])].join(',')}`);
+  } else if (granted.length === 0) {
+    console.log('RESULT: nothing at all is granted to this client ID.');
+    console.log('');
+    console.log('Not one scope works, not even outside the set this app needs, so the entry is');
+    console.log('absent, holds a different value, or has not propagated yet.');
     console.log('');
     console.log('In the Google Workspace admin console, as a super administrator:');
     console.log('  Security → Access and data control → API controls → Manage Domain Wide Delegation');
