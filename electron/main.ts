@@ -602,6 +602,7 @@ async function addAccountAfterConsent(
         body: L.accountNotAddedBody(email, result.error),
         persist: true,
       });
+      if (prefs) playNotificationSound(prefs.getAll());
       if (!stopProbing) probe(index + 1);
       else settleDetection();
       return;
@@ -2014,6 +2015,11 @@ function maybeNotifyUpdate(version: string): void {
     body: L.updateAvailableBody(version),
     persist: true,
   });
+  // A system toast made its own noise; ours does not. Without this the update and the
+  // failed account link are the only two app toasts that arrive in silence, which reads
+  // as a missed notification rather than a quiet one. The shared 1.5s throttle in
+  // playNotificationSound is what keeps a burst from turning into a chord.
+  if (prefs) playNotificationSound(prefs.getAll());
 }
 function downloadUpdate(): void {
   updateRequested = true;
