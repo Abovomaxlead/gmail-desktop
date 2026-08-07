@@ -1,3 +1,5 @@
+import type { AccountOAuthStatus, OAuthStatus } from '../renderer/lib/oauth-status';
+
 // Which accounts lost their Gmail link, and how big the banner about it should be.
 // The two reasons are not interchangeable: 'expired' means the link is really gone
 // and moving mail no longer works, 'push' means only notifications are down. Push
@@ -21,14 +23,44 @@ export interface HealthInput {
   pushRefused: (email: string) => boolean;
 }
 
+/** The link state of every own account, in the order they were given. The panel draws
+ * these directly; the banner takes the projection below. */
+export function accountOAuthStatuses(input: HealthInput): AccountOAuthStatus[] {
+  return input.ownEmails.map((email) => ({ email, status: statusFor(input, email) }));
+}
+
+/** Precedence matters and is not arbitrary. A link that is gone outranks a scope that is
+ * missing, because there is nothing to re-grant a scope on; and a push fault only counts
+ * when push is configured, since every token stored before the push scope existed lacks
+ * it and would otherwise flag every machine after an update. */
+function statusFor(input: HealthInput, email: string): OAuthStatus {
+  if (!input.hasToken(email)) return 'unlinked';
+  if (input.refreshFailed(email)) return 'expired';
+  if (input.pushConfigured && (input.missingScopes(email) || input.pushRefused(email))) {
+    return 'push-only';
+  }
+  return 'linked';
+}
+
+/** How each status reads to the banner, which has only two reasons and only needs two: a
+ * link that is gone is 'expired' whether it expired or was never made, because the
+ * sentence the banner writes about it is the same either way. `linked` is absent from this
+ * map, which is what keeps a healthy account out of the banner. */
+const RECONNECT_REASON: Partial<Record<OAuthStatus, ReconnectReason>> = {
+  unlinked: 'expired',
+  expired: 'expired',
+  'push-only': 'push',
+};
+
+/** Which accounts the banner should name, derived from the statuses rather than worked out
+ * again. Two functions reading the same inputs to answer overlapping questions is how the
+ * banner and the accounts panel would come to disagree about one account, and that
+ * disagreement would be invisible until someone reported it. */
 export function accountsNeedingReconnect(input: HealthInput): ReconnectAccount[] {
   const out: ReconnectAccount[] = [];
-  for (const email of input.ownEmails) {
-    if (!input.hasToken(email) || input.refreshFailed(email)) {
-      out.push({ email, reason: 'expired' });
-    } else if (input.pushConfigured && (input.missingScopes(email) || input.pushRefused(email))) {
-      out.push({ email, reason: 'push' });
-    }
+  for (const { email, status } of accountOAuthStatuses(input)) {
+    const reason = RECONNECT_REASON[status];
+    if (reason) out.push({ email, reason });
   }
   return out;
 }
