@@ -5,6 +5,14 @@
 // Any other tint is decoration, and a switch that is on is dark rather than blue.
 // Opacity must be bracketed: Tailwind 3's default scale steps by 5, so
 // `border-black/8` emits nothing at all while `border-black/[0.08]` works.
+//
+// Muted text always carries its dark variant. `text-neutral-500` was picked against a
+// white panel and reads fine there, but on the dark card it comes to 4.18:1 against
+// neutral-950 and 3.78:1 against neutral-900 — under the 4.5:1 that text this size needs,
+// and legible enough in a bright room to survive review while being genuinely hard to read
+// at night. `dark:text-neutral-400` is 7.85:1 and is what the topbar already uses, so the
+// pairing below is the app's muted colour rather than a local choice. A `text-neutral-500`
+// written without it is the bug, not the exception.
 
 export const FOCUS_RING =
   'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
@@ -26,9 +34,9 @@ export const SECTION_TITLE = 'text-[22px] font-semibold tracking-tight';
 
 export const BLOCK_TITLE = 'text-[15px] font-semibold tracking-tight';
 
-export const VALUE = 'text-xs text-neutral-500';
+export const VALUE = 'text-xs text-neutral-500 dark:text-neutral-400';
 
-export const HINT = 'text-xs font-normal leading-snug text-neutral-500';
+export const HINT = 'text-xs font-normal leading-snug text-neutral-500 dark:text-neutral-400';
 
 export const BUTTON = `shrink-0 rounded-lg bg-neutral-200 px-3 py-1.5 text-[13px] font-medium text-neutral-900 transition hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 motion-reduce:transition-none ${FOCUS_RING}`;
 

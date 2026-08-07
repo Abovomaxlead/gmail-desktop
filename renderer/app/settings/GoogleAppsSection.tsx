@@ -222,7 +222,7 @@ function Chip({
       className={`inline-flex items-center gap-1.5 rounded-full border ${HAIRLINE} px-2.5 py-1 text-[13px] text-neutral-900 transition hover:bg-black/[0.04] dark:text-neutral-100 dark:hover:bg-white/5 motion-reduce:transition-none ${FOCUS_RING}`}
     >
       <span>{label}</span>
-      <span aria-hidden className="text-neutral-500">
+      <span aria-hidden className="text-neutral-500 dark:text-neutral-400">
         {glyph}
       </span>
     </button>

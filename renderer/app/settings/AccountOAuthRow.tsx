@@ -175,7 +175,7 @@ export function AccountOAuthRow({
     <span className="flex min-w-0 flex-col gap-1">
       <span
         className={`flex min-w-0 items-center gap-1.5 text-xs ${
-          broken ? 'text-amber-600 dark:text-amber-500' : 'text-neutral-500'
+          broken ? 'text-amber-600 dark:text-amber-500' : 'text-neutral-500 dark:text-neutral-400'
         }`}
       >
         {broken ? (

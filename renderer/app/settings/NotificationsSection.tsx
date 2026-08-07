@@ -170,7 +170,7 @@ export function NotificationsSection({
             }}
             className={TIME}
           />
-          <span id={QUIET_END_LABEL_ID} className="text-xs text-neutral-500">
+          <span id={QUIET_END_LABEL_ID} className="text-xs text-neutral-500 dark:text-neutral-400">
             {S.to}
           </span>
           <input
@@ -358,7 +358,7 @@ export function NotificationsSection({
         </h3>
 
         {profiles.length === 0 ? (
-          <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
+          <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500 dark:text-neutral-400`}>{S.noAccounts}</p>
         ) : (
           <div className={`${PANEL} overflow-x-auto`}>
             <table
@@ -367,7 +367,7 @@ export function NotificationsSection({
             >
               <thead>
                 <tr className={`border-b ${HAIRLINE}`}>
-                  <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-neutral-500">
+                  <th scope="col" className="px-4 py-2 text-left text-xs font-medium text-neutral-500 dark:text-neutral-400">
                     {S.accountLabelField}
                   </th>
                   {columns.map((c) => (
@@ -375,7 +375,7 @@ export function NotificationsSection({
                       key={c.key}
                       scope="col"
                       title={c.name}
-                      className="w-16 px-1 py-2 align-bottom text-center text-xs font-medium leading-tight text-neutral-500"
+                      className="w-16 px-1 py-2 align-bottom text-center text-xs font-medium leading-tight text-neutral-500 dark:text-neutral-400"
                     >
                       <span className="block whitespace-normal break-words">{c.header}</span>
                     </th>

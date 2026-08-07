@@ -43,14 +43,14 @@ function ChangelogVersionBlock({
         <span className="text-[13.5px] font-semibold tabular-nums">
           {S.changelogVersionPrefix} {version.version}
         </span>
-        {version.date && <span className="text-xs tabular-nums text-neutral-500">{version.date}</span>}
+        {version.date && <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">{version.date}</span>}
       </div>
       {entries.map((entry, ei) => {
         const label = S.changelogCategory(entry.heading);
         return (
           <div key={ei} className="mb-2 last:mb-0">
             {label && (
-              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">{label}</div>
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{label}</div>
             )}
             <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed">
               {entry.items.map((item, ii) => (
@@ -101,7 +101,7 @@ export function WhatsNewSection({ S, uiLang }: { S: UiStrings; uiLang: 'en' | 'n
                   type="button"
                   onClick={() => setShowOlder((s) => !s)}
                   aria-expanded={showOlder}
-                  className={`mt-3 self-start rounded text-[13px] font-medium text-neutral-500 transition hover:text-neutral-900 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`}
+                  className={`mt-3 self-start rounded text-[13px] font-medium text-neutral-500 dark:text-neutral-400 transition hover:text-neutral-900 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`}
                 >
                   {showOlder ? S.hideOlder : S.showOlder}
                 </button>

@@ -137,7 +137,7 @@ export function AccountsSection({
 
         <div className="flex flex-col gap-2">
           {profiles.length === 0 && (
-            <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500`}>{S.noAccounts}</p>
+            <p className={`${PANEL} px-4 py-3.5 text-[13.5px] text-neutral-500 dark:text-neutral-400`}>{S.noAccounts}</p>
           )}
 
           {profiles.map((p) => {
@@ -221,7 +221,7 @@ export function AccountsSection({
                       }}
                       className={`-ml-1.5 w-full truncate rounded-md bg-transparent px-1.5 py-0.5 text-[13.5px] leading-tight transition hover:bg-black/[0.04] focus:bg-white dark:hover:bg-white/[0.06] dark:focus:bg-neutral-900 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
                     />
-                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-neutral-500">
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                       <span className="truncate">{p.email}</span>
                       {delegated && (
                         <>
@@ -269,7 +269,7 @@ export function AccountsSection({
                       }}
                       aria-label={S.renameAccount}
                       title={S.renameAccount}
-                      className={`flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
+                      className={`flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 dark:text-neutral-400 transition hover:bg-black/5 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
                     >
                       <PencilIcon className="h-4 w-4" />
                     </button>
@@ -279,7 +279,7 @@ export function AccountsSection({
                       onClick={() => setConfirmEmail(p.email)}
                       aria-label={S.removeAccount}
                       title={S.removeAccount}
-                      className={`flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
+                      className={`flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 dark:text-neutral-400 transition hover:bg-black/5 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
                     >
                       <TrashIcon className="h-4 w-4" />
                     </button>

@@ -124,7 +124,7 @@ export function SettingsShell({
                   className={`flex min-h-[32px] items-center gap-2 rounded-md px-3 py-1.5 text-left text-[13px] transition motion-reduce:transition-none ${SURFACE_FOCUS_RING} ${
                     isActive
                       ? 'bg-black/[0.06] font-medium text-neutral-900 dark:bg-white/10 dark:text-neutral-100'
-                      : 'font-normal text-neutral-500 hover:bg-black/[0.04] hover:text-neutral-900 dark:hover:bg-white/5 dark:hover:text-neutral-100'
+                      : 'font-normal text-neutral-500 dark:text-neutral-400 hover:bg-black/[0.04] hover:text-neutral-900 dark:hover:bg-white/5 dark:hover:text-neutral-100'
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate">{sectionLabel(section)}</span>

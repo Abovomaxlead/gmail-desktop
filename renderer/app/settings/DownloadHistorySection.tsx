@@ -103,9 +103,9 @@ function OpenIcon({ className = '' }: { className?: string }) {
   );
 }
 
-const ICON_BUTTON = `flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`;
+const ICON_BUTTON = `flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 dark:text-neutral-400 transition hover:bg-black/5 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`;
 
-const TH = 'px-2 py-2 text-xs font-medium text-neutral-500';
+const TH = 'px-2 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400';
 
 function stateLabel(state: DownloadRecord['state'], S: UiStrings): string {
   if (state === 'completed') return S.dhStateCompleted;
