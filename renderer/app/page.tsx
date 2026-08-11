@@ -317,6 +317,10 @@ export default function AppShell() {
     }
     if (row.provisional) return;
     setPendingEmail(null);
+    // Same guard as `open()` below: a row that settled into a URL-less delegated mailbox
+    // has nothing for ensureView to load. Without this the tab would highlight as active
+    // while its view never opens.
+    if (row.kind === 'delegated' && row.hasMail === false) return;
     setActive({ key: row.key, surface: 'mail' });
     window.desktop?.switchSurface(row.key, 'mail');
   }, [profiles, pendingEmail]);

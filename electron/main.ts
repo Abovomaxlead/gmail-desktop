@@ -38,6 +38,7 @@ import {
 } from './account-cache';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
 import { planDelegated } from './delegation-planner';
+import { canRunDelegatedApiScan } from './delegated-discovery-gate';
 import { ColorStore } from './color-store';
 import { RemovedStore } from './removed-store';
 import {
@@ -390,7 +391,13 @@ async function refreshAndSuggestDelegated(): Promise<void> {
   if (!delegated || !manager) return;
   const entries = await scanSwitcherEntries();
   const stored = delegated.list();
-  if (entries.length < stored.length) return;
+  // Only compare against entries the switcher scrape could plausibly still see: an
+  // API-discovered mailbox (mailUrl null) inflates `stored` without ever showing up here,
+  // since the scrape reads account 0 only while the API is asked with the active account.
+  // Counting those against the scrape would make this bail out forever the moment the API
+  // adds even one such mailbox, killing both the suggestion push below and the only code
+  // that ever writes a real mailUrl onto a stored entry.
+  if (entries.length < stored.filter((d) => d.mailUrl !== null).length) return;
   const freshByEmail = new Map(entries.map((e) => [e.email.toLowerCase(), e.mailUrl]));
   let changed = false;
   for (const d of stored) {
@@ -412,8 +419,10 @@ async function refreshAndSuggestDelegated(): Promise<void> {
  * one it does not mention: it cannot see an out-of-domain delegation, so its silence about a
  * mailbox is not evidence about that mailbox.
  *
- * Asked with one of the user's own accounts, active one first, exactly as a token request is
- * — the relay filters on who is asking, so a second account answers about a second person. */
+ * Asked with one of the user's own accounts, active one first, exactly as a token request
+ * is. The loop returns on the first requester that gets an answer, so only one person's
+ * delegations are ever discovered per call — trying the rest is only for when the active
+ * account itself cannot reach the relay. */
 async function refreshDelegatedFromApi(): Promise<void> {
   const url = delegatedMailboxesUrl();
   if (!url || !delegated) return;
@@ -439,6 +448,20 @@ async function refreshDelegatedFromApi(): Promise<void> {
     console.log(`[delegated] ${fresh.length} mailbox(es) via ${requester.email}`);
     return;
   }
+}
+
+/** Starts the relay-based discovery scan the first time an own account exists to ask it
+ * with. Called from `settleDetection()` rather than `did-finish-load`: detection runs on its
+ * own schedule (more accounts, slower machine, a probe timeout) and a fixed delay picked to
+ * "usually" outlast it would just move the race, not close it. Settling is the actual signal
+ * that `profiles` holds whatever own accounts this process is going to find before the user
+ * adds another one by hand. */
+let delegatedApiScanStarted = false;
+function maybeStartDelegatedApiScan(): void {
+  const ownAccountCount = profiles.filter((p) => p.kind === 'authuser').length;
+  if (!canRunDelegatedApiScan(ownAccountCount, delegatedApiScanStarted)) return;
+  delegatedApiScanStarted = true;
+  void refreshDelegatedFromApi();
 }
 
 function addDelegatedMailbox(email: string, mailUrl: string): void {
@@ -531,6 +554,7 @@ function settleDetection(): void {
   probingIndex = null;
   cachedAccounts = [];
   pushProfiles();
+  maybeStartDelegatedApiScan();
 }
 function excludedBadgeKeys(): Set<string> {
   const keys = new Set<string>();
@@ -2225,7 +2249,6 @@ function createWindow(): void {
     if (!delegatedScanStarted) {
       delegatedScanStarted = true;
       setTimeout(() => void refreshAndSuggestDelegated(), 7000);
-      void refreshDelegatedFromApi();
     }
     applyReneZoom();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
