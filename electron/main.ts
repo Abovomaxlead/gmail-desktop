@@ -1775,9 +1775,11 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
   console.log(
     `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} mode=${windowMode ? 'window' : 'inline'}`,
   );
+  // A window of its own means exactly that: popOutThread borrows the mail view to reach
+  // Gmail's pop-out button and then puts it back, so the main window is not left showing
+  // the message as well.
   if (threadId && surface === 'mail' && windowMode) {
-    manager?.openMailThread(accountKey, threadId);
-    void manager?.popOutThread(accountKey).then((ok) => {
+    void manager?.popOutThread(accountKey, threadId).then((ok) => {
       if (!ok && idx != null) openFullThreadWindow(idx, threadId);
     });
     return;

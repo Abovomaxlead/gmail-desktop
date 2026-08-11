@@ -39,6 +39,20 @@ const acctKeyOfViewKey = (vk: string) => vk.slice(0, vk.lastIndexOf(':'));
 
 const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
 
+// How long the pop-out dance may take: the button has ~3s to render, and the window it
+// opens ~2s to actually appear before the mail view is sent back without it.
+const POPOUT_CLICK_TRIES = 12;
+const POPOUT_CLICK_INTERVAL_MS = 250;
+const POPOUT_WINDOW_WAIT_MS = 2000;
+
+/** Polls `done` until it is true or `timeoutMs` has passed; says nothing about which. */
+async function waitUntil(done: () => boolean, timeoutMs: number, stepMs = 50): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!done() && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, stepMs));
+  }
+}
+
 export class ProfileViewManager {
   private views = new Map<string, WebContentsView>();
   private activeViewKey: string | null = null;
@@ -278,11 +292,70 @@ export class ProfileViewManager {
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`);
   }
 
-  async popOutThread(accountKey: string): Promise<boolean> {
+  /**
+   * Pops `threadId` out into Gmail's own reading window and leaves the mail view where it
+   * was. The detour through that view is unavoidable: only Gmail can open a working
+   * pop-out, and the button that does it only exists while the thread is open. So the
+   * thread is opened here, the button is clicked, and the view is sent back — without
+   * that last step "open in a new window" also leaves the message sitting in the main
+   * window, which is the one thing it promises not to do.
+   *
+   * The restore waits for the pop-out window to exist rather than for the click to
+   * return, because Gmail does asynchronous work in between and a view already on its way
+   * back opens nothing. It is a race with a deadline, not a guarantee: after
+   * POPOUT_WINDOW_WAIT_MS the view goes back regardless, since a main window left on the
+   * message is the bug being fixed.
+   *
+   * Resolves true once the button is clicked, false if it never appears — the caller then
+   * opens a thread window of its own. The view is restored either way.
+   */
+  async popOutThread(accountKey: string, threadId: string): Promise<boolean> {
     const k = viewKey(accountKey, 'mail');
     const wc = this.views.get(k)?.webContents;
     if (!wc || wc.isDestroyed()) return false;
+    const before = await this.readHash(wc);
     this.popoutExpectUntil.set(k, Date.now() + 6000);
+    let popoutOpened = false;
+    const onCreated = (): void => {
+      popoutOpened = true;
+    };
+    wc.once('did-create-window', onCreated);
+    try {
+      this.openMailThread(accountKey, threadId);
+      const clicked = await this.clickPopoutButton(wc);
+      if (clicked) await waitUntil(() => popoutOpened, POPOUT_WINDOW_WAIT_MS);
+      console.log(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
+      this.restoreHash(wc, before, threadId);
+      return clicked;
+    } finally {
+      if (!wc.isDestroyed()) wc.removeListener('did-create-window', onCreated);
+    }
+  }
+
+  /** The hash the view is on, or '' when it has none or cannot be asked. */
+  private async readHash(wc: WebContents): Promise<string> {
+    const hash = await wc.executeJavaScript('location.hash').catch(() => '');
+    return typeof hash === 'string' ? hash : '';
+  }
+
+  // A view that was already showing the thread was not disturbed and is left alone —
+  // sending it "back" would take the user off the mail they had open. A view with no hash
+  // at all goes to the inbox: `location.hash = ''` is not a navigation Gmail acts on.
+  private restoreHash(wc: WebContents, before: string, threadId: string): void {
+    if (wc.isDestroyed()) return;
+    if (before === `#inbox/${threadId}`) {
+      console.log('[notify] mail view was already on that thread, left as it was');
+      return;
+    }
+    const target = before || '#inbox';
+    console.log(`[notify] mail view back to ${target}`);
+    void wc.executeJavaScript(`location.hash = ${JSON.stringify(target)}`).catch(() => {});
+  }
+
+  // Matched by Gmail's stable jslog action id first, then by a localized aria-label. The
+  // button only appears once the thread has rendered, so this retries rather than asking
+  // once.
+  private async clickPopoutButton(wc: WebContents): Promise<boolean> {
     const clickScript = `(() => {
       const byLog = Array.from(document.querySelectorAll('button[jslog],[role="button"][jslog]'))
         .find((b) => /(?:^|[;\\s])170693(?:[;\\s]|$)/.test(b.getAttribute('jslog') || ''));
@@ -293,10 +366,10 @@ export class ProfileViewManager {
       if (btn) { btn.click(); return true; }
       return false;
     })()`;
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < POPOUT_CLICK_TRIES; i++) {
       const clicked = await wc.executeJavaScript(clickScript).catch(() => false);
       if (clicked) return true;
-      await new Promise((r) => setTimeout(r, 250));
+      await new Promise((r) => setTimeout(r, POPOUT_CLICK_INTERVAL_MS));
     }
     return false;
   }
