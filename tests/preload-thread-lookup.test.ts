@@ -2,7 +2,7 @@
 // by matching the notification body against the inbox rows' subject spans, newest first.
 
 import { describe, expect, it } from 'vitest';
-import { findThreadIdBySubject } from '../electron/preload';
+import { findThreadIdBySubject, matchThreadsBySubject } from '../electron/preload';
 
 type FakeEl = { text: string; id: string };
 function doc(rows: FakeEl[]) {
@@ -51,5 +51,42 @@ describe('findThreadIdBySubject', () => {
       ],
     };
     expect(findThreadIdBySubject(d, 'Hit')).toBe('ok1');
+  });
+});
+
+// The count behind the answer. Picking the first match is a guess whenever there is more
+// than one, and the guess is invisible in the id that comes out of it — which is why a
+// click landing on the wrong conversation could not be told apart from one landing on no
+// conversation at all.
+describe('matchThreadsBySubject', () => {
+  it('reports every thread carrying the subject, so an ambiguous match is visible', () => {
+    const d = doc([
+      { text: 'Re: offerte', id: 'aaa' },
+      { text: 'Weekly report', id: 'bbb' },
+      { text: 'Re: offerte', id: 'ccc' },
+    ]);
+    expect(matchThreadsBySubject(d, 'Re: offerte')).toEqual(['aaa', 'ccc']);
+  });
+
+  it('counts a thread once when Gmail repeats its id on the row and on a span inside it', () => {
+    const d = doc([
+      { text: 'Re: offerte', id: 'aaa' },
+      { text: 'Re: offerte', id: 'aaa' },
+    ]);
+    expect(matchThreadsBySubject(d, 'Re: offerte')).toEqual(['aaa']);
+  });
+
+  it('is empty when the row is not in the DOM at all', () => {
+    expect(matchThreadsBySubject(doc([{ text: 'Something', id: 'z1' }]), 'Other')).toEqual([]);
+  });
+
+  it('still ignores rows without a usable id', () => {
+    const d = {
+      querySelectorAll: () => [
+        { textContent: 'Hit', getAttribute: () => null },
+        { textContent: 'Hit', getAttribute: (n: string) => (n === 'data-legacy-thread-id' ? 'ok1' : null) },
+      ],
+    };
+    expect(matchThreadsBySubject(d, 'Hit')).toEqual(['ok1']);
   });
 });

@@ -67,21 +67,40 @@ export function extractIdentity(
   return { email, name, avatarUrl };
 }
 
+/** Every thread whose subject matches, in DOM order, rather than only the first.
+ *
+ * The count is the diagnostic. A click that opens the wrong conversation and a click that
+ * opens no conversation at all look the same from the outside — "it opened something I did
+ * not ask for" — but they are different failures: several rows carrying the same subject
+ * means the first one won and it was the wrong thread, while none means the row was not in
+ * the DOM to be found. Only the number tells them apart, and the caller cannot count what
+ * this used to return the moment it found it.
+ *
+ * Ids are deduplicated because Gmail puts data-legacy-thread-id on the row and again on a
+ * span inside it, so one thread would otherwise read as an ambiguous two. */
+export function matchThreadsBySubject(
+  doc: { querySelectorAll(sel: string): ArrayLike<any> },
+  subject: string,
+): string[] {
+  const wanted = (subject || '').trim();
+  if (!wanted) return [];
+  const ellipsized = /(…|\.\.\.)$/.test(wanted);
+  const prefix = wanted.replace(/(…|\.\.\.)$/, '');
+  const found: string[] = [];
+  for (const el of Array.from(doc.querySelectorAll('[data-legacy-thread-id]'))) {
+    const id = el.getAttribute('data-legacy-thread-id');
+    if (!id || found.indexOf(id) !== -1) continue;
+    const text = (el.textContent || '').trim();
+    if (text === wanted || (ellipsized && text.startsWith(prefix))) found.push(id);
+  }
+  return found;
+}
+
 export function findThreadIdBySubject(
   doc: { querySelectorAll(sel: string): ArrayLike<any> },
   subject: string,
 ): string | null {
-  const wanted = (subject || '').trim();
-  if (!wanted) return null;
-  const ellipsized = /(…|\.\.\.)$/.test(wanted);
-  const prefix = wanted.replace(/(…|\.\.\.)$/, '');
-  for (const el of Array.from(doc.querySelectorAll('[data-legacy-thread-id]'))) {
-    const id = el.getAttribute('data-legacy-thread-id');
-    if (!id) continue;
-    const text = (el.textContent || '').trim();
-    if (text === wanted || (ellipsized && text.startsWith(prefix))) return id;
-  }
-  return null;
+  return matchThreadsBySubject(doc, subject)[0] ?? null;
 }
 
 export function rerouteServiceWorkerNotifications(
@@ -367,11 +386,24 @@ if (typeof document !== 'undefined') {
     }
     window.Notification = Wrapped;
 
+    // The second argument is diagnostic and travels with the click rather than being logged
+    // here, because a console line inside a Gmail view is somewhere nobody is looking. Main
+    // logs it. What it is for: this lookup is a guess by construction — the notification
+    // carries no thread id, so the thread is found by matching its text against the rows
+    // that happen to be rendered — and when it guesses wrong there is nothing afterwards
+    // that can tell which way it went. `rows` distinguishes a view showing an open
+    // conversation or a different label (no list, so nothing to match) from one showing the
+    // inbox; `matches` distinguishes an ambiguous subject from an absent one.
     ipcRenderer.on(IPC.WEB_NOTIFY_CLICK, (_e: unknown, id: string) => {
       const body = bodies.get(id) ?? '';
       bodies.delete(id);
-      const threadId = findThreadIdBySubject(document, body);
-      ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId ?? undefined);
+      const matches = matchThreadsBySubject(document, body);
+      ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, matches[0] ?? undefined, {
+        rows: document.querySelectorAll('[data-legacy-thread-id]').length,
+        matches: matches.length,
+        hash: location.hash,
+        body: body.slice(0, 60),
+      });
     });
 
     rerouteServiceWorkerNotifications(

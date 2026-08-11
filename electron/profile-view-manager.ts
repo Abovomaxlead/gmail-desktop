@@ -99,6 +99,11 @@ export class ProfileViewManager {
         else if (channel === IPC.MAIL_DROP) this.onMailDrop(acctKey, args[0] as MailDropPayload);
       }
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
+        // Diagnostic, sent by the WEB_NOTIFY_CLICK handler in preload.ts and logged here
+        // because a console line inside a Gmail view is somewhere nobody is looking. It
+        // records how the thread id beside it was arrived at — the one thing a click that
+        // opens the wrong conversation otherwise leaves no trace of.
+        if (args[1]) console.log(`[notify] ${acctKey} lookup`, args[1]);
         this.onActivate(acctKey, surface, typeof args[0] === 'string' ? args[0] : undefined);
       }
     });
@@ -248,7 +253,19 @@ export class ProfileViewManager {
 
   openMailThread(accountKey: string, threadId: string): void {
     const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
-    if (!wc || wc.isDestroyed()) return;
+    if (!wc || wc.isDestroyed()) {
+      // Silent until now, and it is one of the ways a notification opens nothing: the view
+      // for this mailbox has not been built yet, or was torn down.
+      console.log(`[notify] ${accountKey} open ${threadId}: no mail view`);
+      return;
+    }
+    // What the hash is set on matters as much as what it is set to. A view still loading
+    // navigates to its own URL afterwards and takes the hash with it, and a hash that is
+    // already the target fires no hashchange at all — both end with the notified mail not
+    // on screen, and neither can be told from the outside.
+    console.log(
+      `[notify] ${accountKey} open ${threadId} (loading=${wc.isLoading()}, at ${wc.getURL()})`,
+    );
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`);
   }
 

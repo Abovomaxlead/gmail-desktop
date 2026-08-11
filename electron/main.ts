@@ -1668,6 +1668,12 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
   if (!profiles.some((p) => keyOf(p) === accountKey)) return;
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
   const windowMode = prefs?.getAll().notificationOpen === 'window';
+  // No thread id here means the click has already given up on finding the mail and will do
+  // the next best thing, which is the account. That is a different outcome from opening the
+  // wrong conversation and has to be readable as such.
+  console.log(
+    `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} mode=${windowMode ? 'window' : 'inline'}`,
+  );
   if (threadId && surface === 'mail' && windowMode) {
     manager?.openMailThread(accountKey, threadId);
     void manager?.popOutThread(accountKey).then((ok) => {
@@ -1789,6 +1795,7 @@ function activateToast(toast: Toast): void {
     }
     // The view is gone, so nothing can resolve the thread. Showing the account beats
     // swallowing the click.
+    console.log(`[notify] click ${toast.webNotifyId}: source view gone, opening the account`);
     if (toast.account) activateNotification(toast.account.key, 'mail');
     return;
   }
@@ -1843,6 +1850,11 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   if (!notificationsAllowed(p, email, now, 'mail')) return;
   const hidden = hiddenNotificationText(p);
   const L = nativeLabels(currentLocale(), p.reneMode === true);
+  // Which of the two notification paths raised a card decides how exact its click can be,
+  // and nothing downstream records it. This one is push: the thread id comes from the Gmail
+  // API and is the mail itself, so a click that still lands wrong is about opening, not
+  // about finding.
+  console.log(`[notify] raise push ${email} thread=${meta.threadId}`);
   showToast({
     kind: 'mail',
     title: hidden.hiddenSender ?? (displayName(meta.from) || email),
@@ -2816,6 +2828,10 @@ function registerIpc(): void {
     const L = nativeLabels(currentLocale(), p.reneMode === true);
     const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
     webNotifySources.set(sourceKey, { wc: e.sender, pageId: arg.id });
+    // The other path: relayed from Gmail's own page, which sends no thread id, so a click
+    // has to go back and guess from the subject. Paired with the lookup line the view logs
+    // on that click.
+    console.log(`[notify] raise web ${profile.email} src=${sourceKey}`);
     showToast({
       kind: 'mail',
       title: hidden.hiddenSender ?? arg.title,
