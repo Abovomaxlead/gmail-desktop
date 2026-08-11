@@ -142,6 +142,7 @@ import {
   type CachedToken,
   type DelegatedTokenOutcome,
 } from './delegated-token';
+import { parseMailboxesUrl, requestDelegatedMailboxes } from './delegated-mailboxes';
 import { readBundledOAuthConfig } from './oauth-bundled';
 import {
   accountOAuthStatuses,
@@ -352,7 +353,11 @@ function loadDelegatedProfiles(): void {
   if (fresh.length > 0) {
     pushProfiles();
     syncCalendarViews();
-    for (const profile of fresh) warmAccount(profile);
+    // A mailbox known only by address has nothing to warm — surfacesForRef says so, and
+    // SURFACE_CONFIG.mail.url would throw if anything tried.
+    for (const profile of fresh) {
+      if (surfacesForRef(profile.ref).length > 0) warmAccount(profile);
+    }
   }
 }
 
@@ -401,6 +406,39 @@ async function refreshAndSuggestDelegated(): Promise<void> {
   }
   if (changed) pushProfiles();
   if (entries.length > 0) pushDelegatedSuggestions(suggestableDelegates(entries, true));
+}
+
+/** The API's half of discovery. Adds mailboxes the switcher never showed and never removes
+ * one it does not mention: it cannot see an out-of-domain delegation, so its silence about a
+ * mailbox is not evidence about that mailbox.
+ *
+ * Asked with one of the user's own accounts, active one first, exactly as a token request is
+ * — the relay filters on who is asking, so a second account answers about a second person. */
+async function refreshDelegatedFromApi(): Promise<void> {
+  const url = delegatedMailboxesUrl();
+  if (!url || !delegated) return;
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens) return;
+
+  for (const requester of requestersInOrder()) {
+    const token = await accessTokenFor(cfg, oauthTokens, requester.email);
+    if (!token) continue;
+    const res = await requestDelegatedMailboxes({ url, requesterToken: token });
+    if (!res.ok) {
+      console.warn(`[delegated] mailbox list via ${requester.email}: ${res.error}`);
+      continue;
+    }
+    const known = new Set(profiles.map((p) => p.email.toLowerCase()));
+    const fresh = res.mailboxes.filter((email) => !known.has(email) && !removed?.has(email));
+    if (fresh.length === 0) return;
+    // Plain upserts, not mergeScan: upsert is where the keep-the-url rule lives (delegated
+    // store), so writing an address over a mailbox the switcher already gave a URL to is
+    // harmless.
+    for (const email of fresh) delegated.upsert({ email, mailUrl: null, calendarUrl: null });
+    loadDelegatedProfiles();
+    console.log(`[delegated] ${fresh.length} mailbox(es) via ${requester.email}`);
+    return;
+  }
 }
 
 function addDelegatedMailbox(email: string, mailUrl: string): void {
@@ -1152,9 +1190,43 @@ function delegatedTokenUrl(): string | null {
   }
 }
 
+/** Where to ask which mailboxes this person may reach. Absent means discovery stays off and
+ * the switcher scrape is the only source, which is what it is today.
+ *
+ * Environment before file, the rule push already follows (`push-config.ts:34`), and for the
+ * same reason: a relay on loopback has to be testable without editing the one file that holds
+ * the client secret. Read before the file is even opened, so it works on a machine that has no
+ * config at all.
+ *
+ * An env var that is set but unusable is not quietly replaced by the file. It was set on
+ * purpose; falling back would hide the mistake behind behaviour that looks like it worked,
+ * which is the failure mode the whole config path is written to avoid. */
+function delegatedMailboxesUrl(): string | null {
+  const fromEnv = (process.env.GMAIL_DELEGATED_MAILBOXES_URL ?? '').trim();
+  if (fromEnv !== '') return parseMailboxesUrl(fromEnv);
+  const text = oauthConfigText();
+  if (text === null) return null;
+  try {
+    const raw = JSON.parse(text) as { delegatedMailboxesUrl?: unknown };
+    return parseMailboxesUrl(raw.delegatedMailboxesUrl);
+  } catch {
+    return null;
+  }
+}
+
 /** Tokens the relay handed out, per mailbox. They live an hour; without this every drag
  * would cost a fresh mint and a delegates-list read per mailbox. */
 const delegatedTokens = new Map<string, CachedToken>();
+
+/** The user's own accounts, active one first: it is the one the person was looking at, and
+ * usually the one whose delegation (or discoverable mailbox list) they are thinking of.
+ * Shared by every caller that asks the relay something on the user's behalf, so trying the
+ * same account in the same order is not reimplemented per caller. */
+function requestersInOrder(): Profile[] {
+  const active = manager?.activeKey();
+  const own = profiles.filter((p) => p.kind === 'authuser');
+  return [...own.filter((p) => keyOf(p) === active), ...own.filter((p) => keyOf(p) !== active)];
+}
 
 /** A token for a mailbox that has none of its own, via the relay.
  *
@@ -1175,17 +1247,8 @@ async function delegatedTokenFor(email: string): Promise<DelegatedTokenOutcome> 
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens) return { ok: false, error: 'Koppeling niet ingesteld' };
 
-  // Active account first: it is the one the person was looking at, and usually the one whose
-  // delegation they are thinking of.
-  const active = manager?.activeKey();
-  const own = profiles.filter((p) => p.kind === 'authuser');
-  const ordered = [
-    ...own.filter((p) => keyOf(p) === active),
-    ...own.filter((p) => keyOf(p) !== active),
-  ];
-
   let lastError = 'Geen van je accounts heeft toegang tot dit postvak';
-  for (const requester of ordered) {
+  for (const requester of requestersInOrder()) {
     const requesterToken = await accessTokenFor(cfg, oauthTokens, requester.email);
     if (!requesterToken) continue;
     const result = await requestDelegatedToken({ url, requesterToken, target: email });
@@ -2148,6 +2211,7 @@ function createWindow(): void {
     if (!delegatedScanStarted) {
       delegatedScanStarted = true;
       setTimeout(() => void refreshAndSuggestDelegated(), 7000);
+      void refreshDelegatedFromApi();
     }
     applyReneZoom();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
