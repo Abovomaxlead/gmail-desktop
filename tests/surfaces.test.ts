@@ -135,6 +135,32 @@ describe('surfaceForUrl', () => {
   });
 });
 
+// A delegated mailbox known only by address has nothing to load. The rule already exists
+// one field over — a delegated mailbox offers calendar only when a calendar URL was
+// captured — and mail is now the same kind of conditional. Getting this wrong ends in
+// webContents.loadURL(null), which kills the main process, so the throw is the safety net
+// and this list is what keeps anything from reaching it.
+describe('a delegated mailbox with no mail url', () => {
+  const ref = { kind: 'delegated', email: 'bart@example.nl', mailUrl: null, calendarUrl: null } as const;
+
+  it('offers no surfaces at all', () => {
+    expect(surfacesForRef(ref)).toEqual([]);
+  });
+
+  it('throws rather than hand out a url for one', () => {
+    expect(() => SURFACE_CONFIG.mail.url(ref)).toThrow(/no mail url/i);
+  });
+
+  it('offers mail again once a url is captured', () => {
+    expect(surfacesForRef({ ...ref, mailUrl: 'https://mail.google.com/mail/u/0/d/AB/' })).toEqual(['mail']);
+  });
+
+  it('is closed to the renderer too, which never sees a ref', () => {
+    expect(openableSurfaces({ kind: 'delegated', hasCalendar: false, hasMail: false })).toEqual([]);
+    expect(openableSurfaces({ kind: 'delegated', hasCalendar: false, hasMail: true })).toEqual(['mail']);
+  });
+});
+
 describe('openableSurfaces', () => {
   it('gives one of your own accounts everything', () => {
     expect(openableSurfaces({ kind: 'authuser', hasCalendar: true })).toEqual([...SURFACES]);

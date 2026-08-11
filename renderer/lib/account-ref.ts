@@ -3,7 +3,7 @@
 
 export type AccountRef =
   | { kind: 'authuser'; index: number }
-  | { kind: 'delegated'; email: string; mailUrl: string; calendarUrl: string | null };
+  | { kind: 'delegated'; email: string; mailUrl: string | null; calendarUrl: string | null };
 
 export function accountKey(ref: AccountRef): string {
   return ref.kind === 'authuser' ? `u${ref.index}` : `d:${ref.email}`;

@@ -12,8 +12,23 @@ import { dirname } from 'node:path';
 
 export interface StoredDelegate {
   email: string;
-  mailUrl: string;
+  /** Null for a mailbox discovered through the API, which knows the address and cannot know
+   * the URL: the id in `/mail/u/<n>/d/<id>/` exists only in Google's own interface. Such a
+   * mailbox is reachable over the API and not openable in a web view. */
+  mailUrl: string | null;
   calendarUrl: string | null;
+}
+
+/** Absent is not the same as gone. A source that knows no URL — the API knows addresses and
+ * nothing else — must not blank one that was captured, or a mailbox that opened this morning
+ * stops opening because something wrote its address again. */
+function keepUrls(held: StoredDelegate | undefined, incoming: StoredDelegate): StoredDelegate {
+  return {
+    ...held,
+    ...incoming,
+    mailUrl: incoming.mailUrl ?? held?.mailUrl ?? null,
+    calendarUrl: incoming.calendarUrl ?? held?.calendarUrl ?? null,
+  };
 }
 
 export function mergeScan(
@@ -23,7 +38,7 @@ export function mergeScan(
   const byEmail = new Map(existing.map((d) => [d.email.toLowerCase(), d]));
   for (const s of scanned) {
     const key = s.email.toLowerCase();
-    byEmail.set(key, { ...byEmail.get(key), ...s });
+    byEmail.set(key, keepUrls(byEmail.get(key), s));
   }
   return { next: [...byEmail.values()], healthOk: scanned.length >= existing.length };
 }
@@ -47,9 +62,11 @@ export class DelegatedStore {
   }
 
   upsert(d: StoredDelegate): void {
-    const items = this.list().filter((x) => x.email.toLowerCase() !== d.email.toLowerCase());
-    items.push(d);
-    this.write(items);
+    const items = this.list();
+    const held = items.find((x) => x.email.toLowerCase() === d.email.toLowerCase());
+    const rest = items.filter((x) => x.email.toLowerCase() !== d.email.toLowerCase());
+    rest.push(keepUrls(held, d));
+    this.write(rest);
   }
 
   remove(email: string): void {
