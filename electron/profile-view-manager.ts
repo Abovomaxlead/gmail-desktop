@@ -16,6 +16,7 @@ import {
   type MailDropResult,
 } from './ipc';
 import { attachExternalLinkHandling } from './external-links';
+import { mailSearchHash } from './google-urls';
 import type { KeyInput } from './shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, surfacesForRef, type Surface } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './account-ref';
@@ -64,7 +65,12 @@ export class ProfileViewManager {
     private readonly win: BrowserWindow,
     private readonly preloadPath: string,
     private readonly onUnread: (accountKey: string, count: number) => void,
-    private readonly onActivate: (accountKey: string, surface: Surface, threadId?: string) => void,
+    private readonly onActivate: (
+      accountKey: string,
+      surface: Surface,
+      threadId?: string,
+      subject?: string,
+    ) => void,
     private readonly onIdentity: (
       accountKey: string,
       identity: { email: string; name: string; avatarUrl: string },
@@ -127,7 +133,17 @@ export class ProfileViewManager {
         // records how the thread id beside it was arrived at — the one thing a click that
         // opens the wrong conversation otherwise leaves no trace of.
         if (args[1]) console.log(`[notify] ${acctKey} lookup`, args[1]);
-        this.onActivate(acctKey, surface, typeof args[0] === 'string' ? args[0] : undefined);
+        // The subject travels with the click for the case the lookup failed: it is the
+        // only thing left that still points at the mail, and it comes from here rather
+        // than from the card because the card's text may have been replaced by the
+        // privacy setting long before the click.
+        const meta = args[1] as { body?: unknown } | undefined;
+        this.onActivate(
+          acctKey,
+          surface,
+          typeof args[0] === 'string' ? args[0] : undefined,
+          typeof meta?.body === 'string' ? meta.body : undefined,
+        );
       }
     });
     void view.webContents.loadURL(urlOverride ?? SURFACE_CONFIG[surface].url(ref));
@@ -290,6 +306,26 @@ export class ProfileViewManager {
       `[notify] ${accountKey} open ${threadId} (loading=${wc.isLoading()}, at ${wc.getURL()})`,
     );
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`);
+  }
+
+  /**
+   * Sends the mail view to Gmail's search for `subject`. This is where a notification
+   * click ends up when the thread could not be identified — matching a subject against the
+   * rows that happen to be rendered answers nothing when the view is on another label or
+   * showing a conversation — and it beats the alternative, which is opening the account
+   * and looking, to the user, like the click did nothing at all.
+   *
+   * Returns false when the subject is too thin to search for, so the caller can fall back
+   * to the account.
+   */
+  openMailSearch(accountKey: string, subject: string): boolean {
+    const hash = mailSearchHash(subject);
+    if (!hash) return false;
+    const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    console.log(`[notify] ${accountKey} no thread found, searching for the subject`);
+    void wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {});
+    return true;
   }
 
   /**

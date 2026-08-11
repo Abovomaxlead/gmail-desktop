@@ -119,6 +119,81 @@ export function rerouteServiceWorkerNotifications(
   };
 }
 
+/**
+ * The window.Notification the Gmail page gets instead of Chromium's. It raises nothing
+ * itself: it hands the title and body to main, which draws the card in the app's own
+ * stack, knows which account this page belongs to and what the privacy settings replace.
+ *
+ * It also answers the permission question for itself, with "granted", and never asks the
+ * browser. That is deliberate and it is what makes refusing the real permission safe: the
+ * session denies notifications so that anything bypassing this shim — the service worker's
+ * own showNotification — cannot reach the Windows shelf, and a page that consults
+ * Notification.permission before it notifies must not read that refusal, or Gmail would
+ * stop notifying and the stack would go quiet along with the shelf. What this shim
+ * promises is a card in the app, which needs no permission from Chromium.
+ *
+ * The object handed back is the one Gmail's code goes on to use, so it answers to onclick,
+ * close and addEventListener whatever was done with the notification. `show` returns what
+ * to run when the page closes it — the raise pins the body until the click, and a closed
+ * notification will never be clicked.
+ */
+export function createNotificationShim(hooks: {
+  allowed: () => boolean;
+  show: (title: string, options?: NotificationOptions) => (() => void) | void;
+}): typeof Notification {
+  const stub = (release?: (() => void) | void): Notification => {
+    let closed = false;
+    return {
+      onclick: null,
+      close: () => {
+        if (closed) return;
+        closed = true;
+        release?.();
+      },
+      addEventListener() {},
+    } as unknown as Notification;
+  };
+  const Shim = function (this: Notification, title: string, options?: NotificationOptions) {
+    if (!hooks.allowed()) return stub();
+    return stub(hooks.show(title, options));
+  } as unknown as typeof Notification;
+  Object.defineProperty(Shim, 'permission', {
+    configurable: true,
+    get: (): NotificationPermission => 'granted',
+  });
+  Shim.requestPermission = (): Promise<NotificationPermission> => Promise.resolve('granted');
+  return Shim;
+}
+
+/**
+ * The second way a page can ask whether it may notify. Notification.permission is answered
+ * by the shim above, but navigator.permissions.query goes straight to Chromium, which now
+ * says "denied" — and a page that consults it before notifying would stop, taking the
+ * app's own notifications with it. The answer for notifications is therefore given here
+ * too, and only for notifications: every other permission is still whatever the browser
+ * says it is.
+ *
+ * The status handed back is a plain object rather than the real one with its state
+ * overridden, because PermissionStatus.state has no setter. It carries the members a
+ * listener uses, so a page that subscribes to changes gets silence rather than a throw.
+ */
+export function patchNotificationPermissionQuery(permissions: unknown): void {
+  const target = permissions as { query?: (d: { name: string }) => Promise<unknown> } | undefined;
+  if (!target || typeof target.query !== 'function') return;
+  const original = target.query.bind(target);
+  target.query = async (descriptor: { name: string }) => {
+    if (descriptor?.name !== 'notifications') return original(descriptor);
+    return {
+      name: 'notifications',
+      state: 'granted',
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      dispatchEvent: () => false,
+    };
+  };
+}
+
 // The name this page gives one of its notifications. The counter alone would not do: main
 // files these under the view that sent them, and a reload keeps the same view while
 // restarting the counter at 1, so a card raised before the reload and one raised after
@@ -340,6 +415,65 @@ if (typeof document !== 'undefined') {
 
   window.open = wrapWindowOpen(window.open.bind(window));
 
+  // Installed here rather than inside start(), which waits for DOMContentLoaded: Gmail's
+  // own scripts run before that and a page that took its own reference to
+  // window.Notification on the way past would go on raising real Chromium notifications
+  // for the rest of the session, straight onto the Windows shelf, where the app cannot
+  // draw them, cannot apply a single one of its settings to them, and cannot make them
+  // open the mail when clicked. Nothing in here touches the document, so there is nothing
+  // to wait for.
+  //
+  // Gmail's own notifications are relayed to main rather than raised: main draws every
+  // notification the app gives, and only main knows the account this view belongs to,
+  // whether it should stay, and what the privacy settings should replace. The original
+  // body is kept until the click, because finding the thread means matching that subject
+  // in this page's DOM, and by then main has long since replaced the text on screen.
+  const bodies = new Map<string, string>();
+  const loadNonce = Math.random().toString(36).slice(2, 10);
+  let webNotifySeq = 0;
+  window.Notification = createNotificationShim({
+    allowed: () => notifyState.show,
+    show: (title, options) => {
+      webNotifySeq += 1;
+      const id = webNotifyPageId(loadNonce, webNotifySeq);
+      const payload = webNotifyPayload(id, title, options);
+      bodies.set(id, payload.body);
+      ipcRenderer.send(IPC.WEB_NOTIFY_SHOW, payload);
+      return () => bodies.delete(id);
+    },
+  });
+  patchNotificationPermissionQuery(
+    typeof navigator !== 'undefined' ? navigator.permissions : undefined,
+  );
+  rerouteServiceWorkerNotifications(
+    typeof ServiceWorkerRegistration !== 'undefined' ? ServiceWorkerRegistration.prototype : undefined,
+    () => window.Notification,
+  );
+
+  // Registered beside the shim rather than in start(), for the same reason: a card can now
+  // be raised before the document is ready, and a click on it must not arrive at a channel
+  // nobody is listening to.
+  //
+  // The second argument is diagnostic and travels with the click rather than being logged
+  // here, because a console line inside a Gmail view is somewhere nobody is looking. Main
+  // logs it, and now also uses the body: this lookup is a guess by construction — the
+  // notification carries no thread id, so the thread is found by matching its text against
+  // the rows that happen to be rendered — and when it finds nothing the subject is the only
+  // lead left. `rows` distinguishes a view showing an open conversation or a different
+  // label (no list, so nothing to match) from one showing the inbox; `matches`
+  // distinguishes an ambiguous subject from an absent one.
+  ipcRenderer.on(IPC.WEB_NOTIFY_CLICK, (_e: unknown, id: string) => {
+    const body = bodies.get(id) ?? '';
+    bodies.delete(id);
+    const matches = matchThreadsBySubject(document, body);
+    ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, matches[0] ?? undefined, {
+      rows: document.querySelectorAll('[data-legacy-thread-id]').length,
+      matches: matches.length,
+      hash: location.hash,
+      body: body.slice(0, 60),
+    });
+  });
+
   const report = () =>
     computeAndReport(document, (channel, count) => ipcRenderer.send(channel, count));
 
@@ -350,66 +484,6 @@ if (typeof document !== 'undefined') {
       new MutationObserver(report).observe(titleEl, { childList: true });
     }
     setInterval(report, 5000);
-
-    // Gmail's own notifications are relayed to main rather than raised here: main draws
-    // every notification the app gives, and only main knows the account this view belongs
-    // to, whether it should stay, and what the privacy settings should replace. The stub
-    // returned is the object Gmail's code goes on to use, so it has to answer to onclick,
-    // close and addEventListener whatever we do with it. The original body is kept until
-    // the click, because finding the thread means matching that subject in this page's
-    // DOM, and by then main has long since replaced the text on screen.
-    const bodies = new Map<string, string>();
-    const loadNonce = Math.random().toString(36).slice(2, 10);
-    let webNotifySeq = 0;
-    const Wrapped = function (this: Notification, title: string, options?: NotificationOptions) {
-      if (!notifyState.show) {
-        return { onclick: null, close() {}, addEventListener() {} } as unknown as Notification;
-      }
-      webNotifySeq += 1;
-      const id = webNotifyPageId(loadNonce, webNotifySeq);
-      const payload = webNotifyPayload(id, title, options);
-      bodies.set(id, payload.body);
-      ipcRenderer.send(IPC.WEB_NOTIFY_SHOW, payload);
-      return {
-        onclick: null,
-        close: () => bodies.delete(id),
-        addEventListener() {},
-      } as unknown as Notification;
-    } as unknown as typeof Notification;
-    const Original = window.Notification;
-    if (Original) {
-      Object.defineProperty(Wrapped, 'permission', {
-        configurable: true,
-        get: () => Original.permission,
-      });
-      Wrapped.requestPermission = Original.requestPermission.bind(Original);
-    }
-    window.Notification = Wrapped;
-
-    // The second argument is diagnostic and travels with the click rather than being logged
-    // here, because a console line inside a Gmail view is somewhere nobody is looking. Main
-    // logs it. What it is for: this lookup is a guess by construction — the notification
-    // carries no thread id, so the thread is found by matching its text against the rows
-    // that happen to be rendered — and when it guesses wrong there is nothing afterwards
-    // that can tell which way it went. `rows` distinguishes a view showing an open
-    // conversation or a different label (no list, so nothing to match) from one showing the
-    // inbox; `matches` distinguishes an ambiguous subject from an absent one.
-    ipcRenderer.on(IPC.WEB_NOTIFY_CLICK, (_e: unknown, id: string) => {
-      const body = bodies.get(id) ?? '';
-      bodies.delete(id);
-      const matches = matchThreadsBySubject(document, body);
-      ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, matches[0] ?? undefined, {
-        rows: document.querySelectorAll('[data-legacy-thread-id]').length,
-        matches: matches.length,
-        hash: location.hash,
-        body: body.slice(0, 60),
-      });
-    });
-
-    rerouteServiceWorkerNotifications(
-      typeof ServiceWorkerRegistration !== 'undefined' ? ServiceWorkerRegistration.prototype : undefined,
-      () => window.Notification,
-    );
 
     if (location.hostname === 'mail.google.com') {
       const showResult = installDropzone((p) => ipcRenderer.send(IPC.MAIL_DROP, p));

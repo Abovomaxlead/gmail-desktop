@@ -17,7 +17,7 @@
 // unread source at a time (labels.get under push, page title otherwise) or the number
 // oscillates; and reveal/open accept only paths already in the download log.
 
-import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, Notification, nativeTheme } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, nativeTheme } from 'electron';
 import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
@@ -112,6 +112,7 @@ import {
   notificationPersist,
   wantsCalendarView,
   mergeNotificationsFromPanel,
+  sessionPermissionAllowed,
 } from './notification-policy';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
@@ -1758,7 +1759,12 @@ function watchPreloadForReload(): void {
   }
 }
 
-function activateNotification(accountKey: string, surface: Surface, threadId?: string): void {
+function activateNotification(
+  accountKey: string,
+  surface: Surface,
+  threadId?: string,
+  subject?: string,
+): void {
   const idx = idxOfKey(accountKey);
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (isQuitting) return;
@@ -1769,9 +1775,10 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
   if (!profiles.some((p) => keyOf(p) === accountKey)) return;
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
   const windowMode = prefs?.getAll().notificationOpen === 'window';
-  // No thread id here means the click has already given up on finding the mail and will do
-  // the next best thing, which is the account. That is a different outcome from opening the
-  // wrong conversation and has to be readable as such.
+  // No thread id here means the lookup could not identify the mail — the view was on
+  // another label, or showing a conversation, so there was no list to match the subject
+  // against. The subject itself is still a lead, and Gmail's own search follows it; only
+  // when there is not even that does the click settle for the account.
   console.log(
     `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} mode=${windowMode ? 'window' : 'inline'}`,
   );
@@ -1794,7 +1801,9 @@ function activateNotification(accountKey: string, surface: Surface, threadId?: s
     mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
   }
   if (idx != null) switchSurface(idx, surface);
-  if (threadId && surface === 'mail') manager?.openMailThread(accountKey, threadId);
+  if (surface !== 'mail') return;
+  if (threadId) manager?.openMailThread(accountKey, threadId);
+  else if (subject) manager?.openMailSearch(accountKey, subject);
 }
 
 // The account fields a card needs, resolved once at show time. A toast keeps the colour
@@ -1812,66 +1821,34 @@ function toastAccountFor(email: string): ToastAccount | undefined {
   };
 }
 
-// The one place a toast is raised. Falling back to a system notification when our own
-// window is not there is not politeness: a bug in the stack must not mean mail arrives
-// silently. The fallback is a degraded one, not the behaviour this feature replaced - it
-// carries only a title and a body, so unlike the notification it stands in for it cannot
-// be clicked to open the mail and it auto-dismisses on the OS timeout.
+// The one place a toast is raised. A stack that cannot appear used to send the mail to the
+// Windows shelf instead; it does not any more. That stand-in was worse than the silence it
+// prevented — it carried no account, honoured none of the app's settings, could not be
+// clicked to open the mail, and it appeared exactly when the app looked like it was
+// working, so what the user saw was a dead notification from an app that had a live one to
+// give. The stack is repaired instead of routed around: a window that was built but never
+// painted is thrown away and built again, which is the only thing that has ever fixed it.
 //
-// "Not there" is two things, and the second is the one that matters. A null controller
-// happens twice in the app's life, before createWindow and after the main window closes.
-// A window that was built but never painted is the failure that can last all session:
-// isBroken() is what asks about it, per notification rather than once, so a page that
-// comes back stops the fallback again. This question only covers what has not been raised
-// yet, though — whatever was already in the stack when the window went broken is past this
-// fork, and drainQueuedToasts below is what gets that out.
+// A null controller happens twice in the app's life, before createWindow and after the
+// main window closes; there is no stack to put a card in then and nothing to repair.
 function showToast(input: ToastInput): void {
-  if (toasts && !(toastWindow?.isBroken() ?? false)) {
-    toasts.show(input);
+  if (!toasts) {
+    console.warn(`[toast] no stack to show "${input.title}" in`);
     return;
   }
-  systemNotify(input.title, input.body);
+  if (toastWindow?.isBroken()) repairToastStack();
+  toasts.show(input);
 }
 
-// The degraded stand-in itself. Guarded rather than trusted, because the whole reason it
-// is here is that a notification must not be lost, and an unguarded throw would lose it
-// just as thoroughly as the window that failed.
-function systemNotify(title: string, body: string): void {
-  try {
-    if (!Notification.isSupported()) return;
-    new Notification({ title, body }).show();
-  } catch (e) {
-    console.warn('[toast] system notification fallback failed:', e);
-  }
-}
-
-// What the flag alone cannot do anything about. isBroken() only redirects the next
-// notification; the ones that are already in the stack were accepted before the page was
-// known to be dead — showToast put them there, the window was created for the first of
-// them, and the watchdog only trips a second or two later. A startup burst across several
-// accounts is entirely in that window, and past five it is not even five toasts any more
-// but a summary nobody will ever see. Nothing else revisits the stack, so this does: it
-// takes what is queued and raises each one the degraded way instead.
-//
-// Emptying and reading are one call, so a raise cannot ripple back into a stack that is
-// about to be raised anyway, and a second trip through here finds nothing. It runs once
-// per transition into broken rather than once per notification, because the window
-// announces the transition and everything after it takes the fallback in showToast. A
-// summary has no cards left to raise — they were released as they were folded into it —
-// so what goes out is the line it stands for, which is less than the mail it counts but is
-// not the silence the alternative is.
-function drainQueuedToasts(): void {
-  try {
-    const held = toasts?.drain();
-    if (!held) return;
-    for (const toast of held.toasts) systemNotify(toast.title, toast.body);
-    if (held.summary) {
-      const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-      systemNotify(L.toastSummaryTitle(held.summary.count), '');
-    }
-  } catch (e) {
-    console.warn('[toast] draining the queued stack failed:', e);
-  }
+// Called on the way into broken as well as before a raise, because the two cover different
+// cards: the cards already in the stack when the page died are past showToast's fork and
+// nothing would ever look at them again, and a rebuild alone would not redraw them. The
+// window bounds the attempts itself — a page that is broken for a reason rebuilding it
+// cannot fix must not turn every notification into a new window — and refresh() is what
+// puts the queued stack in front of the window that comes back.
+function repairToastStack(): void {
+  if (!toastWindow?.rebuild()) return;
+  toasts?.refresh();
 }
 
 // What a card was holding while it was on screen, released when it leaves by any route
@@ -2181,7 +2158,8 @@ function createWindow(): void {
       pushUnread();
       refreshBadge();
     },
-    (accountKey, surface, threadId) => activateNotification(accountKey, surface, threadId),
+    (accountKey, surface, threadId, subject) =>
+      activateNotification(accountKey, surface, threadId, subject),
     (accountKey, identity) => {
       const idx = idxOfKey(accountKey);
       if (idx != null) onIdentity(idx, identity);
@@ -2210,7 +2188,7 @@ function createWindow(): void {
     DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     () => toasts?.markReady(),
-    () => drainQueuedToasts(),
+    () => repairToastStack(),
   );
   toasts = new ToastController({
     window: toastWindow,
@@ -2804,8 +2782,12 @@ function setupUpdater(): void {
 function setupNotifications(): void {
   if (process.platform === 'win32') app.setAppUserModelId('com.gmaildesktop.app');
   const ses = session.fromPartition(SESSION_PARTITION);
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(true));
-  ses.setPermissionCheckHandler(() => true);
+  // Everything except notifications, which the app draws itself — see
+  // sessionPermissionAllowed for why granting them put mail on the Windows shelf.
+  ses.setPermissionRequestHandler((_wc, permission, callback) =>
+    callback(sessionPermissionAllowed(permission)),
+  );
+  ses.setPermissionCheckHandler((_wc, permission) => sessionPermissionAllowed(permission));
 }
 
 function registerIpc(): void {

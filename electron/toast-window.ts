@@ -79,11 +79,20 @@ export const TOAST_RENDER_TIMEOUT_MS = 2500;
  * broken page, and treating it as one would strand the window on a reload. */
 const ERR_ABORTED = -3;
 
+/** How many times a stack that cannot paint may be thrown away and built again before the
+ * app stops trying. Spent attempts are returned the moment a rebuilt window reports a
+ * size, so this bounds a run of consecutive failures rather than the session: what it is
+ * here for is the page that is broken for a reason a rebuild cannot fix — a missing
+ * document, a render error — where retrying per notification would mean a new window per
+ * mail, forever. */
+export const TOAST_REBUILD_ATTEMPTS = 3;
+
 export class ToastWindow {
   private win: BrowserWindow | null = null;
   private lastSize: { width: number; height: number } | null = null;
   private destroyed = false;
   private broken = false;
+  private rebuilds = 0;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -153,10 +162,39 @@ export class ToastWindow {
     }
   }
 
-  /** True while the stack cannot be trusted to appear, so main raises a system toast
-   * instead. Answered for every notification, not once, because the page can come back. */
+  /** True while the stack cannot be trusted to appear. Answered for every notification,
+   * not once, because the page can come back — and since rebuild() is what brings it back,
+   * this is a question about right now rather than a verdict on the session. */
   isBroken(): boolean {
     return this.destroyed || this.broken;
+  }
+
+  /**
+   * Throws away a window that could not be made to paint and lets the next send() build a
+   * fresh one. This is the only thing that has ever fixed the failure it exists for: the
+   * flag is cleared by a size report, a broken page never reports one, and reloading the
+   * same window keeps whatever state stopped it painting.
+   *
+   * Returns false when there is nothing to be done — the stack is destroyed, or the
+   * attempts are spent — so the caller can stop asking. Attempts are returned in full by
+   * the first size report from a rebuilt window, in noteAlive: what must be bounded is a
+   * page failing over and over, not a session that once had a slow load.
+   */
+  rebuild(): boolean {
+    if (this.destroyed) return false;
+    if (this.rebuilds >= TOAST_REBUILD_ATTEMPTS) {
+      console.warn(`[toast] giving up on the stack after ${this.rebuilds} rebuilds`);
+      return false;
+    }
+    this.rebuilds += 1;
+    console.warn(`[toast] rebuilding the stack (attempt ${this.rebuilds})`);
+    this.clearReadyTimer();
+    const dead = this.win;
+    this.win = null;
+    this.lastSize = null;
+    this.broken = false;
+    if (dead && !dead.isDestroyed()) dead.destroy();
+    return true;
   }
 
   private armReadyTimer(ms: number): void {
@@ -181,6 +219,9 @@ export class ToastWindow {
   noteAlive(): void {
     this.clearReadyTimer();
     this.broken = false;
+    // A stack that paints has spent no attempts: what the budget guards against is a page
+    // that fails over and over, and this one just proved it does not.
+    this.rebuilds = 0;
   }
 
   private markBroken(reason: string): void {
