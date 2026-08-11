@@ -22,6 +22,31 @@ export function calendarUrl(index: number): string {
   return SURFACE_CONFIG.calendar.url({ kind: 'authuser', index });
 }
 
+/** Below this a search term is noise rather than a subject, and lands on everything. */
+const MIN_SEARCH_TERM = 3;
+
+/**
+ * Where a notification click goes when the thread it stands for could not be identified:
+ * Gmail's own search for the subject, as a phrase. The alternative is the account's inbox,
+ * which is the app appearing to do nothing.
+ *
+ * A subject that arrives cut off — Gmail truncates, and the click carries only the first
+ * sixty characters — ends in an ellipsis, and the word before it may be half a word that
+ * no phrase contains, so that word goes. Returns null when what is left is too short to
+ * mean anything, and the caller then falls back to the account.
+ */
+export function mailSearchHash(subject: string): string | null {
+  let text = subject.replace(/["]/g, ' ').replace(/\s+/g, ' ').trim();
+  const cut = /(?:…|\.\.\.)$/.exec(text);
+  if (cut) {
+    text = text.slice(0, -cut[0].length).trim();
+    const lastSpace = text.lastIndexOf(' ');
+    text = lastSpace === -1 ? '' : text.slice(0, lastSpace).trim();
+  }
+  if (text.length < MIN_SEARCH_TERM) return null;
+  return `#search/${encodeURIComponent(`"${text}"`)}`;
+}
+
 export function isPopoutUrl(url: string): boolean {
   try {
     return new URL(url).pathname.includes('/popout');

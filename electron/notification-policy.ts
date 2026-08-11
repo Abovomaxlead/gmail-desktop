@@ -48,6 +48,20 @@ export function notificationsAllowed(
   return account?.notify !== false;
 }
 
+// Chromium's own notification permission, answered for the Google session. Everything
+// else the pages ask for is granted as before; notifications alone are refused, and that
+// refusal is the app's one defence against a notification it did not draw.
+//
+// The app's window.Notification shim lives in the page, so it never sees a notification
+// raised from inside Gmail's service worker: that one is drawn by Windows, sits outside
+// the app's own stack, ignores every setting the app has, and does nothing when clicked
+// because the click returns to a handler this wrapper leaves inert. Refusing the
+// permission is what stops it being drawn at all. It costs the app nothing, because the
+// shim relays over IPC rather than through Chromium and tells the page "granted" itself.
+export function sessionPermissionAllowed(permission: string): boolean {
+  return permission !== 'notifications';
+}
+
 export function mergeNotificationsFromPanel(
   current: NotificationPrefs,
   panel: { dnd: boolean; quietHours: QuietHours },
