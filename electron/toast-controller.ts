@@ -55,6 +55,9 @@ export interface ToastControllerHooks {
   window: ToastWindow;
   locale: () => 'en' | 'nl';
   reneMode: () => boolean;
+  /** Asked per push rather than held, for the same reason locale is: the theme can change
+   * while a card is on screen, and refresh() is then all it takes to redraw it. */
+  dark: () => boolean;
   now: () => number;
   /** A card was clicked: open the mail, the settings panel, the download — whatever it stands for. */
   onActivate: (toast: Toast) => void;
@@ -231,7 +234,7 @@ export class ToastController {
     return held;
   }
 
-  /** Re-sends the current stack, for a language or Rene-mode change. */
+  /** Re-sends the current stack, for a language, theme or Rene-mode change. */
   refresh(): void {
     this.push();
   }
@@ -292,6 +295,7 @@ export class ToastController {
       summary: this.stack.summary,
       locale: this.hooks.locale(),
       reneMode: this.hooks.reneMode(),
+      dark: this.hooks.dark(),
     };
   }
 

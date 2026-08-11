@@ -14,9 +14,13 @@ import {
 // The notification stack, one card per notification, anchored to the bottom-right of the
 // screen by main and growing upward. It is its own frameless transparent window, so as in
 // compose-account/page.tsx the card is the window and the html background must be
-// transparent or Chromium paints an opaque rectangle around the rounded corners. Dark
-// variants are inert here — the dark class is only ever put on the main document — so this
-// renders light, as the other window pages do.
+// transparent or Chromium paints an opaque rectangle around the rounded corners.
+//
+// The theme arrives resolved, in the state, and the dark class is put on this document
+// from it. That indirection is the whole point: the class the rest of the app reads is
+// only ever put on the main document, and a second window cannot see it. Reading the
+// system preference here instead would ignore an explicit light or dark choice, which is
+// two thirds of the setting.
 //
 // The card's height must not change on hover. The stack grows upward from a fixed bottom
 // edge, so a card that got taller when hovered would push the cards above it up under the
@@ -69,6 +73,14 @@ export default function ToastsPage() {
       setHoveredId(null);
     });
   }, []);
+
+  // Declared before the size report below, and that order is load-bearing: effects run in
+  // the order they are declared, main only shows this window once a size has been reported,
+  // so the class is on the document before anything is on screen. The other way round, the
+  // first card of a dark session would be painted light for the frame between the two.
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', state?.dark === true);
+  }, [state?.dark]);
 
   // Rebuilt on every state change rather than attached once: the wrap div does not exist
   // until the first card renders, so an empty dependency array would observe nothing.
@@ -146,7 +158,7 @@ export default function ToastsPage() {
                   type="button"
                   data-toast-card
                   onClick={() => window.desktop?.dismissAllToasts()}
-                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur hover:bg-white`}
+                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur hover:bg-white dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-900`}
                 >
                   {S.toastDismissAll}
                 </button>
@@ -179,9 +191,9 @@ export default function ToastsPage() {
   );
 }
 
-const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white`;
+const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
 const ACTION =
-  'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none';
+  'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none dark:text-neutral-200 dark:hover:bg-white/10';
 
 /** The summary has no toast id of its own; it needs one to be hovered like the rest. */
 const SUMMARY_ID = 'summary';
@@ -219,13 +231,15 @@ function ToastCard({
       >
         <Avatar toast={toast} color={color} />
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate pr-6 text-[13.5px] font-medium text-neutral-900">
+          <span className="truncate pr-6 text-[13.5px] font-medium text-neutral-900 dark:text-neutral-100">
             {toast.title}
           </span>
-          <span className="truncate text-[13px] text-neutral-600">{toast.body}</span>
+          <span className="truncate text-[13px] text-neutral-600 dark:text-neutral-400">
+            {toast.body}
+          </span>
           <span className="mt-1 flex h-5 items-center gap-1">
             <span
-              className={`truncate text-xs text-neutral-400 ${showActions ? 'hidden' : ''}`}
+              className={`truncate text-xs text-neutral-400 dark:text-neutral-500 ${showActions ? 'hidden' : ''}`}
             >
               {toast.account?.email ?? ''}
             </span>
@@ -281,7 +295,7 @@ function SummaryCard({
 }) {
   return (
     <div data-toast-card data-toast-id={SUMMARY_ID} className={CARD}>
-      <span aria-hidden className="w-[5px] shrink-0 bg-neutral-800" />
+      <span aria-hidden className="w-[5px] shrink-0 bg-neutral-800 dark:bg-neutral-300" />
       <button
         type="button"
         onClick={() => window.desktop?.activateToast('summary')}
@@ -289,11 +303,13 @@ function SummaryCard({
       >
         <span
           aria-hidden
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-800 text-xs font-semibold tabular-nums text-white"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-800 text-xs font-semibold tabular-nums text-white dark:bg-neutral-200 dark:text-neutral-900"
         >
           {count > 99 ? '99+' : count}
         </span>
-        <span className="truncate pr-6 text-[13.5px] font-medium text-neutral-900">{label}</span>
+        <span className="truncate pr-6 text-[13.5px] font-medium text-neutral-900 dark:text-neutral-100">
+          {label}
+        </span>
       </button>
       <CloseBox
         label={dismissLabel}
@@ -319,7 +335,7 @@ function CloseBox({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/[0.06] hover:text-neutral-700 motion-reduce:transition-none ${hovered ? 'opacity-100' : 'opacity-0'}`}
+      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/[0.06] hover:text-neutral-700 motion-reduce:transition-none dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-200 ${hovered ? 'opacity-100' : 'opacity-0'}`}
     >
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
         <path

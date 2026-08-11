@@ -120,7 +120,7 @@ import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './cont
 import { attachExternalLinkHandling, setExternalOpener } from './external-links';
 import { googleAppTarget } from './google-apps-open';
 import { DownloadHistoryStore } from './download-history';
-import { overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
+import { isDarkTheme, overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
 import { OverlayView } from './overlay-view';
 import { ComposePicker } from './compose-picker';
 import {
@@ -2101,6 +2101,7 @@ function createWindow(): void {
     window: toastWindow,
     locale: () => currentLocale(),
     reneMode: () => prefs?.getAll().reneMode === true,
+    dark: () => isDarkTheme(prefs?.getAll().theme ?? 'system', nativeTheme.shouldUseDarkColors),
     now: () => Date.now(),
     onActivate: (toast) => activateToast(toast),
     onActivateSummary: (accountKey) => {
@@ -3195,6 +3196,10 @@ function registerIpc(): void {
     prefs!.setTheme(theme);
     pushPrefs();
     applyTitleBarOverlay();
+    // The stack is its own window, so pushPrefs does not reach it: it draws from the state
+    // the controller sends and nothing else. A card already on screen when the theme is
+    // switched would otherwise keep the old one until it is dismissed.
+    toasts?.refresh();
   });
   ipcMain.on(IPC.SET_LANGUAGE, (_e, v: LanguagePref) => {
     if (v !== 'system' && v !== 'en' && v !== 'nl') return;
@@ -3275,7 +3280,12 @@ app.whenReady().then(() => {
   registerAppProtocol();
   setupNotifications();
   registerIpc();
-  nativeTheme.on('updated', () => applyTitleBarOverlay());
+  nativeTheme.on('updated', () => {
+    applyTitleBarOverlay();
+    // Only matters while the choice is "system", but the resolver is the one that knows
+    // that, and asking it costs a boolean.
+    toasts?.refresh();
+  });
   screen.on('display-metrics-changed', () => toasts?.reposition());
   createWindow();
   // Registering every launch keeps the exe path right after an update or a move, and

@@ -62,6 +62,7 @@ function harness(): Harness {
     window,
     locale: () => 'en',
     reneMode: () => false,
+    dark: () => false,
     now: () => clock,
     onActivate: () => undefined,
     onActivateSummary: () => undefined,

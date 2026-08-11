@@ -55,6 +55,12 @@ export interface ToastStack {
 export interface ToastState extends ToastStack {
   locale: 'en' | 'nl';
   reneMode: boolean;
+  /** Whether to draw the cards dark, already resolved. The stack is its own window and so
+   * its own document, and the dark class is only ever put on the main one, so the page
+   * cannot read the theme the way every other surface does. Resolved by main rather than
+   * sent as the three-way choice, because deciding what "system" means a second time here
+   * is a second place for the answer to drift from the app's. */
+  dark: boolean;
 }
 
 export type ToastAction = 'archive' | 'read';
