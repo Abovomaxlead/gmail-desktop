@@ -37,13 +37,13 @@ describe('SURFACE_CONFIG', () => {
     expect(SURFACE_CONFIG.calendar.url(u(1))).toBe('https://calendar.google.com/calendar/u/1/r');
   });
 
-  // The two surfaces that raise something the moment it happens: a reminder falls due, a
-  // mail arrives. Both are noticed by the page itself, and a throttled page notices
-  // neither until you look at the app again — by which time the notification is pointless.
-  // Everything else only has to be right when you open it.
-  it('disables background throttling for the surfaces that notify', () => {
+  // Calendar only, and mail emphatically not. Disabling throttling also freezes the Page
+  // Visibility API at "visible" (Electron's own documentation says so), and Gmail raises a
+  // desktop notification only when it believes you are not looking — so a mail view with
+  // throttling off never notifies at all. That was tried, and it silenced the whole app.
+  it('disables background throttling for calendar only', () => {
     for (const s of SURFACES) {
-      expect(SURFACE_CONFIG[s].backgroundThrottling).toBe(s !== 'calendar' && s !== 'mail');
+      expect(SURFACE_CONFIG[s].backgroundThrottling).toBe(s !== 'calendar');
     }
   });
 

@@ -17,6 +17,7 @@ import {
 } from './ipc';
 import { attachExternalLinkHandling } from './external-links';
 import { mailSearchHash } from './google-urls';
+import { notifyLog } from './notify-log';
 import type { KeyInput } from './shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, surfacesForRef, type Surface } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './account-ref';
@@ -132,7 +133,7 @@ export class ProfileViewManager {
         // because a console line inside a Gmail view is somewhere nobody is looking. It
         // records how the thread id beside it was arrived at — the one thing a click that
         // opens the wrong conversation otherwise leaves no trace of.
-        if (args[1]) console.log(`[notify] ${acctKey} lookup`, args[1]);
+        if (args[1]) notifyLog(`[notify] ${acctKey} lookup ${JSON.stringify(args[1])}`);
         // The subject travels with the click for the case the lookup failed: it is the
         // only thing left that still points at the mail, and it comes from here rather
         // than from the card because the card's text may have been replaced by the
@@ -295,7 +296,7 @@ export class ProfileViewManager {
     if (!wc || wc.isDestroyed()) {
       // Silent until now, and it is one of the ways a notification opens nothing: the view
       // for this mailbox has not been built yet, or was torn down.
-      console.log(`[notify] ${accountKey} open ${threadId}: no mail view`);
+      notifyLog(`[notify] ${accountKey} open ${threadId}: no mail view`);
       return;
     }
     // What the hash is set on matters as much as what it is set to. A view still loading
@@ -323,7 +324,7 @@ export class ProfileViewManager {
     if (!hash) return false;
     const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
     if (!wc || wc.isDestroyed()) return false;
-    console.log(`[notify] ${accountKey} no thread found, searching for the subject`);
+    notifyLog(`[notify] ${accountKey} no thread found, searching for the subject`);
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {});
     return true;
   }
@@ -360,7 +361,7 @@ export class ProfileViewManager {
       this.openMailThread(accountKey, threadId);
       const clicked = await this.clickPopoutButton(wc, `#inbox/${threadId}`);
       if (clicked) await waitUntil(() => popoutOpened, POPOUT_WINDOW_WAIT_MS);
-      console.log(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
+      notifyLog(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
       this.restoreHash(wc, before, threadId);
       return clicked;
     } finally {
@@ -380,11 +381,11 @@ export class ProfileViewManager {
   private restoreHash(wc: WebContents, before: string, threadId: string): void {
     if (wc.isDestroyed()) return;
     if (before === `#inbox/${threadId}`) {
-      console.log('[notify] mail view was already on that thread, left as it was');
+      notifyLog('[notify] mail view was already on that thread, left as it was');
       return;
     }
     const target = before || '#inbox';
-    console.log(`[notify] mail view back to ${target}`);
+    notifyLog(`[notify] mail view back to ${target}`);
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(target)}`).catch(() => {});
   }
 

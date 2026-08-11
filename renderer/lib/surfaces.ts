@@ -61,14 +61,14 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
     host: 'mail.google.com',
     url: (ref) =>
       ref.kind === 'delegated' ? delegatedMailUrl(ref) : `https://mail.google.com/mail/u/${ref.index}/`,
-    // Off, for the same reason Calendar has it off. Chromium throttles a page whose window
-    // is covered by another one, and this page is the only thing that notices new mail:
-    // Gmail raises the notification, the app relays and draws it. Throttled, it notices
-    // nothing until you look at the app again — which is every moment a notification was
-    // supposed to be for. It went unseen for as long as Gmail's service worker was still
-    // putting its own notification on the Windows shelf, outside the app and past every
-    // setting in it; that route is closed now, so this page has to keep running.
-    backgroundThrottling: false,
+    // On, and it must stay on however tempting the alternative looks. Turning it off does
+    // not only stop the throttling: Electron's own documentation says it "also affects the
+    // Page Visibility API", so the page then reports itself visible whatever the window is
+    // doing. Gmail raises a desktop notification only when it believes you are not looking
+    // at it, so a mail view that always claims to be visible raises nothing at all, ever —
+    // tried, and it silenced every notification in the app. Calendar can have it off
+    // because a reminder falls due whether you are looking or not.
+    backgroundThrottling: true,
   },
   calendar: {
     label: 'Calendar',

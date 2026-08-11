@@ -17,7 +17,7 @@
 // unread source at a time (labels.get under push, page title otherwise) or the number
 // oscillates; and reveal/open accept only paths already in the download log.
 
-import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, nativeTheme } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, Notification, nativeTheme } from 'electron';
 import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
@@ -114,6 +114,7 @@ import {
   mergeNotificationsFromPanel,
   sessionPermissionAllowed,
 } from './notification-policy';
+import { notifyLog, openNotifyLog } from './notify-log';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
 import { createUpdateLog, type UpdateLogger } from './update-log';
@@ -1031,13 +1032,29 @@ function refreshNotifyAllowed(): void {
   }
   for (const profile of profiles) {
     for (const surface of SURFACES) {
+      const show = notificationsAllowed(p, profile.email, now, surface, coverage.has(profile.email));
+      // Only mail, and only when it changes: this runs every minute for every account and
+      // every surface, and a log that repeats the same thing sixty times an hour hides the
+      // line that matters. What matters is that a mail view told to keep quiet raises
+      // nothing at all, which from the outside is indistinguishable from mail not arriving.
+      if (surface === 'mail' && notifyAllowedLast.get(profile.email) !== show) {
+        notifyAllowedLast.set(profile.email, show);
+        notifyLog(
+          `[notify] mail view for ${profile.email} may notify: ${show}` +
+            (show ? '' : ` (dnd=${p.notifications.dnd} quiet=${p.notifications.quietHours.enabled} account=${p.accounts[profile.email]?.notify !== false} push=${coverage.has(profile.email)})`),
+        );
+      }
       manager?.pushNotifyAllowed(keyOf(profile), surface, {
-        show: notificationsAllowed(p, profile.email, now, surface, coverage.has(profile.email)),
+        show,
         silent: notificationSilent(p, profile.email, surface),
       });
     }
   }
 }
+
+/** What each mail view was last told, so the line above is written on a change and not on
+ * every tick of the minute timer. */
+const notifyAllowedLast = new Map<string, boolean>();
 
 function reportApiUnread(email: string, count: number | null): void {
   if (count === null) return;
@@ -1839,8 +1856,8 @@ function activateNotification(
   // another label, or showing a conversation, so there was no list to match the subject
   // against. The subject itself is still a lead, and Gmail's own search follows it; only
   // when there is not even that does the click settle for the account.
-  console.log(
-    `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} mode=${windowMode ? 'window' : 'inline'}`,
+  notifyLog(
+    `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}`,
   );
   // A window of its own means exactly that: popOutThread borrows the mail view to reach
   // Gmail's pop-out button and then puts it back, so the main window is not left showing
@@ -1881,23 +1898,46 @@ function toastAccountFor(email: string): ToastAccount | undefined {
   };
 }
 
-// The one place a toast is raised. A stack that cannot appear used to send the mail to the
-// Windows shelf instead; it does not any more. That stand-in was worse than the silence it
-// prevented — it carried no account, honoured none of the app's settings, could not be
-// clicked to open the mail, and it appeared exactly when the app looked like it was
-// working, so what the user saw was a dead notification from an app that had a live one to
-// give. The stack is repaired instead of routed around: a window that was built but never
-// painted is thrown away and built again, which is the only thing that has ever fixed it.
+// The one place a toast is raised, and the one place that decides where it goes.
+//
+// The app's own stack first, always: it carries the account, honours every setting, and
+// opens the mail when clicked. A stack that cannot paint is repaired rather than routed
+// around — thrown away and built again, which is the only thing that has ever fixed it.
+//
+// The Windows shelf is what is left when that fails, and it is a poor stand-in: no
+// account, no settings, dead on click. It was taken out entirely, and that was a step too
+// far — a stack that could not paint then meant no notification at all, which is the one
+// outcome worse than a poor one. So it is back, but only after the repair has been tried
+// and refused, and it says so in the log: a system notification now means the stack is
+// broken, and the lines above it in notify.log say why.
 //
 // A null controller happens twice in the app's life, before createWindow and after the
 // main window closes; there is no stack to put a card in then and nothing to repair.
 function showToast(input: ToastInput): void {
   if (!toasts) {
-    console.warn(`[toast] no stack to show "${input.title}" in`);
+    notifyLog(`[toast] no stack at all to show "${input.title}" in — falling back to Windows`);
+    systemNotify(input.title, input.body);
     return;
   }
-  if (toastWindow?.isBroken()) repairToastStack();
+  if (toastWindow?.isBroken() && !repairToastStack()) {
+    notifyLog(`[toast] stack cannot be repaired — "${input.title}" goes to Windows instead`);
+    systemNotify(input.title, input.body);
+    return;
+  }
+  notifyLog(`[toast] stack draws "${input.title}"`);
   toasts.show(input);
+}
+
+// The stand-in itself. Guarded rather than trusted, because the whole reason it is here is
+// that a notification must not be lost, and an unguarded throw would lose it just as
+// thoroughly as the stack that failed.
+function systemNotify(title: string, body: string): void {
+  try {
+    if (!Notification.isSupported()) return;
+    new Notification({ title, body }).show();
+  } catch (e) {
+    notifyLog(`[toast] even the system notification failed: ${String(e)}`);
+  }
 }
 
 // Called on the way into broken as well as before a raise, because the two cover different
@@ -1906,9 +1946,10 @@ function showToast(input: ToastInput): void {
 // window bounds the attempts itself — a page that is broken for a reason rebuilding it
 // cannot fix must not turn every notification into a new window — and refresh() is what
 // puts the queued stack in front of the window that comes back.
-function repairToastStack(): void {
-  if (!toastWindow?.rebuild()) return;
+function repairToastStack(): boolean {
+  if (!toastWindow?.rebuild()) return false;
   toasts?.refresh();
+  return true;
 }
 
 // What a card was holding while it was on screen, released when it leaves by any route
@@ -1935,7 +1976,7 @@ function activateToast(toast: Toast): void {
     }
     // The view is gone, so nothing can resolve the thread. Showing the account beats
     // swallowing the click.
-    console.log(`[notify] click ${toast.webNotifyId}: source view gone, opening the account`);
+    notifyLog(`[notify] click ${toast.webNotifyId}: source view gone, opening the account`);
     if (toast.account) activateNotification(toast.account.key, 'mail');
     return;
   }
@@ -1994,7 +2035,7 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   // and nothing downstream records it. This one is push: the thread id comes from the Gmail
   // API and is the mail itself, so a click that still lands wrong is about opening, not
   // about finding.
-  console.log(`[notify] raise push ${email} thread=${meta.threadId}`);
+  notifyLog(`[notify] raise push ${email} thread=${meta.threadId}`);
   showToast({
     kind: 'mail',
     title: hidden.hiddenSender ?? (displayName(meta.from) || email),
@@ -2160,6 +2201,10 @@ function startPush(): void {
 let firstWindow = true;
 
 function createWindow(): void {
+  // Opened before anything can raise a notification, so the first mail of the session is
+  // in it. Where: beside prefs.json in userData, as notify.log.
+  openNotifyLog(join(app.getPath('userData'), 'notify.log'));
+  notifyLog(`[notify] --- app start, ${app.getVersion()}${DEV_URL ? ' (dev)' : ''} ---`);
   prefs = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
   const stored = prefs.getAll().window;
   const bounds = clampBoundsToDisplays(
@@ -2976,7 +3021,7 @@ function registerIpc(): void {
     // The other path: relayed from Gmail's own page, which sends no thread id, so a click
     // has to go back and guess from the subject. Paired with the lookup line the view logs
     // on that click.
-    console.log(`[notify] raise web ${profile.email} src=${sourceKey}`);
+    notifyLog(`[notify] raise web ${profile.email} src=${sourceKey}`);
     showToast({
       kind: 'mail',
       title: hidden.hiddenSender ?? arg.title,

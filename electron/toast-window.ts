@@ -58,6 +58,7 @@
 
 import { BrowserWindow, screen } from 'electron';
 import { containsPoint, exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
+import { notifyLog } from './notify-log';
 import { TOAST_WIDTH } from '../renderer/lib/toast';
 
 /** Stage one: how long the page gets, from window creation, to load its document at all.
@@ -153,7 +154,7 @@ export class ToastWindow {
       this.win = win;
       return win;
     } catch (e) {
-      console.warn('[toast] window creation failed:', e);
+      notifyLog(`[toast] window creation failed: ${String(e)}`);
       this.win = null;
       // No window at all is as broken as a window that never paints, and main has to be
       // told either way or the notification goes nowhere.
@@ -183,11 +184,11 @@ export class ToastWindow {
   rebuild(): boolean {
     if (this.destroyed) return false;
     if (this.rebuilds >= TOAST_REBUILD_ATTEMPTS) {
-      console.warn(`[toast] giving up on the stack after ${this.rebuilds} rebuilds`);
+      notifyLog(`[toast] giving up on the stack after ${this.rebuilds} rebuilds`);
       return false;
     }
     this.rebuilds += 1;
-    console.warn(`[toast] rebuilding the stack (attempt ${this.rebuilds})`);
+    notifyLog(`[toast] rebuilding the stack (attempt ${this.rebuilds})`);
     this.clearReadyTimer();
     const dead = this.win;
     this.win = null;
@@ -227,7 +228,7 @@ export class ToastWindow {
   private markBroken(reason: string): void {
     this.clearReadyTimer();
     if (this.broken) return;
-    console.warn(`[toast] ${reason}`);
+    notifyLog(`[toast] ${reason}`);
     this.broken = true;
     // Next turn, not this one: this can be reached from inside a send() the controller is
     // running, and the owner answers by emptying that controller. A page that came back in
@@ -237,7 +238,7 @@ export class ToastWindow {
       try {
         this.onBroken();
       } catch (e) {
-        console.warn('[toast] broken handler failed:', e);
+        notifyLog(`[toast] broken handler failed: ${String(e)}`);
       }
     });
   }

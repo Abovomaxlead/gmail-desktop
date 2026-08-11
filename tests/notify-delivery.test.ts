@@ -19,16 +19,17 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { SURFACE_CONFIG } from '../renderer/lib/surfaces';
 import type { AccountRef } from '../renderer/lib/account-ref';
 
-describe('mail is not throttled while the window is in the background', () => {
-  it('keeps the mail page running, like Calendar', () => {
-    expect(SURFACE_CONFIG.mail.backgroundThrottling).toBe(false);
-    expect(SURFACE_CONFIG.calendar.backgroundThrottling).toBe(false);
+describe('the mail view keeps its visibility signal', () => {
+  // Turning throttling off for mail looks like the fix for "no notification while the
+  // window is covered" and is the opposite: it also pins the Page Visibility API at
+  // "visible", and Gmail only notifies when it believes you are not looking. Tried once,
+  // and every notification in the app stopped. This test is the note that says so.
+  it('leaves mail throttled, whatever it costs in liveliness', () => {
+    expect(SURFACE_CONFIG.mail.backgroundThrottling).toBe(true);
   });
 
-  it('leaves the surfaces that raise nothing throttled', () => {
-    for (const surface of ['drive', 'docs', 'sheets'] as const) {
-      expect(SURFACE_CONFIG[surface].backgroundThrottling).toBe(true);
-    }
+  it('leaves calendar unthrottled, since a reminder falls due unwatched', () => {
+    expect(SURFACE_CONFIG.calendar.backgroundThrottling).toBe(false);
   });
 });
 
