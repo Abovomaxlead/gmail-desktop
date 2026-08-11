@@ -714,7 +714,15 @@ function removeAccount(email: string): void {
   pushUnread();
   refreshBadge();
   startPush();
-  if (wasActive && profiles[0]) showAccount(profiles[0].ref, 'mail');
+  // profiles[0] is not necessarily openable: authIdx returns -1 for every delegated
+  // profile, so a mailbox known only by address (no mailUrl yet) sorts ahead of every
+  // authuser account and would otherwise be handed to showAccount, which now refuses it —
+  // leaving the window showing nothing at all where a removal used to always land on
+  // something. Pick the first profile that actually has a mail surface instead.
+  if (wasActive) {
+    const next = profiles.find((p) => surfacesForRef(p.ref).includes('mail'));
+    if (next) showAccount(next.ref, 'mail');
+  }
 }
 
 function showAccount(ref: AccountRef, surface: Surface): void {

@@ -17,7 +17,7 @@ import {
 } from './ipc';
 import { attachExternalLinkHandling } from './external-links';
 import type { KeyInput } from './shortcuts';
-import { SURFACES, SURFACE_CONFIG, surfaceForUrl, type Surface } from '../renderer/lib/surfaces';
+import { SURFACES, SURFACE_CONFIG, surfaceForUrl, surfacesForRef, type Surface } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './account-ref';
 
 export type { Surface };
@@ -76,6 +76,15 @@ export class ProfileViewManager {
     const k = viewKey(acctKey, surface);
     if (this.views.has(k)) {
       if (visible) this.show(ref, surface);
+      return;
+    }
+    // The one funnel every caller of ensureView/show/warm passes through before a view is
+    // ever built: a (ref, surface) pair outside surfacesForRef has no URL to load —
+    // SURFACE_CONFIG[surface].url(ref) below would throw — so it is refused here, once,
+    // rather than trusted to every caller (a sidebar click, a keyboard shortcut, the
+    // fallback after removing an account) to have checked first.
+    if (!urlOverride && !surfacesForRef(ref).includes(surface)) {
+      console.warn(`[view] refusing to open ${surface} for ${acctKey}: no url captured yet`);
       return;
     }
     const view = new WebContentsView({
