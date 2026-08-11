@@ -37,7 +37,6 @@ import {
   type CachedAccount,
 } from './account-cache';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
-import { planDelegated } from './delegation-planner';
 import { canRunDelegatedApiScan } from './delegated-discovery-gate';
 import { ColorStore } from './color-store';
 import { RemovedStore } from './removed-store';
@@ -374,38 +373,32 @@ async function scanSwitcherEntries(
   return parseDelegatedEntries(raw).map((e) => ({ email: e.email, mailUrl: e.mailUrl }));
 }
 
-function suggestableDelegates(
-  entries: Array<{ email: string; mailUrl: string }>,
-  respectRemoved: boolean,
-): Array<{ email: string; mailUrl: string }> {
-  const removedKeys = respectRemoved ? (removed?.list().map((e) => `d:${e.toLowerCase()}`) ?? []) : [];
-  return planDelegated(entries, [...seenEmails], removedKeys)
-    .filter((e) => !profiles.some((p) => p.email.toLowerCase() === e.email))
-    .map((e) => ({ email: e.email, mailUrl: e.mailUrl }));
-}
-
-async function scanDelegatedSuggestions(): Promise<Array<{ email: string; mailUrl: string }>> {
-  return suggestableDelegates(await scanSwitcherEntries(), false);
-}
-
-function pushDelegatedSuggestions(suggestions: Array<{ email: string; mailUrl: string }>): void {
-  mainWindow?.webContents.send(IPC.DELEGATED_SUGGESTIONS, { suggestions });
-}
-
 let delegatedScanStarted = false;
-async function refreshAndSuggestDelegated(): Promise<void> {
+/**
+ * Re-reads the switcher to catch a rotated opaque id, so a stored mailbox keeps opening.
+ *
+ * This is all the switcher is for now. It used to be where delegated mailboxes were
+ * *discovered* — the scan proposed addresses and the "+" menu offered them — and that is
+ * gone: membership comes from Google's delegation administration through the relay, which is
+ * an answer rather than a reading of someone else's markup.
+ *
+ * What is left cannot be moved to the API, and not for want of trying. The web view needs
+ * `/mail/u/<n>/d/<opaque-id>/`; no API returns that id, it cannot be built from the address
+ * (`/mail/b/<address>/` silently opens your own mailbox, which is worse than an error), and
+ * it rotates, so capturing it once does not hold. Losing this would mean a delegated mailbox
+ * you may use over the API and can never look at.
+ */
+async function refreshDelegatedUrls(): Promise<void> {
   if (!delegated || !manager) return;
   const entries = await scanSwitcherEntries();
   const stored = delegated.list();
-  // Only compare against entries the switcher scrape could plausibly still see: an
-  // API-discovered mailbox (mailUrl null) inflates `stored` without ever showing up here,
-  // since the scrape reads account 0 only while the API is asked with the active account.
-  // Counting those against the scrape would make this bail out forever the moment the API
-  // adds even one such mailbox, killing both the suggestion push below and the only code
-  // that ever writes a real mailUrl onto a stored entry.
+  // Only compare against entries the switcher could plausibly still see: an API-discovered
+  // mailbox (mailUrl null) inflates `stored` without ever showing up here, since this reads
+  // account 0 only while the API is asked with the active account. Counting those against
+  // the scrape would make this bail out forever the moment the API adds one, killing the
+  // only code that ever writes a real mailUrl onto a stored entry.
   if (entries.length < stored.filter((d) => d.mailUrl !== null).length) return;
   applySwitcherUrls(entries);
-  if (entries.length > 0) pushDelegatedSuggestions(suggestableDelegates(entries, true));
 }
 
 /** Writes the URLs a scrape found onto the stored mailboxes, and tells the interface.
@@ -480,7 +473,7 @@ async function resolveDelegatedUrls(): Promise<void> {
  * is. The loop returns on the first requester that gets an answer, so only one person's
  * delegations are ever discovered per call — trying the rest is only for when the active
  * account itself cannot reach the relay. */
-async function refreshDelegatedFromApi(): Promise<void> {
+async function refreshDelegatedFromApi(opts: { asked?: boolean } = {}): Promise<void> {
   const url = delegatedMailboxesUrl();
   if (!url || !delegated) return;
   const cfg = oauthConfig();
@@ -495,8 +488,21 @@ async function refreshDelegatedFromApi(): Promise<void> {
       continue;
     }
     const known = new Set(profiles.map((p) => p.email.toLowerCase()));
-    const fresh = res.mailboxes.filter((email) => !known.has(email) && !removed?.has(email));
-    if (fresh.length === 0) return;
+    // A removal outranks a background scan and loses to an explicit one. Startup must not
+    // undo a mailbox you deliberately closed, or it comes back every morning; but asking for
+    // a look is the only way back in, and there is no other control that clears the flag —
+    // the suggestion list that used to do it is gone along with the DOM discovery it belonged
+    // to. Without this fork a removal would be permanent, which nothing in the interface says.
+    const fresh = res.mailboxes.filter(
+      (email) => !known.has(email) && (opts.asked === true || !removed?.has(email)),
+    );
+    if (fresh.length === 0) {
+      if (opts.asked) console.log('[delegated] nothing to add: no delegations beyond what is here');
+      return;
+    }
+    // Asked for, so the removal goes with it. Done before the upsert: loadDelegatedProfiles
+    // consults the removed list too, and would drop the profile straight back out.
+    if (opts.asked) for (const email of fresh) removed?.remove(email);
     // Plain upserts, not mergeScan: upsert is where the keep-the-url rule lives (delegated
     // store), so writing an address over a mailbox the switcher already gave a URL to is
     // harmless.
@@ -2333,7 +2339,7 @@ function createWindow(): void {
     void pushDefaultMailStatus();
     if (!delegatedScanStarted) {
       delegatedScanStarted = true;
-      setTimeout(() => void refreshAndSuggestDelegated(), 7000);
+      setTimeout(() => void refreshDelegatedUrls(), 7000);
     }
     applyReneZoom();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
@@ -2903,19 +2909,14 @@ function registerIpc(): void {
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
+  // "Look for delegated mailboxes" now asks the relay instead of reading Gmail's account
+  // menu, so it no longer has to bring account 0 to the front and put it back: nothing is
+  // read from a page. Whatever it finds is added straight away rather than offered as a
+  // suggestion — the app is not guessing any more, it is being told, and there is nothing
+  // for the user to confirm about a delegation Google has already recorded.
   ipcMain.on(IPC.ADD_DELEGATED, () => {
-    const before = activeView();
-    manager?.show(authRef(0), 'mail');
-    void scanDelegatedSuggestions().then((s) => {
-      if (before && !settingsPanelOpen && manager?.isShowing(keyOfIndex(0), 'mail')) {
-        showAccount(before.ref, before.surface);
-      }
-      pushDelegatedSuggestions(s);
-    });
+    void refreshDelegatedFromApi({ asked: true });
   });
-  ipcMain.on(IPC.ADD_DELEGATED_SUGGESTION, (_e, arg: { email: string; mailUrl: string }) =>
-    addDelegatedMailbox(arg.email, arg.mailUrl),
-  );
   ipcMain.on(IPC.SET_COLOR, (_e, arg: { email: string; color: string }) => {
     colors!.set(arg.email, arg.color);
     const p = profiles.find((x) => x.email === arg.email);

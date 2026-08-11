@@ -47,11 +47,6 @@ export interface Profile {
 }
 export type { Surface };
 
-export interface DelegatedSuggestion {
-  email: string;
-  mailUrl: string;
-}
-
 export type UpdateState =
   | 'idle'
   | 'checking'
@@ -151,8 +146,6 @@ interface DesktopBridge {
   redetect(): void;
   addAccount(): void;
   addDelegated(): void;
-  addDelegatedSuggestion(arg: { email: string; mailUrl: string }): void;
-  onDelegatedSuggestions(cb: (arg: { suggestions: DelegatedSuggestion[] }) => void): void;
   setColor(email: string, color: string): void;
   removeAccount(email: string): void;
   toggleSettings(open: boolean): void;
@@ -271,9 +264,6 @@ export default function AppShell() {
   const [dropItems, setDropItems] = useState<MailDropItem[] | null>(null);
   const [update, setUpdate] = useState<UpdateStatus>({ state: 'idle' });
   const [prefs, setPrefs] = useState<Prefs | null>(null);
-  const [suggestions, setSuggestions] = useState<DelegatedSuggestion[]>([]);
-  const [scanning, setScanning] = useState(false);
-  const [scanDone, setScanDone] = useState(false);
   const S = getStrings(prefs?.locale ?? 'en', prefs?.reneMode === true);
   const [isDefaultMail, setIsDefaultMail] = useState(false);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -290,11 +280,6 @@ export default function AppShell() {
       });
     });
     bridge.onUnreadChanged(setUnread);
-    bridge.onDelegatedSuggestions(({ suggestions: s }) => {
-      setSuggestions(s);
-      setScanning(false);
-      setScanDone(true);
-    });
     bridge.onSettingsForceClose(() => setSettingsOpen(false));
     bridge.onSettingsForceOpen(() => setSettingsOpen(true));
     bridge.onMailDropPreview(({ items }) => setDropItems(items));
@@ -364,13 +349,11 @@ export default function AppShell() {
   }
   function addDelegated() {
     if (settingsOpen) setSettingsOpen(false);
-    setScanning(true);
-    setScanDone(false);
+    // Nothing to track here any more. This used to raise a "looking…" state that a
+    // suggestion message cleared; discovery now asks the relay and whatever it finds arrives
+    // through onProfilesChanged like any other account, so the tab appearing in the bar is
+    // the feedback.
     window.desktop?.addDelegated();
-  }
-  function acceptSuggestion(s: DelegatedSuggestion) {
-    setSuggestions((cur) => cur.filter((x) => x.email !== s.email));
-    window.desktop?.addDelegatedSuggestion(s);
   }
   function redetect() {
     if (settingsOpen) setSettingsOpen(false);
@@ -394,10 +377,6 @@ export default function AppShell() {
     window.desktop?.setAccountOrder(emails);
   }
 
-  const freshSuggestions = suggestions.filter(
-    (s) => !profiles.some((p) => p.email.toLowerCase() === s.email.toLowerCase()),
-  );
-
   return (
     <div className="flex h-screen w-full flex-col bg-neutral-100 text-neutral-800 dark:bg-neutral-950 dark:text-neutral-200">
       <Topbar
@@ -409,14 +388,10 @@ export default function AppShell() {
         settingsOpen={settingsOpen}
         update={update}
         strings={S}
-        suggestions={freshSuggestions}
-        scanning={scanning}
-        scanDone={scanDone}
         onOpen={open}
         onPopupMenu={popupMenu}
         onAddAccount={addAccount}
         onAddDelegated={addDelegated}
-        onAcceptSuggestion={acceptSuggestion}
         onOpenSettings={openSettings}
         onInstallUpdate={() => window.desktop?.installUpdate()}
         onReorder={reorder}

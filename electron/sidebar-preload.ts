@@ -37,11 +37,6 @@ contextBridge.exposeInMainWorld('desktop', {
   redetect: (): void => ipcRenderer.send(IPC.REDETECT),
   addAccount: (): void => ipcRenderer.send(IPC.ADD_ACCOUNT),
   addDelegated: (): void => ipcRenderer.send(IPC.ADD_DELEGATED),
-  addDelegatedSuggestion: (arg: { email: string; mailUrl: string }): void =>
-    ipcRenderer.send(IPC.ADD_DELEGATED_SUGGESTION, arg),
-  onDelegatedSuggestions: (cb: (arg: { suggestions: { email: string; mailUrl: string }[] }) => void): void => {
-    ipcRenderer.on(IPC.DELEGATED_SUGGESTIONS, (_e, arg) => cb(arg));
-  },
   setColor: (email: string, color: string): void =>
     ipcRenderer.send(IPC.SET_COLOR, { email, color }),
   removeAccount: (email: string): void => ipcRenderer.send(IPC.REMOVE_ACCOUNT, { email }),

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AccountTab } from './AccountTab';
 import { planTabMenu, tabMenuChoices } from './tab-menu';
-import { planPlusMenu, suggestionEmail, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
+import { planPlusMenu, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import { accountCountVisible } from '../lib/badge-visibility';
@@ -11,7 +11,7 @@ import { pinnedSurfacesFor, surfaceLabel } from '../lib/google-apps';
 import { openableSurfaces } from '../lib/surfaces';
 import { playSound } from '../lib/notification-sound';
 import { SURFACE_ICON_DATA_URIS } from '../lib/surface-icon-data';
-import type { Profile, Surface, DelegatedSuggestion, UpdateStatus, Prefs } from './page';
+import type { Profile, Surface, UpdateStatus, Prefs } from './page';
 
 // The bar is the window's own title bar, which sets two rules for this whole file.
 // The empty middle has `-webkit-app-region: drag` - that is what you grab the window
@@ -73,14 +73,10 @@ export function Topbar({
   settingsOpen,
   update,
   strings,
-  suggestions,
-  scanning,
-  scanDone,
   onOpen,
   onPopupMenu,
   onAddAccount,
   onAddDelegated,
-  onAcceptSuggestion,
   onOpenSettings,
   onInstallUpdate,
   onReorder,
@@ -92,15 +88,11 @@ export function Topbar({
   labelFor(p: Profile): string;
   settingsOpen: boolean;
   update: UpdateStatus;
-  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
-  suggestions: DelegatedSuggestion[];
-  scanning: boolean;
-  scanDone: boolean;
+  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   onOpen(key: string, surface: Surface): void;
   onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onAddAccount(): void;
   onAddDelegated(): void;
-  onAcceptSuggestion(s: DelegatedSuggestion): void;
   onOpenSettings(): void;
   onInstallUpdate(): void;
   onReorder(fromEmail: string, toEmail: string): void;
@@ -124,15 +116,10 @@ export function Topbar({
 
   async function openPlusMenu(): Promise<void> {
     setPlusOpen(true);
-    const picked = await onPopupMenu(
-      planPlusMenu({ strings, suggestions, scanning, scanDone }),
-    );
+    const picked = await onPopupMenu(planPlusMenu({ strings }));
     setPlusOpen(false);
     if (picked === PLUS_ADD_ACCOUNT) return onAddAccount();
     if (picked === PLUS_ADD_DELEGATED) return onAddDelegated();
-    const email = picked ? suggestionEmail(picked) : null;
-    const suggestion = suggestions.find((s) => s.email === email);
-    if (suggestion) onAcceptSuggestion(suggestion);
   }
 
   async function openTabMenu(p: Profile): Promise<void> {
@@ -194,11 +181,6 @@ export function Topbar({
           >
             <PlusIcon className="h-4 w-4" />
           </button>
-          {suggestions.length > 0 && !plusOpen && (
-            <span className="pointer-events-none absolute -right-0.5 -top-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-blue-500 px-1 text-[9px] font-bold leading-none text-white">
-              {suggestions.length}
-            </span>
-          )}
         </div>
 
         <div className="min-w-[60px] flex-1" />
