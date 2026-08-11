@@ -37,9 +37,13 @@ describe('SURFACE_CONFIG', () => {
     expect(SURFACE_CONFIG.calendar.url(u(1))).toBe('https://calendar.google.com/calendar/u/1/r');
   });
 
-  it('only disables background throttling for calendar (reminder timing)', () => {
+  // The two surfaces that raise something the moment it happens: a reminder falls due, a
+  // mail arrives. Both are noticed by the page itself, and a throttled page notices
+  // neither until you look at the app again — by which time the notification is pointless.
+  // Everything else only has to be right when you open it.
+  it('disables background throttling for the surfaces that notify', () => {
     for (const s of SURFACES) {
-      expect(SURFACE_CONFIG[s].backgroundThrottling).toBe(s !== 'calendar');
+      expect(SURFACE_CONFIG[s].backgroundThrottling).toBe(s !== 'calendar' && s !== 'mail');
     }
   });
 

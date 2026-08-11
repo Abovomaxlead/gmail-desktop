@@ -358,7 +358,7 @@ export class ProfileViewManager {
     wc.once('did-create-window', onCreated);
     try {
       this.openMailThread(accountKey, threadId);
-      const clicked = await this.clickPopoutButton(wc);
+      const clicked = await this.clickPopoutButton(wc, `#inbox/${threadId}`);
       if (clicked) await waitUntil(() => popoutOpened, POPOUT_WINDOW_WAIT_MS);
       console.log(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
       this.restoreHash(wc, before, threadId);
@@ -391,8 +391,19 @@ export class ProfileViewManager {
   // Matched by Gmail's stable jslog action id first, then by a localized aria-label. The
   // button only appears once the thread has rendered, so this retries rather than asking
   // once.
-  private async clickPopoutButton(wc: WebContents): Promise<boolean> {
+  //
+  // `wantedHash` is what keeps the click honest, and leaving it out is how a notification
+  // opened a completely different mail. Opening the thread and clicking the button are two
+  // steps with a Gmail navigation in between: while that navigation is still in flight the
+  // conversation that was open before is on screen, with its own pop-out button, and this
+  // script would find it and pop out that mail instead. A button is only clicked once the
+  // page says it is on the thread that was asked for, and a hash that never arrives ends
+  // as no click at all — the caller then opens its own window on the right thread, which
+  // beats a window on the wrong one.
+  private async clickPopoutButton(wc: WebContents, wantedHash: string): Promise<boolean> {
     const clickScript = `(() => {
+      const wantedHash = ${JSON.stringify(wantedHash)};
+      if (location.hash !== wantedHash) return false;
       const byLog = Array.from(document.querySelectorAll('button[jslog],[role="button"][jslog]'))
         .find((b) => /(?:^|[;\\s])170693(?:[;\\s]|$)/.test(b.getAttribute('jslog') || ''));
       const byLabel = () => Array.from(document.querySelectorAll('[aria-label]'))
