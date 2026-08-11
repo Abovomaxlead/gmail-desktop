@@ -362,9 +362,13 @@ function loadDelegatedProfiles(): void {
   }
 }
 
-async function scanSwitcherEntries(): Promise<Array<{ email: string; mailUrl: string }>> {
+/** One account's switcher. Defaults to the first, which is where a delegation almost always
+ * shows up and is the only one the periodic refresh has ever needed to read. */
+async function scanSwitcherEntries(
+  acctKey: string = keyOfIndex(0),
+): Promise<Array<{ email: string; mailUrl: string }>> {
   if (!manager) return [];
-  const raw = await manager.scrapeSwitcher(keyOfIndex(0), SWITCHER_SCRAPE_JS).catch(() => []);
+  const raw = await manager.scrapeSwitcher(acctKey, SWITCHER_SCRAPE_JS).catch(() => []);
   return parseDelegatedEntries(raw).map((e) => ({ email: e.email, mailUrl: e.mailUrl }));
 }
 
@@ -398,9 +402,21 @@ async function refreshAndSuggestDelegated(): Promise<void> {
   // adds even one such mailbox, killing both the suggestion push below and the only code
   // that ever writes a real mailUrl onto a stored entry.
   if (entries.length < stored.filter((d) => d.mailUrl !== null).length) return;
+  applySwitcherUrls(entries);
+  if (entries.length > 0) pushDelegatedSuggestions(suggestableDelegates(entries, true));
+}
+
+/** Writes the URLs a scrape found onto the stored mailboxes, and tells the interface.
+ *
+ * Two jobs in one loop, because they are the same write. A mailbox whose opaque id rotated
+ * gets its new URL; a mailbox the API discovered gets its first one, going from a row that
+ * only names it to a row that opens. The views are discarded either way — they were loaded
+ * from a URL that is no longer the one to use, or from no URL at all. */
+function applySwitcherUrls(entries: Array<{ email: string; mailUrl: string }>): void {
+  if (!delegated || !manager) return;
   const freshByEmail = new Map(entries.map((e) => [e.email.toLowerCase(), e.mailUrl]));
   let changed = false;
-  for (const d of stored) {
+  for (const d of delegated.list()) {
     const fresh = freshByEmail.get(d.email.toLowerCase());
     if (!fresh || fresh === d.mailUrl) continue;
     delegated.upsert({ ...d, mailUrl: fresh });
@@ -412,7 +428,46 @@ async function refreshAndSuggestDelegated(): Promise<void> {
     }
   }
   if (changed) pushProfiles();
-  if (entries.length > 0) pushDelegatedSuggestions(suggestableDelegates(entries, true));
+}
+
+/** Which stored mailboxes are known by address and cannot be opened yet. */
+function delegatedWithoutUrl(): string[] {
+  return (delegated?.list() ?? []).filter((d) => d.mailUrl === null).map((d) => d.email);
+}
+
+/**
+ * Finds the web URL for mailboxes the API discovered, so the answer to "may I reach this" and
+ * the answer to "where is it" do not have to come from the same place.
+ *
+ * That split is the point. Membership comes from Google's delegation administration, through
+ * the relay; the URL comes from the switcher, which is the only place the opaque id in
+ * `/mail/u/<n>/d/<id>/` exists at all — no API returns it, and it cannot be built from the
+ * address. Tested rather than assumed: `/mail/b/<address>/` silently lands on your own
+ * mailbox, which is worse than an error, and `/mail/u/<address>/` errors outright.
+ *
+ * Asked account by account and stopped the moment nothing is left, because a scrape is not
+ * free: it clicks the avatar in that account's live mail view and then waits up to eight
+ * seconds for Google's widget frame. Doing that for every account on every start would be
+ * visible activity in service of a question that is usually already answered. Account 0
+ * first, since a delegation nearly always appears there; the others only exist as a path for
+ * a mailbox delegated to a second account, which the API can see and account 0's switcher
+ * cannot.
+ *
+ * Whatever is still without a URL afterwards keeps its "open it once in Gmail" row. That is
+ * the honest last resort, not the plan.
+ */
+async function resolveDelegatedUrls(): Promise<void> {
+  if (!delegated || !manager) return;
+  if (delegatedWithoutUrl().length === 0) return;
+  for (const own of profiles.filter((p) => p.kind === 'authuser')) {
+    applySwitcherUrls(await scanSwitcherEntries(keyOf(own)));
+    const left = delegatedWithoutUrl();
+    if (left.length === 0) {
+      console.log('[delegated] all discovered mailboxes resolved to a url');
+      return;
+    }
+    console.log(`[delegated] still without a url after ${own.email}: ${left.join(', ')}`);
+  }
 }
 
 /** The API's half of discovery. Adds mailboxes the switcher never showed and never removes
@@ -446,6 +501,11 @@ async function refreshDelegatedFromApi(): Promise<void> {
     for (const email of fresh) delegated.upsert({ email, mailUrl: null, calendarUrl: null });
     loadDelegatedProfiles();
     console.log(`[delegated] ${fresh.length} mailbox(es) via ${requester.email}`);
+    // The addresses are in; now find where they live. Not awaited: discovery has already
+    // done its job and the sidebar already shows the mailboxes — resolving a URL is what
+    // turns a row that names one into a row that opens it, and it is allowed to take the
+    // seconds a switcher scrape takes.
+    void resolveDelegatedUrls();
     return;
   }
 }
