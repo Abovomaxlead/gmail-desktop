@@ -92,7 +92,7 @@ export function Topbar({
   labelFor(p: Profile): string;
   settingsOpen: boolean;
   update: UpdateStatus;
-  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; numberLocale: string };
+  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; delegatedScanning: string; delegatedSuggestionsHeading: string; delegatedNoneFound: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   suggestions: DelegatedSuggestion[];
   scanning: boolean;
   scanDone: boolean;

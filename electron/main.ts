@@ -462,6 +462,10 @@ interface TabRow {
   avatarUrl: string;
   color: string;
   hasCalendar: boolean;
+  /** False for a mailbox the API found and nobody has opened in Gmail yet: known by address,
+   * with no URL to load. The seeded rows below are false for a different reason — they have
+   * no ref at all yet — and both mean "do not try to open this". */
+  hasMail: boolean;
   order?: number;
   label?: string;
   provisional?: boolean;
@@ -479,6 +483,7 @@ function decorate(list: Profile[]): TabRow[] {
       avatarUrl: p.avatarUrl,
       color: p.color,
       hasCalendar: surfacesForRef(p.ref).includes('calendar'),
+      hasMail: surfacesForRef(p.ref).includes('mail'),
       order: ap.order ?? seedOrder.get(p.email.toLowerCase()),
       label: ap.label,
     };
@@ -497,6 +502,7 @@ function decorate(list: Profile[]): TabRow[] {
       avatarUrl: c.avatarUrl,
       color: colors?.get(c.email) ?? c.color,
       hasCalendar: false,
+      hasMail: false,
       order: ap.order ?? seedOrder.get(c.email),
       label: ap.label,
       provisional: true,

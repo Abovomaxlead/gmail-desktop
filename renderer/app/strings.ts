@@ -269,6 +269,7 @@ export interface UiStrings {
   addAccountLabel: string;
   addDelegatedLabel: string;
   delegatedTooltipSuffix: string;
+  delegatedNeedsClick: string;
   delegatedSuggestionsHeading: string;
   delegatedScanning: string;
   delegatedNoneFound: string;
@@ -663,6 +664,7 @@ export const STRINGS_NORMAL: UiStrings = {
   addAccountLabel: 'Add account',
   addDelegatedLabel: 'Add delegated mailbox',
   delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
+  delegatedNeedsClick: 'open once in Gmail first',
   delegatedSuggestionsHeading: 'Suggested delegated',
   delegatedScanning: 'Looking in your account menu…',
   delegatedNoneFound: 'No delegated mailboxes found.',
@@ -955,6 +957,7 @@ export const STRINGS_RENE: UiStrings = {
   addAccountLabel: 'Doe er iemand bij',
   addDelegatedLabel: 'Doe een gedeelde postbus erbij',
   delegatedTooltipSuffix: '(de postbus van iemand anders)',
+  delegatedNeedsClick: 'moet nog één keer open in Gmail',
   delegatedSuggestionsHeading: 'Gevonden postbussen',
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedeelde postbussen gevonden.',
@@ -1266,6 +1269,7 @@ export const STRINGS_NL: UiStrings = {
   addAccountLabel: 'Account toevoegen',
   addDelegatedLabel: 'Gedelegeerd postvak toevoegen',
   delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
+  delegatedNeedsClick: 'nog één keer openen in Gmail',
   delegatedSuggestionsHeading: 'Voorgestelde postvakken',
   delegatedScanning: 'Even in je accountmenu kijken…',
   delegatedNoneFound: 'Geen gedelegeerde postvakken gevonden.',

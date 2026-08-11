@@ -43,6 +43,7 @@ export interface Profile {
   order?: number;
   label?: string;
   provisional?: boolean;
+  hasMail?: boolean;
 }
 export type { Surface };
 
@@ -342,6 +343,9 @@ export default function AppShell() {
       setPendingEmail(row.email.toLowerCase());
       return;
     }
+    // Known by address, with no URL to load. Opening it would reach
+    // SURFACE_CONFIG.mail.url and throw; the tooltip is what tells the user why.
+    if (row && row.kind === 'delegated' && row.hasMail === false) return;
     setPendingEmail(null);
     const target =
       surface === 'mail' || !prefs

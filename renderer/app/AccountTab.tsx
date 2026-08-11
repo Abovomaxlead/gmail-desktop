@@ -51,7 +51,7 @@ export function AccountTab({
   active: boolean;
   activeSurface: Surface | null;
   dragging: boolean;
-  strings: { delegatedTooltipSuffix: string; numberLocale: string };
+  strings: { delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   onOpen(): void;
   onMenu(): void;
   onDragStart(): void;
@@ -59,6 +59,7 @@ export function AccountTab({
   onDragEnd(): void;
 }) {
   const delegated = profile.kind === 'delegated';
+  const needsUrl = delegated && profile.hasMail === false;
   const surface = activeSurface && activeSurface !== 'mail' ? activeSurface : null;
   return (
     <button
@@ -72,13 +73,19 @@ export function AccountTab({
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      title={delegated ? `${profile.email} ${strings.delegatedTooltipSuffix}` : profile.email}
+      title={
+        needsUrl
+          ? `${profile.email} — ${strings.delegatedNeedsClick}`
+          : delegated
+            ? `${profile.email} ${strings.delegatedTooltipSuffix}`
+            : profile.email
+      }
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       className={`group relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition ${
         active
           ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
           : 'text-neutral-600 hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10'
-      } ${dragging ? 'opacity-40' : ''}`}
+      } ${dragging ? 'opacity-40' : ''} ${needsUrl ? 'opacity-50' : ''}`}
     >
       {delegated && <DelegatedIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />}
       {surface && <SurfaceIcon surface={surface} className="h-3.5 w-3.5 shrink-0" />}
