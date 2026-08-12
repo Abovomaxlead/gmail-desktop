@@ -19,6 +19,14 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
     hash = '#inbox';
     scripts: string[] = [];
     buttonAppears = true;
+    /** What the page says it is showing. Gmail sets this to the conversation's subject
+     * once it has one on screen, which is the only signal that the navigation landed. */
+    title = 'Postvak IN - luca@example.com - Gmail';
+    /** How many probes Gmail takes to arrive. Until then the page still shows — and still
+     * offers the pop-out button of — whatever conversation was open before. */
+    rendersAfter = 0;
+    titleWhenRendered = 'Nieuwe offerte - luca@example.com - Gmail';
+    probes = 0;
     on(event: string, cb: (...args: unknown[]) => void) {
       const list = this.handlers.get(event) ?? [];
       list.push(cb);
@@ -38,7 +46,18 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
     executeJavaScript(code: string): Promise<unknown> {
       this.scripts.push(code);
       if (code === 'location.hash') return Promise.resolve(this.hash);
-      if (code.includes('170693')) {
+      if (code.includes('hasButton')) {
+        this.probes += 1;
+        if (this.hash.startsWith('#inbox/') && this.probes > this.rendersAfter) {
+          this.title = this.titleWhenRendered;
+        }
+        return Promise.resolve({
+          hash: this.hash,
+          title: this.title,
+          hasButton: this.buttonAppears,
+        });
+      }
+      if (code.includes('btn.click()')) {
         if (!this.buttonAppears) return Promise.resolve(false);
         // The click is what opens the pop-out, so the window appears now.
         this.emit('did-create-window');
@@ -64,7 +83,7 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
       return 'https://mail.google.com/mail/u/0/';
     }
     getTitle(): string {
-      return '';
+      return this.title;
     }
     close(): void {}
   }
@@ -127,6 +146,10 @@ function openedTheThread(wc: { scripts: string[] }): boolean {
   return wc.scripts.some((s) => s.includes('#inbox/abc123'));
 }
 
+function clickedTheButton(wc: { scripts: string[] }): boolean {
+  return wc.scripts.some((s) => s.includes('btn.click()'));
+}
+
 afterEach(() => {
   views.length = 0;
   vi.useRealTimers();
@@ -177,6 +200,68 @@ describe('popOutThread leaves the mail view where it found it', () => {
     await m.popOutThread(accountKey(owned), 'abc123');
 
     expect(wc.hash).toBe('#inbox/abc123');
+  });
+
+  it('waits for Gmail to arrive before clicking, instead of popping out what was on screen', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#inbox';
+    wc.title = 'Kennissessies september - luca@example.com - Gmail';
+    // Three tries' worth of navigation still in flight, with the old conversation — and its
+    // own pop-out button — on screen the whole time.
+    wc.rendersAfter = 3;
+
+    const pending = m.popOutThread(accountKey(owned), 'abc123', 'Nieuwe offerte');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(await pending).toBe(true);
+    expect(wc.probes).toBeGreaterThan(3);
+    // The button was found on every one of those tries and left alone until the title said
+    // the page had moved.
+    const firstClick = wc.scripts.findIndex((s) => s.includes('btn.click()'));
+    const probesBefore = wc.scripts.slice(0, firstClick).filter((s) => s.includes('hasButton'));
+    expect(probesBefore.length).toBe(4);
+  });
+
+  it('never clicks when the page stays on another conversation', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#inbox';
+    wc.title = 'Kennissessies september - luca@example.com - Gmail';
+    wc.titleWhenRendered = 'Kennissessies september - luca@example.com - Gmail';
+
+    const pending = m.popOutThread(accountKey(owned), 'abc123', 'Nieuwe offerte');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // False sends the caller to its own window on the right thread, which is the point.
+    expect(await pending).toBe(false);
+    expect(clickedTheButton(wc)).toBe(false);
+    expect(wc.hash).toBe('#inbox');
+  });
+
+  it('does not mistake a longer subject that merely starts the same', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#inbox';
+    wc.titleWhenRendered = 'Kennissessies september - luca@example.com - Gmail';
+
+    const pending = m.popOutThread(accountKey(owned), 'abc123', 'Kennissessies');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(await pending).toBe(false);
+    expect(clickedTheButton(wc)).toBe(false);
+  });
+
+  it('pops out a reply, whose subject Gmail shows without the Re:', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#inbox';
+    wc.titleWhenRendered = 'Nieuwe offerte - luca@example.com - Gmail';
+
+    const pending = m.popOutThread(accountKey(owned), 'abc123', 'Re: Nieuwe offerte');
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(await pending).toBe(true);
   });
 
   it('falls back to the inbox when the view had no hash at all', async () => {

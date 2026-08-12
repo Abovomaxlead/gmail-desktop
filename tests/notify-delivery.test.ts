@@ -14,6 +14,14 @@
 // first may still belong to the conversation that was open before, and clicking it pops
 // out a completely different mail. The click therefore waits until the page is actually
 // showing the thread it was asked for.
+//
+// What "actually showing" means was wrong here before, and this file said so in a way that
+// passed while the app shipped the bug. The fake below used to hold the hash back along
+// with the conversation, as if the two moved together. They do not: the app writes
+// `location.hash` itself, so it reads back as the target immediately — 81 milliseconds
+// before a click that popped out a two-day-old mail, in the log that produced this note —
+// while the page has not moved at all. The hash proves nothing, and the fake now behaves
+// like the browser: the hash lands at once, and the title follows when Gmail arrives.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { SURFACE_CONFIG } from '../renderer/lib/surfaces';
@@ -37,10 +45,14 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
   const views: FakeWebContentsView[] = [];
   class FakeWebContents {
     private handlers = new Map<string, Array<(...args: unknown[]) => void>>();
-    /** What the page is showing. Set by a hash write only after `navigationDelay` polls,
-     * which is how Gmail behaves: the hash lands, the conversation follows. */
+    /** Where the page has been told to go. A hash write lands here at once, as it does in
+     * a browser. */
     hash = '#inbox/oldthread';
-    pendingHash: string | null = null;
+    /** What the page is showing, which is the thing that lags: `navigationDelay` polls
+     * long, the conversation that was open before is still on screen with its own pop-out
+     * button. The title is how it says so. */
+    title = 'Oude mail - luca@example.com - Gmail';
+    titleWhenRendered = 'Nieuwe offerte - luca@example.com - Gmail';
     navigationDelay = 0;
     scripts: string[] = [];
     clicked: string[] = [];
@@ -65,25 +77,31 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
       if (code === 'location.hash') return Promise.resolve(this.hash);
       const set = /^location\.hash = (.*)$/.exec(code);
       if (set) {
-        const target = JSON.parse(set[1]) as string;
-        if (this.navigationDelay <= 0) this.hash = target;
-        else this.pendingHash = target;
+        this.hash = JSON.parse(set[1]) as string;
         return Promise.resolve(undefined);
       }
-      // The pop-out click script. It only clicks when the page is on the thread it was
-      // given, so what it does depends on the hash right now.
-      const wanted = /wantedHash = "([^"]*)"/.exec(code)?.[1];
-      if (this.navigationDelay > 0) {
-        this.navigationDelay -= 1;
-        if (this.navigationDelay === 0 && this.pendingHash !== null) {
-          this.hash = this.pendingHash;
-          this.pendingHash = null;
+      // What the page reports about itself. The conversation catches up with the hash here,
+      // a poll at a time, and until it does the title is still the old one.
+      if (code.includes('hasButton')) {
+        if (this.navigationDelay > 0) this.navigationDelay -= 1;
+        else if (this.hash.startsWith('#inbox/')) {
+          this.title = this.titleWhenRendered;
+          // And Gmail throws away the id it was given for its own permalink one. Modelled
+          // here because leaving it out is what let the app ship a click that could never
+          // fire: the check it depended on compared the hash to the one it wrote, which is
+          // gone by the time the conversation it was waiting for is on screen.
+          this.hash = '#inbox/FMfcgzQhVrDqdSFCTfmJlfHgxhKCQwXv';
         }
+        return Promise.resolve({ hash: this.hash, title: this.title, hasButton: true });
       }
-      if (wanted !== undefined && wanted !== this.hash) return Promise.resolve(false);
-      this.clicked.push(this.hash);
+      // The click, which reaches whichever conversation is on screen — the point being that
+      // it must not be reached while that is the wrong one.
+      this.clicked.push(this.title);
       this.emit('did-create-window');
       return Promise.resolve(true);
+    }
+    getTitle(): string {
+      return this.title;
     }
     setWindowOpenHandler(): void {}
     loadURL(): Promise<void> {
@@ -99,9 +117,6 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
     }
     getURL(): string {
       return 'https://mail.google.com/mail/u/0/';
-    }
-    getTitle(): string {
-      return '';
     }
     close(): void {}
   }
@@ -168,22 +183,22 @@ describe('the pop-out waits for the thread it was asked for', () => {
     // pop-out button — is on screen until it does.
     wc.navigationDelay = 2;
 
-    const pending = m.popOutThread(accountKey(owned), 'newthread');
+    const pending = m.popOutThread(accountKey(owned), 'newthread', 'Nieuwe offerte');
     await vi.advanceTimersByTimeAsync(3000);
     const ok = await pending;
 
     expect(ok).toBe(true);
     // The one thing that must never happen: popping out the mail that happened to be open.
-    expect(wc.clicked).toEqual(['#inbox/newthread']);
+    expect(wc.clicked).toEqual(['Nieuwe offerte - luca@example.com - Gmail']);
   });
 
   it('clicks straight away when the page is already there', async () => {
     const { m, wc } = openMailView();
     wc.hash = '#inbox';
 
-    await m.popOutThread(accountKey(owned), 'newthread');
+    await m.popOutThread(accountKey(owned), 'newthread', 'Nieuwe offerte');
 
-    expect(wc.clicked).toEqual(['#inbox/newthread']);
+    expect(wc.clicked).toEqual(['Nieuwe offerte - luca@example.com - Gmail']);
   });
 
   it('gives up rather than click the wrong thread when the page never arrives', async () => {
@@ -192,10 +207,45 @@ describe('the pop-out waits for the thread it was asked for', () => {
     wc.hash = '#inbox/oldthread';
     wc.navigationDelay = 999;
 
-    const pending = m.popOutThread(accountKey(owned), 'newthread');
+    const pending = m.popOutThread(accountKey(owned), 'newthread', 'Nieuwe offerte');
     await vi.advanceTimersByTimeAsync(5000);
 
     expect(await pending).toBe(false);
     expect(wc.clicked).toEqual([]);
+  });
+
+  // The other half of "the hash is not evidence": by the time the right conversation is on
+  // screen, Gmail has replaced the id we navigated with by its own permalink one. Requiring
+  // the hash to still equal what we wrote means never clicking at all, which is what the
+  // user saw — every notification opening the app's plain fallback window instead of
+  // Gmail's pop-out.
+  it('clicks even though Gmail rewrote the hash to its own id', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#inbox';
+    wc.navigationDelay = 1;
+
+    const pending = m.popOutThread(accountKey(owned), 'newthread', 'Nieuwe offerte');
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(await pending).toBe(true);
+    expect(wc.clicked).toEqual(['Nieuwe offerte - luca@example.com - Gmail']);
+  });
+
+  // The hash is not evidence, and this is the case that proves it: it is the target from
+  // the first poll, the button is there from the first poll, and the mail on screen is
+  // still the wrong one. Guarding on the hash alone clicks here.
+  it('is not fooled by the hash it wrote itself', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#inbox/oldthread';
+    wc.navigationDelay = 3;
+
+    const pending = m.popOutThread(accountKey(owned), 'newthread', 'Nieuwe offerte');
+    // Long enough for four polls; the first three still show the old conversation.
+    await vi.advanceTimersByTimeAsync(800);
+    await pending;
+
+    expect(wc.clicked).toEqual(['Nieuwe offerte - luca@example.com - Gmail']);
   });
 });

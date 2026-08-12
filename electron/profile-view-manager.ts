@@ -18,6 +18,7 @@ import {
 import { attachExternalLinkHandling } from './external-links';
 import { mailSearchHash } from './google-urls';
 import { notifyLog } from './notify-log';
+import { titleShowsSubject } from './notify-match';
 import type { KeyInput } from './shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, surfacesForRef, type Surface } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './account-ref';
@@ -43,6 +44,14 @@ const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
 
 // How long the pop-out dance may take: the button has ~3s to render, and the window it
 // opens ~2s to actually appear before the mail view is sent back without it.
+/** What the mail view reports about itself between tries: where it thinks it is, what it
+ * is showing, and whether the button is there yet. */
+interface PopoutProbe {
+  hash: string;
+  title: string;
+  hasButton: boolean;
+}
+
 const POPOUT_CLICK_TRIES = 12;
 const POPOUT_CLICK_INTERVAL_MS = 250;
 const POPOUT_WINDOW_WAIT_MS = 2000;
@@ -346,11 +355,17 @@ export class ProfileViewManager {
    * Resolves true once the button is clicked, false if it never appears — the caller then
    * opens a thread window of its own. The view is restored either way.
    */
-  async popOutThread(accountKey: string, threadId: string): Promise<boolean> {
+  async popOutThread(accountKey: string, threadId: string, subject?: string): Promise<boolean> {
     const k = viewKey(accountKey, 'mail');
     const wc = this.views.get(k)?.webContents;
     if (!wc || wc.isDestroyed()) return false;
     const before = await this.readHash(wc);
+    const titleBefore = wc.getTitle();
+    // Already there means there is nothing to wait for: the conversation on screen is the
+    // one that was asked for, and no navigation is going to change the title.
+    const alreadyOpen = before === `#inbox/${threadId}`;
+    const showsTheThread = (title: string): boolean =>
+      alreadyOpen || (subject ? titleShowsSubject(title, subject) : title !== titleBefore);
     this.popoutExpectUntil.set(k, Date.now() + 6000);
     let popoutOpened = false;
     const onCreated = (): void => {
@@ -359,7 +374,7 @@ export class ProfileViewManager {
     wc.once('did-create-window', onCreated);
     try {
       this.openMailThread(accountKey, threadId);
-      const clicked = await this.clickPopoutButton(wc, `#inbox/${threadId}`);
+      const clicked = await this.clickPopoutButton(wc, showsTheThread);
       if (clicked) await waitUntil(() => popoutOpened, POPOUT_WINDOW_WAIT_MS);
       notifyLog(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
       this.restoreHash(wc, before, threadId);
@@ -390,35 +405,66 @@ export class ProfileViewManager {
   }
 
   // Matched by Gmail's stable jslog action id first, then by a localized aria-label. The
-  // button only appears once the thread has rendered, so this retries rather than asking
-  // once.
+  // button only appears once a thread has rendered, so this retries rather than asking once.
   //
-  // `wantedHash` is what keeps the click honest, and leaving it out is how a notification
-  // opened a completely different mail. Opening the thread and clicking the button are two
-  // steps with a Gmail navigation in between: while that navigation is still in flight the
-  // conversation that was open before is on screen, with its own pop-out button, and this
-  // script would find it and pop out that mail instead. A button is only clicked once the
-  // page says it is on the thread that was asked for, and a hash that never arrives ends
-  // as no click at all — the caller then opens its own window on the right thread, which
-  // beats a window on the wrong one.
-  private async clickPopoutButton(wc: WebContents, wantedHash: string): Promise<boolean> {
-    const clickScript = `(() => {
-      const wantedHash = ${JSON.stringify(wantedHash)};
-      if (location.hash !== wantedHash) return false;
+  // Which thread that is, is the whole difficulty, and getting it wrong is how a
+  // notification popped out a mail from two days earlier. Opening the thread and clicking
+  // the button are two steps with a Gmail navigation in between, and for as long as that
+  // navigation is in flight the conversation that was open before is still on screen with
+  // its own pop-out button under this selector.
+  //
+  // The hash answers none of it, in both directions, and it took two logged failures to
+  // establish that. The app writes the hash itself, so it reads back as the target the
+  // instant it is set — 81 milliseconds before a click that popped out the wrong mail. And
+  // once Gmail does arrive it replaces what we wrote with its own permalink id, turning
+  // `#inbox/19ff4d23f66d4d3c` into `#inbox/FMfcgzQhVrDqdSFCTfmJlfHgxhKCQwXv`, so an
+  // equality that proved nothing before the navigation is impossible after it and the click
+  // never happened at all. The hash is still read, because it is worth having in the log the
+  // next time this goes wrong, but nothing is decided on it.
+  //
+  // `shows` decides, and it reads the title — the one thing that changes only when the
+  // conversation is really on screen.
+  //
+  // A button never clicked ends as no click at all, and the caller opens its own window on
+  // the right thread — a plainer window on the right mail, which beats Gmail's own on the
+  // wrong one.
+  private async clickPopoutButton(
+    wc: WebContents,
+    shows: (title: string) => boolean,
+  ): Promise<boolean> {
+    const findButton = `(() => {
       const byLog = Array.from(document.querySelectorAll('button[jslog],[role="button"][jslog]'))
         .find((b) => /(?:^|[;\\s])170693(?:[;\\s]|$)/.test(b.getAttribute('jslog') || ''));
       const byLabel = () => Array.from(document.querySelectorAll('[aria-label]'))
         .find((b) => /nieuw venster|new window|nouvelle fen|neues fenster|nueva ventana|ventana nueva/i
           .test(b.getAttribute('aria-label') || ''));
-      const btn = byLog || byLabel();
-      if (btn) { btn.click(); return true; }
-      return false;
+      return byLog || byLabel() || null;
     })()`;
+    // Asked and answered before anything is clicked, so the decision is made here on values
+    // that can be logged and tested, rather than inside a string in Gmail's page.
+    const probeScript = `(() => {
+      const btn = ${findButton};
+      return { hash: location.hash, title: document.title || '', hasButton: !!btn };
+    })()`;
+    const clickScript = `(() => {
+      const btn = ${findButton};
+      if (!btn) return false;
+      btn.click();
+      return true;
+    })()`;
+    let last: PopoutProbe | null = null;
     for (let i = 0; i < POPOUT_CLICK_TRIES; i++) {
-      const clicked = await wc.executeJavaScript(clickScript).catch(() => false);
-      if (clicked) return true;
+      const probe = (await wc
+        .executeJavaScript(probeScript)
+        .catch(() => null)) as PopoutProbe | null;
+      last = probe;
+      if (probe && probe.hasButton && shows(probe.title)) {
+        const clicked = await wc.executeJavaScript(clickScript).catch(() => false);
+        if (clicked) return true;
+      }
       await new Promise((r) => setTimeout(r, POPOUT_CLICK_INTERVAL_MS));
     }
+    notifyLog(`[notify] pop-out gave up, last seen ${JSON.stringify(last)}`);
     return false;
   }
 
