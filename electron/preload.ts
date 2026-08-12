@@ -431,15 +431,28 @@ if (typeof document !== 'undefined') {
   const bodies = new Map<string, string>();
   const loadNonce = Math.random().toString(36).slice(2, 10);
   let webNotifySeq = 0;
+  // Straight into notify.log, because everything below happens inside Google's page, where
+  // the app's own console is somewhere nobody is looking. The one question this answers is
+  // the one the log could not: did Gmail raise a notification at all? A page that never
+  // constructs one and a card that was suppressed on the way out look identical from main.
+  const log = (message: string): void => ipcRenderer.send(IPC.VIEW_LOG, message);
+  log(`notification shim installed on ${location.hostname}`);
   window.Notification = createNotificationShim({
-    allowed: () => notifyState.show,
+    allowed: () => {
+      if (!notifyState.show) log('Gmail raised a notification and the settings suppressed it');
+      return notifyState.show;
+    },
     show: (title, options) => {
       webNotifySeq += 1;
       const id = webNotifyPageId(loadNonce, webNotifySeq);
       const payload = webNotifyPayload(id, title, options);
       bodies.set(id, payload.body);
+      log(`Gmail raised a notification, handing ${id} to main`);
       ipcRenderer.send(IPC.WEB_NOTIFY_SHOW, payload);
-      return () => bodies.delete(id);
+      return () => {
+        log(`Gmail closed notification ${id}`);
+        bodies.delete(id);
+      };
     },
   });
   patchNotificationPermissionQuery(

@@ -18,8 +18,11 @@
 import { appendFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-/** A few days of ordinary use; the interesting lines are always the recent ones. */
-export const NOTIFY_LOG_MAX_BYTES = 128 * 1024;
+/** A few days of ordinary use; the interesting lines are always the recent ones. Raised
+ * from 128KB when the log started carrying the whole chain — what the Gmail page decided,
+ * what the stack's page rendered, what it measured — because a file that starts over
+ * halfway through an afternoon takes the failure being investigated with it. */
+export const NOTIFY_LOG_MAX_BYTES = 512 * 1024;
 
 export function createNotifyLog(
   path: string,

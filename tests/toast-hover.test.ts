@@ -125,6 +125,9 @@ describe('the hover main has to end itself', () => {
     vi.useFakeTimers();
     const h = harness();
     h.controller.show(mail(1, false));
+    // The page drew it, which is what starts the countdown this test then pauses; a card
+    // nothing has drawn is not counting down to begin with.
+    h.controller.applySize(380, 92);
     h.controller.setHovered(true);
 
     h.setNow(5000);

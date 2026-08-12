@@ -80,6 +80,11 @@ export const IPC = {
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
   COMPOSE_ACCOUNT_SIZE: 'compose:account-size',
   TOAST_STATE: 'toast:state',
+  /** The stack's page asking for the state, once it is actually listening for it. Sent by
+   * the page rather than inferred by main from did-finish-load, because a loaded document
+   * is not a mounted React tree: the listener is registered in an effect, which runs after
+   * the load main was taking as its cue, and a state pushed in between is gone for good. */
+  TOAST_READY: 'toast:ready',
   TOAST_SIZE: 'toast:size',
   TOAST_ACTIVATE: 'toast:activate',
   TOAST_DISMISS: 'toast:dismiss',
@@ -89,6 +94,12 @@ export const IPC = {
   TOAST_HOVER_END: 'toast:hover-end',
   WEB_NOTIFY_SHOW: 'web-notify:show',
   WEB_NOTIFY_CLICK: 'web-notify:click',
+  /** A page saying something about itself, straight into notify.log. Every other channel
+   * carries a decision; this one carries only a sentence, and it exists because the two
+   * halves of a notification live in different processes: what a Gmail view decided and
+   * what the stack's page managed to render are invisible to the file that is supposed to
+   * explain why no notification appeared. */
+  VIEW_LOG: 'view:log',
 } as const;
 
 export interface MailDropItem {

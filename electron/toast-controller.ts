@@ -26,6 +26,7 @@
 // an unbounded map of pinned WebContents that Gmail's page can fill in a loop.
 
 import { IPC } from './ipc';
+import { notifyLog } from './notify-log';
 import {
   EMPTY_STACK,
   addToast,
@@ -77,6 +78,13 @@ export class ToastController {
   private timer: ReturnType<typeof setInterval> | null = null;
   private hoverWatch: ReturnType<typeof setInterval> | null = null;
   private hoveredSince: number | null = null;
+  /** When the stack got its first card with nothing yet on screen, or null once the page
+   * has reported a size for it. A card only fades after it has been seen, and until this
+   * clears there is nothing to have seen: the window is still being built, the page is
+   * still compiling, or it is being thrown away and built again. Counted down and then
+   * added back exactly as a hover is, since it is the same rule — time in which nobody
+   * could have read the card does not count against it. */
+  private darkSince: number | null = null;
   private ready = false;
 
   constructor(private readonly hooks: ToastControllerHooks) {}
@@ -84,11 +92,18 @@ export class ToastController {
   /** Called by main when the window has finished loading, so a queued state is not lost. */
   markReady(): void {
     this.ready = true;
+    notifyLog(
+      `[toast] window ready, pushing ${this.stack.toasts.length} card(s)` +
+        `${this.stack.summary ? ` and a summary of ${this.stack.summary.count}` : ''}`,
+    );
     this.push();
   }
 
   show(input: ToastInput): void {
     const { persist, ...rest } = input;
+    // An empty stack means no window is up, so this card starts its life unseen. What
+    // ends that is a size report, which is the page saying it drew something.
+    if (this.isEmpty() && this.darkSince === null) this.darkSince = this.hooks.now();
     this.seq += 1;
     const toast: Toast = {
       ...rest,
@@ -200,7 +215,8 @@ export class ToastController {
     // window.applySize — an empty stack, a collapse that re-lays out instead of resizing —
     // would otherwise leave a perfectly healthy page counted as broken.
     this.hooks.window.noteAlive();
-    if (this.stack.toasts.length === 0 && this.stack.summary === null) return;
+    this.notePainted();
+    if (this.isEmpty()) return;
     if (this.hooks.window.wouldOverflow(cssHeight)) {
       const folded = collapse(this.stack);
       if (folded !== this.stack) {
@@ -225,10 +241,11 @@ export class ToastController {
    * that stands in for them carries no click back to it. */
   drain(): ToastStack {
     const held = this.stack;
-    if (held.toasts.length === 0 && held.summary === null) return held;
+    if (this.isEmpty()) return held;
     this.stopTimer();
     this.stopHoverWatch();
     this.hoveredSince = null;
+    this.darkSince = null;
     this.setStack(EMPTY_STACK);
     this.push();
     return held;
@@ -280,12 +297,23 @@ export class ToastController {
   }
 
   private push(): void {
-    if (this.stack.toasts.length === 0 && this.stack.summary === null) {
+    if (this.isEmpty()) {
       this.hoveredSince = null;
+      // Nothing left to be seen, so nothing is waiting to be seen either. Left set, the
+      // next card would inherit a blackout that started before it existed.
+      this.darkSince = null;
       this.hooks.window.hide();
       if (this.ready) this.hooks.window.send(IPC.TOAST_STATE, this.state());
       return;
     }
+    // Paired with the page's own line on the other side of this send. Two lines that do not
+    // pair up are the whole diagnosis: main pushed a state the page never received, which
+    // is a window that is not there rather than a stack that is not working.
+    notifyLog(
+      `[toast] -> page: ${this.stack.toasts.length} card(s)` +
+        `${this.stack.summary ? ` + summary of ${this.stack.summary.count}` : ''}` +
+        `${this.ready ? '' : ' (window not ready yet)'}`,
+    );
     this.hooks.window.send(IPC.TOAST_STATE, this.state());
   }
 
@@ -311,7 +339,27 @@ export class ToastController {
     this.timer = null;
   }
 
+  private isEmpty(): boolean {
+    return this.stack.toasts.length === 0 && this.stack.summary === null;
+  }
+
+  /** The page drew something, so whatever was waiting to be seen has now been seen. The
+   * blackout is added back to every expiry, which is what stops a card that spent its whole
+   * life inside a window being rebuilt from being expired by a clock nobody could read. */
+  private notePainted(): void {
+    if (this.darkSince === null) return;
+    const paused = this.hooks.now() - this.darkSince;
+    this.darkSince = null;
+    if (paused > 0) this.setStack(delayExpiries(this.stack, paused));
+  }
+
   private tick(): void {
+    // Nothing on screen yet: the countdown has not started, however long ago the card
+    // arrived. Without this a stack that takes nine seconds to get a window — three
+    // rebuilds in a dev server, in the log this was written from — expires its cards
+    // before the first of them is ever drawn, and the mail is lost with no card and no
+    // system notification either.
+    if (this.darkSince !== null) return;
     if (this.hoveredSince !== null) return;
     const next = expireToasts(this.stack, this.hooks.now());
     if (next === this.stack) return;

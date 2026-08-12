@@ -146,6 +146,7 @@ contextBridge.exposeInMainWorld('desktop', {
   onToastHoverEnd: (cb: () => void): void => {
     ipcRenderer.on(IPC.TOAST_HOVER_END, () => cb());
   },
+  toastReady: (): void => ipcRenderer.send(IPC.TOAST_READY),
   reportToastSize: (size: { width: number; height: number }): void =>
     ipcRenderer.send(IPC.TOAST_SIZE, size),
   activateToast: (id: string): void => ipcRenderer.send(IPC.TOAST_ACTIVATE, id),

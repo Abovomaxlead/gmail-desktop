@@ -94,6 +94,9 @@ describe('ToastController onDiscard', () => {
     const h = harness();
     h.controller.show(mailInput(1, false));
     h.controller.show(mailInput(2));
+    // The page drew them. Nothing expires before that, on purpose — see the blackout
+    // tests below — so an expiry test has to say so.
+    h.controller.applySize(380, 184);
     h.setNow(TOAST_LIFETIME_MS + 1);
     vi.advanceTimersByTime(TOAST_LIFETIME_MS + 1000);
     expect(ids(h.discarded)).toEqual(['src-1']);
@@ -302,6 +305,58 @@ describe('ToastController — a size report is proof of life', () => {
     h.controller.applySize(380, 4000);
     expect(sized).toBe(0);
     expect(alive).toBe(1);
+  });
+});
+
+// A card that fades is given six seconds of being readable, and until the page reports a
+// size there is nothing to read: no window yet, a dev server still compiling the route, or
+// a stack being thrown away and built again. Counting those seconds against the card is how
+// mail went missing entirely — the log that produced these tests shows three rebuilds, nine
+// seconds, and a stack that was already empty by the second one, so nothing was ever drawn
+// and nothing was ever fallen back to either.
+describe('ToastController — nothing fades before it has been seen', () => {
+  it('does not expire a card while the page has drawn nothing', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.controller.show(mailInput(1, false));
+
+    h.setNow(TOAST_LIFETIME_MS * 3);
+    vi.advanceTimersByTime(TOAST_LIFETIME_MS * 3);
+
+    expect(h.discarded).toEqual([]);
+  });
+
+  it('gives the card its full life once the page finally draws it', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.controller.show(mailInput(1, false));
+
+    // Nine seconds of rebuilding, then the page reports a size at last.
+    h.setNow(9000);
+    vi.advanceTimersByTime(9000);
+    h.controller.applySize(380, 92);
+
+    // Five seconds after that it is still up: the blackout was added back, so the six
+    // start from here rather than from a card nobody could see.
+    h.setNow(9000 + TOAST_LIFETIME_MS - 1000);
+    vi.advanceTimersByTime(TOAST_LIFETIME_MS - 1000);
+    expect(h.discarded).toEqual([]);
+
+    h.setNow(9000 + TOAST_LIFETIME_MS + 1000);
+    vi.advanceTimersByTime(2000);
+    expect(ids(h.discarded)).toEqual(['src-1']);
+  });
+
+  it('does not hold a later card back once the stack is painting', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.controller.show(mailInput(1, false));
+    h.controller.applySize(380, 92);
+
+    h.setNow(TOAST_LIFETIME_MS + 1000);
+    vi.advanceTimersByTime(TOAST_LIFETIME_MS + 1000);
+
+    expect(ids(h.discarded)).toEqual(['src-1']);
   });
 });
 

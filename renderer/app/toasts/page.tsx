@@ -53,8 +53,21 @@ export default function ToastsPage() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const hoveredRef = useRef(false);
 
+  // Everything this page logs is forwarded into notify.log by the window that owns it, so
+  // these lines are not for a console nobody has open — they are the page's half of a
+  // handshake whose failures are otherwise completely silent. A missing bridge is the worst
+  // of them: every call below is optional-chained, so without it the page renders, measures
+  // nothing, reports nothing, and main waits for a size that can never come.
+  useEffect(() => {
+    console.log(`[toasts] mounted, bridge=${Boolean(window.desktop)}`);
+  }, []);
+
   useEffect(() => {
     window.desktop?.onToastState((next) => {
+      console.log(
+        `[toasts] state received: ${next.toasts.length} card(s)` +
+          `${next.summary ? ` + summary of ${next.summary.count}` : ''}`,
+      );
       // Mirrors the controller clearing its own hoveredSince when the stack empties: with
       // no cards left there is nothing to be hovered over, and leaving this set would make
       // the next toast arrive with the page believing the pointer is still parked on a
@@ -72,6 +85,15 @@ export default function ToastsPage() {
       hoveredRef.current = false;
       setHoveredId(null);
     });
+    // Last, and only now: the listener above exists, so a state sent in answer to this
+    // cannot land in the gap. Main used to push on did-finish-load, which is a loaded
+    // document and not a mounted tree — the push arrived before this effect ran and was
+    // simply gone, leaving a window with no cards, nothing to measure, and a watchdog
+    // correctly concluding the stack was dead. Asking from here also covers every reload,
+    // fast refresh and renderer crash for free: whatever brings this component back asks
+    // again.
+    console.log('[toasts] listening, asking main for the stack');
+    window.desktop?.toastReady();
   }, []);
 
   // Declared before the size report below, and that order is load-bearing: effects run in
@@ -86,13 +108,21 @@ export default function ToastsPage() {
   // until the first card renders, so an empty dependency array would observe nothing.
   useEffect(() => {
     const el = wrapRef.current;
-    if (!el) return;
+    if (!el) {
+      // Not nothing: main is waiting on a size, and there is no element to measure. With
+      // cards in the state this is the page failing to render them.
+      const cards = state ? state.toasts.length : 0;
+      if (cards > 0 || state?.summary) console.log('[toasts] nothing to measure yet');
+      return;
+    }
     const report = (): void => {
       const box = el.getBoundingClientRect();
-      window.desktop?.reportToastSize({
+      const size = {
         width: Math.ceil(box.width),
         height: Math.ceil(box.height) + ROUNDING_SLACK,
-      });
+      };
+      console.log(`[toasts] measured ${size.width}x${size.height}, reporting`);
+      window.desktop?.reportToastSize(size);
     };
     const observer = new ResizeObserver(report);
     observer.observe(el);

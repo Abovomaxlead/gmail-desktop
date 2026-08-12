@@ -76,6 +76,10 @@ export const TOAST_LOAD_TIMEOUT_MS = 5000;
  * toast. */
 export const TOAST_RENDER_TIMEOUT_MS = 2500;
 
+/** Chromium's console levels arrive as integers on this Electron. Named here so a page
+ * error in the log reads as one. */
+const CONSOLE_LEVELS = ['verbose', 'info', 'warning', 'error'] as const;
+
 /** Chromium reports a load cancelled by a newer navigation as a failure. That is not a
  * broken page, and treating it as one would strand the window on a reload. */
 const ERR_ABORTED = -3;
@@ -132,9 +136,33 @@ export class ToastWindow {
       });
       win.setIgnoreMouseEvents(true, { forward: true });
       this.setZoomFactor(win);
+      notifyLog(`[toast] building the window for ${this.url} (zoom ${this.zoom()})`);
+      // Everything the page says about itself, in the file rather than in a devtools console
+      // nobody has open on a window that never appears. A page that throws while mounting,
+      // a bridge that is not there, a failed import — all of it arrives here, and all of it
+      // was invisible before. The page is a handful of cards, so there is no volume problem.
+      win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+        const where = sourceId ? ` (${sourceId}:${line})` : '';
+        notifyLog(`[toast] page says [${CONSOLE_LEVELS[level] ?? level}] ${message}${where}`);
+      });
+      win.webContents.on('render-process-gone', (_e, details) => {
+        this.markBroken(`the page's process is gone (${details.reason})`);
+      });
+      win.webContents.on('preload-error', (_e, path, error) => {
+        notifyLog(`[toast] preload ${path} failed: ${String(error)}`);
+      });
+      win.webContents.on('unresponsive', () => notifyLog('[toast] the page stopped responding'));
+      win.webContents.on('did-start-loading', () => notifyLog(`[toast] loading ${this.url}`));
       // `on`, not `once`: a renderer that crashed and reloaded needs the zoom factor
       // applied again, and needs the queued stack pushed to it again.
       win.webContents.on('did-finish-load', () => {
+        // The title is the cheapest lie-detector there is for this window. A dev server
+        // serving its own 404 page loads perfectly, finishes, renders — and titles itself
+        // "404: This page could not be found." That has cost two debugging sessions, and it
+        // is one line to rule out.
+        notifyLog(
+          `[toast] document loaded: ${JSON.stringify(win.webContents.getTitle())} at ${win.webContents.getURL()}`,
+        );
         this.setZoomFactor(win);
         // Stage two starts here. The document is loaded, which says nothing about whether
         // the page works, so the timer is re-armed rather than cleared and the flag is
@@ -315,11 +343,20 @@ export class ToastWindow {
     if (!win || win.isDestroyed()) return;
     // A size can only come from a page that rendered, measured itself and reached the
     // bridge, which is the whole handshake the watchdog is waiting on.
+    const wasBroken = this.broken;
     this.noteAlive();
     this.lastSize = { width: cssWidth, height: cssHeight };
-    win.setBounds(toastWindowBounds(this.workArea(), this.lastSize, this.zoom()));
-    if (!win.isVisible()) win.showInactive();
+    const bounds = toastWindowBounds(this.workArea(), this.lastSize, this.zoom());
+    win.setBounds(bounds);
+    const shown = !win.isVisible();
+    if (shown) win.showInactive();
     win.setAlwaysOnTop(true);
+    // The last link in the chain, and until now the only one that left no trace: everything
+    // else says a card was accepted, this says it is on a screen, where, and how big.
+    notifyLog(
+      `[toast] page measured ${cssWidth}x${cssHeight} css -> window ${bounds.width}x${bounds.height} at ${bounds.x},${bounds.y}` +
+        `${shown ? ' (shown)' : ' (already up)'}${wasBroken ? ' — and it is alive again' : ''}`,
+    );
   }
 
   /** Re-anchors to the current work area, for a resolution or taskbar change. */
@@ -330,6 +367,7 @@ export class ToastWindow {
 
   hide(): void {
     if (!this.win || this.win.isDestroyed()) return;
+    if (this.win.isVisible()) notifyLog('[toast] stack empty, hiding the window');
     this.win.hide();
     this.win.setIgnoreMouseEvents(true, { forward: true });
   }
