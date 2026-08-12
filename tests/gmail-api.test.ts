@@ -8,8 +8,10 @@ import {
   multipartBody,
   pickBoundary,
   parseInsertedId,
+  parseInsertedThreadId,
   parseThreadList,
   parseThreadMessageIds,
+  collectThreadMessages,
   parseMessageRaw,
   threadsListUrl,
   threadMessagesUrl,
@@ -483,5 +485,79 @@ describe('inbox unread', () => {
   it('returns null when the field is absent, so the caller leaves the count alone', () => {
     expect(parseUnreadThreads({ id: 'INBOX' })).toBeNull();
     expect(parseUnreadThreads(null)).toBeNull();
+  });
+});
+
+// Dragging one conversation used to read Gmail's own "show original" page, which renders a
+// long thread with its older messages collapsed and their download links gone. The copy was
+// then short and said so nowhere: it counted what it had found rather than what the thread
+// held, so three of twelve reported itself as three of three. threads.get lists every
+// message, and this is what keeps that list intact on the way through.
+describe('collectThreadMessages', () => {
+  const raw = (s: string) => Buffer.from(s, 'utf8');
+
+  it('returns one entry per message, in the thread order', async () => {
+    const out = await collectThreadMessages(['m1', 'm2', 'm3'], async (id) => raw(id));
+    expect(out.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
+    expect(out.every((m) => m.raw !== undefined)).toBe(true);
+  });
+
+  it('keeps a message whose source never arrived, rather than dropping it', async () => {
+    const out = await collectThreadMessages(['m1', 'm2'], async (id) =>
+      id === 'm2' ? null : raw(id),
+    );
+    expect(out).toHaveLength(2);
+    expect(out[1].raw).toBeUndefined();
+    expect(out[1].error).toBeTruthy();
+  });
+
+  it('keeps going after one message fails, and records why', async () => {
+    const out = await collectThreadMessages(['m1', 'm2', 'm3'], async (id) => {
+      if (id === 'm2') throw new Error('HTTP 500');
+      return raw(id);
+    });
+    expect(out).toHaveLength(3);
+    expect(out[1].error).toContain('HTTP 500');
+    expect(out[2].raw?.toString()).toBe('m3');
+  });
+
+  it('is empty only when the thread is', async () => {
+    expect(await collectThreadMessages([], async () => raw('x'))).toEqual([]);
+  });
+});
+
+// Copying a conversation to another mailbox used to arrive there in pieces: Gmail does not
+// thread an inserted message on its headers alone, so six replies became six mails. The
+// thread the first one landed in is what the rest have to be filed under.
+describe('multipartBody — keeping a copied conversation together', () => {
+  const raw = Buffer.from('Subject: Hoi\r\n\r\nDag.');
+
+  it('names the thread when one is given', () => {
+    const body = multipartBody(raw, ['INBOX'], 'B', 'thread-1').toString('utf8');
+    expect(body).toContain('{"labelIds":["INBOX"],"threadId":"thread-1"}');
+  });
+
+  it('leaves it out entirely for the first message, which has no thread yet', () => {
+    const body = multipartBody(raw, ['INBOX'], 'B').toString('utf8');
+    expect(body).toContain('{"labelIds":["INBOX"]}');
+    expect(body).not.toContain('threadId');
+  });
+
+  it('still carries the message itself unchanged', () => {
+    const body = multipartBody(raw, ['INBOX'], 'B', 'thread-1').toString('utf8');
+    expect(body).toContain('Content-Type: message/rfc822');
+    expect(body).toContain('Subject: Hoi');
+  });
+});
+
+describe('parseInsertedThreadId', () => {
+  it('reads the thread the message landed in', () => {
+    expect(parseInsertedThreadId({ id: 'm1', threadId: 't1' })).toBe('t1');
+  });
+
+  it('is null when Gmail did not say, so the next message starts its own', () => {
+    expect(parseInsertedThreadId({ id: 'm1' })).toBeNull();
+    expect(parseInsertedThreadId({ id: 'm1', threadId: '' })).toBeNull();
+    expect(parseInsertedThreadId(null)).toBeNull();
   });
 });

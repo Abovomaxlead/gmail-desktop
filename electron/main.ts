@@ -171,6 +171,8 @@ import {
   type MessageMeta,
   fetchMessageRaw,
   fetchRecentInboxIds,
+  fetchThreadMessages,
+  type ThreadMessage,
   markMessageRead,
   archiveMessage,
   trashMessage,
@@ -237,6 +239,9 @@ interface SavedRef {
   file: string;
   messageId: string;
   subject: string;
+  /** The thread this message came out of, so a copy can put its conversation back
+   * together in the target mailbox. Empty when the source is not known per message. */
+  threadId: string;
 }
 let lastDropSaved: SavedRef[] = [];
 let lastDropSource = '';
@@ -1121,6 +1126,27 @@ function mailDropFolder(): string {
   return prefs?.getAll().mailDrop.folder || join(app.getPath('documents'), 'Gmail Desktop', 'Mail');
 }
 
+/** The thread's messages through the Gmail API, or null when this account cannot use it.
+ *
+ * Null for two different reasons, and both mean the same thing to the caller: no token for
+ * this mailbox, or the API could not be reached. Neither is a failure worth reporting,
+ * because the page route below worked before any of this existed and still does — it is
+ * only less complete. */
+async function threadMessagesViaApi(
+  email: string,
+  threadId: string,
+): Promise<ThreadMessage[] | null> {
+  if (!email) return null;
+  const withToken = withTokenFor(email);
+  if (!withToken) return null;
+  try {
+    return await withToken((token) => fetchThreadMessages(token, threadId));
+  } catch (e) {
+    console.warn(`[maildrop] API-ophalen mislukte voor ${threadId}, terug naar de pagina:`, e);
+    return null;
+  }
+}
+
 async function saveOneThread(
   ts: string,
   account: string,
@@ -1137,14 +1163,32 @@ async function saveOneThread(
     return { count: 0, total, error, saved: [] };
   };
 
-  let result;
-  try {
-    result = await fetchThreadEmls(session.fromPartition('persist:google'), { threadId, authuser, ik });
-  } catch (e) {
-    return failed(`Ophalen mislukt (${(e as Error).message})`);
+  // The API first, and the page only when there is no token for this account.
+  //
+  // Both routes end in the same list, but they do not find the same messages. The page
+  // route reads Gmail's "show original" page and can only save what that page links to,
+  // and a long conversation arrives there with its older messages collapsed and their
+  // links gone — so a thread of twelve becomes a copy of three that reports itself as
+  // three of three, since it counts what it found rather than what exists. threads.get
+  // has no opinion about rendering: it lists every message in the thread, so what is
+  // missing is missing loudly.
+  const viaApi = await threadMessagesViaApi(account, threadId);
+  let fetched: { raw?: Buffer; error?: string }[];
+  let pageHtml: { html: string; status: number } | null = null;
+  if (viaApi) {
+    fetched = viaApi.map((m) => ({ raw: m.raw, error: m.error }));
+  } else {
+    let result;
+    try {
+      result = await fetchThreadEmls(session.fromPartition('persist:google'), { threadId, authuser, ik });
+    } catch (e) {
+      return failed(`Ophalen mislukt (${(e as Error).message})`);
+    }
+    fetched = result.messages;
+    pageHtml = result.page;
   }
-  const fetched = result.messages;
-  if (fetched.length === 0) {
+  if (fetched.length === 0 && pageHtml) {
+    const result = { page: pageHtml };
     const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
     const kortEnDuidelijk = uitleg.length > 0 && uitleg.length <= 300;
     if (!kortEnDuidelijk) {
@@ -1197,15 +1241,21 @@ async function saveOneThread(
   return {
     count: ok.length,
     total: fetched.length,
-    saved: savedRefs(root, files, ok),
+    saved: savedRefs(root, files, ok, threadId),
   };
 }
 
-function savedRefs(root: string, files: string[], messages: SavedMessage[]): SavedRef[] {
+function savedRefs(
+  root: string,
+  files: string[],
+  messages: SavedMessage[],
+  threadId: string,
+): SavedRef[] {
   return messages.map((m, i) => ({
     file: join(root, files[i]),
     messageId: m.headers.messageId,
     subject: m.headers.subject || NO_SUBJECT,
+    threadId,
   }));
 }
 
@@ -1761,7 +1811,16 @@ async function saveLabel(
       error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
     });
   }
-  return { items, saved: savedRefs(root, files, flat) };
+  // Per thread rather than over the flat list: files runs across every conversation in the
+  // label, and a copy has to know which messages belong together or it files each one as its
+  // own thread in the target mailbox.
+  const saved: SavedRef[] = [];
+  let at = 0;
+  for (const c of collected) {
+    saved.push(...savedRefs(root, files.slice(at, at + c.messages.length), c.messages, c.thread.threadId));
+    at += c.messages.length;
+  }
+  return { items, saved };
 }
 
 async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promise<void> {
@@ -3429,7 +3488,9 @@ function registerIpc(): void {
       let ok = 0;
       let over = 0;
       let lastError: string | undefined;
-      for (const { file, messageId } of files) {
+      /** Source thread id -> the thread it became in this account. */
+      const threadOfCopy = new Map<string, string>();
+      for (const { file, messageId, threadId: sourceThreadId } of files) {
         const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
         if (labelIds.length === 0) {
           over += 1;
@@ -3447,27 +3508,44 @@ function registerIpc(): void {
           progress('copy', target.email);
           continue;
         }
+        // The thread this message's conversation landed in, in this account. The first
+        // message of a conversation makes it and the rest are filed under it; without that
+        // Gmail files every insert as a thread of its own and a copied conversation arrives
+        // in pieces. Per target account, because a thread id is only meaningful inside the
+        // mailbox that issued it.
+        const groupKey = sourceThreadId || file;
+        const landedIn = threadOfCopy.get(groupKey);
         try {
-          let id: string | null;
+          let inserted: { id: string | null; threadId: string | null };
+          const insert = (t: string, thread?: string) => insertMessage(t, raw, labelIds, thread);
           try {
-            id = await insertMessage(token, raw, labelIds);
+            inserted = await insert(token, landedIn);
           } catch (e) {
-            if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
-            const fresh = await forceRefresh(cfg, oauthTokens, target.email);
-            if (!fresh) {
-              refreshFailures.add(target.email);
-              scheduleOAuthHealthCheck();
-              throw new Error('Verbinding verlopen');
+            if (e instanceof GmailHttpError && e.status === 400 && landedIn) {
+              // Google refused the thread rather than the message: its conditions on
+              // References and Subject were not met, which is a property of this one mail
+              // and not a reason to lose it. It goes in on its own instead.
+              console.warn(`[maildrop] ${file} paste niet in thread ${landedIn}, los ingevoegd`);
+              inserted = await insert(token);
+            } else {
+              if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
+              const fresh = await forceRefresh(cfg, oauthTokens, target.email);
+              if (!fresh) {
+                refreshFailures.add(target.email);
+                scheduleOAuthHealthCheck();
+                throw new Error('Verbinding verlopen');
+              }
+              token = fresh;
+              refreshFailures.delete(target.email);
+              inserted = await insert(token, landedIn);
             }
-            token = fresh;
-            refreshFailures.delete(target.email);
-            id = await insertMessage(token, raw, labelIds);
           }
+          if (!landedIn && inserted.threadId) threadOfCopy.set(groupKey, inserted.threadId);
           ok += 1;
           records.push({
             ts,
             account: target.email,
-            threadId: id ?? '',
+            threadId: inserted.threadId ?? inserted.id ?? '',
             file,
             bytes: raw.length,
             copy: { to: target.email, labels: labelIds, ok: true },

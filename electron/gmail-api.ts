@@ -276,14 +276,55 @@ export async function listLabelThreadIds(
   return { threadIds, capped: false };
 }
 
-export async function fetchThreadRaw(accessToken: string, threadId: string): Promise<Buffer[]> {
-  const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
-  const out: Buffer[] = [];
+/** One entry per message the thread actually holds, whether or not its source came back.
+ *
+ * The count is the point. Gmail's own conversation page renders what it feels like
+ * rendering — a long thread arrives with its older messages collapsed and their download
+ * links absent — so a copy taken from that page can be short without anything reporting a
+ * failure. `threads.get` is asked instead, and it answers with every message id in the
+ * thread regardless of how any page would draw it. A message whose source then fails to
+ * arrive is kept here as an error rather than dropped, because a caller counting what it
+ * saved must be able to see that one is missing. */
+export interface ThreadMessage {
+  id: string;
+  raw?: Buffer;
+  error?: string;
+}
+
+/** The loop, with the network as a dependency so it can be tested without one — the same
+ * arrangement push-sync uses, and for the same reason: what is worth checking here is not
+ * that a request was made but that the list keeps its shape. One entry per id, in the
+ * thread's own order, and a message that could not be read stays in as an error. It is the
+ * dropping of those that made a short copy look like a complete one. */
+export async function collectThreadMessages(
+  ids: string[],
+  read: (id: string) => Promise<Buffer | null>,
+): Promise<ThreadMessage[]> {
+  const out: ThreadMessage[] = [];
   for (const id of ids) {
-    const raw = parseMessageRaw(await requestJson(messageRawUrl(id), accessToken));
-    if (raw) out.push(raw);
+    try {
+      const raw = await read(id);
+      out.push(raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' });
+    } catch (e) {
+      out.push({ id, error: `Ophalen mislukt (${(e as Error).message})` });
+    }
   }
   return out;
+}
+
+export async function fetchThreadMessages(
+  accessToken: string,
+  threadId: string,
+): Promise<ThreadMessage[]> {
+  const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
+  return collectThreadMessages(ids, async (id) =>
+    parseMessageRaw(await requestJson(messageRawUrl(id), accessToken)),
+  );
+}
+
+export async function fetchThreadRaw(accessToken: string, threadId: string): Promise<Buffer[]> {
+  const messages = await fetchThreadMessages(accessToken, threadId);
+  return messages.flatMap((m) => (m.raw ? [m.raw] : []));
 }
 
 export const WATCH_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/watch';
@@ -474,11 +515,24 @@ export function pickBoundary(
   return `gmd-boundary-${raw.length}-fallback`;
 }
 
-export function multipartBody(raw: Buffer, labelIds: string[], boundary: string): Buffer {
+/** `threadId` is what keeps a copied conversation a conversation.
+ *
+ * Gmail does not thread an inserted message on its headers alone: insert says the thread it
+ * belongs to, or it becomes a thread of its own. Six replies copied to another mailbox then
+ * arrive as six separate mails, which is what this is here to prevent. Google's own
+ * conditions still apply beside it — References and In-Reply-To per RFC 2822, and a matching
+ * Subject — and they hold, because what is inserted is the original message. */
+export function multipartBody(
+  raw: Buffer,
+  labelIds: string[],
+  boundary: string,
+  threadId?: string,
+): Buffer {
+  const metadata = threadId ? { labelIds, threadId } : { labelIds };
   const head = Buffer.from(
     `--${boundary}\r\n` +
       'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      `${JSON.stringify({ labelIds })}\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
       `--${boundary}\r\n` +
       'Content-Type: message/rfc822\r\n\r\n',
     'utf8',
@@ -491,16 +545,25 @@ export function parseInsertedId(json: unknown): string | null {
   return typeof id === 'string' && id ? id : null;
 }
 
+/** The thread the message landed in, which the next message of the same conversation has to
+ * be told. Read apart from the id because the caller needs both and for different reasons:
+ * the id proves the insert happened, the thread is what the rest of the copy is filed under. */
+export function parseInsertedThreadId(json: unknown): string | null {
+  const threadId = (json as { threadId?: unknown })?.threadId;
+  return typeof threadId === 'string' && threadId ? threadId : null;
+}
+
 export async function insertMessage(
   accessToken: string,
   raw: Buffer,
   labelIds: string[],
-): Promise<string | null> {
+  threadId?: string,
+): Promise<{ id: string | null; threadId: string | null }> {
   const boundary = pickBoundary(raw);
   const json = await requestJson(INSERT_URL, accessToken, {
     method: 'POST',
     contentType: `multipart/related; boundary=${boundary}`,
-    body: multipartBody(raw, labelIds, boundary),
+    body: multipartBody(raw, labelIds, boundary, threadId),
   });
-  return parseInsertedId(json);
+  return { id: parseInsertedId(json), threadId: parseInsertedThreadId(json) };
 }
