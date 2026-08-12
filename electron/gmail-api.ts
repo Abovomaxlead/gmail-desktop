@@ -216,6 +216,21 @@ export async function trashMessage(accessToken: string, messageId: string): Prom
   });
 }
 
+/** The newest mail in the inbox, ids only.
+ *
+ * `max` is deliberately a handful. This exists to answer "which mail was that notification
+ * about", and a notification is about mail that arrived seconds ago, so the answer is
+ * among the last few or it is not worth more requests to find. */
+export function recentInboxUrl(max: number): string {
+  const q = new URLSearchParams({ labelIds: 'INBOX', maxResults: String(Math.max(1, max)) });
+  return `${MESSAGES_URL}?${q.toString()}`;
+}
+
+export async function fetchRecentInboxIds(accessToken: string, max: number): Promise<string[]> {
+  // messages.list answers in the same `{ messages: [{ id }] }` shape a thread does.
+  return parseThreadMessageIds(await requestJson(recentInboxUrl(max), accessToken));
+}
+
 export function messageIdQuery(messageId: string): string {
   return `rfc822msgid:${(messageId ?? '').trim().replace(/^<+|>+$/g, '')}`;
 }

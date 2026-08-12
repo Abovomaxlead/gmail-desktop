@@ -30,6 +30,10 @@ export interface NativeLabels {
   readonly downloadCancelledTitle: string;
   readonly downloadFailedTitle: string;
   readonly noSubject: string;
+  /** The stack folded several notifications into one card and then could not paint it, so
+   * the count has to leave as a system notification. Only main knows this happened, which
+   * is why the wording lives here and not with the page's own summary. */
+  readonly collapsedNotifications: (count: number) => string;
 }
 
 const EN: NativeLabels = Object.freeze({
@@ -58,6 +62,7 @@ const EN: NativeLabels = Object.freeze({
   downloadCancelledTitle: 'Download cancelled',
   downloadFailedTitle: 'Download failed',
   noSubject: '(no subject)',
+  collapsedNotifications: (count: number) => `${count} new notifications`,
 });
 
 const NL: NativeLabels = Object.freeze({
@@ -86,6 +91,7 @@ const NL: NativeLabels = Object.freeze({
   downloadCancelledTitle: 'Download geannuleerd',
   downloadFailedTitle: 'Download mislukt',
   noSubject: '(geen onderwerp)',
+  collapsedNotifications: (count: number) => `${count} nieuwe meldingen`,
 });
 
 const RENE: NativeLabels = Object.freeze({
@@ -114,6 +120,7 @@ const RENE: NativeLabels = Object.freeze({
   downloadCancelledTitle: 'Ophalen gestopt',
   downloadFailedTitle: 'Ophalen lukte niet',
   noSubject: '(zonder titel)',
+  collapsedNotifications: (count: number) => `Er zijn ${count} nieuwe berichtjes`,
 });
 
 export function nativeLabels(locale: Locale, reneMode: boolean): NativeLabels {

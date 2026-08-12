@@ -170,10 +170,12 @@ import {
   type AccountLabels,
   type MessageMeta,
   fetchMessageRaw,
+  fetchRecentInboxIds,
   markMessageRead,
   archiveMessage,
   trashMessage,
 } from './gmail-api';
+import { pickNotifiedMessage, type NotifiedMail } from './notify-match';
 import { mapLimit } from './concurrency';
 import { OAuthStore } from './oauth-store';
 import { connectAccount, accessTokenFor, forceRefresh } from './oauth-flow';
@@ -748,7 +750,7 @@ function registerAccount(
   profiles.sort((a, b) => authIdx(a) - authIdx(b));
   pushProfiles();
   refreshNotifyAllowed();
-  startPush();
+  startMailSync();
   syncCalendarViews();
   warmAccount(profile);
 }
@@ -811,7 +813,7 @@ function removeAccount(email: string): void {
   pushProfiles();
   pushUnread();
   refreshBadge();
-  startPush();
+  startMailSync();
   // profiles[0] is not necessarily openable: authIdx returns -1 for every delegated
   // profile, so a mailbox known only by address (no mailUrl yet) sorts ahead of every
   // authuser account and would otherwise be handed to showAccount, which now refuses it —
@@ -1869,7 +1871,9 @@ function activateNotification(
   // Gmail's pop-out button and then puts it back, so the main window is not left showing
   // the message as well.
   if (threadId && surface === 'mail' && windowMode) {
-    void manager?.popOutThread(accountKey, threadId).then((ok) => {
+    // The subject travels with it because the pop-out has to wait for Gmail to actually
+    // arrive on the thread, and the title is the only place the page says it has.
+    void manager?.popOutThread(accountKey, threadId, subject).then((ok) => {
       if (!ok && idx != null) openFullThreadWindow(idx, threadId);
     });
     return;
@@ -1958,6 +1962,31 @@ function repairToastStack(): boolean {
   return true;
 }
 
+// The end of the line for a stack that has given up.
+//
+// showToast's fork only ever redirects the *next* notification. The cards already in the
+// controller when the page died are past it — they were accepted while the window still
+// looked healthy, they are what the rebuild was trying to save, and once the attempts are
+// spent nothing would ever look at them again. That is the silence this exists to break:
+// mail arrived, the log said the stack drew it, and nothing was on screen. The controller
+// hands the stack over and empties itself in one call, so a second attempt finds nothing
+// and nothing is raised twice.
+//
+// A summary has no cards left to raise — each one was released as it was folded into the
+// count — so what leaves is the count itself.
+function drainToSystem(): void {
+  const held = toasts?.drain();
+  if (!held) return;
+  for (const toast of held.toasts) {
+    notifyLog(`[toast] draining "${toast.title}" to Windows — the stack cannot paint`);
+    systemNotify(toast.title, toast.body);
+  }
+  if (!held.summary) return;
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+  notifyLog(`[toast] draining a summary of ${held.summary.count} to Windows`);
+  systemNotify(app.getName(), L.collapsedNotifications(held.summary.count));
+}
+
 // What a card was holding while it was on screen, released when it leaves by any route
 // other than a click. A click consumes them itself, in activateToast; nothing consumed
 // them on the other four routes, so a dismissed relayed card left an entry in
@@ -1970,20 +1999,95 @@ function forgetToastResources(toast: Toast): void {
   if (toast.kind === 'download' && toast.threadId) downloadClickPaths.delete(toast.threadId);
 }
 
-function activateToast(toast: Toast): void {
-  if (toast.webNotifyId) {
-    const source = webNotifySources.get(toast.webNotifyId);
-    webNotifySources.delete(toast.webNotifyId);
+/** How much of the inbox is fetched to recognise one notification in, and how long that is
+ * allowed to take before the click goes on without it. The click is a person waiting, so
+ * the deadline is short and missing it is not an error: the page's own lookup is still
+ * there, and it is what used to answer alone. */
+const NOTIFY_LOOKUP_MESSAGES = 8;
+const NOTIFY_LOOKUP_TIMEOUT_MS = 2500;
+
+/** Resolves to `fallback` if `work` has not finished in time, and lets a rejection resolve
+ * the same way: nothing here is worth failing a click over. */
+function withDeadline<T>(work: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+    const settle = (value: T): void => {
+      clearTimeout(timer);
+      resolve(value);
+    };
+    void work.then(settle, () => settle(fallback));
+  });
+}
+
+/** Which mail the notification was about, asked of the Gmail API.
+ *
+ * A handful of the newest inbox messages, their sender and subject, and the match made
+ * against the text the notification drew. That is one list request and a few metadata ones
+ * — only ever on a click, never on arrival, so mail nobody opens costs nothing.
+ *
+ * Delegated mailboxes have no token of their own and fall out at the first line, which is
+ * correct: for those the page's DOM is the only lookup there has ever been. */
+async function lookupNotifiedMessage(
+  email: string,
+  notified: NotifiedMail,
+): Promise<MessageMeta | null> {
+  const withToken = withTokenFor(email);
+  if (!withToken) return null;
+  try {
+    const ids = await withToken((t) => fetchRecentInboxIds(t, NOTIFY_LOOKUP_MESSAGES));
+    const metas = await mapLimit(ids, 4, (id) => withToken((t) => fetchMessageMeta(t, id)));
+    return pickNotifiedMessage(
+      metas.filter((m): m is MessageMeta => m !== null),
+      notified,
+    );
+  } catch (e) {
+    notifyLog(`[notify] api lookup failed for ${email}: ${(e as Error).message}`);
+    return null;
+  }
+}
+
+/** A card raised from Gmail's own notification was clicked.
+ *
+ * Three answers, in order of how sure each one is. The API knows exactly which mail it was
+ * and hands back its thread id. Failing that the source view is asked, which matches the
+ * subject against whatever rows it is rendering — a guess, and the reason this order is
+ * this way round. Failing that too, the account is opened, which at least lands in the
+ * right mailbox.
+ *
+ * The source is dropped before any of it: whichever answer wins, this card is spent, and a
+ * second click cannot arrive on a card the stack has already removed. */
+async function openNotifiedThread(toast: Toast): Promise<void> {
+  const key = toast.webNotifyId!;
+  const source = webNotifySources.get(key);
+  webNotifySources.delete(key);
+  if (source) {
+    const found = await withDeadline(
+      lookupNotifiedMessage(source.email, source.notified),
+      NOTIFY_LOOKUP_TIMEOUT_MS,
+      null,
+    );
+    if (found && toast.account) {
+      notifyLog(`[notify] click ${key}: the api says thread=${found.threadId}`);
+      activateNotification(toast.account.key, 'mail', found.threadId, source.notified.subject);
+      return;
+    }
     // The page-side id goes back, never the key we filed it under: the page's own map is
     // keyed by the name it made up, and knows nothing about which WebContents it is.
-    if (source && !source.wc.isDestroyed()) {
+    if (!source.wc.isDestroyed()) {
+      notifyLog(`[notify] click ${key}: the api did not recognise it, asking the view`);
       source.wc.send(IPC.WEB_NOTIFY_CLICK, source.pageId);
       return;
     }
-    // The view is gone, so nothing can resolve the thread. Showing the account beats
-    // swallowing the click.
-    notifyLog(`[notify] click ${toast.webNotifyId}: source view gone, opening the account`);
-    if (toast.account) activateNotification(toast.account.key, 'mail');
+  }
+  // Nothing left that could resolve the thread. Showing the account beats swallowing the
+  // click.
+  notifyLog(`[notify] click ${key}: no source and no match, opening the account`);
+  if (toast.account) activateNotification(toast.account.key, 'mail');
+}
+
+function activateToast(toast: Toast): void {
+  if (toast.webNotifyId) {
+    void openNotifiedThread(toast);
     return;
   }
   if (toast.kind === 'mail' && toast.account) {
@@ -2132,14 +2236,18 @@ function syncRunnerFor(email: string): { run(): Promise<void> } | null {
       get: () => history!.get(email),
       set: (id) => history!.set(email, id),
     },
-    coveredSince: () => coverage.since(email),
+    coveredSince: () => coverage.since(email) ?? apiSyncSince.get(email) ?? null,
     isExpiredCursor: (e) => e instanceof GmailHttpError && e.status === 404,
     onOutcome: (outcome) => {
       reportApiUnread(email, outcome.unread);
-      for (const meta of outcome.notify) notifyNewMail(email, meta);
+      // Only the relay's own mail cards go here. With it off, this same sync still runs —
+      // on a timer and on every notification Gmail's page raises — and a card per message
+      // would be a second card for mail the page has already announced. What the sync is
+      // for then is the line below it: the code in the mail, and a cursor that moved.
+      if (RELAY_PUSH_ENABLED) for (const meta of outcome.notify) notifyNewMail(email, meta);
       for (const meta of outcome.notify) void handleVerificationCode(email, meta, withToken);
     },
-    onError: (e) => console.warn(`[push] sync mislukte voor ${email}:`, e),
+    onError: (e) => console.warn(`[sync] sync mislukte voor ${email}:`, e),
   });
   syncRunners.set(email, runner);
   return runner;
@@ -2156,7 +2264,62 @@ function pushableEmails(): string[] {
     });
 }
 
-function startPush(): void {
+/** Whether the relay drives new mail.
+ *
+ * Off, and the notifications come from Gmail's own page instead — the shim in preload.ts,
+ * raising the same cards through the same stack. The two cannot both run: push coverage is
+ * what tells a view to keep quiet, so an account the relay delivers for is an account whose
+ * page stops notifying, and turning this back on turns that back on with it. Every line the
+ * relay needs is still here and still tested; what it has never had on this machine is a
+ * relayUrl and a pushTopic in the config file, without which startRelayPush() returned on
+ * the spot anyway — this only says so out loud.
+ *
+ * The API side below does not hang on it. That keeps running either way, because it is how
+ * a verification code gets copied and how the history cursor stays fresh, neither of which
+ * the relay was ever the point of. */
+const RELAY_PUSH_ENABLED: boolean = false;
+
+/** When the API sync started watching this mailbox. The same question push answers with its
+ * coverage moment — mail older than this was already in the inbox and must stay quiet — but
+ * deliberately not the same answer. Coverage means "the relay delivers for this account",
+ * and it delivers for none; writing this into it would tell every mail view to go silent on
+ * behalf of a sync that raises no notifications at all, and the app would go quiet. */
+const apiSyncSince = new Map<string, number>();
+
+/** Slow on purpose. Every notification from the page runs a sync of its own the moment it
+ * arrives, so this is only the net underneath: mail that notified nobody — quiet hours, an
+ * account with notifications off, a category Gmail keeps to itself — whose code still
+ * deserves copying and whose history id still has to move. */
+const API_SYNC_MS = 5 * 60_000;
+let apiSyncTimer: ReturnType<typeof setInterval> | null = null;
+
+/** The API half, without a relay to start it. Idempotent, and called from everywhere
+ * startMailSync is: accounts arrive, are removed, or get a token long after they appeared. */
+function startApiSync(): void {
+  const wanted = new Set(pushableEmails());
+  for (const email of apiSyncSince.keys()) if (!wanted.has(email)) apiSyncSince.delete(email);
+  for (const email of wanted) {
+    if (apiSyncSince.has(email)) continue;
+    // Set before the first run, never after: that run writes the baseline cursor, and a
+    // moment stamped afterwards would place every message it just skipped in the future.
+    apiSyncSince.set(email, Date.now());
+    void syncRunnerFor(email)?.run();
+  }
+  if (apiSyncTimer || wanted.size === 0) return;
+  apiSyncTimer = setInterval(() => {
+    for (const email of apiSyncSince.keys()) void syncRunnerFor(email)?.run();
+  }, API_SYNC_MS);
+}
+
+/** Everything that keeps the mailboxes current: the API sync always, the relay only while
+ * it is switched on. */
+function startMailSync(): void {
+  startApiSync();
+  if (!RELAY_PUSH_ENABLED) return;
+  startRelayPush();
+}
+
+function startRelayPush(): void {
   if (pushManager) {
     pushManager.refresh();
     return;
@@ -2299,7 +2462,12 @@ function createWindow(): void {
     DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     () => toasts?.markReady(),
-    () => repairToastStack(),
+    // Rebuild while there is a rebuild left, and when there is not, get what is queued out
+    // by the only route still open. Ignoring this answer is how a broken stack turned into
+    // no notification at all rather than a plain one.
+    () => {
+      if (!repairToastStack()) drainToSystem();
+    },
   );
   toasts = new ToastController({
     window: toastWindow,
@@ -2798,12 +2966,19 @@ function attachSessionHandlers(s: Electron.Session): void {
 // one that applies.
 const downloadClickPaths = new Map<string, DownloadClickAction>();
 
-// Which view raised a relayed notification. A click has to go back to that page, because
-// the page is the only place that still knows the real subject, and finding the thread
-// means matching that subject in its own DOM. Keyed by webNotifySourceKey rather than by
-// the page-side id alone, which is only unique within one view; the page-side id is kept
-// alongside because that is the name the page itself will recognise on the way back.
-const webNotifySources = new Map<string, { wc: Electron.WebContents; pageId: string }>();
+// What a notification Gmail's page raised was, kept for as long as its card is up.
+//
+// The text is here rather than only in the page because it is what identifies the mail
+// again: the API is asked first, and it is asked about this sender and this subject —
+// unfolded and unreplaced, which is not what the card ended up showing when the privacy
+// settings are on. The view is kept alongside for when the API cannot answer, since its
+// DOM is the older lookup and still the fallback. Keyed by webNotifySourceKey rather than
+// by the page-side id alone, which is only unique within one view; the page-side id is
+// kept as well, because that is the name the page itself will recognise on the way back.
+const webNotifySources = new Map<
+  string,
+  { wc: Electron.WebContents; pageId: string; email: string; notified: NotifiedMail }
+>();
 
 function notifyDownloadDone(
   filename: string,
@@ -2988,6 +3163,19 @@ function registerIpc(): void {
     pushPrefs();
   });
   ipcMain.on(IPC.NOTIFY_TEST, () => showTestNotification());
+  // Whatever a page has to say about itself. Tagged with the account when the sender is one
+  // of the mail views, since "Gmail raised a notification" is only half an answer without
+  // knowing which mailbox said it.
+  ipcMain.on(IPC.VIEW_LOG, (e, message: unknown) => {
+    if (typeof message !== 'string' || !message) return;
+    const key = manager?.keyForWebContents(e.sender) ?? null;
+    const who = profiles.find((p) => keyOf(p) === key)?.email ?? key ?? `view ${e.sender.id}`;
+    notifyLog(`[view ${who}] ${message.slice(0, 300)}`);
+  });
+  // The page is listening and wants the stack. This is the handshake that matters; the
+  // did-finish-load one is kept because it costs nothing and covers a page that somehow
+  // never asks.
+  ipcMain.on(IPC.TOAST_READY, () => toasts?.markReady());
   ipcMain.on(IPC.TOAST_SIZE, (_e, size: { width: number; height: number }) =>
     toasts?.applySize(size.width, size.height),
   );
@@ -3010,19 +3198,39 @@ function registerIpc(): void {
     // and would file the click under a name nothing can look up again. Checked the same
     // way profile-view-manager checks NOTIFICATION_ACTIVATE's thread id, and for the same
     // reason: what is on the other end of this channel is Google's page, not ours.
-    if (typeof arg?.id !== 'string') return;
+    if (typeof arg?.id !== 'string') {
+      notifyLog(`[notify] a view raised a notification with a ${typeof arg?.id} id — dropped`);
+      return;
+    }
     const accountKey = manager?.keyForWebContents(e.sender) ?? null;
     const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
-    if (!profile) return;
+    // Both of these are silent losses, and both have a cause worth naming: a view the
+    // manager no longer recognises (it was discarded, or it is a pop-out), or an account
+    // that has since been removed.
+    if (!profile) {
+      notifyLog(
+        `[notify] a notification arrived from a view with no account (key=${accountKey ?? 'unknown'}) — dropped`,
+      );
+      return;
+    }
     const p = prefs.getAll();
     const hidden = hiddenNotificationText(p);
     const L = nativeLabels(currentLocale(), p.reneMode === true);
     const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
-    webNotifySources.set(sourceKey, { wc: e.sender, pageId: arg.id });
-    // The other path: relayed from Gmail's own page, which sends no thread id, so a click
-    // has to go back and guess from the subject. Paired with the lookup line the view logs
-    // on that click.
-    notifyLog(`[notify] raise web ${profile.email} src=${sourceKey}`);
+    // Kept as Gmail wrote it, which is not what the card will show: the privacy settings
+    // may replace both lines below, and the API is asked about the mail, not about the
+    // card. Coerced because this is Google's page on the other end and `title: string` is
+    // the signature, not a promise.
+    const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
+    webNotifySources.set(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
+    // The other path: Gmail's own page, which sends no thread id, so a click has to work
+    // out which mail this was — the API first, the page's DOM after. Paired with the line
+    // whichever of the two answered writes on that click.
+    notifyLog(
+      `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
+        ` persist=${notificationPersist(p, profile.email)} silent=${notificationSilent(p, profile.email, 'mail')}` +
+        `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
+    );
     showToast({
       kind: 'mail',
       title: hidden.hiddenSender ?? arg.title,
@@ -3032,6 +3240,10 @@ function registerIpc(): void {
       persist: notificationPersist(p, profile.email),
     });
     if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
+    // Gmail's page just said mail arrived, which is the one thing the relay was subscribed
+    // to hear. So the API side is told the same way: the sync that copies a verification
+    // code and moves the history cursor runs now, rather than up to five minutes from now.
+    void syncRunnerFor(profile.email)?.run();
   });
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
     const current = downloadFolder();
@@ -3331,9 +3543,9 @@ function registerIpc(): void {
     }
     // Nothing caches the config — oauthConfig() re-reads it — so the app is linkable from
     // here on. The health check republishes the statuses, which turns every account into a
-    // Verbinden button, and push can start now that it has a relay to talk to.
+    // Verbinden button, and the API sync can start now that there is a token to sign with.
     void checkOAuthHealth();
-    startPush();
+    startMailSync();
     return { ok: true };
   });
   ipcMain.handle(IPC.OAUTH_RECONNECT, async (_e, arg: { email: string }) => {
@@ -3346,7 +3558,7 @@ function registerIpc(): void {
     refreshFailures.delete(arg.email);
     pushRefusals.delete(arg.email);
     void checkOAuthHealth();
-    startPush();
+    startMailSync();
     return { ok: true };
   });
   ipcMain.handle(IPC.MAIL_DROP_FOLDER_GET, () => mailDropFolder());
@@ -3382,7 +3594,7 @@ function registerIpc(): void {
     pushProfiles();
     pushPrefs();
     refreshNotifyAllowed();
-    startPush();
+    startMailSync();
     syncCalendarViews();
     refreshBadge();
   });
