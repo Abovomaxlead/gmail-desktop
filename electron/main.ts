@@ -79,7 +79,7 @@ import {
   type CopyMode,
 } from './mail-copy';
 import { parseHeaders, extractPlainText, htmlToText } from './eml';
-import { writeThread, writeLabel, appendLog, displayName, type LogRecord, type SavedMessage } from './mail-archive';
+import { writeThread, writeLabel, appendLog, displayName, newestMessage, type LogRecord, type SavedMessage } from './mail-archive';
 import {
   labelListUrl,
   mergeThreads,
@@ -1205,13 +1205,24 @@ async function saveOneThread(
     return failed(`Gmail: ${uitleg}`);
   }
 
-  const ok: SavedMessage[] = [];
+  const all: SavedMessage[] = [];
   const failedRecords: LogRecord[] = [];
   for (const f of fetched) {
-    if (f.raw) ok.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
+    if (f.raw) all.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
     else failedRecords.push({ ts, account, threadId, error: f.error ?? 'onbekende fout' });
   }
-  if (ok.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald', fetched.length);
+  if (all.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald', fetched.length);
+
+  // One mail out of the conversation, not the conversation in pieces. The last message
+  // quotes the ones before it, which is the whole reason a thread gets dragged: something
+  // to read the exchange in. Fetching all of them was still not wasted — it is how the
+  // newest one is known to be the newest, and how it is complete rather than whatever a
+  // collapsed page happened to link to.
+  const newest = newestMessage(all);
+  const ok = newest ? [newest] : [];
+  if (all.length > 1) {
+    notifyLog(`[maildrop] ${threadId}: ${all.length} berichten, alleen het laatste bewaard`);
+  }
 
   let files: string[];
   try {
@@ -1240,7 +1251,8 @@ async function saveOneThread(
   }
   return {
     count: ok.length,
-    total: fetched.length,
+    // One mail per conversation now, so this counts conversations rather than messages.
+    total: 1,
     saved: savedRefs(root, files, ok, threadId),
   };
 }
@@ -1741,6 +1753,13 @@ async function saveLabel(
     }
   }
 
+  // Per conversation the last message, for the reason newestMessage carries: what is wanted
+  // is one mail to read the exchange in. A label of forty threads becomes forty mails, not
+  // four hundred.
+  for (const c of collected) {
+    const newest = newestMessage(c.messages);
+    c.messages = newest ? [newest] : [];
+  }
   const flat = collected.flatMap((c) => c.messages);
   let files: string[] = [];
   try {

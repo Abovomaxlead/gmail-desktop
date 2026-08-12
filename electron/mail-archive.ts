@@ -73,6 +73,32 @@ function stamp(iso: string): { date: string; time: string } {
   };
 }
 
+/** The one message worth keeping out of a conversation: the last one, because it carries
+ * the others inside it as quoted text. That is what a dragged conversation is wanted for --
+ * one mail to read the whole exchange in, not a folder of six to open in turn.
+ *
+ * What it costs is deliberate and worth writing down: an attachment that only ever hung on
+ * an earlier message does not come along, because that message is not copied.
+ *
+ * Date headers decide, and thread order settles it when they cannot: senders' clocks
+ * disagree, and a mail with an unreadable or missing Date must not win by accident. Ties go
+ * to the later message for the same reason -- Gmail hands a thread back oldest first, so the
+ * last of equals is the newest.
+ */
+export function newestMessage(messages: SavedMessage[]): SavedMessage | null {
+  let best: SavedMessage | null = null;
+  let bestAt = -Infinity;
+  for (const m of messages) {
+    const ms = m.headers.date ? Date.parse(m.headers.date) : NaN;
+    const at = Number.isNaN(ms) ? -Infinity : ms;
+    if (best === null || at >= bestAt) {
+      best = m;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
 export function threadFolderName(dropIso: string, first: EmlHeaders): string {
   const { date, time } = stamp(dropIso);
   const who = safeName(displayName(first.from));

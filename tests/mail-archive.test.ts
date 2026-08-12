@@ -12,6 +12,8 @@ import {
   writeThread,
   writeLabel,
   appendLog,
+  newestMessage,
+  type SavedMessage,
 } from '../electron/mail-archive';
 import type { EmlHeaders } from '../electron/eml';
 
@@ -200,5 +202,47 @@ describe('appendLog', () => {
     const dir = root();
     appendLog(dir, []);
     expect(readdirSync(dir)).toEqual([]);
+  });
+});
+
+// Dragging a conversation is meant to yield one mail to read the exchange in, and the last
+// message is that mail: it quotes the ones before it. The alternative — every message as its
+// own .eml, and in a copy as its own item in the target mailbox — is what this replaces.
+describe('newestMessage', () => {
+  const msg = (date: string | null, subject = 'x'): SavedMessage => ({
+    raw: Buffer.from(`Subject: ${subject}`),
+    headers: headers({ subject, date }),
+  });
+
+  it('takes the last one by date, not the last in the list', () => {
+    const out = newestMessage([
+      msg('2026-08-12T10:00:00.000Z', 'a'),
+      msg('2026-08-12T12:00:00.000Z', 'b'),
+      msg('2026-08-12T11:00:00.000Z', 'c'),
+    ]);
+    expect(out?.headers.subject).toBe('b');
+  });
+
+  it('falls back to thread order when no date can be read', () => {
+    const out = newestMessage([msg(null, 'a'), msg(null, 'b'), msg(null, 'c')]);
+    expect(out?.headers.subject).toBe('c');
+  });
+
+  it('does not let a dateless message beat a dated one', () => {
+    const out = newestMessage([msg('2026-08-12T10:00:00.000Z', 'a'), msg(null, 'b')]);
+    expect(out?.headers.subject).toBe('a');
+  });
+
+  it('gives the later of two equal timestamps, the way Gmail orders a thread', () => {
+    const t = '2026-08-12T10:00:00.000Z';
+    expect(newestMessage([msg(t, 'a'), msg(t, 'b')])?.headers.subject).toBe('b');
+  });
+
+  it('is null for an empty conversation', () => {
+    expect(newestMessage([])).toBeNull();
+  });
+
+  it('returns the one message of a single-message thread', () => {
+    expect(newestMessage([msg('2026-08-12T10:00:00.000Z', 'solo')])?.headers.subject).toBe('solo');
   });
 });
