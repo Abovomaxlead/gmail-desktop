@@ -13,7 +13,7 @@ import {
   dismissToast,
   expireToasts,
   stackCount,
-} from '../electron/toast-model';
+} from '../electron/toast/toast-model';
 import type { Toast, ToastStack } from '../renderer/lib/toast';
 
 function mail(id: string, accountKey = 'a1', expiresAt?: number): Toast {

@@ -1,7 +1,7 @@
 // contentBounds: where the Gmail view sits below the topbar.
 
 import { describe, it, expect } from 'vitest';
-import { contentBounds, TOPBAR_HEIGHT, CONTENT_MARGIN } from '../electron/layout';
+import { contentBounds, TOPBAR_HEIGHT, CONTENT_MARGIN } from '../electron/windows/layout';
 
 describe('contentBounds', () => {
   it('puts the content under the topbar, across the full width', () => {

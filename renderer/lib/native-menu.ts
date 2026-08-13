@@ -9,11 +9,18 @@
 //
 // A menu with no clickable item is an empty box, and both sides of the seam refuse
 // one: a delegated mailbox without a calendar URL used to leave an empty window.
+
 export type NativeMenuItem =
   | { kind: 'item'; id: string; label: string; icon?: string }
   | { kind: 'separator' }
   | { kind: 'text'; label: string };
 
+/**
+ * Whether a menu is worth opening
+ *
+ * @param items
+ * @returns false for a menu of separators and labels, which is an empty box
+ */
 export function hasClickableItem(items: readonly NativeMenuItem[]): boolean {
   return items.some((i) => i.kind === 'item');
 }

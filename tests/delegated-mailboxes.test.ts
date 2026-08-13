@@ -5,7 +5,7 @@
 // wrong.
 
 import { describe, expect, it } from 'vitest';
-import { parseMailboxesUrl, requestDelegatedMailboxes } from '../electron/delegated-mailboxes';
+import { parseMailboxesUrl, requestDelegatedMailboxes } from '../electron/delegation/delegated-mailboxes';
 
 const ok = (body: unknown) =>
   (async () => ({ ok: true, status: 200, json: async () => body })) as unknown as typeof fetch;

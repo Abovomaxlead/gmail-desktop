@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { EventEmitter } from 'node:events';
-import { adaptSocket } from '../electron/push-transport';
+import { adaptSocket } from '../electron/push/push-transport';
 
 class FakeWs extends EventEmitter {
   sent: string[] = [];

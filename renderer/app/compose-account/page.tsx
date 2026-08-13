@@ -40,11 +40,21 @@ import {
 // variants are inert here — darkMode is class-based and the class is only toggled on the
 // main document — so this card always renders light, as maildrop and reconnect also do.
 
+
+//===========================
+// Constants
+//===========================
+
 const LIST_MAX_HEIGHT = 504;
 // Windows at a fractional display scale rounds the content size, and the CSS viewport is
 // then divided by the zoom factor, so an exact fit can land a pixel short and show a
 // scrollbar for that one pixel. Two pixels of slack costs nothing and removes the class.
 const ROUNDING_SLACK = 2;
+
+
+//===========================
+// Page
+//===========================
 
 export default function ComposeAccountPage() {
   const [ask, setAsk] = useState<ComposeAccountAsk | null>(null);
@@ -207,6 +217,11 @@ export default function ComposeAccountPage() {
     </>
   );
 }
+
+
+//===========================
+// Helper components
+//===========================
 
 function Avatar({ account }: { account: ComposeAccountChoice }) {
   const [broken, setBroken] = useState(false);

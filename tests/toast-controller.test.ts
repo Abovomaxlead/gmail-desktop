@@ -11,9 +11,9 @@
 // their sources become unreachable without ever passing through activate.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ToastController, TOAST_LIFETIME_MS } from '../electron/toast-controller';
-import type { ToastInput } from '../electron/toast-controller';
-import type { ToastWindow } from '../electron/toast-window';
+import { ToastController, TOAST_LIFETIME_MS } from '../electron/toast/toast-controller';
+import type { ToastInput } from '../electron/toast/toast-controller';
+import type { ToastWindow } from '../electron/toast/toast-window';
 import type { Toast } from '../renderer/lib/toast';
 
 function fakeWindow(overrides: Partial<ToastWindow> = {}): ToastWindow {

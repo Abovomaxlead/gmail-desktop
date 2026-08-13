@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { DelegatedStore, mergeScan } from '../electron/delegated-store';
+import { DelegatedStore, mergeScan } from '../electron/delegation/delegated-store';
 
 const d = (email: string, cal: string | null = null) => ({
   email,

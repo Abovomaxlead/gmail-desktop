@@ -7,8 +7,8 @@ import {
   supportsOverlay,
   supportsOverlayUpdate,
   windowBackground,
-} from '../electron/titlebar';
-import { TOPBAR_HEIGHT } from '../electron/layout';
+} from '../electron/windows/titlebar';
+import { TOPBAR_HEIGHT } from '../electron/windows/layout';
 
 describe('isDarkTheme', () => {
   it('follows the explicit choice', () => {

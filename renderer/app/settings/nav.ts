@@ -3,6 +3,11 @@
 // presentation. It imports nothing, not even types: an `import type` from page.tsx
 // would pull a .tsx file into the test compilation, which runs without JSX.
 
+
+//===========================
+// Types
+//===========================
+
 export type SettingsSection =
   | 'download-history'
   | 'general'
@@ -28,6 +33,17 @@ export type AttentionUpdateState =
   | 'error'
   | 'dev';
 
+export interface AttentionInput {
+  dnd: boolean;
+  dndUntil?: number;
+  updateReady: boolean;
+}
+
+
+//===========================
+// Constants
+//===========================
+
 export const SETTINGS_GROUPS: readonly (readonly SettingsSection[])[] = [
   ['download-history'],
   [
@@ -49,18 +65,31 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = SETTINGS_GROUPS.fla
 
 export const DEFAULT_SECTION: SettingsSection = 'general';
 
-export interface AttentionInput {
-  dnd: boolean;
-  dndUntil?: number;
-  updateReady: boolean;
-}
 
+//===========================
+// Exported functions
+//===========================
+
+/**
+ * Whether a section carries an attention dot
+ *
+ * @param section
+ * @param input
+ * @returns true when something in that section wants looking at
+ */
 export function needsAttention(section: SettingsSection, input: AttentionInput): boolean {
   if (section === 'notifications') return input.dnd || (input.dndUntil ?? 0) > 0;
   if (section === 'updates') return input.updateReady;
   return false;
 }
 
+/**
+ * Boils what the panel knows down to what the dots need
+ *
+ * @param notifications
+ * @param updateState
+ * @returns {AttentionInput}
+ */
 export function attentionFrom(
   notifications: { dnd: boolean; dndUntil?: number } | undefined,
   updateState: AttentionUpdateState | undefined,

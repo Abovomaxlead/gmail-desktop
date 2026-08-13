@@ -43,9 +43,27 @@ import {
 // absence of an event. Main watches the cursor for us and says so on onToastHoverEnd,
 // which is the only signal that ends a hover nobody saw end.
 
+
+//===========================
+// Constants
+//===========================
+
 // Windows at a fractional display scale rounds the content size and then divides the CSS
 // viewport by the zoom factor, so an exact fit can land a pixel short and clip a shadow.
 const ROUNDING_SLACK = 2;
+
+const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
+
+const ACTION =
+  'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none dark:text-neutral-200 dark:hover:bg-white/10';
+
+/** The summary has no toast id of its own; it needs one to be hovered like the rest. */
+const SUMMARY_ID = 'summary';
+
+
+//===========================
+// Page
+//===========================
 
 export default function ToastsPage() {
   const [state, setState] = useState<ToastState | null>(null);
@@ -221,12 +239,10 @@ export default function ToastsPage() {
   );
 }
 
-const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
-const ACTION =
-  'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none dark:text-neutral-200 dark:hover:bg-white/10';
 
-/** The summary has no toast id of its own; it needs one to be hovered like the rest. */
-const SUMMARY_ID = 'summary';
+//===========================
+// Cards
+//===========================
 
 function ToastCard({
   toast,
@@ -380,19 +396,6 @@ function CloseBox({
   );
 }
 
-// A toast with no mailbox behind it gets a glyph where the avatar would be, because the
-// initial it would fall back to is the first letter of a sentence main wrote: a finished
-// download showed "D" for "Download complete" and "D" again for "Download voltooid", and
-// an update showed "U" or "N" depending on the language. A letter that changes meaning
-// with the locale is worse than no letter. Drawn in the card's own language - currentColor
-// on a 16-unit box with thin round strokes, the same as the close box.
-function statusIconPath(kind: ToastKind): string | null {
-  if (kind === 'download') return 'M8 2.8v7.4M4.9 7.5L8 10.6l3.1-3.1M3.6 13.2h8.8';
-  if (kind === 'update') return 'M8 13.2V3.6M4.4 7.2L8 3.6l3.6 3.6';
-  if (kind === 'error') return 'M8 2.6L1.5 13.4h13L8 2.6zM8 6.6v3.2M8 11.7v.3';
-  return null;
-}
-
 function Avatar({ toast, color }: { toast: Toast; color: string }) {
   const [broken, setBroken] = useState(false);
   const url = toast.account?.avatarUrl;
@@ -431,4 +434,28 @@ function Avatar({ toast, color }: { toast: Toast; color: string }) {
       )}
     </span>
   );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * The glyph a toast with no mailbox behind it shows where the avatar would be
+ *
+ * The initial it would fall back to is the first letter of a sentence main wrote: a
+ * finished download showed "D" for "Download complete" and "D" again for "Download
+ * voltooid", and an update showed "U" or "N" depending on the language. A letter that
+ * changes meaning with the locale is worse than no letter. Drawn in the card's own language
+ * — currentColor on a 16-unit box with thin round strokes, the same as the close box.
+ *
+ * @param kind
+ * @returns the path, or null for a kind that has an avatar of its own
+ */
+function statusIconPath(kind: ToastKind): string | null {
+  if (kind === 'download') return 'M8 2.8v7.4M4.9 7.5L8 10.6l3.1-3.1M3.6 13.2h8.8';
+  if (kind === 'update') return 'M8 13.2V3.6M4.4 7.2L8 3.6l3.6 3.6';
+  if (kind === 'error') return 'M8 2.6L1.5 13.4h13L8 2.6zM8 6.6v3.2M8 11.7v.3';
+  return null;
 }

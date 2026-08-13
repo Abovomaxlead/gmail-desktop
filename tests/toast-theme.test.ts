@@ -10,10 +10,10 @@
 // refresh() is for.
 
 import { describe, expect, it } from 'vitest';
-import { ToastController, type ToastInput } from '../electron/toast-controller';
-import type { ToastWindow } from '../electron/toast-window';
+import { ToastController, type ToastInput } from '../electron/toast/toast-controller';
+import type { ToastWindow } from '../electron/toast/toast-window';
 import type { ToastState } from '../renderer/lib/toast';
-import { IPC } from '../electron/ipc';
+import { IPC } from '../electron/core/ipc';
 
 function mailInput(): ToastInput {
   return { kind: 'mail', title: 'Sender', body: 'Subject', persist: true };

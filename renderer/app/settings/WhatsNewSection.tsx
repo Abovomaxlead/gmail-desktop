@@ -11,58 +11,10 @@ import { FOCUS_RING, HAIRLINE } from './tokens';
 // version, so entries are picked by interface language and fall back to the other
 // language when a version has nothing there. `renderInline` handles **bold** only.
 
-function entriesForLang(v: ChangelogVersion, uiLang: 'en' | 'nl'): ChangelogEntry[] {
-  const hasLangTagged = v.entries.some((e) => e.lang !== 'unknown');
-  if (!hasLangTagged) return v.entries;
-  const matching = v.entries.filter((e) => e.lang === uiLang);
-  if (matching.length) return matching;
-  return v.entries.filter((e) => e.lang !== 'unknown');
-}
 
-function renderInline(text: string): ReactNode {
-  return text
-    .split(/(\*\*[^*]+\*\*)/g)
-    .map((part, i) =>
-      part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : part,
-    );
-}
-
-function ChangelogVersionBlock({
-  version,
-  uiLang,
-  S,
-}: {
-  version: ChangelogVersion;
-  uiLang: 'en' | 'nl';
-  S: UiStrings;
-}) {
-  const entries = entriesForLang(version, uiLang);
-  return (
-    <div>
-      <div className="mb-2 flex items-baseline gap-2">
-        <span className="text-[13.5px] font-semibold tabular-nums">
-          {S.changelogVersionPrefix} {version.version}
-        </span>
-        {version.date && <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">{version.date}</span>}
-      </div>
-      {entries.map((entry, ei) => {
-        const label = S.changelogCategory(entry.heading);
-        return (
-          <div key={ei} className="mb-2 last:mb-0">
-            {label && (
-              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{label}</div>
-            )}
-            <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed">
-              {entry.items.map((item, ii) => (
-                <li key={ii}>{renderInline(item)}</li>
-              ))}
-            </ul>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+//===========================
+// Component
+//===========================
 
 export function WhatsNewSection({ S, uiLang }: { S: UiStrings; uiLang: 'en' | 'nl' }) {
   const [changelog, setChangelog] = useState<ChangelogVersion[]>([]);
@@ -112,4 +64,67 @@ export function WhatsNewSection({ S, uiLang }: { S: UiStrings; uiLang: 'en' | 'n
       </SettingsGroup>
     </Section>
   );
+}
+
+
+//===========================
+// Helper components
+//===========================
+
+function ChangelogVersionBlock({
+  version,
+  uiLang,
+  S,
+}: {
+  version: ChangelogVersion;
+  uiLang: 'en' | 'nl';
+  S: UiStrings;
+}) {
+  const entries = entriesForLang(version, uiLang);
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="text-[13.5px] font-semibold tabular-nums">
+          {S.changelogVersionPrefix} {version.version}
+        </span>
+        {version.date && <span className="text-xs tabular-nums text-neutral-500 dark:text-neutral-400">{version.date}</span>}
+      </div>
+      {entries.map((entry, ei) => {
+        const label = S.changelogCategory(entry.heading);
+        return (
+          <div key={ei} className="mb-2 last:mb-0">
+            {label && (
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{label}</div>
+            )}
+            <ul className="list-disc space-y-1 pl-5 text-[13px] leading-relaxed">
+              {entry.items.map((item, ii) => (
+                <li key={ii}>{renderInline(item)}</li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function entriesForLang(v: ChangelogVersion, uiLang: 'en' | 'nl'): ChangelogEntry[] {
+  const hasLangTagged = v.entries.some((e) => e.lang !== 'unknown');
+  if (!hasLangTagged) return v.entries;
+  const matching = v.entries.filter((e) => e.lang === uiLang);
+  if (matching.length) return matching;
+  return v.entries.filter((e) => e.lang !== 'unknown');
+}
+
+function renderInline(text: string): ReactNode {
+  return text
+    .split(/(\*\*[^*]+\*\*)/g)
+    .map((part, i) =>
+      part.startsWith('**') && part.endsWith('**') ? <strong key={i}>{part.slice(2, -2)}</strong> : part,
+    );
 }

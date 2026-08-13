@@ -19,7 +19,7 @@ import {
   NO_SUBJECT,
   isOverZone,
   movedEnough,
-} from '../electron/dropzone';
+} from '../electron/mail/dropzone';
 
 function node(attrs: Record<string, string>, parent: any = null, descendants: any[] = []): any {
   return {

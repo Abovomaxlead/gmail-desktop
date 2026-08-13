@@ -1,7 +1,7 @@
 // Turning the language pref plus the system language into the locale the UI uses.
 
 import { describe, it, expect } from 'vitest';
-import { resolveLocale } from '../electron/locale';
+import { resolveLocale } from '../electron/core/locale';
 
 describe('resolveLocale', () => {
   it('follows a Dutch system language', () => {

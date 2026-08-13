@@ -1,7 +1,7 @@
 // Applying an unread total to the taskbar badge.
 
 import { describe, it, expect, vi } from 'vitest';
-import { applyBadge } from '../electron/badge-controller';
+import { applyBadge } from '../electron/unread/badge-controller';
 
 describe('applyBadge', () => {
   it('sets the badge to the summed unread total', () => {

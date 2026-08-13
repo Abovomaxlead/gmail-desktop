@@ -2,7 +2,7 @@
 // copy of another variant.
 
 import { describe, it, expect } from 'vitest';
-import { trayLabels, type TrayLabels } from '../electron/tray-labels';
+import { trayLabels, type TrayLabels } from '../electron/menus/tray-labels';
 
 // Calls a field, rendering function members with as many 'x' arguments as the function
 // declares (fn.length) rather than a fixed count — a member given too few arguments

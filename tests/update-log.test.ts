@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { UPDATE_LOG_MAX_BYTES, createUpdateLog } from '../electron/update-log';
+import { UPDATE_LOG_MAX_BYTES, createUpdateLog } from '../electron/updates/update-log';
 
 let dir = '';
 const at = (iso: string) => () => new Date(iso);

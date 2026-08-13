@@ -3,12 +3,18 @@
 // only. Preference patches are typed unknown on purpose: main revalidates them with
 // the same readers it uses for the file on disk, so a wrong value falls back to a
 // default there instead of being caught here. The renderer holds the real types.
+
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC } from './ipc';
+import { IPC } from './core/ipc';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
-import type { ReconnectAccount } from './oauth-health';
+import type { ReconnectAccount } from './auth/oauth-health';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
+
+
+//===========================
+// Types
+//===========================
 
 interface Profile {
   key: string;
@@ -22,7 +28,19 @@ interface Profile {
   label?: string;
 }
 
+
+//===========================
+// Constants
+//===========================
+
+// the same page runs as the modal overlay, told apart by the argument main sets on that
+// view only
 const isOverlay = process.argv.includes('--gmd-overlay');
+
+
+//===========================
+// Bridge
+//===========================
 
 contextBridge.exposeInMainWorld('desktop', {
   isOverlay,

@@ -1,7 +1,7 @@
 // Planning the next step of account detection.
 
 import { describe, it, expect } from 'vitest';
-import { planNext } from '../electron/detection-planner';
+import { planNext } from '../electron/accounts/detection-planner';
 
 describe('planNext', () => {
   it('registers and continues on a new email', () => {

@@ -14,7 +14,7 @@ import {
   REDIRECT_URI,
   SCOPES,
   type StoredToken,
-} from '../electron/google-oauth';
+} from '../electron/auth/google-oauth';
 
 const cfg = { clientId: 'client-123.apps.googleusercontent.com', clientSecret: 'GEHEIM' };
 

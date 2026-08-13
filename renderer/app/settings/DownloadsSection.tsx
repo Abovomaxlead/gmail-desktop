@@ -14,16 +14,18 @@ import { BUTTON, HINT, VALUE } from './tokens';
 // that does not exist. The mail-drop path comes from the main process, which resolves
 // the default; the LRE/PDF pair around a path keeps a trailing separator in place.
 
+
+//===========================
+// Constants
+//===========================
+
 const LRE = String.fromCharCode(0x202a);
 const PDF = String.fromCharCode(0x202c);
 
-function Path({ value }: { value: string }) {
-  return (
-    <span dir="rtl" title={value} className={`max-w-[180px] truncate tabular-nums ${VALUE}`}>
-      {value ? `${LRE}${value}${PDF}` : '—'}
-    </span>
-  );
-}
+
+//===========================
+// Component
+//===========================
 
 export function DownloadsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const [mailDropFolder, setMailDropFolder] = useState('');
@@ -98,5 +100,18 @@ export function DownloadsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nu
         </SettingRow>
       </SettingsGroup>
     </Section>
+  );
+}
+
+
+//===========================
+// Helper components
+//===========================
+
+function Path({ value }: { value: string }) {
+  return (
+    <span dir="rtl" title={value} className={`max-w-[180px] truncate tabular-nums ${VALUE}`}>
+      {value ? `${LRE}${value}${PDF}` : '—'}
+    </span>
   );
 }

@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { HistoryStore } from '../electron/history-store';
+import { HistoryStore } from '../electron/gmail/history-store';
 
 let dir: string;
 let file: string;

@@ -1,7 +1,7 @@
 // Which accounts a push watch covers, and until when.
 
 import { describe, it, expect } from 'vitest';
-import { PushCoverage } from '../electron/push-coverage';
+import { PushCoverage } from '../electron/push/push-coverage';
 
 const at = (t: { now: number }) => new PushCoverage(() => t.now);
 

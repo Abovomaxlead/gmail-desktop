@@ -9,7 +9,7 @@
 // object from the Electron docs' default example.
 
 import { describe, expect, it } from 'vitest';
-import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from '../electron/app-scheme';
+import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from '../electron/system/app-scheme';
 
 describe('app scheme privileges', () => {
   it('declares stream support, without which no sound can play in a packaged build', () => {

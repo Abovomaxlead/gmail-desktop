@@ -2,7 +2,7 @@
 // renderer's string sets and so need their own key check.
 
 import { describe, it, expect } from 'vitest';
-import { LABELS_NORMAL, LABELS_RENE, LABELS_NL } from '../electron/context-menu';
+import { LABELS_NORMAL, LABELS_RENE, LABELS_NL } from '../electron/menus/context-menu';
 
 describe('context menu labels', () => {
   it('carry the same keys in all three sets', () => {

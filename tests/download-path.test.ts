@@ -1,7 +1,7 @@
 // Splitting file names and finding a free one in the download folder.
 
 import { describe, it, expect } from 'vitest';
-import { splitName, uniqueFileName } from '../electron/download-path';
+import { splitName, uniqueFileName } from '../electron/system/download-path';
 
 describe('splitName', () => {
   it('splits a plain name', () => {

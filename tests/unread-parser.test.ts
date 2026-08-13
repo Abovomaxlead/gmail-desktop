@@ -1,7 +1,7 @@
 // Reading the unread count out of the Gmail page title.
 
 import { describe, it, expect } from 'vitest';
-import { mailboxTitleLoaded, parseUnreadCount } from '../electron/unread-parser';
+import { mailboxTitleLoaded, parseUnreadCount } from '../electron/unread/unread-parser';
 
 describe('parseUnreadCount', () => {
   it('reads the count from a Gmail inbox title', () => {

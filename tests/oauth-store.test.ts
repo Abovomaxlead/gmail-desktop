@@ -4,8 +4,8 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { OAuthStore } from '../electron/oauth-store';
-import type { StoredToken } from '../electron/google-oauth';
+import { OAuthStore } from '../electron/auth/oauth-store';
+import type { StoredToken } from '../electron/auth/google-oauth';
 
 const newPath = () => join(mkdtempSync(join(tmpdir(), 'oauth-')), 'google-tokens.json');
 

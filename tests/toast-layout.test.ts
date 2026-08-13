@@ -3,7 +3,7 @@
 // area it is given rather than to the screen size.
 
 import { describe, expect, it } from 'vitest';
-import { TOAST_MARGIN, containsPoint, exceedsWorkArea, toastWindowBounds } from '../electron/toast-layout';
+import { TOAST_MARGIN, containsPoint, exceedsWorkArea, toastWindowBounds } from '../electron/toast/toast-layout';
 
 const PRIMARY = { x: 0, y: 0, width: 1920, height: 1040 };
 

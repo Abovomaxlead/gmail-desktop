@@ -12,34 +12,10 @@ import { ACCENT_BUTTON, BUTTON, DANGER_TEXT } from './tokens';
 // status line is a node rather than a string so a percentage can carry `tabular-nums`
 // and a failure can be red.
 
-function updateStatusText(u: UpdateStatus, S: UiStrings): string {
-  switch (u.state) {
-    case 'checking':
-      return S.updChecking;
-    case 'available':
-      return S.updAvailable(u.version ?? '');
-    case 'not-available':
-      return S.updLatest;
-    case 'downloading':
-      return S.updDownloading(u.percent ?? 0);
-    case 'downloaded':
-      return S.updDownloaded;
-    case 'error':
-      return S.updError(u.message ?? 'unknown error');
-    case 'dev':
-      return S.updDev;
-    default:
-      return '';
-  }
-}
 
-function updateStatusNode(u: UpdateStatus, S: UiStrings): ReactNode {
-  const text = updateStatusText(u, S);
-  if (!text) return undefined;
-  const numeric = u.state === 'available' || u.state === 'downloading';
-  const classes = `${numeric ? 'tabular-nums' : ''} ${u.state === 'error' ? DANGER_TEXT : ''}`.trim();
-  return classes ? <span className={classes}>{text}</span> : text;
-}
+//===========================
+// Component
+//===========================
 
 export function UpdatesSection({
   S,
@@ -105,4 +81,38 @@ export function UpdatesSection({
       </SettingsGroup>
     </Section>
   );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function updateStatusText(u: UpdateStatus, S: UiStrings): string {
+  switch (u.state) {
+    case 'checking':
+      return S.updChecking;
+    case 'available':
+      return S.updAvailable(u.version ?? '');
+    case 'not-available':
+      return S.updLatest;
+    case 'downloading':
+      return S.updDownloading(u.percent ?? 0);
+    case 'downloaded':
+      return S.updDownloaded;
+    case 'error':
+      return S.updError(u.message ?? 'unknown error');
+    case 'dev':
+      return S.updDev;
+    default:
+      return '';
+  }
+}
+
+function updateStatusNode(u: UpdateStatus, S: UiStrings): ReactNode {
+  const text = updateStatusText(u, S);
+  if (!text) return undefined;
+  const numeric = u.state === 'available' || u.state === 'downloading';
+  const classes = `${numeric ? 'tabular-nums' : ''} ${u.state === 'error' ? DANGER_TEXT : ''}`.trim();
+  return classes ? <span className={classes}>{text}</span> : text;
 }

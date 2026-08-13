@@ -8,7 +8,7 @@ import {
   duplicateIndex,
   labelsStillNeeded,
   newMessageCount,
-} from '../electron/mail-copy';
+} from '../electron/mail/mail-copy';
 
 describe('normalizeTargets', () => {
   it('keeps what was picked', () => {

@@ -20,98 +20,24 @@ import {
 // shown. The change listener is subscribed once per window and fanned out here,
 // because the preload bridge offers no way to remove a listener again.
 
+
+//===========================
+// Constants
+//===========================
+
 const SIZE_UNITS = ['kB', 'MB', 'GB', 'TB'] as const;
-
-function formatSize(bytes: number, S: UiStrings): string {
-  const safe = Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
-  if (safe < 1000) return S.dhBytes(Math.round(safe));
-  let value = safe / 1000;
-  let unit = 0;
-  while (value >= 1000 && unit < SIZE_UNITS.length - 1) {
-    value /= 1000;
-    unit += 1;
-  }
-  return `${value.toLocaleString(S.numberLocale, {
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-  })} ${SIZE_UNITS[unit]}`;
-}
-
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
-  );
-}
-
-function formatWhen(
-  startedAt: number,
-  now: Date,
-  time: Intl.DateTimeFormat,
-  date: Intl.DateTimeFormat,
-): string {
-  const d = new Date(startedAt);
-  return isSameDay(d, now) ? time.format(d) : date.format(d);
-}
 
 const listeners = new Set<() => void>();
 let subscribed = false;
-
-function subscribeToChanges(cb: () => void): () => void {
-  listeners.add(cb);
-  if (!subscribed) {
-    subscribed = true;
-    window.desktop?.onDownloadHistoryChanged(() => {
-      for (const l of listeners) l();
-    });
-  }
-  return () => {
-    listeners.delete(cb);
-  };
-}
-
-function FolderIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
-    </svg>
-  );
-}
-
-function OpenIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M14 4h6v6M20 4l-8 8M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
-    </svg>
-  );
-}
 
 const ICON_BUTTON = `flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 dark:text-neutral-400 transition hover:bg-black/5 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`;
 
 const TH = 'px-2 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400';
 
-function stateLabel(state: DownloadRecord['state'], S: UiStrings): string {
-  if (state === 'completed') return S.dhStateCompleted;
-  if (state === 'cancelled') return S.dhStateCancelled;
-  return S.dhStateInterrupted;
-}
+
+//===========================
+// Component
+//===========================
 
 export function DownloadHistorySection({ S }: { S: UiStrings }): JSX.Element {
   const [records, setRecords] = useState<DownloadRecord[]>([]);
@@ -256,4 +182,98 @@ export function DownloadHistorySection({ S }: { S: UiStrings }): JSX.Element {
       )}
     </Section>
   );
+}
+
+
+//===========================
+// Icons
+//===========================
+
+function FolderIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+    </svg>
+  );
+}
+
+function OpenIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M14 4h6v6M20 4l-8 8M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+    </svg>
+  );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function formatSize(bytes: number, S: UiStrings): string {
+  const safe = Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
+  if (safe < 1000) return S.dhBytes(Math.round(safe));
+  let value = safe / 1000;
+  let unit = 0;
+  while (value >= 1000 && unit < SIZE_UNITS.length - 1) {
+    value /= 1000;
+    unit += 1;
+  }
+  return `${value.toLocaleString(S.numberLocale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} ${SIZE_UNITS[unit]}`;
+}
+
+function isSameDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  );
+}
+
+function formatWhen(
+  startedAt: number,
+  now: Date,
+  time: Intl.DateTimeFormat,
+  date: Intl.DateTimeFormat,
+): string {
+  const d = new Date(startedAt);
+  return isSameDay(d, now) ? time.format(d) : date.format(d);
+}
+
+function subscribeToChanges(cb: () => void): () => void {
+  listeners.add(cb);
+  if (!subscribed) {
+    subscribed = true;
+    window.desktop?.onDownloadHistoryChanged(() => {
+      for (const l of listeners) l();
+    });
+  }
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+function stateLabel(state: DownloadRecord['state'], S: UiStrings): string {
+  if (state === 'completed') return S.dhStateCompleted;
+  if (state === 'cancelled') return S.dhStateCancelled;
+  return S.dhStateInterrupted;
 }

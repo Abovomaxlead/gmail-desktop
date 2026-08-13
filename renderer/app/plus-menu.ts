@@ -24,6 +24,12 @@ export interface PlusMenuStrings {
   addDelegatedLabel: string;
 }
 
+/**
+ * What goes in the bar's "+" menu
+ *
+ * @param input
+ * @returns {NativeMenuItem[]}
+ */
 export function planPlusMenu(input: { strings: PlusMenuStrings }): NativeMenuItem[] {
   return [
     { kind: 'item', id: PLUS_ADD_ACCOUNT, label: input.strings.addAccountLabel },

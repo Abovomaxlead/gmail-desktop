@@ -9,9 +9,9 @@ import {
   wantsCalendarView,
   inQuietHours,
   mergeNotificationsFromPanel,
-} from '../electron/notification-policy';
+} from '../electron/notify/notification-policy';
 import type { AccountRef } from '../renderer/lib/account-ref';
-import { DEFAULT_PREFS, type NotificationPrefs, type Prefs } from '../electron/prefs-store';
+import { DEFAULT_PREFS, type NotificationPrefs, type Prefs } from '../electron/core/prefs-store';
 
 function prefs(
   overrides: Omit<Partial<Prefs>, 'notifications'> & { notifications?: Partial<NotificationPrefs> },

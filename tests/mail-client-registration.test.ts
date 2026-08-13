@@ -8,7 +8,7 @@ import {
   mailClientEntries,
   parseUserChoiceProgId,
   isOurProgId,
-} from '../electron/mail-client-registration';
+} from '../electron/system/mail-client-registration';
 
 const EXE = 'C:\\Users\\luca.manuel\\AppData\\Local\\Programs\\gmail-desktop\\Gmail Desktop.exe';
 

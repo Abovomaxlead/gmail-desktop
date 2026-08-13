@@ -21,6 +21,12 @@ import { homedir } from 'node:os';
 
 const OUT = join(process.cwd(), 'assets', 'oauth-defaults.json');
 
+/**
+ * Where the app keeps its OAuth config on this platform
+ *
+ * @returns the path, which is also the default source when none is given on the command
+ *   line
+ */
 function userDataConfigPath() {
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA ?? join(homedir(), 'AppData', 'Roaming');

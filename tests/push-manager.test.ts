@@ -2,8 +2,8 @@
 // close codes (4401 unauthorised, 4403 not in its allow-list). The sockets are faked.
 
 import { describe, it, expect } from 'vitest';
-import { startPushManager, FATAL_CLOSE_CODES } from '../electron/push-manager';
-import type { PushSocket } from '../electron/push-transport';
+import { startPushManager, FATAL_CLOSE_CODES } from '../electron/push/push-manager';
+import type { PushSocket } from '../electron/push/push-transport';
 
 class FakeSocket implements PushSocket {
   sent: string[] = [];

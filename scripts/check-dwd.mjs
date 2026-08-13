@@ -57,7 +57,15 @@ const b64url = (buf) =>
 
 const TOKEN_URI = key.token_uri ?? 'https://oauth2.googleapis.com/token';
 
-/** Mints a token. `subject` null means no impersonation, which needs no delegation at all. */
+/**
+ * Mints a token
+ *
+ * @param scopes
+ * @param subject the address to impersonate; null means none, which needs no delegation
+ *   at all
+ * @returns {Promise<object>} `{ ok: true, accessToken }`, or `{ ok: false, error }` with
+ *   Google's own wording, which is the whole point of this script
+ */
 async function mint(scopes, subject) {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));

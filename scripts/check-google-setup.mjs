@@ -26,6 +26,14 @@ if (keyPaths.length === 0) {
 const b64 = (b) =>
   Buffer.from(b).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+/**
+ * Mints an access token for a service-account key
+ *
+ * @param key the parsed key file
+ * @param scope
+ * @returns {Promise<string>} the access token
+ * @throws with Google's own error word when the token endpoint refuses
+ */
 async function serviceAccountToken(key, scope) {
   const now = Math.floor(Date.now() / 1000);
   const header = b64(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
@@ -54,9 +62,16 @@ async function serviceAccountToken(key, scope) {
   return json.access_token;
 }
 
-// The project number is the prefix of every OAuth client id Google issues. It is the only
-// place the app's own project shows up without asking an API, and it is a *number*, so it
-// never matches a project id by eye.
+/**
+ * The project a desktop OAuth client belongs to
+ *
+ * The project number is the prefix of every OAuth client id Google issues. It is the only
+ * place the app's own project shows up without asking an API, and it is a *number*, so it
+ * never matches a project id by eye.
+ *
+ * @param clientId
+ * @returns the project number, or null when the id carries none
+ */
 function clientProjectNumber(clientId) {
   const m = /^(\d+)-/.exec(clientId ?? '');
   return m ? m[1] : null;

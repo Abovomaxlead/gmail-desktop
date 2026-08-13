@@ -10,7 +10,7 @@ import {
   seedable,
   rememberedOrder,
   type CachedAccount,
-} from '../electron/account-cache';
+} from '../electron/accounts/account-cache';
 
 const a = (email: string, extra: Partial<CachedAccount> = {}): CachedAccount => ({
   email,

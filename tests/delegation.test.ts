@@ -1,7 +1,7 @@
 // Recognising and parsing Google's delegated mail URLs.
 
 import { describe, it, expect } from 'vitest';
-import { isDelegatedMailUrl, parseDelegatedEntries, delegatedMailUrl } from '../electron/delegation';
+import { isDelegatedMailUrl, parseDelegatedEntries, delegatedMailUrl } from '../electron/delegation/delegation';
 
 const DELEGATED = 'https://mail.google.com/mail/u/0/d/AEoRXRTYOddZV924KXKu6a5zD9bNp1IJo1ctbL1EvLsatGZu6d_R/';
 

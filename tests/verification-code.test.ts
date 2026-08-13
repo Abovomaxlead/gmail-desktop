@@ -3,7 +3,7 @@
 // is a mail that would otherwise be binned or a code that would be missed.
 
 import { describe, it, expect } from 'vitest';
-import { findVerificationCode, subjectSuggestsCode } from '../electron/verification-code';
+import { findVerificationCode, subjectSuggestsCode } from '../electron/gmail/verification-code';
 
 const high = (subject: string, body = ''): string | null =>
   findVerificationCode({ subject, body }, 'high');

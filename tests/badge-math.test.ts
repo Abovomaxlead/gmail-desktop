@@ -1,7 +1,7 @@
 // Summing per-account unread counts into one badge total.
 
 import { describe, it, expect } from 'vitest';
-import { totalUnread } from '../electron/badge-math';
+import { totalUnread } from '../electron/unread/badge-math';
 
 describe('totalUnread', () => {
   it('sums all account counts', () => {

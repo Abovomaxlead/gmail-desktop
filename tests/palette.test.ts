@@ -1,7 +1,7 @@
 // The account colour picked per index.
 
 import { describe, it, expect } from 'vitest';
-import { PALETTE, colorForIndex } from '../electron/palette';
+import { PALETTE, colorForIndex } from '../electron/accounts/palette';
 
 describe('colorForIndex', () => {
   it('returns the palette entry for the index', () => {

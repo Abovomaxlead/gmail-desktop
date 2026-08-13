@@ -1,7 +1,7 @@
 // Fetching original messages: the om URL and the message ids parsed out of it.
 
 import { describe, it, expect } from 'vitest';
-import { omUrl, parseOriginalLinks, parsePermMsgIds } from '../electron/mail-fetch';
+import { omUrl, parseOriginalLinks, parsePermMsgIds } from '../electron/mail/mail-fetch';
 
 describe('omUrl', () => {
   it('builds the show-original url for a thread', () => {

@@ -1,7 +1,7 @@
 // Resolving keyboard shortcuts, including the devtools one.
 
 import { describe, it, expect } from 'vitest';
-import { resolveShortcut } from '../electron/shortcuts';
+import { resolveShortcut } from '../electron/menus/shortcuts';
 
 const base = { type: 'keyDown', control: false, meta: false, shift: false, alt: false };
 
@@ -19,6 +19,16 @@ describe('resolveShortcut', () => {
     expect(resolveShortcut({ ...base, control: true, key: '=' })).toEqual({ type: 'zoom', dir: 'in' });
     expect(resolveShortcut({ ...base, control: true, key: '-' })).toEqual({ type: 'zoom', dir: 'out' });
     expect(resolveShortcut({ ...base, control: true, key: '0' })).toEqual({ type: 'zoom', dir: 'reset' });
+  });
+  it('maps Ctrl+R and Cmd+R to a reload', () => {
+    expect(resolveShortcut({ ...base, control: true, key: 'r' })).toEqual({ type: 'reload' });
+    expect(resolveShortcut({ ...base, meta: true, key: 'R' })).toEqual({ type: 'reload' });
+  });
+  it('maps Ctrl+Shift+R to a reload as well', () => {
+    expect(resolveShortcut({ ...base, control: true, shift: true, key: 'R' })).toEqual({ type: 'reload' });
+  });
+  it('leaves a plain R alone, so typing in a mail is untouched', () => {
+    expect(resolveShortcut({ ...base, key: 'r' })).toBeNull();
   });
   it('ignores keyUp events', () => {
     expect(resolveShortcut({ ...base, type: 'keyUp', control: true, key: '1' })).toBeNull();

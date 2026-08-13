@@ -4,7 +4,7 @@
 // asking the relay anything.
 
 import { describe, it, expect } from 'vitest';
-import { canRunDelegatedApiScan } from '../electron/delegated-discovery-gate';
+import { canRunDelegatedApiScan } from '../electron/delegation/delegated-discovery-gate';
 
 describe('canRunDelegatedApiScan', () => {
   it('refuses to run before any own account has been detected', () => {

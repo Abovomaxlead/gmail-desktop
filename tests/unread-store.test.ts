@@ -1,8 +1,8 @@
 // The per-account unread count store.
 
 import { describe, it, expect } from 'vitest';
-import { UnreadStore } from '../electron/unread-store';
-import { totalUnread } from '../electron/badge-math';
+import { UnreadStore } from '../electron/unread/unread-store';
+import { totalUnread } from '../electron/unread/badge-math';
 
 describe('UnreadStore', () => {
   it('sums reported counts in the snapshot', () => {

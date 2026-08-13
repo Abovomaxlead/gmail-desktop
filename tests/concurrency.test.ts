@@ -1,7 +1,7 @@
 // mapLimit: running work with a bounded number of slots.
 
 import { describe, it, expect } from 'vitest';
-import { mapLimit } from '../electron/concurrency';
+import { mapLimit } from '../electron/core/concurrency';
 
 const defer = <T>() => {
   let resolve!: (v: T) => void;

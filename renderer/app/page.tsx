@@ -31,6 +31,11 @@ import type { ToastAction, ToastState } from '../lib/toast';
 // not move the active tab: doing so once left the bar pointing at a tab with no view
 // behind it, a blank window.
 
+
+//===========================
+// Types
+//===========================
+
 export interface Profile {
   key: string;
   kind: 'authuser' | 'delegated';
@@ -253,9 +258,10 @@ declare global {
   }
 }
 
-function displayName(p: Profile): string {
-  return (p.label && p.label.trim()) || p.name || p.email;
-}
+
+//===========================
+// Page
+//===========================
 
 export default function AppShell() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -417,4 +423,13 @@ export default function AppShell() {
       )}
     </div>
   );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function displayName(p: Profile): string {
+  return (p.label && p.label.trim()) || p.name || p.email;
 }

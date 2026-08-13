@@ -11,7 +11,7 @@ import {
   isPopoutUrl,
   isFullMessageViewUrl,
   isAttachmentUrl,
-} from '../electron/google-urls';
+} from '../electron/gmail/google-urls';
 
 describe('google urls', () => {
   it('builds mail url per authuser index', () => {

@@ -1,7 +1,7 @@
 // Deciding which messages in a history delta are worth notifying about.
 
 import { describe, it, expect } from 'vitest';
-import { notifiableIds, shouldNotify, SKIP_LABELS } from '../electron/history-sync';
+import { notifiableIds, shouldNotify, SKIP_LABELS } from '../electron/gmail/history-sync';
 
 const msg = (id: string, ...labelIds: string[]) => ({ id, labelIds });
 

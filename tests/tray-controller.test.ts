@@ -8,8 +8,8 @@ import {
   snoozeStatusLabel,
   trayMenuTemplate,
   type TrayState,
-} from '../electron/tray-controller';
-import { trayLabels } from '../electron/tray-labels';
+} from '../electron/menus/tray-controller';
+import { trayLabels } from '../electron/menus/tray-labels';
 
 const L = trayLabels('en', false);
 

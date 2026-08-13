@@ -8,7 +8,7 @@ import {
   mergeThreads,
   MAX_THREADS,
   type LabelThread,
-} from '../electron/label-drop';
+} from '../electron/mail/label-drop';
 
 const node = (attrs: Record<string, string>, parent: any = null): any => ({
   getAttribute: (n: string) => attrs[n] ?? null,

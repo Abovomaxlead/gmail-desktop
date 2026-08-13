@@ -17,10 +17,10 @@
 // is nothing to watch.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HOVER_WATCH_MS, ToastController, TOAST_LIFETIME_MS } from '../electron/toast-controller';
-import type { ToastInput } from '../electron/toast-controller';
-import type { ToastWindow } from '../electron/toast-window';
-import { IPC } from '../electron/ipc';
+import { HOVER_WATCH_MS, ToastController, TOAST_LIFETIME_MS } from '../electron/toast/toast-controller';
+import type { ToastInput } from '../electron/toast/toast-controller';
+import type { ToastWindow } from '../electron/toast/toast-window';
+import { IPC } from '../electron/core/ipc';
 import type { Toast } from '../renderer/lib/toast';
 
 interface Harness {

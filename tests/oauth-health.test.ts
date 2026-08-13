@@ -1,7 +1,7 @@
 // Which accounts need reconnecting, why, and the size of the reconnect banner.
 
 import { describe, it, expect } from 'vitest';
-import { accountOAuthStatuses, accountsNeedingReconnect, bannerBounds } from '../electron/oauth-health';
+import { accountOAuthStatuses, accountsNeedingReconnect, bannerBounds } from '../electron/auth/oauth-health';
 
 const input = (over: Partial<Parameters<typeof accountsNeedingReconnect>[0]> = {}) => ({
   ownEmails: ['a@x.nl', 'b@x.nl'],

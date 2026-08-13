@@ -7,7 +7,7 @@ import {
   isGoogleAppHost,
   needsLinkConfirm,
   unwrapRedirect,
-} from '../electron/link-guard';
+} from '../electron/system/link-guard';
 
 describe('hostOf', () => {
   it('lowercases the host', () => {

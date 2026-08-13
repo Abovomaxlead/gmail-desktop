@@ -1,7 +1,7 @@
 // Building Gmail compose URLs.
 
 import { describe, it, expect } from 'vitest';
-import { composeUrl } from '../electron/compose-url';
+import { composeUrl } from '../electron/compose/compose-url';
 
 const BASE = 'https://mail.google.com/mail/u/0/?view=cm&fs=1&tf=1';
 

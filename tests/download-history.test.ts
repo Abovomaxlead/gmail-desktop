@@ -4,13 +4,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { DownloadRecord } from '../electron/ipc';
+import type { DownloadRecord } from '../electron/core/ipc';
 import {
   DownloadHistoryStore,
   MAX_RECORDS,
   parseRecords,
   trimRecords,
-} from '../electron/download-history';
+} from '../electron/system/download-history';
 
 let dir: string;
 let file: string;

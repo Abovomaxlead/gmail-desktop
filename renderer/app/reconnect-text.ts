@@ -17,6 +17,13 @@ export interface ReconnectHeading {
   sub: string;
 }
 
+/**
+ * The two lines the reconnect notice shows
+ *
+ * @param accounts
+ * @returns {ReconnectHeading} wording a mixed list can carry: it may only say what is true
+ *   for every account in it
+ */
 export function reconnectHeading(accounts: ReconnectAccount[]): ReconnectHeading {
   const many = accounts.length > 1;
   if (accounts.every((a) => a.reason === 'push')) {

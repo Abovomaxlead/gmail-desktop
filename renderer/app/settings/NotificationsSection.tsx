@@ -16,29 +16,11 @@ import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HI
 // because it is off until you turn it on. A cell whose setting does not exist for an
 // account (calendar on a delegated mailbox) stays empty, keeping the grid aligned.
 
-// The switch rather than a label on SoundSpec, because a sound's name is a stored
-// preference key and must not move with the interface language. Falling back to the raw
-// name keeps a sound listed even if its label is ever forgotten.
-function soundLabel(S: UiStrings, name: string): string {
-  switch (name) {
-    case 'notify-1':
-      return S.soundNotify1;
-    case 'notify-2':
-      return S.soundNotify2;
-    case 'notify-3':
-      return S.soundNotify3;
-    case 'notify-4':
-      return S.soundNotify4;
-    default:
-      return name;
-  }
-}
 
-const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity-50`;
 
-const MATRIX_TITLE_ID = 'per-account-notifications-title';
-
-const QUIET_END_LABEL_ID = 'setting-quiet-end-label';
+//===========================
+// Types
+//===========================
 
 interface ToggleColumn {
   key: string;
@@ -47,62 +29,21 @@ interface ToggleColumn {
   cell: (p: Profile, a: AccountPref | undefined) => { checked: boolean; set: (v: boolean) => void } | null;
 }
 
-function toggleColumns(S: UiStrings): ToggleColumn[] {
-  return [
-    {
-      key: 'notify',
-      header: S.mailToggle,
-      name: S.mailToggleTitle,
-      cell: (p, a) => ({
-        checked: a?.notify !== false,
-        set: (v) => window.desktop?.setAccountPref({ email: p.email, notify: v }),
-      }),
-    },
-    {
-      key: 'calendar',
-      header: S.calendarToggle,
-      name: S.calendarToggleTitle,
-      cell: (p, a) =>
-        p.hasCalendar
-          ? {
-              checked: a?.calendarNotify === true,
-              set: (v) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: v }),
-            }
-          : null,
-    },
-    {
-      key: 'badge',
-      header: S.badgeToggle,
-      name: S.badgeToggleTitle,
-      cell: (p, a) => ({
-        checked: a?.badgeCount !== false,
-        set: (v) => window.desktop?.setAccountPref({ email: p.email, badgeCount: v }),
-      }),
-    },
-    {
-      key: 'sound',
-      header: S.soundToggle,
-      name: S.soundToggleTitle,
-      cell: (p, a) => ({
-        checked: a?.notifySound !== false,
-        set: (v) => window.desktop?.setAccountPref({ email: p.email, notifySound: v }),
-      }),
-    },
-    {
-      key: 'persist',
-      header: S.persistToggle,
-      name: S.persistToggleTitle,
-      cell: (p, a) => ({
-        checked: a?.notifyPersist !== false,
-        set: (v) => window.desktop?.setAccountPref({ email: p.email, notifyPersist: v }),
-      }),
-    },
-  ];
-}
 
-function displayName(p: Profile): string {
-  return p.label?.trim() || p.name?.trim() || p.email;
-}
+//===========================
+// Constants
+//===========================
+
+const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity-50`;
+
+const MATRIX_TITLE_ID = 'per-account-notifications-title';
+
+const QUIET_END_LABEL_ID = 'setting-quiet-end-label';
+
+
+//===========================
+// Component
+//===========================
 
 export function NotificationsSection({
   S,
@@ -433,4 +374,84 @@ export function NotificationsSection({
       </SettingsGroup>
     </Section>
   );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+// The switch rather than a label on SoundSpec, because a sound's name is a stored
+// preference key and must not move with the interface language. Falling back to the raw
+// name keeps a sound listed even if its label is ever forgotten.
+function soundLabel(S: UiStrings, name: string): string {
+  switch (name) {
+    case 'notify-1':
+      return S.soundNotify1;
+    case 'notify-2':
+      return S.soundNotify2;
+    case 'notify-3':
+      return S.soundNotify3;
+    case 'notify-4':
+      return S.soundNotify4;
+    default:
+      return name;
+  }
+}
+
+function toggleColumns(S: UiStrings): ToggleColumn[] {
+  return [
+    {
+      key: 'notify',
+      header: S.mailToggle,
+      name: S.mailToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.notify !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, notify: v }),
+      }),
+    },
+    {
+      key: 'calendar',
+      header: S.calendarToggle,
+      name: S.calendarToggleTitle,
+      cell: (p, a) =>
+        p.hasCalendar
+          ? {
+              checked: a?.calendarNotify === true,
+              set: (v) => window.desktop?.setAccountPref({ email: p.email, calendarNotify: v }),
+            }
+          : null,
+    },
+    {
+      key: 'badge',
+      header: S.badgeToggle,
+      name: S.badgeToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.badgeCount !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, badgeCount: v }),
+      }),
+    },
+    {
+      key: 'sound',
+      header: S.soundToggle,
+      name: S.soundToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.notifySound !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, notifySound: v }),
+      }),
+    },
+    {
+      key: 'persist',
+      header: S.persistToggle,
+      name: S.persistToggleTitle,
+      cell: (p, a) => ({
+        checked: a?.notifyPersist !== false,
+        set: (v) => window.desktop?.setAccountPref({ email: p.email, notifyPersist: v }),
+      }),
+    },
+  ];
+}
+
+function displayName(p: Profile): string {
+  return p.label?.trim() || p.name?.trim() || p.email;
 }

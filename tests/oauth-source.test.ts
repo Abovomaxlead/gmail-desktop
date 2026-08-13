@@ -4,7 +4,7 @@
 // not the ability to use the app — the failure it used to cause was total and silent.
 
 import { describe, expect, it } from 'vitest';
-import { chooseOAuthConfigText } from '../electron/oauth-source';
+import { chooseOAuthConfigText } from '../electron/auth/oauth-source';
 
 const local = JSON.stringify({ clientId: 'local-id', clientSecret: 'local-secret' });
 const bundled = JSON.stringify({ clientId: 'bundled-id', clientSecret: 'bundled-secret' });

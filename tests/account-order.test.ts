@@ -1,7 +1,7 @@
 // Sorting accounts by their stored order.
 
 import { describe, it, expect } from 'vitest';
-import { sortByOrder } from '../electron/account-order';
+import { sortByOrder } from '../electron/accounts/account-order';
 
 describe('sortByOrder', () => {
   it('falls back to index when no order set', () => {

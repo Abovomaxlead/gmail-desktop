@@ -6,6 +6,12 @@
 // answer. `duplicates` carries a sample of subjects plus the real count, and a label
 // drag is hundreds of requests, so the modal follows the progress. The component
 // fills its own view, which main sizes to exactly what the window should be.
+
+
+//===========================
+// Types
+//===========================
+
 export interface MailDropItem {
   threadId: string;
   subject: string;
@@ -53,6 +59,11 @@ export interface MailDropCopyProgress {
   total: number;
   email: string;
 }
+
+
+//===========================
+// Component
+//===========================
 
 export function MailDropModal({ onClose }: { onClose: () => void }) {
   return (

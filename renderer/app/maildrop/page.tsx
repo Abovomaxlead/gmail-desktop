@@ -21,6 +21,11 @@ import { labelKind, type LabelKind } from '../label-kind';
 // set in the rendered html rather than from an effect - one frame with an opaque
 // background flashes Gmail away.
 
+
+//===========================
+// Types
+//===========================
+
 interface Label {
   id: string;
   name: string;
@@ -36,6 +41,11 @@ type Phase =
   | { kind: 'copying'; phase: 'check' | 'copy'; done: number; total: number; email: string }
   | { kind: 'confirm'; duplicates: MailDropCopyDuplicate[]; newCount: number }
   | { kind: 'done'; result: MailDropCopyResult };
+
+
+//===========================
+// Page
+//===========================
 
 export default function MailDropModalPage() {
   const [items, setItems] = useState<MailDropItem[]>([]);
@@ -279,6 +289,11 @@ export default function MailDropModalPage() {
   );
 }
 
+
+//===========================
+// Helper components
+//===========================
+
 function Status({
   phase,
   pickedCount,
@@ -329,29 +344,6 @@ function Status({
     </span>
   );
 }
-
-const ICON_PATH: Record<LabelKind, string> = {
-  inbox:
-    'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z',
-  starred: 'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
-  important:
-    'M3.5 18.99l11 .01c.67 0 1.27-.33 1.63-.84L20.5 12l-4.37-6.16c-.36-.51-.96-.84-1.63-.84l-11 .01L8 12l-4.5 6.99z',
-  user: 'M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z',
-};
-
-const ICON_COLOR: Record<LabelKind, string> = {
-  inbox: 'text-blue-600 dark:text-blue-400',
-  starred: 'text-amber-500 dark:text-amber-400',
-  important: 'text-orange-500 dark:text-orange-400',
-  user: 'text-neutral-400 dark:text-neutral-500',
-};
-
-const KIND_TITLE: Record<LabelKind, string> = {
-  inbox: 'Postvak',
-  starred: 'Met ster',
-  important: 'Belangrijk',
-  user: 'Eigen label',
-};
 
 function LabelIcon({ id, className = '' }: { id: string; className?: string }) {
   const kind = labelKind(id);
@@ -448,3 +440,31 @@ function CopyReport({ result }: { result: MailDropCopyResult }) {
     </ul>
   );
 }
+
+
+//===========================
+// Icon tables
+//===========================
+
+const ICON_PATH: Record<LabelKind, string> = {
+  inbox:
+    'M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z',
+  starred: 'M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z',
+  important:
+    'M3.5 18.99l11 .01c.67 0 1.27-.33 1.63-.84L20.5 12l-4.37-6.16c-.36-.51-.96-.84-1.63-.84l-11 .01L8 12l-4.5 6.99z',
+  user: 'M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM5.5 7C4.67 7 4 6.33 4 5.5S4.67 4 5.5 4 7 4.67 7 5.5 6.33 7 5.5 7z',
+};
+
+const ICON_COLOR: Record<LabelKind, string> = {
+  inbox: 'text-blue-600 dark:text-blue-400',
+  starred: 'text-amber-500 dark:text-amber-400',
+  important: 'text-orange-500 dark:text-orange-400',
+  user: 'text-neutral-400 dark:text-neutral-500',
+};
+
+const KIND_TITLE: Record<LabelKind, string> = {
+  inbox: 'Postvak',
+  starred: 'Met ster',
+  important: 'Belangrijk',
+  user: 'Eigen label',
+};

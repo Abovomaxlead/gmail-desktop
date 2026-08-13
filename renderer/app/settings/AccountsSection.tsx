@@ -23,70 +23,21 @@ import {
 // belongs to the per-account grid in Notifications, and having it in both places
 // meant two controls for one setting.
 
+
+//===========================
+// Constants
+//===========================
+
 const SWATCHES = ['#4285F4', '#EA4335', '#34A853', '#FBBC05', '#A142F4', '#00ACC1'];
 
 const CARD = 'rounded-xl bg-neutral-100 dark:bg-neutral-950';
 
 const CARD_FOCUS_RING = SURFACE_FOCUS_RING;
 
-function initial(p: Profile): string {
-  return (p.name || p.email || '?').trim().charAt(0).toUpperCase() || '?';
-}
 
-function TrashIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6M10 11v6M14 11v6" />
-    </svg>
-  );
-}
-
-function PencilIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M4 20h4L19.5 8.5a2.12 2.12 0 0 0-3-3L5 17v3z" />
-    </svg>
-  );
-}
-
-function GripIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 10 16" fill="currentColor" className={className} aria-hidden>
-      <circle cx="3" cy="4" r="1.3" />
-      <circle cx="7" cy="4" r="1.3" />
-      <circle cx="3" cy="8" r="1.3" />
-      <circle cx="7" cy="8" r="1.3" />
-      <circle cx="3" cy="12" r="1.3" />
-      <circle cx="7" cy="12" r="1.3" />
-    </svg>
-  );
-}
-
-function DelegatedIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
-      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-    </svg>
-  );
-}
+//===========================
+// Component
+//===========================
 
 export function AccountsSection({
   S,
@@ -337,4 +288,73 @@ export function AccountsSection({
       </SettingsGroup>
     </Section>
   );
+}
+
+
+//===========================
+// Icons
+//===========================
+
+function TrashIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6M10 11v6M14 11v6" />
+    </svg>
+  );
+}
+
+function PencilIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M4 20h4L19.5 8.5a2.12 2.12 0 0 0-3-3L5 17v3z" />
+    </svg>
+  );
+}
+
+function GripIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 10 16" fill="currentColor" className={className} aria-hidden>
+      <circle cx="3" cy="4" r="1.3" />
+      <circle cx="7" cy="4" r="1.3" />
+      <circle cx="3" cy="8" r="1.3" />
+      <circle cx="7" cy="8" r="1.3" />
+      <circle cx="3" cy="12" r="1.3" />
+      <circle cx="7" cy="12" r="1.3" />
+    </svg>
+  );
+}
+
+function DelegatedIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>
+      <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
+    </svg>
+  );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function initial(p: Profile): string {
+  return (p.name || p.email || '?').trim().charAt(0).toUpperCase() || '?';
 }

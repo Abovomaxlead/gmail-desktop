@@ -1,8 +1,8 @@
 // Recognising the mail a Gmail notification was about, from the text it drew.
 
 import { describe, it, expect } from 'vitest';
-import { pickNotifiedMessage, subjectMatches, titleShowsSubject } from '../electron/notify-match';
-import type { MessageMeta } from '../electron/gmail-api';
+import { pickNotifiedMessage, subjectMatches, titleShowsSubject } from '../electron/notify/notify-match';
+import type { MessageMeta } from '../electron/gmail/gmail-api';
 
 const meta = (over: Partial<MessageMeta> = {}): MessageMeta => ({
   id: 'm1',

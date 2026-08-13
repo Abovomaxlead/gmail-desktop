@@ -22,20 +22,19 @@ import { CHECKBOX, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
 // be double work. The ticks are kept, not cleared, so they come back into play once
 // both switches are off again.
 
+
+//===========================
+// Constants
+//===========================
+
 const GOOGLE_APPS: readonly Surface[] = SURFACES.filter((s) => s !== 'mail');
 
-const appLabel = (s: Surface): string => SURFACE_CONFIG[s].label;
-
-function known(keys: readonly string[]): Surface[] {
-  const out: Surface[] = [];
-  for (const key of keys) {
-    const match = GOOGLE_APPS.find((s) => s === key);
-    if (match && !out.includes(match)) out.push(match);
-  }
-  return out;
-}
-
 const EXCLUDED_LABEL_ID = 'setting-ga-excluded-label';
+
+
+//===========================
+// Component
+//===========================
 
 export function GoogleAppsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const ga = prefs?.googleApps;
@@ -193,6 +192,11 @@ export function GoogleAppsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
   );
 }
 
+
+//===========================
+// Helper components
+//===========================
+
 function ChipRow({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <div role="group" aria-label={heading} className="mt-3">
@@ -227,4 +231,20 @@ function Chip({
       </span>
     </button>
   );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+const appLabel = (s: Surface): string => SURFACE_CONFIG[s].label;
+
+function known(keys: readonly string[]): Surface[] {
+  const out: Surface[] = [];
+  for (const key of keys) {
+    const match = GOOGLE_APPS.find((s) => s === key);
+    if (match && !out.includes(match)) out.push(match);
+  }
+  return out;
 }

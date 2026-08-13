@@ -2,9 +2,9 @@
 // postForm, which vi.mock cannot reach, so the test fills Node's CJS cache instead.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { accessTokenFor, forceRefresh } from '../electron/oauth-flow';
-import type { OAuthConfig, StoredToken } from '../electron/google-oauth';
-import type { OAuthStore } from '../electron/oauth-store';
+import { accessTokenFor, forceRefresh } from '../electron/auth/oauth-flow';
+import type { OAuthConfig, StoredToken } from '../electron/auth/google-oauth';
+import type { OAuthStore } from '../electron/auth/oauth-store';
 
 const ELECTRON_ID = require.resolve('electron');
 let realElectron: NodeJS.Module | undefined;

@@ -2,7 +2,7 @@
 // window that is already too small back up to the minimum.
 
 import { describe, it, expect } from 'vitest';
-import { clampBoundsToDisplays, grownToMinimum } from '../electron/window-bounds';
+import { clampBoundsToDisplays, grownToMinimum } from '../electron/windows/window-bounds';
 
 const primary = { bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
 

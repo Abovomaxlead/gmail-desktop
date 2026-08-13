@@ -16,6 +16,12 @@ export interface TabMenuAccount {
   provisional?: boolean;
 }
 
+/**
+ * The surfaces besides mail this account can open
+ *
+ * @param p
+ * @returns {Surface[]} empty for a provisional tab, which has no url for anything
+ */
 export function tabMenuSurfaces(p: TabMenuAccount): Surface[] {
   const out: Surface[] = [];
   if (p.provisional) return out;
@@ -24,11 +30,25 @@ export function tabMenuSurfaces(p: TabMenuAccount): Surface[] {
   return out;
 }
 
+/**
+ * Everything the menu offers
+ *
+ * @param p
+ * @returns {Surface[]} mail leads the list so the way back matches the way out; empty for
+ *   an account with nothing but mail, which keeps the menu shut
+ */
 export function tabMenuChoices(p: TabMenuAccount): Surface[] {
   const others = tabMenuSurfaces(p);
   return others.length === 0 ? [] : ['mail', ...others];
 }
 
+/**
+ * The menu itself, headed by the account it belongs to
+ *
+ * @param label
+ * @param surfaces
+ * @returns {NativeMenuItem[]} empty when there is nothing to click
+ */
 export function planTabMenu(label: string, surfaces: readonly Surface[]): NativeMenuItem[] {
   if (surfaces.length === 0) return [];
   return [

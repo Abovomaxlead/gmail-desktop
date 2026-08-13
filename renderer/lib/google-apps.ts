@@ -14,10 +14,35 @@
 
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from './surfaces';
 
-export const PINNABLE_SURFACES: readonly Surface[] = ['calendar', ...APP_SURFACES];
+
+//===========================
+// Types
+//===========================
 
 export type GoogleAppTarget = 'in-app' | 'new-window' | 'external';
 
+
+//===========================
+// Constants
+//===========================
+
+export const PINNABLE_SURFACES: readonly Surface[] = ['calendar', ...APP_SURFACES];
+
+
+//===========================
+// Exported functions
+//===========================
+
+/**
+ * Where a Google app opens
+ *
+ * The order of the checks is the decision: both master switches settle every app at once
+ * and so come first, and the per-app exclusion only gets a say when neither did.
+ *
+ * @param surface
+ * @param prefs
+ * @returns {GoogleAppTarget}
+ */
 export function googleAppTarget(
   surface: string,
   prefs: { openInApp: boolean; alwaysNewWindow: boolean; excluded: readonly string[] },
@@ -36,6 +61,17 @@ export function pinnedSurfaces(pinned: readonly string[]): Surface[] {
   return filterPinned(pinned, PINNABLE_SURFACES) as Surface[];
 }
 
+/**
+ * What the bar actually renders for one account
+ *
+ * A pin is one list for the whole app, but it opens for whichever account is in view, and
+ * a delegated mailbox has no Drive or Docs of its own, so a button that would throw is
+ * never drawn in the first place.
+ *
+ * @param pinned
+ * @param openable
+ * @returns {Surface[]} the pins narrowed to what this account can open
+ */
 export function pinnedSurfacesFor(
   pinned: readonly string[],
   openable: readonly Surface[],
@@ -43,6 +79,15 @@ export function pinnedSurfacesFor(
   return pinnedSurfaces(pinned).filter((s) => openable.includes(s));
 }
 
+/**
+ * Drops unknown and duplicate keys
+ *
+ * Prefs may name an app a later version removed.
+ *
+ * @param pinned
+ * @param known
+ * @returns the keys that survived, in the order they were pinned
+ */
 export function filterPinned(pinned: readonly string[], known: readonly string[]): string[] {
   const out: string[] = [];
   for (const key of pinned) {

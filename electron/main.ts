@@ -23,42 +23,42 @@ import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { Tray } from 'electron';
-import { parseChangelog, type ChangelogVersion } from './changelog';
-import { ProfileViewManager, type Profile, type Surface } from './profile-view-manager';
+import { parseChangelog, type ChangelogVersion } from './updates/changelog';
+import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
 import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountCountVisible } from '../renderer/lib/badge-visibility';
-import { accountKey, parseAccountKey, type AccountRef } from './account-ref';
-import { resolveLocale, type LanguagePref, type Locale } from './locale';
-import { DelegatedStore, type StoredDelegate } from './delegated-store';
+import { accountKey, parseAccountKey, type AccountRef } from './accounts/account-ref';
+import { resolveLocale, type LanguagePref, type Locale } from './core/locale';
+import { DelegatedStore, type StoredDelegate } from './delegation/delegated-store';
 import {
   AccountCacheStore,
   seedable,
   rememberedOrder,
   type CachedAccount,
-} from './account-cache';
-import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
-import { canRunDelegatedApiScan } from './delegated-discovery-gate';
-import { ColorStore } from './color-store';
-import { RemovedStore } from './removed-store';
+} from './accounts/account-cache';
+import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation/delegation';
+import { canRunDelegatedApiScan } from './delegation/delegated-discovery-gate';
+import { ColorStore } from './accounts/color-store';
+import { RemovedStore } from './accounts/removed-store';
 import {
   PrefsStore,
   type AppearancePatch,
   type DownloadClickAction,
   type Prefs,
-} from './prefs-store';
-import { hostOf, needsLinkConfirm, unwrapRedirect } from './link-guard';
-import { uniqueFileName } from './download-path';
-import { clampBoundsToDisplays, grownToMinimum } from './window-bounds';
-import { colorForIndex } from './palette';
-import { planNext } from './detection-planner';
-import { WarmupTracker } from './view-warmup';
-import { addAccountUrl } from './google-urls';
-import { popupNativeMenu } from './native-menu';
+} from './core/prefs-store';
+import { hostOf, needsLinkConfirm, unwrapRedirect } from './system/link-guard';
+import { uniqueFileName } from './system/download-path';
+import { clampBoundsToDisplays, grownToMinimum } from './windows/window-bounds';
+import { colorForIndex } from './accounts/palette';
+import { planNext } from './accounts/detection-planner';
+import { WarmupTracker } from './windows/view-warmup';
+import { addAccountUrl } from './gmail/google-urls';
+import { popupNativeMenu } from './menus/native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
-import { nativeLabels } from './native-labels';
-import { applyBadge } from './badge-controller';
-import { UnreadStore } from './unread-store';
-import { shouldNotifyUpdate } from './update-notifier';
+import { nativeLabels } from './menus/native-labels';
+import { applyBadge } from './unread/badge-controller';
+import { UnreadStore } from './unread/unread-store';
+import { shouldNotifyUpdate } from './updates/update-notifier';
 import {
   IPC,
   type MailDropPayload,
@@ -67,7 +67,7 @@ import {
   type MailDropCopyAccountResult,
   type MailDropCopyResult,
   type MailDropCopyDuplicate,
-} from './ipc';
+} from './core/ipc';
 import {
   normalizeTargets,
   copyTotal,
@@ -77,9 +77,9 @@ import {
   newMessageCount,
   type DuplicateHit,
   type CopyMode,
-} from './mail-copy';
-import { parseHeaders, extractPlainText, htmlToText } from './eml';
-import { writeThread, writeLabel, appendLog, displayName, newestMessage, type LogRecord, type SavedMessage } from './mail-archive';
+} from './mail/mail-copy';
+import { parseHeaders, extractPlainText, htmlToText } from './mail/eml';
+import { writeThread, writeLabel, appendLog, displayName, newestMessage, type LogRecord, type SavedMessage } from './mail/mail-archive';
 import {
   labelListUrl,
   mergeThreads,
@@ -88,23 +88,23 @@ import {
   MAX_THREADS,
   PAGE_SIZE,
   type LabelThread,
-} from './label-drop';
-import { fetchThreadEmls } from './mail-fetch';
-import { NO_SUBJECT } from './dropzone';
-import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './tray-controller';
-import { trayLabels } from './tray-labels';
+} from './mail/label-drop';
+import { fetchThreadEmls } from './mail/mail-fetch';
+import { NO_SUBJECT } from './mail/dropzone';
+import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './menus/tray-controller';
+import { trayLabels } from './menus/tray-labels';
 import { autoUpdater } from 'electron-updater';
-import { resolveShortcut, type KeyInput } from './shortcuts';
-import { openCompose, openFullThreadWindow } from './compose-window';
-import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mailto';
+import { resolveShortcut, type KeyInput } from './menus/shortcuts';
+import { openCompose, openFullThreadWindow } from './compose/compose-window';
+import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mail/mailto';
 import type { ComposeAccountAsk, ComposeAccountChoice } from '../renderer/lib/compose-account';
 import {
   MAIL_APP_NAME,
   isOurProgId,
   readMailtoProgId,
   registerMailClient,
-} from './mail-client-registration';
-import { sortByOrder } from './account-order';
+} from './system/mail-client-registration';
+import { sortByOrder } from './accounts/account-order';
 import {
   notificationsAllowed,
   notificationSilent,
@@ -112,30 +112,30 @@ import {
   wantsCalendarView,
   mergeNotificationsFromPanel,
   sessionPermissionAllowed,
-} from './notification-policy';
-import { notifyLog, openNotifyLog } from './notify-log';
-import { updateCheckPopup } from './update-popup';
-import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
-import { createUpdateLog, type UpdateLogger } from './update-log';
-import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './rene';
-import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './context-menu';
-import { attachExternalLinkHandling, setExternalOpener } from './external-links';
-import { googleAppTarget } from './google-apps-open';
-import { DownloadHistoryStore } from './download-history';
-import { isDarkTheme, overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './titlebar';
-import { OverlayView } from './overlay-view';
-import { ComposePicker } from './compose-picker';
+} from './notify/notification-policy';
+import { notifyLog, openNotifyLog } from './notify/notify-log';
+import { updateCheckPopup } from './updates/update-popup';
+import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './updates/update-retry';
+import { createUpdateLog, type UpdateLogger } from './updates/update-log';
+import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './core/rene';
+import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menus/context-menu';
+import { attachExternalLinkHandling, setExternalOpener } from './system/external-links';
+import { googleAppTarget } from './gmail/google-apps-open';
+import { DownloadHistoryStore } from './system/download-history';
+import { isDarkTheme, overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './windows/titlebar';
+import { OverlayView } from './windows/overlay-view';
+import { ComposePicker } from './compose/compose-picker';
 import {
   openComposeAccountWindow,
   resizeAndShowComposeAccountWindow,
-} from './compose-account-window';
-import { ToastWindow } from './toast-window';
-import { ToastController, type ToastInput } from './toast-controller';
+} from './compose/compose-account-window';
+import { ToastWindow } from './toast/toast-window';
+import { ToastController, type ToastInput } from './toast/toast-controller';
 import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } from '../renderer/lib/toast';
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
-import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './app-scheme';
-import { checkOAuthConfigFile } from './oauth-config-file';
-import { chooseOAuthConfigText } from './oauth-source';
+import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
+import { checkOAuthConfigFile } from './auth/oauth-config-file';
+import { chooseOAuthConfigText } from './auth/oauth-source';
 import {
   cacheEntry,
   isUsable,
@@ -143,15 +143,15 @@ import {
   shouldTryAnotherRequester,
   type CachedToken,
   type DelegatedTokenOutcome,
-} from './delegated-token';
-import { parseMailboxesUrl, requestDelegatedMailboxes } from './delegated-mailboxes';
-import { readBundledOAuthConfig } from './oauth-bundled';
+} from './delegation/delegated-token';
+import { parseMailboxesUrl, requestDelegatedMailboxes } from './delegation/delegated-mailboxes';
+import { readBundledOAuthConfig } from './auth/oauth-bundled';
 import {
   accountOAuthStatuses,
   accountsNeedingReconnect,
   bannerBounds,
   type ReconnectAccount,
-} from './oauth-health';
+} from './auth/oauth-health';
 import type { AccountOAuthStatus } from '../renderer/lib/oauth-status';
 import {
   fetchLabels,
@@ -176,18 +176,23 @@ import {
   markMessageRead,
   archiveMessage,
   trashMessage,
-} from './gmail-api';
-import { pickNotifiedMessage, type NotifiedMail } from './notify-match';
-import { mapLimit } from './concurrency';
-import { OAuthStore } from './oauth-store';
-import { connectAccount, accessTokenFor, forceRefresh } from './oauth-flow';
-import { hasScopes, type OAuthConfig } from './google-oauth';
-import { parsePushConfig, type PushConfig } from './push-config';
-import { PushCoverage } from './push-coverage';
-import { HistoryStore } from './history-store';
-import { startPushManager } from './push-manager';
-import { createSyncRunner } from './push-sync';
-import { findVerificationCode, subjectSuggestsCode } from './verification-code';
+} from './gmail/gmail-api';
+import { pickNotifiedMessage, type NotifiedMail } from './notify/notify-match';
+import { mapLimit } from './core/concurrency';
+import { OAuthStore } from './auth/oauth-store';
+import { connectAccount, accessTokenFor, forceRefresh } from './auth/oauth-flow';
+import { hasScopes, type OAuthConfig } from './auth/google-oauth';
+import { parsePushConfig, type PushConfig } from './push/push-config';
+import { PushCoverage } from './push/push-coverage';
+import { HistoryStore } from './gmail/history-store';
+import { startPushManager } from './push/push-manager';
+import { createSyncRunner } from './push/push-sync';
+import { findVerificationCode, subjectSuggestsCode } from './gmail/verification-code';
+
+
+//===========================
+// Startup switches
+//===========================
 
 if (process.platform === 'linux' && /microsoft|WSL/i.test(release())) {
   app.disableHardwareAcceleration();
@@ -201,6 +206,11 @@ try {
 } catch {
 }
 
+
+//===========================
+// Constants
+//===========================
+
 // The floor the "do not make it too small" switch enforces. Height matters as much as
 // width: the topbar is 40px (80 in Rene mode) and everything below it is the mail view,
 // so without a minimum height the window can be squashed to a bare strip of chrome.
@@ -210,6 +220,21 @@ const MIN_WINDOW_HEIGHT = 600;
 const RENDERER_DIST = join(__dirname, '..', 'renderer', 'out');
 const CHANGELOG_PATH = join(__dirname, '..', 'CHANGELOG.md');
 
+const PRELOAD_PATH = join(__dirname, 'preload.js');
+const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
+const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
+const DEV_URL = process.env.ELECTRON_RENDERER_URL;
+const OAUTH_CONFIG_PATH = join(app.getPath('userData'), 'google-oauth.json');
+
+// how long an account probe waits for the page to say who it belongs to
+const PROBE_TIMEOUT_MS = 16000;
+
+/**
+ * The release notes the settings panel shows
+ *
+ * @returns {ChangelogVersion[]} empty when the file is missing, which it is in a checkout
+ *   that has never been packaged
+ */
 function loadChangelog(): ChangelogVersion[] {
   try {
     return parseChangelog(readFileSync(CHANGELOG_PATH, 'utf8'));
@@ -217,12 +242,11 @@ function loadChangelog(): ChangelogVersion[] {
     return [];
   }
 }
-const PRELOAD_PATH = join(__dirname, 'preload.js');
-const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
-const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
-const DEV_URL = process.env.ELECTRON_RENDERER_URL;
-const OAUTH_CONFIG_PATH = join(app.getPath('userData'), 'google-oauth.json');
-const PROBE_TIMEOUT_MS = 16000;
+
+
+//===========================
+// Module state
+//===========================
 
 let mainWindow: BrowserWindow | null = null;
 let manager: ProfileViewManager | null = null;
@@ -304,6 +328,11 @@ let seedOrder = new Map<string, number>();
 const SEED_KEY_PREFIX = 'seed:';
 const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
+
+//===========================
+// App protocol
+//===========================
+
 protocol.registerSchemesAsPrivileged([
   { scheme: APP_SCHEME, privileges: { ...APP_SCHEME_PRIVILEGES } },
 ]);
@@ -315,6 +344,11 @@ function registerAppProtocol(): void {
     return net.fetch(pathToFileURL(join(RENDERER_DIST, rel)).toString());
   });
 }
+
+
+//===========================
+// Accounts and profiles
+//===========================
 
 const authRef = (index: number): AccountRef => ({ kind: 'authuser', index });
 const keyOf = (p: Profile): string => accountKey(p.ref);
@@ -330,6 +364,11 @@ function colorForEmail(email: string): string {
   for (let i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) | 0;
   return colorForIndex(Math.abs(h));
 }
+
+
+//===========================
+// Delegated mailboxes
+//===========================
 
 function delegatedProfileFor(d: StoredDelegate): Profile {
   const ref: AccountRef = {
@@ -550,6 +589,11 @@ function addDelegatedMailbox(email: string, mailUrl: string): void {
   loadDelegatedProfiles();
   showAccount({ kind: 'delegated', email: e, mailUrl, calendarUrl: null }, 'mail');
 }
+
+
+//===========================
+// Tabs, detection and cache
+//===========================
 
 interface TabRow {
   key: string;
@@ -830,6 +874,11 @@ function removeAccount(email: string): void {
   }
 }
 
+
+//===========================
+// Views and surfaces
+//===========================
+
 function showAccount(ref: AccountRef, surface: Surface): void {
   manager?.show(ref, surface);
   refreshNotifyAllowed();
@@ -844,6 +893,11 @@ function activeView(): { ref: AccountRef; surface: Surface } | null {
   const surface = SURFACES.find((s) => m.isShowing(key, s));
   return p && surface ? { ref: p.ref, surface } : null;
 }
+
+
+//===========================
+// Compose and mailto
+//===========================
 
 // One window per ask, destroyed on settle: reuse would carry the previous recipient into
 // an unrelated next question for no gain, since the picker is short-lived. The module
@@ -925,6 +979,12 @@ function flushPendingMailto(): void {
   pendingMailto = null;
   void dispatchMailto(url);
 }
+
+
+//===========================
+// Window, zoom and shortcuts
+//===========================
+
 function switchSurface(index: number, surface: Surface): void {
   showAccount(authRef(index), surface);
 }
@@ -971,6 +1031,8 @@ function handleInput(input: KeyInput): void {
   if (!action) return;
   if (action.type === 'devtools') {
     manager?.toggleDevTools();
+  } else if (action.type === 'reload') {
+    manager?.reloadActive();
   } else if (action.type === 'switch') {
     const ordered = [...profiles].sort((a, b) => (a.order ?? authIdx(a)) - (b.order ?? authIdx(b)));
     const target = ordered[action.n - 1];
@@ -1011,6 +1073,11 @@ function applyReneZoom(): void {
   }
   manager?.relayout();
 }
+
+
+//===========================
+// Notification gating
+//===========================
 
 const NOTIFY_HIDDEN_SENDER = 'New email';
 const NOTIFY_HIDDEN_SUBJECT = 'You have new mail.';
@@ -1085,6 +1152,12 @@ function startNotifyTimer(): void {
 }
 
 const warmup = new WarmupTracker();
+
+
+//===========================
+// View warm-up
+//===========================
+
 let warmupTimer: ReturnType<typeof setInterval> | null = null;
 
 function warmAccount(profile: Profile): void {
@@ -1121,6 +1194,11 @@ function syncCalendarViews(): void {
   }
   refreshNotifyAllowed();
 }
+
+
+//===========================
+// Drag to save
+//===========================
 
 function mailDropFolder(): string {
   return prefs?.getAll().mailDrop.folder || join(app.getPath('documents'), 'Gmail Desktop', 'Mail');
@@ -1335,6 +1413,11 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
   dropOverlay.open({ items });
 }
 
+
+//===========================
+// OAuth config and tokens
+//===========================
+
 function readIfPresent(path: string): string | null {
   try {
     return readFileSync(path, 'utf8');
@@ -1492,6 +1575,11 @@ function pushConfig(): PushConfig | null {
   }
 }
 
+
+//===========================
+// OAuth health
+//===========================
+
 let healthTimer: ReturnType<typeof setTimeout> | null = null;
 function scheduleOAuthHealthCheck(): void {
   if (healthTimer) clearTimeout(healthTimer);
@@ -1577,6 +1665,11 @@ function showReconnectBanner(accounts: ReconnectAccount[]): void {
   if (reconnectBanner.isOpen()) reconnectBanner.update({ accounts }, accounts.length);
   else reconnectBanner.open({ accounts }, accounts.length);
 }
+
+
+//===========================
+// Copying mail to a mailbox
+//===========================
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -1910,6 +2003,11 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
   );
   openDropPreview(done);
 }
+
+
+//===========================
+// Notification cards
+//===========================
 
 function watchPreloadForReload(): void {
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -2270,6 +2368,11 @@ async function handleVerificationCode(
   }
 }
 
+
+//===========================
+// Push and sync
+//===========================
+
 // The access-token dance for one account: use what we have, and on a 401 force a refresh
 // and try once more. Lifted out of syncRunnerFor because the toast actions need the same
 // thing for whichever account the card belongs to, long after the sync that raised it.
@@ -2444,6 +2547,11 @@ function startRelayPush(): void {
     },
   });
 }
+
+
+//===========================
+// The main window
+//===========================
 
 let firstWindow = true;
 
@@ -2637,6 +2745,11 @@ function openSettingsPanel(): void {
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
 }
 
+
+//===========================
+// Updates
+//===========================
+
 function checkForUpdateFromTray(): void {
   openSettingsPanel();
   pendingTrayUpdateCheck = true;
@@ -2754,6 +2867,12 @@ function installUpdate(): void {
   isQuitting = true;
   autoUpdater.quitAndInstall();
 }
+
+
+//===========================
+// System integration
+//===========================
+
 function setAutoStart(v: boolean): void {
   prefs!.setAutoStart(v);
   app.setLoginItemSettings({ openAtLogin: v });
@@ -2785,6 +2904,12 @@ function requestDefaultMail(): void {
     shell.openExternal(`ms-settings:defaultapps?registeredAppUser=${encodeURIComponent(MAIL_APP_NAME)}`),
   );
 }
+
+
+//===========================
+// Tray
+//===========================
+
 function setSnooze(minutes: number | null): void {
   if (!prefs) return;
   const n = prefs.getAll().notifications;
@@ -2873,6 +2998,11 @@ function trayImage(): Electron.NativeImage {
   }
   return nativeImage.createFromBitmap(bitmap, { width, height });
 }
+
+
+//===========================
+// Opening things
+//===========================
 
 function applyMinWindowSize(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -2993,6 +3123,11 @@ function openExternalGuarded(url: string): void {
   else void dialog.showMessageBox(box).then(done);
 }
 
+
+//===========================
+// Downloads and sessions
+//===========================
+
 function knownDownloadPath(path: string): boolean {
   return downloadHistory?.all().some((r) => r.path === path) === true;
 }
@@ -3098,6 +3233,11 @@ function applySpellcheckTo(s: Electron.Session): void {
   }
 }
 
+
+//===========================
+// Updater wiring
+//===========================
+
 let updateTimer: ReturnType<typeof setInterval> | null = null;
 
 function applyAutoUpdateCheck(): void {
@@ -3143,6 +3283,11 @@ function setupUpdater(): void {
   });
 }
 
+
+//===========================
+// Notification setup
+//===========================
+
 function setupNotifications(): void {
   if (process.platform === 'win32') app.setAppUserModelId('com.gmaildesktop.app');
   const ses = session.fromPartition(SESSION_PARTITION);
@@ -3153,6 +3298,11 @@ function setupNotifications(): void {
   );
   ses.setPermissionCheckHandler((_wc, permission) => sessionPermissionAllowed(permission));
 }
+
+
+//===========================
+// IPC handlers
+//===========================
 
 function registerIpc(): void {
   ipcMain.on(IPC.SWITCH_SURFACE, (_e, arg: { key: string; surface: Surface }) => {
@@ -3775,6 +3925,11 @@ if (!gotTheLock) {
     if (url) void dispatchMailto(url);
   });
 }
+
+
+//===========================
+// App lifecycle
+//===========================
 
 app.on('open-url', (event, url) => {
   event.preventDefault();

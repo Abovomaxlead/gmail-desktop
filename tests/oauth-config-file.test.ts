@@ -10,7 +10,7 @@
 // a worse failure than the one being fixed, because it looks like success.
 
 import { describe, expect, it } from 'vitest';
-import { checkOAuthConfigFile } from '../electron/oauth-config-file';
+import { checkOAuthConfigFile } from '../electron/auth/oauth-config-file';
 
 const full = JSON.stringify({
   clientId: '1234-abc.apps.googleusercontent.com',

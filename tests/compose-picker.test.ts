@@ -12,7 +12,7 @@ import {
   PICKER_ROW_HEIGHT,
   PICKER_FOOTER_HEIGHT,
   PICKER_MAX_VISIBLE_ROWS,
-} from '../electron/compose-picker';
+} from '../electron/compose/compose-picker';
 
 function harness() {
   const open = vi.fn();

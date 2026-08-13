@@ -28,36 +28,10 @@ import { NOTICE } from './settings/tokens';
 // through to the empty note. Also home to the Rene key sequence, which only
 // listens while the panel is mounted and never consumes the key it sees.
 
-function sectionLabel(section: SettingsSection, S: UiStrings): string {
-  switch (section) {
-    case 'download-history':
-      return S.navDownloadHistory;
-    case 'general':
-      return S.navGeneral;
-    case 'accounts':
-      return S.navAccounts;
-    case 'appearance':
-      return S.navAppearance;
-    case 'downloads':
-      return S.navDownloads;
-    case 'google-apps':
-      return S.navGoogleApps;
-    case 'notifications':
-      return S.navNotifications;
-    case 'phishing-protection':
-      return S.navPhishingProtection;
-    case 'updates':
-      return S.navUpdates;
-    case 'verification-codes':
-      return S.navVerificationCodes;
-    case 'advanced':
-      return S.navAdvanced;
-    case 'whats-new':
-      return S.navWhatsNew;
-    case 'about':
-      return S.navAbout;
-  }
-}
+
+//===========================
+// Component
+//===========================
 
 export function SettingsPanel({
   profiles,
@@ -191,4 +165,40 @@ export function SettingsPanel({
       })()}
     </SettingsShell>
   );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function sectionLabel(section: SettingsSection, S: UiStrings): string {
+  switch (section) {
+    case 'download-history':
+      return S.navDownloadHistory;
+    case 'general':
+      return S.navGeneral;
+    case 'accounts':
+      return S.navAccounts;
+    case 'appearance':
+      return S.navAppearance;
+    case 'downloads':
+      return S.navDownloads;
+    case 'google-apps':
+      return S.navGoogleApps;
+    case 'notifications':
+      return S.navNotifications;
+    case 'phishing-protection':
+      return S.navPhishingProtection;
+    case 'updates':
+      return S.navUpdates;
+    case 'verification-codes':
+      return S.navVerificationCodes;
+    case 'advanced':
+      return S.navAdvanced;
+    case 'whats-new':
+      return S.navWhatsNew;
+    case 'about':
+      return S.navAbout;
+  }
 }

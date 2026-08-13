@@ -34,7 +34,7 @@ import {
   parseMessageMeta,
   labelGetUrl,
   parseUnreadThreads,
-} from '../electron/gmail-api';
+} from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
 

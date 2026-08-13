@@ -1,8 +1,8 @@
 // The sync runner: first run, history deltas, recovery, resilience and coalescing.
 
 import { describe, it, expect } from 'vitest';
-import { createSyncRunner, type SyncClient, type SyncOutcome } from '../electron/push-sync';
-import type { HistoryPage, MessageMeta } from '../electron/gmail-api';
+import { createSyncRunner, type SyncClient, type SyncOutcome } from '../electron/push/push-sync';
+import type { HistoryPage, MessageMeta } from '../electron/gmail/gmail-api';
 
 const meta = (id: string, internalDate: number): MessageMeta => ({
   id,

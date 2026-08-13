@@ -16,8 +16,18 @@ import { HAIRLINE, SURFACE, SURFACE_FOCUS_RING } from './tokens';
 // field so a pending account name is written away. Every word on screen arrives as a
 // prop, so this file contains no user-facing text of its own.
 
+
+//===========================
+// Constants
+//===========================
+
 const PANEL_ID = 'settings-section-panel';
 const tabId = (section: SettingsSection) => `settings-tab-${section}`;
+
+
+//===========================
+// Component
+//===========================
 
 export function SettingsShell({
   sectionLabel,

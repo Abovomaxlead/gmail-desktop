@@ -6,7 +6,14 @@
 // nav name is also the heading above its own section, one key for both, because nineteen
 // sections with two keys each would be nineteen chances for the two to drift apart.
 
-import type { Locale } from '../../electron/locale';
+import type { Locale } from '../../electron/core/locale';
+
+
+//===========================
+// Types
+//===========================
+
+type ColorKey = 'blue' | 'red' | 'green' | 'yellow' | 'purple' | 'teal';
 
 export interface UiStrings {
   numberLocale: string;
@@ -282,27 +289,25 @@ export interface UiStrings {
   composePickerCancel: string;
 }
 
-function categoryKey(heading: string): 'added' | 'fixed' | 'changed' | 'removed' | 'security' | null {
-  switch (heading.trim().toLowerCase()) {
-    case 'added':
-    case 'toegevoegd':
-      return 'added';
-    case 'fixed':
-    case 'opgelost':
-      return 'fixed';
-    case 'changed':
-    case 'gewijzigd':
-      return 'changed';
-    case 'removed':
-    case 'verwijderd':
-      return 'removed';
-    case 'security':
-    case 'beveiliging':
-      return 'security';
-    default:
-      return null;
-  }
-}
+
+//===========================
+// Constants
+//===========================
+
+// the colours the palette hands out, by the hex an account is stored with
+const COLOR_KEYS: Record<string, ColorKey> = {
+  '#4285f4': 'blue',
+  '#ea4335': 'red',
+  '#34a853': 'green',
+  '#fbbc05': 'yellow',
+  '#a142f4': 'purple',
+  '#00acc1': 'teal',
+};
+
+
+//===========================
+// Label sets
+//===========================
 
 export const CATEGORY_NORMAL: Record<string, string> = {
   added: 'New',
@@ -326,17 +331,6 @@ export const CATEGORY_NL: Record<string, string> = {
   changed: 'Gewijzigd',
   removed: 'Verwijderd',
   security: 'Beveiliging',
-};
-
-type ColorKey = 'blue' | 'red' | 'green' | 'yellow' | 'purple' | 'teal';
-
-const COLOR_KEYS: Record<string, ColorKey> = {
-  '#4285f4': 'blue',
-  '#ea4335': 'red',
-  '#34a853': 'green',
-  '#fbbc05': 'yellow',
-  '#a142f4': 'purple',
-  '#00acc1': 'teal',
 };
 
 export const COLOR_NORMAL: Record<ColorKey, string> = {
@@ -365,10 +359,6 @@ export const COLOR_NL: Record<ColorKey, string> = {
   purple: 'Paars',
   teal: 'Turkoois',
 };
-
-function colorKey(hex: string): ColorKey | null {
-  return COLOR_KEYS[hex.trim().toLowerCase()] ?? null;
-}
 
 export const STRINGS_NORMAL: UiStrings = {
   numberLocale: 'en-US',
@@ -1282,7 +1272,64 @@ export const STRINGS_NL: UiStrings = {
   composePickerCancel: 'Annuleren',
 };
 
+
+//===========================
+// Exported functions
+//===========================
+
+/**
+ * The text the app's own chrome is drawn with
+ *
+ * @param locale
+ * @param reneMode
+ * @returns {UiStrings} Rene mode first, then the locale
+ */
 export function getStrings(locale: Locale, reneMode: boolean): UiStrings {
   if (reneMode) return STRINGS_RENE;
   return locale === 'nl' ? STRINGS_NL : STRINGS_NORMAL;
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * The changelog category a heading names, in either language
+ *
+ * @param heading
+ * @returns the key, or null for a heading that names no category
+ * @private
+ */
+function categoryKey(heading: string): 'added' | 'fixed' | 'changed' | 'removed' | 'security' | null {
+  switch (heading.trim().toLowerCase()) {
+    case 'added':
+    case 'toegevoegd':
+      return 'added';
+    case 'fixed':
+    case 'opgelost':
+      return 'fixed';
+    case 'changed':
+    case 'gewijzigd':
+      return 'changed';
+    case 'removed':
+    case 'verwijderd':
+      return 'removed';
+    case 'security':
+    case 'beveiliging':
+      return 'security';
+    default:
+      return null;
+  }
+}
+
+/**
+ * The colour a stored hex stands for
+ *
+ * @param hex
+ * @returns the key, or null for a colour the palette does not hand out
+ * @private
+ */
+function colorKey(hex: string): ColorKey | null {
+  return COLOR_KEYS[hex.trim().toLowerCase()] ?? null;
 }

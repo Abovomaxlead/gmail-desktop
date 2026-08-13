@@ -2,7 +2,7 @@
 // string sets.
 
 import { describe, it, expect } from 'vitest';
-import { nativeLabels, type NativeLabels } from '../electron/native-labels';
+import { nativeLabels, type NativeLabels } from '../electron/menus/native-labels';
 
 // Calls a field, rendering function members with as many 'x' arguments as the function
 // declares (fn.length) rather than a fixed count — a member given too few arguments

@@ -34,25 +34,19 @@ let subscribed = false;
 let known: OAuthStatusReport = { configured: true, accounts: [] };
 let seenAnything = false;
 
-function subscribeToStatus(cb: (report: OAuthStatusReport) => void): () => void {
-  listeners.add(cb);
-  if (!subscribed) {
-    subscribed = true;
-    window.desktop?.onOAuthStatus((report) => {
-      known = report;
-      seenAnything = true;
-      for (const l of listeners) l(report);
-    });
-  }
-  return () => {
-    listeners.delete(cb);
-  };
-}
 
-/** What main reports about linking on this machine, live. Two separate facts: whether this
- *  machine can link at all, and the per-account statuses. An account with no entry gets no
- *  status line — a delegated mailbox has no link of its own, and nothing has been computed
- *  yet before the first health check. */
+//===========================
+// Hook
+//===========================
+
+/**
+ * What main reports about linking on this machine, live
+ *
+ * @returns {OAuthStatusReport} two separate facts: whether this machine can link at all,
+ *   and the per-account statuses. An account with no entry gets no status line — a
+ *   delegated mailbox has no link of its own, and nothing has been computed yet before the
+ *   first health check.
+ */
 export function useOAuthStatuses(): OAuthStatusReport {
   const [report, setReport] = useState<OAuthStatusReport>(known);
 
@@ -76,68 +70,11 @@ export function useOAuthStatuses(): OAuthStatusReport {
   return report;
 }
 
-function statusLabel(status: OAuthStatus, S: UiStrings): string {
-  switch (status) {
-    case 'linked':
-      return S.oauthLinked;
-    case 'unlinked':
-      return S.oauthUnlinked;
-    case 'expired':
-      return S.oauthExpired;
-    case 'push-only':
-      return S.oauthPushOnly;
-  }
-}
 
-/** Null for a link that works — there is nothing to ask for. */
-function actionLabel(status: OAuthStatus, S: UiStrings): string | null {
-  switch (status) {
-    case 'linked':
-      return null;
-    case 'unlinked':
-      return S.oauthConnect;
-    case 'expired':
-      return S.oauthReconnect;
-    case 'push-only':
-      return S.oauthReallow;
-  }
-}
 
-function CheckIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-// The same triangle the reconnect banner uses, so the two places that report this problem
-// look like they are reporting the same problem.
-function WarningIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden
-    >
-      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" />
-    </svg>
-  );
-}
+//===========================
+// Components
+//===========================
 
 // Shown instead of the per-account rows when this machine has no OAuth config at all.
 //
@@ -268,4 +205,92 @@ export function AccountOAuthRow({
       ) : null}
     </span>
   );
+}
+
+
+//===========================
+// Icons
+//===========================
+
+function CheckIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+// The same triangle the reconnect banner uses, so the two places that report this problem
+// look like they are reporting the same problem.
+function WarningIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01" />
+    </svg>
+  );
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function subscribeToStatus(cb: (report: OAuthStatusReport) => void): () => void {
+  listeners.add(cb);
+  if (!subscribed) {
+    subscribed = true;
+    window.desktop?.onOAuthStatus((report) => {
+      known = report;
+      seenAnything = true;
+      for (const l of listeners) l(report);
+    });
+  }
+  return () => {
+    listeners.delete(cb);
+  };
+}
+
+function statusLabel(status: OAuthStatus, S: UiStrings): string {
+  switch (status) {
+    case 'linked':
+      return S.oauthLinked;
+    case 'unlinked':
+      return S.oauthUnlinked;
+    case 'expired':
+      return S.oauthExpired;
+    case 'push-only':
+      return S.oauthPushOnly;
+  }
+}
+
+/** Null for a link that works — there is nothing to ask for. */
+function actionLabel(status: OAuthStatus, S: UiStrings): string | null {
+  switch (status) {
+    case 'linked':
+      return null;
+    case 'unlinked':
+      return S.oauthConnect;
+    case 'expired':
+      return S.oauthReconnect;
+    case 'push-only':
+      return S.oauthReallow;
+  }
 }

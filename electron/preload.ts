@@ -8,14 +8,15 @@
 // before drawing it. Notification.permission must stay a live getter or Gmail
 // freezes it at "default"; window.open must return a stub, since null reads as a popup
 // blocker. The drop strip has to live in <body> to render at all.
-import { parseUnreadCount } from './unread-parser';
+
+import { parseUnreadCount } from './unread/unread-parser';
 import {
   IPC,
   type NotifyState,
   type MailDropPayload,
   type MailDropResult,
-} from './ipc';
-import { labelFromDragTarget } from './label-drop';
+} from './core/ipc';
+import { labelFromDragTarget } from './mail/label-drop';
 import {
   DROPZONE_ID,
   DROPZONE_CSS,
@@ -33,8 +34,19 @@ import {
   ikFromPage,
   resultText,
   type DragNode,
-} from './dropzone';
+} from './mail/dropzone';
 
+
+//===========================
+// Exported functions
+//===========================
+
+/**
+ * Reads the unread count out of the page title and sends it on
+ *
+ * @param doc
+ * @param send
+ */
 export function computeAndReport(
   doc: { title: string },
   send: (channel: string, count: number) => void,
@@ -42,6 +54,15 @@ export function computeAndReport(
   send(IPC.UNREAD_UPDATE, parseUnreadCount(doc.title));
 }
 
+/**
+ * Reads the signed-in account out of Gmail's own avatar
+ *
+ * Matched by shape — an anchor whose aria-label holds an address and whose content holds
+ * an image — never by translated text.
+ *
+ * @param doc
+ * @returns the identity, or null when the avatar is not in the DOM yet
+ */
 export function extractIdentity(
   doc: { querySelectorAll(sel: string): ArrayLike<any> },
 ): { email: string; name: string; avatarUrl: string } | null {
@@ -67,7 +88,8 @@ export function extractIdentity(
   return { email, name, avatarUrl };
 }
 
-/** Every thread whose subject matches, in DOM order, rather than only the first.
+/**
+ * Every thread whose subject matches, rather than only the first
  *
  * The count is the diagnostic. A click that opens the wrong conversation and a click that
  * opens no conversation at all look the same from the outside — "it opened something I did
@@ -76,8 +98,12 @@ export function extractIdentity(
  * the DOM to be found. Only the number tells them apart, and the caller cannot count what
  * this used to return the moment it found it.
  *
- * Ids are deduplicated because Gmail puts data-legacy-thread-id on the row and again on a
- * span inside it, so one thread would otherwise read as an ambiguous two. */
+ * @param doc
+ * @param subject a trailing ellipsis makes it a prefix match, since that is how Gmail
+ *   truncates a long subject on a card
+ * @returns the thread ids in DOM order, deduplicated because Gmail puts
+ *   data-legacy-thread-id on the row and again on a span inside it
+ */
 export function matchThreadsBySubject(
   doc: { querySelectorAll(sel: string): ArrayLike<any> },
   subject: string,
@@ -103,6 +129,15 @@ export function findThreadIdBySubject(
   return matchThreadsBySubject(doc, subject)[0] ?? null;
 }
 
+/**
+ * Sends the service worker's notifications through the shim as well
+ *
+ * Its own showNotification would otherwise reach the Windows shelf, where the app can
+ * neither draw the card nor apply a single one of its settings to it.
+ *
+ * @param swRegProto
+ * @param getNotification read per call, so it picks up the shim installed after this
+ */
 export function rerouteServiceWorkerNotifications(
   swRegProto:
     | { showNotification?: (title: string, options?: NotificationOptions) => Promise<void> }
@@ -120,9 +155,11 @@ export function rerouteServiceWorkerNotifications(
 }
 
 /**
- * The window.Notification the Gmail page gets instead of Chromium's. It raises nothing
- * itself: it hands the title and body to main, which draws the card in the app's own
- * stack, knows which account this page belongs to and what the privacy settings replace.
+ * The window.Notification the Gmail page gets instead of Chromium's
+ *
+ * It raises nothing itself: it hands the title and body to main, which draws the card in
+ * the app's own stack, knows which account this page belongs to and what the privacy
+ * settings replace.
  *
  * It also answers the permission question for itself, with "granted", and never asks the
  * browser. That is deliberate and it is what makes refusing the real permission safe: the
@@ -133,9 +170,12 @@ export function rerouteServiceWorkerNotifications(
  * promises is a card in the app, which needs no permission from Chromium.
  *
  * The object handed back is the one Gmail's code goes on to use, so it answers to onclick,
- * close and addEventListener whatever was done with the notification. `show` returns what
- * to run when the page closes it — the raise pins the body until the click, and a closed
- * notification will never be clicked.
+ * close and addEventListener whatever was done with the notification.
+ *
+ * @param hooks.allowed asked per notification, since the settings can change
+ * @param hooks.show returns what to run when the page closes the notification — the raise
+ *   pins the body until the click, and a closed notification will never be clicked
+ * @returns {typeof Notification}
  */
 export function createNotificationShim(hooks: {
   allowed: () => boolean;
@@ -166,16 +206,19 @@ export function createNotificationShim(hooks: {
 }
 
 /**
- * The second way a page can ask whether it may notify. Notification.permission is answered
- * by the shim above, but navigator.permissions.query goes straight to Chromium, which now
- * says "denied" — and a page that consults it before notifying would stop, taking the
- * app's own notifications with it. The answer for notifications is therefore given here
- * too, and only for notifications: every other permission is still whatever the browser
- * says it is.
+ * Answers the second way a page can ask whether it may notify
+ *
+ * Notification.permission is answered by the shim above, but navigator.permissions.query
+ * goes straight to Chromium, which now says "denied" — and a page that consults it before
+ * notifying would stop, taking the app's own notifications with it. The answer for
+ * notifications is therefore given here too, and only for notifications: every other
+ * permission is still whatever the browser says it is.
  *
  * The status handed back is a plain object rather than the real one with its state
  * overridden, because PermissionStatus.state has no setter. It carries the members a
  * listener uses, so a page that subscribes to changes gets silence rather than a throw.
+ *
+ * @param permissions navigator.permissions, or nothing on a page that has none
  */
 export function patchNotificationPermissionQuery(permissions: unknown): void {
   const target = permissions as { query?: (d: { name: string }) => Promise<unknown> } | undefined;
@@ -194,21 +237,37 @@ export function patchNotificationPermissionQuery(permissions: unknown): void {
   };
 }
 
-// The name this page gives one of its notifications. The counter alone would not do: main
-// files these under the view that sent them, and a reload keeps the same view while
-// restarting the counter at 1, so a card raised before the reload and one raised after
-// would answer to the same name and a click would resolve against the wrong one. The nonce
-// is per page load, which is exactly the lifetime of the bodies we keep.
+/**
+ * The name this page gives one of its notifications
+ *
+ * The counter alone would not do: main files these under the view that sent them, and a
+ * reload keeps the same view while restarting the counter at 1, so a card raised before the
+ * reload and one raised after would answer to the same name and a click would resolve
+ * against the wrong one.
+ *
+ * @param loadNonce per page load, which is exactly the lifetime of the bodies we keep
+ * @param seq
+ * @returns the id
+ */
 export function webNotifyPageId(loadNonce: string, seq: number): string {
   return `${loadNonce}-${seq}`;
 }
 
-// Both fields are coerced, and the title is the one that has to be. `title: string` is
-// what the DOM signature says, not what arrives: this runs on `new Notification(x)` inside
-// Google's own page, so x is whatever that page passed. A non-primitive travels to main,
-// goes onto a card and is handed to React as a child, which throws "Objects are not valid
-// as a React child" and unmounts the toasts page - and a page that is not there reports no
-// size and raises no card, so every later notification goes with it.
+/**
+ * What travels to main when the page raises a notification
+ *
+ * Both fields are coerced, and the title is the one that has to be. `title: string` is what
+ * the DOM signature says, not what arrives: this runs on `new Notification(x)` inside
+ * Google's own page, so x is whatever that page passed. A non-primitive travels to main,
+ * goes onto a card and is handed to React as a child, which throws "Objects are not valid
+ * as a React child" and unmounts the toasts page — and a page that is not there reports no
+ * size and raises no card, so every later notification goes with it.
+ *
+ * @param id
+ * @param title
+ * @param options
+ * @returns the payload, with both fields strings whatever the page passed
+ */
 export function webNotifyPayload(
   id: string,
   title: string,
@@ -230,6 +289,15 @@ export function isEditableTarget(
   return tag === 'input' || tag === 'textarea' || el.isContentEditable === true;
 }
 
+/**
+ * Makes window.open answer with a stub rather than null
+ *
+ * A null return reads as a popup blocker to Gmail, which then gives up on opening
+ * anything at all.
+ *
+ * @param original
+ * @returns the replacement
+ */
 export function wrapWindowOpen(original: typeof window.open): typeof window.open {
   return function (...args: Parameters<typeof window.open>) {
     const w = original(...args);
@@ -244,6 +312,21 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
   };
 }
 
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Puts the drag-to-save strip in the page and tracks the gesture
+ *
+ * The strip has to live in <body> to render at all, and a MutationObserver puts it back
+ * whenever Gmail rebuilds around it.
+ *
+ * @param send hands a finished drop to main
+ * @returns what to call with main's answer, which the strip then shows
+ * @private
+ */
 function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult) => void {
   const style = document.createElement('style');
   style.textContent = DROPZONE_CSS;
@@ -404,6 +487,11 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
     clearTimer = setTimeout(reset, 2000);
   };
 }
+
+
+//===========================
+// Page setup
+//===========================
 
 if (typeof document !== 'undefined') {
   const { ipcRenderer } = require('electron') as typeof import('electron');

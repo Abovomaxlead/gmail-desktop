@@ -3,7 +3,7 @@
 // suppressed or the user gets a stray duplicate window.
 
 import { describe, expect, it } from 'vitest';
-import { windowOpenAction } from '../electron/external-links';
+import { windowOpenAction } from '../electron/system/external-links';
 
 const POPOUT = 'https://mail.google.com/mail/u/0/popout?search=all&th=x';
 const THREAD = 'https://mail.google.com/mail/u/0/#inbox/abc';

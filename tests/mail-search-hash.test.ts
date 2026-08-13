@@ -6,7 +6,7 @@
 // itself in every case the list could not answer.
 
 import { describe, expect, it } from 'vitest';
-import { mailSearchHash } from '../electron/google-urls';
+import { mailSearchHash } from '../electron/gmail/google-urls';
 
 describe('mailSearchHash', () => {
   it('searches for the subject as a phrase', () => {

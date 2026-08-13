@@ -11,7 +11,7 @@
 // take Gmail's notifications with it and nothing would arrive at all.
 
 import { describe, expect, it, vi } from 'vitest';
-import { sessionPermissionAllowed } from '../electron/notification-policy';
+import { sessionPermissionAllowed } from '../electron/notify/notification-policy';
 import { createNotificationShim, patchNotificationPermissionQuery } from '../electron/preload';
 
 describe('sessionPermissionAllowed', () => {

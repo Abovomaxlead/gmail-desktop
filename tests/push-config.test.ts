@@ -1,7 +1,7 @@
 // Parsing the push relay configuration, including which plaintext hosts are allowed.
 
 import { describe, it, expect } from 'vitest';
-import { parsePushConfig } from '../electron/push-config';
+import { parsePushConfig } from '../electron/push/push-config';
 
 const file = { relayUrl: 'wss://push.example.com', pushTopic: 'projects/p/topics/gmail-push' };
 

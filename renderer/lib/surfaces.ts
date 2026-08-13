@@ -12,6 +12,39 @@
 
 import type { AccountRef } from './account-ref';
 
+
+//===========================
+// Types
+//===========================
+
+export interface SurfaceConfig {
+  label: string;
+  host: string;
+  path?: string;
+  url(ref: AccountRef): string;
+  backgroundThrottling: boolean;
+}
+
+/** The same rule as surfacesForRef, for callers that only have what the renderer knows
+ * about an account - it never sees an AccountRef. Anything not on this list would end in
+ * a throw from ownedIndex, delegatedMailUrl or delegatedCalendarUrl, so a control that
+ * opens a surface has to ask here first. */
+export interface AccountSurfaces {
+  kind: AccountRef['kind'];
+  hasCalendar: boolean;
+  /** False for a mailbox the API found and nobody has opened in Gmail yet. Defaults to true
+   * so every existing caller keeps its meaning. */
+  hasMail?: boolean;
+  /** A tab from the remembered bar whose identity is not settled yet: it has no url for
+   * anything, not even its own mail. */
+  provisional?: boolean;
+}
+
+
+//===========================
+// Constants
+//===========================
+
 export const SURFACES = [
   'mail',
   'calendar',
@@ -25,35 +58,6 @@ export const SURFACES = [
 ] as const;
 
 export type Surface = (typeof SURFACES)[number];
-
-export interface SurfaceConfig {
-  label: string;
-  host: string;
-  path?: string;
-  url(ref: AccountRef): string;
-  backgroundThrottling: boolean;
-}
-
-function ownedIndex(ref: AccountRef, surface: string): number {
-  if (ref.kind !== 'authuser') {
-    throw new Error(`surface "${surface}" is not available for delegated mailboxes`);
-  }
-  return ref.index;
-}
-
-function delegatedMailUrl(ref: { email: string; mailUrl: string | null }): string {
-  if (!ref.mailUrl) {
-    throw new Error(`no mail url captured for delegated mailbox ${ref.email}`);
-  }
-  return ref.mailUrl;
-}
-
-function delegatedCalendarUrl(ref: { email: string; calendarUrl: string | null }): string {
-  if (!ref.calendarUrl) {
-    throw new Error(`no calendar url captured for delegated mailbox ${ref.email}`);
-  }
-  return ref.calendarUrl;
-}
 
 export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
   mail: {
@@ -126,26 +130,34 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
   },
 };
 
+export const APP_SURFACES: readonly Surface[] = SURFACES.filter(
+  (s) => s !== 'mail' && s !== 'calendar',
+);
+
+
+//===========================
+// Exported functions
+//===========================
+
+/**
+ * The surfaces an account can open
+ *
+ * @param ref
+ * @returns {Surface[]} everything for an owned account; for a delegated mailbox only what
+ *   a URL was captured for
+ */
 export function surfacesForRef(ref: AccountRef): Surface[] {
   if (ref.kind === 'authuser') return [...SURFACES];
   if (!ref.mailUrl) return [];
   return ref.calendarUrl ? ['mail', 'calendar'] : ['mail'];
 }
 
-// The same rule as surfacesForRef, for callers that only have what the renderer knows
-// about an account - it never sees an AccountRef. Anything not on this list would end in
-// a throw from ownedIndex, delegatedMailUrl or delegatedCalendarUrl, so a control that
-// opens a surface has to ask here first. A provisional tab (remembered bar, identity not
-// settled yet) has no url for anything, not even its own mail.
-export interface AccountSurfaces {
-  kind: AccountRef['kind'];
-  hasCalendar: boolean;
-  /** False for a mailbox the API found and nobody has opened in Gmail yet. Defaults to true
-   * so every existing caller keeps its meaning. */
-  hasMail?: boolean;
-  provisional?: boolean;
-}
-
+/**
+ * The same rule as surfacesForRef, for a caller that has no AccountRef
+ *
+ * @param account
+ * @returns {Surface[]} empty for an account nothing can be opened for
+ */
 export function openableSurfaces(account: AccountSurfaces): Surface[] {
   if (account.provisional) return [];
   if (account.kind === 'authuser') return [...SURFACES];
@@ -153,10 +165,12 @@ export function openableSurfaces(account: AccountSurfaces): Surface[] {
   return account.hasCalendar ? ['mail', 'calendar'] : ['mail'];
 }
 
-export const APP_SURFACES: readonly Surface[] = SURFACES.filter(
-  (s) => s !== 'mail' && s !== 'calendar',
-);
-
+/**
+ * The surface a URL belongs to
+ *
+ * @param url
+ * @returns the surface, or null for a host the app does not host
+ */
 export function surfaceForUrl(url: string): Surface | null {
   let parsed: URL;
   try {
@@ -172,4 +186,55 @@ export function surfaceForUrl(url: string): Surface | null {
     if (cfg.path === undefined || cfg.path === firstSegment) return s;
   }
   return null;
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * The account index a surface URL is built from
+ *
+ * @param ref
+ * @param surface
+ * @returns the index
+ * @throws when the surface is not one a delegated mailbox has
+ * @private
+ */
+function ownedIndex(ref: AccountRef, surface: string): number {
+  if (ref.kind !== 'authuser') {
+    throw new Error(`surface "${surface}" is not available for delegated mailboxes`);
+  }
+  return ref.index;
+}
+
+/**
+ * The mail URL captured for a delegated mailbox
+ *
+ * @param ref
+ * @returns the URL
+ * @throws rather than hand out a URL that would end up in webContents.loadURL(null)
+ * @private
+ */
+function delegatedMailUrl(ref: { email: string; mailUrl: string | null }): string {
+  if (!ref.mailUrl) {
+    throw new Error(`no mail url captured for delegated mailbox ${ref.email}`);
+  }
+  return ref.mailUrl;
+}
+
+/**
+ * The calendar URL captured for a delegated mailbox
+ *
+ * @param ref
+ * @returns the URL
+ * @throws when Google's switcher exposed none
+ * @private
+ */
+function delegatedCalendarUrl(ref: { email: string; calendarUrl: string | null }): string {
+  if (!ref.calendarUrl) {
+    throw new Error(`no calendar url captured for delegated mailbox ${ref.email}`);
+  }
+  return ref.calendarUrl;
 }

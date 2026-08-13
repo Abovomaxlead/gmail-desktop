@@ -10,7 +10,7 @@ import {
   isUsable,
   requestDelegatedToken,
   shouldTryAnotherRequester,
-} from '../electron/delegated-token';
+} from '../electron/delegation/delegated-token';
 
 describe('the cache', () => {
   it('offers a fresh token', () => {

@@ -6,7 +6,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createNotifyLog, NOTIFY_LOG_MAX_BYTES, notifyLog, openNotifyLog } from '../electron/notify-log';
+import { createNotifyLog, NOTIFY_LOG_MAX_BYTES, notifyLog, openNotifyLog } from '../electron/notify/notify-log';
 
 let dir: string;
 

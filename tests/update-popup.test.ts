@@ -1,8 +1,8 @@
 // The popup shown after a manual update check.
 
 import { describe, it, expect } from 'vitest';
-import { updateCheckPopup } from '../electron/update-popup';
-import { nativeLabels } from '../electron/native-labels';
+import { updateCheckPopup } from '../electron/updates/update-popup';
+import { nativeLabels } from '../electron/menus/native-labels';
 
 const L = nativeLabels('en', false);
 

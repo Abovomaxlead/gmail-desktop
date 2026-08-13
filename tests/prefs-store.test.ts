@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PrefsStore, DEFAULT_PREFS } from '../electron/prefs-store';
+import { PrefsStore, DEFAULT_PREFS } from '../electron/core/prefs-store';
 
 let dir: string;
 let file: string;

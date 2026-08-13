@@ -12,7 +12,7 @@ import {
   UPDATE_DOWNLOAD_ATTEMPTS,
   UPDATE_RETRY_DELAY_MS,
   shouldRetryDownload,
-} from '../electron/update-retry';
+} from '../electron/updates/update-retry';
 
 const CHECKSUM = 'sha512 checksum mismatch, expected abc, got def';
 

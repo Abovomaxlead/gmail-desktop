@@ -12,6 +12,7 @@
 // others: the link works, mail can still be moved, and only notifications and the unread
 // counter are down. Telling someone their connection is gone when it is not sends them
 // re-granting consent for a problem they do not have.
+
 export type OAuthStatus = 'linked' | 'unlinked' | 'expired' | 'push-only';
 
 export interface AccountOAuthStatus {

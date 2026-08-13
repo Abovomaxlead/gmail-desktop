@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { advanceReneSequence, RENE_SEQUENCE } from '../renderer/app/settings-utils';
-import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from '../electron/rene';
+import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from '../electron/core/rene';
 import { STRINGS_NORMAL, STRINGS_RENE, getStrings } from '../renderer/app/strings';
 
 describe('advanceReneSequence', () => {

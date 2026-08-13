@@ -2,7 +2,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { computeAndReport } from '../electron/preload';
-import { IPC } from '../electron/ipc';
+import { IPC } from '../electron/core/ipc';
 
 describe('computeAndReport', () => {
   it('sends the parsed unread count on the UNREAD_UPDATE channel', () => {

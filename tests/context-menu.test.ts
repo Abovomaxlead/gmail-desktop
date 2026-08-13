@@ -9,7 +9,7 @@ import {
   LABELS_RENE,
   type ContextMenuInput,
   type PlannedItem,
-} from '../electron/context-menu';
+} from '../electron/menus/context-menu';
 
 const ALL_FLAGS = {
   canUndo: true,

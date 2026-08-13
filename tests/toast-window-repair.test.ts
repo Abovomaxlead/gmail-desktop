@@ -70,7 +70,7 @@ vi.mock('electron', () => ({
 }));
 
 const { ToastWindow, TOAST_LOAD_TIMEOUT_MS, TOAST_REBUILD_ATTEMPTS } = await import(
-  '../electron/toast-window'
+  '../electron/toast/toast-window'
 );
 
 function toastWindow() {

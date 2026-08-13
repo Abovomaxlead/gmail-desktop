@@ -1,7 +1,7 @@
 // Tracking when an account's view has finished warming up.
 
 import { describe, it, expect } from 'vitest';
-import { WarmupTracker, WARMUP_CAP_MS, WARMUP_SETTLE_MS } from '../electron/view-warmup';
+import { WarmupTracker, WARMUP_CAP_MS, WARMUP_SETTLE_MS } from '../electron/windows/view-warmup';
 
 const LOADED = 'Inbox (2) - user@example.com - Gmail';
 const BARE = 'Gmail';

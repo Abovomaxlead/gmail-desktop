@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ColorStore } from '../electron/color-store';
+import { ColorStore } from '../electron/accounts/color-store';
 
 function newStore() {
   const dir = mkdtempSync(join(tmpdir(), 'colors-'));

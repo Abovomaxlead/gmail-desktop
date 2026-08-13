@@ -1,7 +1,7 @@
 // Parsing .eml headers and plain-text bodies.
 
 import { describe, it, expect } from 'vitest';
-import { parseHeaders, extractPlainText } from '../electron/eml';
+import { parseHeaders, extractPlainText } from '../electron/mail/eml';
 
 const SIMPLE = [
   'Delivered-To: luca@example.com',

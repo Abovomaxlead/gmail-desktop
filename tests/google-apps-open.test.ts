@@ -2,7 +2,7 @@
 // be pinned to the bar, and which of those pins the account in view can actually open.
 
 import { describe, expect, it } from 'vitest';
-import { googleAppTarget, pinnedSurfaces } from '../electron/google-apps-open';
+import { googleAppTarget, pinnedSurfaces } from '../electron/gmail/google-apps-open';
 import { pinnedSurfacesFor } from '../renderer/lib/google-apps';
 import { openableSurfaces } from '../renderer/lib/surfaces';
 

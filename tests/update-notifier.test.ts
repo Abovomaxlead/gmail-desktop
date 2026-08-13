@@ -1,7 +1,7 @@
 // Whether an available update is worth notifying about.
 
 import { describe, it, expect } from 'vitest';
-import { shouldNotifyUpdate } from '../electron/update-notifier';
+import { shouldNotifyUpdate } from '../electron/updates/update-notifier';
 
 describe('shouldNotifyUpdate', () => {
   const base = { state: 'available', version: '0.2.5', background: true, notifiedVersion: null };

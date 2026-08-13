@@ -139,7 +139,7 @@ vi.mock('electron', () => ({
   shell: { openExternal: () => {} },
 }));
 
-const { ProfileViewManager } = await import('../electron/profile-view-manager');
+const { ProfileViewManager } = await import('../electron/windows/profile-view-manager');
 const { accountKey } = await import('../renderer/lib/account-ref');
 
 const owned: AccountRef = { kind: 'authuser', index: 0 };
