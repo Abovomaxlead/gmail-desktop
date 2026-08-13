@@ -99,6 +99,34 @@ export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/histo
 
 export const MESSAGE_META_HEADERS = ['From', 'Subject'];
 
+// How long a call may stay unanswered before it is given up on. Long enough that a slow
+// answer is still an answer, short enough that whoever is waiting on it hears something.
+// The upload deadline is separate because the size of an insert is the user's attachment,
+// not a sign that anything is wrong.
+const REQUEST_TIMEOUT_MS = 30_000;
+const UPLOAD_TIMEOUT_MS = 120_000;
+
+/**
+ * The headers every call in this file carries
+ *
+ * A function of its own, and it earned that the hard way: these two lines sat inside
+ * requestJson's callback, where an edit about something else deleted them and nothing said a
+ * word. Every call then went out unauthenticated, and Google answers that with "Request is
+ * missing required authentication credential" — a sentence that reads like a withdrawn client
+ * id or a broken key, so it sends you looking everywhere except at the missing line. Out here
+ * a test can hold it; inside a net.request callback nothing could.
+ *
+ * @param accessToken
+ * @param contentType set only for a call with a body
+ * @returns the headers, by name
+ */
+export function apiHeaders(accessToken: string, contentType?: string): Record<string, string> {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    ...(contentType ? { 'Content-Type': contentType } : {}),
+  };
+}
+
 // the system labels a mail can be copied into; the rest are Gmail's own bookkeeping
 const SYSTEM_TARGETS = new Set(['INBOX', 'STARRED', 'IMPORTANT']);
 
@@ -704,8 +732,24 @@ async function requestJson(
   const { net } = require('electron') as typeof import('electron');
   return await new Promise((resolve, reject) => {
     const req = net.request({ url, method: init?.method ?? 'GET' });
-    req.setHeader('Authorization', `Bearer ${accessToken}`);
-    if (init) req.setHeader('Content-Type', init.contentType);
+    for (const [name, value] of Object.entries(apiHeaders(accessToken, init?.contentType))) {
+      req.setHeader(name, value);
+    }
+    // A request that is never answered used to leave its promise unsettled for the life of
+    // the process, and every caller waiting on it with it: the label list of a drop window
+    // asks one account after another, so one stalled connection left "Labels ophalen…" on
+    // screen for good. An upload gets the longer deadline because it is the request whose
+    // length is the user's attachment rather than the network being ill.
+    const timer = setTimeout(() => {
+      req.abort();
+      reject(new Error('geen antwoord van Google (time-out)'));
+    }, init ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    const settle = <T>(fn: (v: T) => void) => (v: T) => {
+      clearTimeout(timer);
+      fn(v);
+    };
+    const ok = settle(resolve);
+    const fail = settle(reject);
     req.on('response', (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
@@ -715,19 +759,19 @@ async function requestJson(
         try {
           json = JSON.parse(text);
         } catch {
-          reject(new Error(`onleesbaar antwoord (HTTP ${res.statusCode})`));
+          fail(new Error(`onleesbaar antwoord (HTTP ${res.statusCode})`));
           return;
         }
         if (res.statusCode >= 400) {
           const msg = (json as { error?: { message?: string } })?.error?.message;
-          reject(new GmailHttpError(msg ?? `HTTP ${res.statusCode}`, res.statusCode));
+          fail(new GmailHttpError(msg ?? `HTTP ${res.statusCode}`, res.statusCode));
           return;
         }
-        resolve(json);
+        ok(json);
       });
-      res.on('error', reject);
+      res.on('error', fail);
     });
-    req.on('error', reject);
+    req.on('error', fail);
     if (init) req.write(init.body);
     req.end();
   });

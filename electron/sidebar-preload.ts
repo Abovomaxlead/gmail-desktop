@@ -52,6 +52,11 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   switchSurface: (key: string, surface: Surface): void =>
     ipcRenderer.send(IPC.SWITCH_SURFACE, { key, surface }),
+  onActiveChanged: (cb: (active: { key: string; surface: Surface } | null) => void): void => {
+    ipcRenderer.on(IPC.ACTIVE_CHANGED, (_e, active) => cb(active));
+  },
+  getActive: (): Promise<{ key: string; surface: Surface } | null> =>
+    ipcRenderer.invoke(IPC.ACTIVE_GET),
   redetect: (): void => ipcRenderer.send(IPC.REDETECT),
   addAccount: (): void => ipcRenderer.send(IPC.ADD_ACCOUNT),
   addDelegated: (): void => ipcRenderer.send(IPC.ADD_DELEGATED),

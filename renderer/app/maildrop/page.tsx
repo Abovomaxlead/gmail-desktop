@@ -10,12 +10,14 @@ import type {
 } from '../MailDropModal';
 import { labelKind, type LabelKind } from '../label-kind';
 import { filterLabels } from '../label-search';
+import { dropFailures } from '../drop-outcome';
 
 // The mail-drop modal, on its own page because it is shown in its own view on top of
 // Gmail; sharing a page with the bar meant recognising from a flag which view it was
-// running in, and that did not hold up. A mailbox has hundreds of labels, so the picker
-// opens with a search box that narrows every account's column at once. Copying takes
-// visibly long - a search and then
+// running in, and that did not hold up. A drag that saved nothing shows the reason instead
+// of the picker: there is nothing to copy, so labels would be a form that cannot be
+// submitted. A mailbox has hundreds of labels, so the picker opens with a search box that
+// narrows every account's column at once. Copying takes visibly long - a search and then
 // an insert per message per account - so the modal runs through phases: picking,
 // copying, confirming when mail already sits at the destination, done. 'check' looks
 // first and asks, 'new' skips what is there, 'all' adds it anyway. Labels are fetched
@@ -104,6 +106,7 @@ export default function MailDropModalPage() {
   const pickedCount = targets.reduce((s, t) => s + t.labelIds.length, 0);
 
   const savedCount = items.reduce((s, i) => s + i.saved, 0);
+  const failures = dropFailures(items);
 
   const copy = async (mode: MailDropCopyMode = 'check') => {
     const bridge = window.desktop;
@@ -158,7 +161,11 @@ export default function MailDropModalPage() {
         >
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-black/10 px-5 py-3.5 dark:border-white/10">
             <h1 className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
-              {n === 1 ? 'Kopieer 1 conversatie' : `Kopieer ${n} conversaties`}
+              {failures.length > 0
+                ? 'Slepen mislukt'
+                : n === 1
+                  ? 'Kopieer 1 conversatie'
+                  : `Kopieer ${n} conversaties`}
             </h1>
             <button
               onClick={close}
@@ -179,7 +186,7 @@ export default function MailDropModalPage() {
             </button>
           </header>
 
-          {phase.kind === 'picking' && accounts !== null && accounts.length > 0 && (
+          {phase.kind === 'picking' && failures.length === 0 && accounts !== null && accounts.length > 0 && (
             <div className="shrink-0 border-b border-black/5 px-5 pb-3 pt-3 dark:border-white/10">
               <LabelSearch value={search} onChange={setSearch} />
             </div>
@@ -194,6 +201,8 @@ export default function MailDropModalPage() {
                 newCount={phase.newCount}
                 labelName={labelName}
               />
+            ) : failures.length > 0 ? (
+              <DropFailure reasons={failures} />
             ) : accounts === null ? (
               <p className="text-sm text-neutral-500">Labels ophalen…</p>
             ) : accounts.length === 0 ? (
@@ -218,8 +227,13 @@ export default function MailDropModalPage() {
           </div>
 
           <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-black/10 px-5 py-3 dark:border-white/10">
-            <Status phase={phase} pickedCount={pickedCount} savedCount={savedCount} />
-            {phase.kind === 'done' ? (
+            <Status
+              phase={phase}
+              pickedCount={pickedCount}
+              savedCount={savedCount}
+              failures={failures}
+            />
+            {phase.kind === 'done' || failures.length > 0 ? (
               <button
                 onClick={close}
                 className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
@@ -405,10 +419,12 @@ function Status({
   phase,
   pickedCount,
   savedCount,
+  failures,
 }: {
   phase: Phase;
   pickedCount: number;
   savedCount: number;
+  failures: string[];
 }) {
   if (phase.kind === 'copying') {
     const doing = phase.phase === 'check' ? 'Controleren' : 'Kopiëren';
@@ -438,6 +454,9 @@ function Status({
       </span>
     );
   }
+  // The body already names every reason a drop saved nothing; saying it again here is noise,
+  // and the empty span is what keeps the Sluiten button on its own side of the footer.
+  if (failures.length > 0) return <span />;
   if (savedCount === 0) {
     return <span className="text-xs text-neutral-500">Niets opgeslagen om te kopiëren</span>;
   }
@@ -465,6 +484,28 @@ function LabelIcon({ id, className = '' }: { id: string; className?: string }) {
       <title>{KIND_TITLE[kind]}</title>
       <path d={ICON_PATH[kind]} />
     </svg>
+  );
+}
+
+/**
+ * Why a drop saved nothing, in place of the label picker
+ *
+ * @param reasons one per distinct failure, as dropFailures collected them
+ */
+function DropFailure({ reasons }: { reasons: string[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+        Er is niets opgeslagen, dus er is ook niets om te kopiëren.
+      </p>
+      <ul className="flex flex-col gap-1">
+        {reasons.map((reason, i) => (
+          <li key={i} className="text-sm text-red-600 dark:text-red-500">
+            {reason}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

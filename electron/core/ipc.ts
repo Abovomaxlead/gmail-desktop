@@ -69,6 +69,12 @@ export const IPC = {
   MAIL_DROP_FOLDER_OPEN: 'maildrop:folder-open',
   CHANGELOG_GET: 'changelog:get',
   PROFILES_CHANGED: 'profiles:changed',
+  /** Which account and surface the window is actually showing. Main owns this — it is the
+   * one that calls show() — and the bar used to work it out for itself, which is how it came
+   * to mark a tab active while a different account's view was on screen. Sent on every
+   * switch; ACTIVE_GET is the same answer for a bar that has just mounted and missed one. */
+  ACTIVE_CHANGED: 'active:changed',
+  ACTIVE_GET: 'active:get',
   UNREAD_CHANGED: 'unread:changed',
   UPDATE_STATUS: 'update:status',
   SETTINGS_FORCE_CLOSE: 'settings:force-close',

@@ -4,6 +4,12 @@
 // thousand up Gmail groups the digits with a separator that differs per locale (".",
 // ",", a normal or narrow space, an apostrophe), so a group must be exactly three
 // digits: that is what keeps "(1.5)" from being read as 15.
+//
+// The third function is about *whose* count the title carries. Gmail titles the view on
+// screen, so a label with 40 unread mails titles the page "(40)" and the tab counter
+// followed whatever the user happened to have open — the inbox number the badge is for
+// was simply gone. The count is therefore only taken while the inbox list is the view;
+// on any other route the last inbox number stands, which is still true of the inbox.
 
 
 //===========================
@@ -43,4 +49,21 @@ export function mailboxTitleLoaded(title: string | null | undefined): boolean {
   if (!title) return false;
   if (!/\s-\sGmail\s*$/.test(title)) return false;
   return /[^\s@]+@[^\s@]+\.[^\s@]+/.test(title);
+}
+
+/**
+ * Tells whether a route is the inbox list, whose count the badge is for
+ *
+ * A page of the inbox counts too — paging does not change which mailbox is on screen. An
+ * open conversation does not, even one reached from the inbox: Gmail titles it after the
+ * subject, so the title carries no count at all and reading it would clear a badge that
+ * nothing had emptied.
+ *
+ * @param hash location.hash, with or without its leading '#'
+ * @returns true only for the inbox list itself
+ */
+export function showsInboxList(hash: string | null | undefined): boolean {
+  const route = (hash ?? '').replace(/^#/, '');
+  if (route === '') return true;
+  return /^inbox(?:\/p\d+)?$/i.test(route);
 }

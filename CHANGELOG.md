@@ -3,6 +3,29 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.2] — 2026-08-13
+
+### Opgelost
+- **Mail slepen uit een gedelegeerd postvak werkt.** Een sleep uit zo'n postvak
+  gaf foutcode 403: de app viel terug op Gmail's eigen pagina, en die is zonder
+  het `/d/<token>/`-deel van de url niet te bereiken — precies het deel dat een
+  sleep niet meedraagt. De mail komt nu via de API binnen, met het token dat de
+  relay voor dat postvak afgeeft. Geldt ook voor een heel label slepen.
+- **Het venster na een mislukte sleep vraagt niet meer om een label.** Er is dan
+  niets opgeslagen om te kopiëren, dus in plaats van labels waar je niets aan
+  hebt staat er nu wat er misging.
+
+### Fixed
+- **Dragging mail out of a delegated mailbox works.** Such a drag returned error
+  403: the app fell back to Gmail's own page, which cannot be reached without the
+  `/d/<token>/` part of the url — exactly the part a drag does not carry. The mail
+  now comes in through the API, on the token the relay issues for that mailbox.
+  Dragging a whole label out of one is fixed with it.
+- **The window after a failed drag no longer asks for a label.** Nothing was
+  saved, so there is nothing to copy; it shows what went wrong instead of labels
+  that cannot be used.
+
+
 ## [0.3.1-beta.1] — 2026-08-13
 
 ### Toegevoegd

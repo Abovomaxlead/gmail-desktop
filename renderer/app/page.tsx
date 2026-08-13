@@ -147,6 +147,8 @@ export type DownloadClickAction = 'show-in-folder' | 'open-file' | 'nothing';
 interface DesktopBridge {
   onProfilesChanged(cb: (profiles: Profile[]) => void): void;
   onUnreadChanged(cb: (counts: Record<string, number>) => void): void;
+  onActiveChanged(cb: (active: { key: string; surface: Surface } | null) => void): void;
+  getActive(): Promise<{ key: string; surface: Surface } | null>;
   switchSurface(key: string, surface: Surface): void;
   redetect(): void;
   addAccount(): void;
@@ -280,11 +282,21 @@ export default function AppShell() {
     if (!bridge) return;
     bridge.onProfilesChanged((list) => {
       setProfiles(list);
+      // Only for the moment before main has said anything. Which view is on screen is main's
+      // to answer — it is the one that opens them — and the first non-provisional tab is a
+      // different question with a different answer: at startup a delegated mailbox is ready
+      // while the remembered own accounts are still provisional, so this used to light up the
+      // delegated tab over authuser 0's mail. Once main has spoken, its answer stands, even
+      // while the tab it names is still on its way into the list.
       setActive((cur) => {
-        if (cur && list.some((p) => p.key === cur.key && !p.provisional)) return cur;
+        if (cur) return cur;
         const first = list.find((p) => !p.provisional);
         return first ? { key: first.key, surface: 'mail' } : null;
       });
+    });
+    bridge.onActiveChanged((a) => setActive(a));
+    void bridge.getActive().then((a) => {
+      if (a) setActive(a);
     });
     bridge.onUnreadChanged(setUnread);
     bridge.onSettingsForceClose(() => setSettingsOpen(false));

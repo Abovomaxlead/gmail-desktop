@@ -9,6 +9,7 @@ import {
   pickBoundary,
   parseInsertedId,
   parseInsertedThreadId,
+  apiHeaders,
   parseThreadList,
   parseThreadMessageIds,
   collectThreadMessages,
@@ -559,5 +560,26 @@ describe('parseInsertedThreadId', () => {
     expect(parseInsertedThreadId({ id: 'm1' })).toBeNull();
     expect(parseInsertedThreadId({ id: 'm1', threadId: '' })).toBeNull();
     expect(parseInsertedThreadId(null)).toBeNull();
+  });
+});
+
+// Every call in gmail-api.ts goes out through one place, and what that place puts on the wire
+// is worth an assertion of its own: an unauthenticated call does not fail loudly, it comes
+// back as Google's "Request is missing required authentication credential", which reads like a
+// withdrawn client id and sends you auditing your keys instead of your headers.
+describe('apiHeaders', () => {
+  it('carries the access token as a bearer', () => {
+    expect(apiHeaders('ya29.abc')).toEqual({ Authorization: 'Bearer ya29.abc' });
+  });
+
+  it('adds the content type only for a call that has a body', () => {
+    expect(apiHeaders('ya29.abc', 'multipart/related; boundary=B')).toEqual({
+      Authorization: 'Bearer ya29.abc',
+      'Content-Type': 'multipart/related; boundary=B',
+    });
+  });
+
+  it('always names the header, so a call can never go out unauthenticated', () => {
+    expect(Object.keys(apiHeaders(''))).toContain('Authorization');
   });
 });

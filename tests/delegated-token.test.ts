@@ -125,5 +125,21 @@ describe('requestDelegatedToken', () => {
     expect(seen.url).toBe('http://127.0.0.1:8099/delegated/token');
     expect((seen.init?.headers as Record<string, string>).authorization).toBe('Bearer caller');
     expect(JSON.parse(String(seen.init?.body))).toEqual({ target: 'support@example.nl' });
+    // A relay that accepts the connection and then says nothing must not hold the caller
+    // open: the drop window asks for a token per mailbox before it can draw any labels.
+    expect(seen.init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('gives up on a relay that never answers, instead of waiting for ever', async () => {
+    const silent = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('The operation was aborted')));
+      })) as unknown as typeof fetch;
+    const r = await requestDelegatedToken({ ...deps(silent), timeoutMs: 20 });
+    expect(r.ok).toBe(false);
+    // status 0, the same answer an unreachable relay gives: nothing about the delegation
+    // itself was learned, so no other account should be tried on the strength of it.
+    expect(!r.ok && r.status).toBe(0);
+    expect(!r.ok && shouldTryAnotherRequester(r.status)).toBe(false);
   });
 });

@@ -32,6 +32,10 @@
 // is that nothing has to reason about that.
 export const EXPIRY_MARGIN_MS = 60_000;
 
+// How long the relay may take to answer before the ask is given up on. It mints a token
+// against Google, so it is allowed to be slow; it is not allowed to be silent.
+export const RELAY_TIMEOUT_MS = 20_000;
+
 
 //===========================
 // Types
@@ -107,6 +111,8 @@ export interface DelegatedTokenDeps {
   requesterToken: string;
   target: string;
   fetch?: typeof fetch;
+  /** Defaults to RELAY_TIMEOUT_MS; a test hands in its own so it need not wait for one. */
+  timeoutMs?: number;
 }
 
 /**
@@ -128,6 +134,10 @@ export async function requestDelegatedToken(
         'content-type': 'application/json',
       },
       body: JSON.stringify({ target: deps.target }),
+      // A relay that accepts the connection and then says nothing would otherwise hold this
+      // promise open forever, and with it whatever asked — the label list of a drop window
+      // asks for a token per mailbox before it can draw anything at all.
+      signal: AbortSignal.timeout(deps.timeoutMs ?? RELAY_TIMEOUT_MS),
     });
   } catch (e) {
     return { ok: false, status: 0, error: `Relay niet bereikbaar: ${(e as Error).message}` };

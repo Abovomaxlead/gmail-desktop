@@ -9,7 +9,7 @@
 // freezes it at "default"; window.open must return a stub, since null reads as a popup
 // blocker. The drop strip has to live in <body> to render at all.
 
-import { parseUnreadCount } from './unread/unread-parser';
+import { parseUnreadCount, showsInboxList } from './unread/unread-parser';
 import {
   IPC,
   type NotifyState,
@@ -46,14 +46,20 @@ import {
 /**
  * Reads the unread count out of the page title and sends it on
  *
- * @param doc
+ * Only while the inbox list is the view. Gmail titles whatever is on screen, so a label
+ * with forty unread mails made the title — and with it the tab counter and the taskbar
+ * badge — say forty, and an open conversation made it say nothing at all. Neither is the
+ * inbox number the badge stands for, and staying quiet leaves the last one that was.
+ *
+ * @param view the page's title and route
  * @param send
  */
 export function computeAndReport(
-  doc: { title: string },
+  view: { title: string; hash: string },
   send: (channel: string, count: number) => void,
 ): void {
-  send(IPC.UNREAD_UPDATE, parseUnreadCount(doc.title));
+  if (!showsInboxList(view.hash)) return;
+  send(IPC.UNREAD_UPDATE, parseUnreadCount(view.title));
 }
 
 /**
@@ -588,7 +594,9 @@ if (typeof document !== 'undefined') {
   });
 
   const report = () =>
-    computeAndReport(document, (channel, count) => ipcRenderer.send(channel, count));
+    computeAndReport({ title: document.title, hash: location.hash }, (channel, count) =>
+      ipcRenderer.send(channel, count),
+    );
 
   const start = () => {
     report();

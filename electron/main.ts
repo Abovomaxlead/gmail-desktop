@@ -871,6 +871,8 @@ function removeAccount(email: string): void {
   if (wasActive) {
     const next = profiles.find((p) => surfacesForRef(p.ref).includes('mail'));
     if (next) showAccount(next.ref, 'mail');
+    // Nothing left to show. Say so, or the bar keeps the tab that was just removed lit.
+    else pushActive();
   }
 }
 
@@ -881,8 +883,31 @@ function removeAccount(email: string): void {
 
 function showAccount(ref: AccountRef, surface: Surface): void {
   manager?.show(ref, surface);
+  pushActive();
   refreshNotifyAllowed();
   flushPendingMailto();
+}
+
+/** What the window is showing, for the bar that draws the active tab.
+ *
+ * The bar used to decide this itself, by taking the first tab that was not provisional, and
+ * that is not the same question. At startup the remembered own accounts arrive as
+ * provisional tabs while a delegated mailbox arrives ready, so the bar marked the delegated
+ * one active — and main, meanwhile, showed authuser 0. The result was a bar pointing at one
+ * mailbox with another one's mail underneath it. */
+function activeTab(): { key: string; surface: Surface } | null {
+  const m = manager;
+  const key = m?.activeKey();
+  if (!m || !key) return null;
+  // Read off the manager rather than through `profiles`: detection shows account 0 before it
+  // is registered, and a tab that does not exist yet is exactly the moment this has to be
+  // right — the bar will highlight the key as soon as the tab for it arrives.
+  const surface = SURFACES.find((s) => m.isShowing(key, s));
+  return surface ? { key, surface } : null;
+}
+
+function pushActive(): void {
+  mainWindow?.webContents.send(IPC.ACTIVE_CHANGED, activeTab());
 }
 
 function activeView(): { ref: AccountRef; surface: Surface } | null {
@@ -1136,6 +1161,16 @@ function refreshNotifyAllowed(): void {
  * every tick of the minute timer. */
 const notifyAllowedLast = new Map<string, boolean>();
 
+/** The inbox count as the API counts it, used only for an account the relay delivers for.
+ *
+ * The gate looks like a leftover — push covers no account while RELAY_PUSH_ENABLED is false,
+ * so this count is fetched every five minutes and dropped every time — and it stays, because
+ * the two sources do not count the same mailbox. labels/INBOX/threadsUnread counts every
+ * unread conversation in the inbox; the page title counts the tab Gmail is showing, which
+ * with categories on is Primary alone. Letting both write would swap the badge between two
+ * numbers every five minutes. The title is the one that matches what Gmail itself puts on
+ * screen, so it stays the source, and preload.ts is where it was made to read the inbox
+ * rather than whatever label is open. */
 function reportApiUnread(email: string, count: number | null): void {
   if (count === null) return;
   if (!coverage.has(email)) return;
@@ -1204,24 +1239,38 @@ function mailDropFolder(): string {
   return prefs?.getAll().mailDrop.folder || join(app.getPath('documents'), 'Gmail Desktop', 'Mail');
 }
 
-/** The thread's messages through the Gmail API, or null when this account cannot use it.
+/** What the API route has to say about a thread: the messages, the reason it could not get
+ * them, or that this mailbox has no API route at all.
  *
- * Null for two different reasons, and both mean the same thing to the caller: no token for
- * this mailbox, or the API could not be reached. Neither is a failure worth reporting,
- * because the page route below worked before any of this existed and still does — it is
- * only less complete. */
-async function threadMessagesViaApi(
-  email: string,
-  threadId: string,
-): Promise<ThreadMessage[] | null> {
-  if (!email) return null;
-  const withToken = withTokenFor(email);
-  if (!withToken) return null;
+ * Three answers where there were two, and the missing one cost a drag its mail. "No token for
+ * this mailbox" and "the API refused" both used to come back as null, on the reasoning that
+ * neither was worth reporting because the page route still worked. The paragraph below says
+ * why that reasoning does not hold, and the two are told apart here so the caller can act on
+ * the difference instead of walking into a route that cannot answer and repeating what it
+ * says.
+ *
+ * The token comes from withMailboxToken rather than the OAuth store, so a mailbox reached by
+ * delegation gets the relay's token instead of nothing. For such a mailbox this is not the
+ * better of two routes but the only one: the page route needs the /d/<token>/ part of the URL,
+ * which a drag does not carry, and Gmail answers the URL without it with a 403 — or, when it
+ * feels like phrasing it differently, with a page saying the message cannot be found. Falling
+ * back there turned an API hiccup into "Het gevraagde bericht kan niet worden gevonden", which
+ * is a sentence about the user's mailbox for a problem that was never in it. */
+type ApiThreadResult =
+  | { kind: 'messages'; messages: ThreadMessage[] }
+  | { kind: 'failed'; error: string }
+  | { kind: 'no-route' };
+
+async function threadMessagesViaApi(email: string, threadId: string): Promise<ApiThreadResult> {
+  if (!email) return { kind: 'no-route' };
+  const withToken = await withMailboxToken(email);
+  if (!withToken) return { kind: 'no-route' };
   try {
-    return await withToken((token) => fetchThreadMessages(token, threadId));
+    return { kind: 'messages', messages: await withToken((token) => fetchThreadMessages(token, threadId)) };
   } catch (e) {
-    console.warn(`[maildrop] API-ophalen mislukte voor ${threadId}, terug naar de pagina:`, e);
-    return null;
+    const error = (e as Error).message || 'onbekende fout';
+    console.warn(`[maildrop] API-ophalen mislukte voor ${email} ${threadId}:`, e);
+    return { kind: 'failed', error };
   }
 }
 
@@ -1252,10 +1301,16 @@ async function saveOneThread(
   // has no opinion about rendering: it lists every message in the thread, so what is
   // missing is missing loudly.
   const viaApi = await threadMessagesViaApi(account, threadId);
+  // A mailbox reached by delegation has no second route, so its API failure is the answer.
+  // Trying the page anyway is what turned "de API weigerde" into Gmail's own sentence about
+  // a message that cannot be found.
+  if (viaApi.kind === 'failed' && isDelegatedMailbox(account)) {
+    return failed(`Ophalen via de API mislukt (${viaApi.error})`);
+  }
   let fetched: { raw?: Buffer; error?: string; id?: string; permMsgId?: string }[];
   let pageHtml: { html: string; status: number } | null = null;
-  if (viaApi) {
-    fetched = viaApi.map((m) => ({ raw: m.raw, error: m.error, id: m.id }));
+  if (viaApi.kind === 'messages') {
+    fetched = viaApi.messages.map((m) => ({ raw: m.raw, error: m.error, id: m.id }));
   } else {
     let result;
     try {
@@ -1267,6 +1322,12 @@ async function saveOneThread(
     pageHtml = result.page;
   }
   if (fetched.length === 0 && pageHtml) {
+    // An own account may still be saved by the page, so it is allowed to try. When that comes
+    // back empty too, the API's reason is the one to report: it is what actually went wrong,
+    // and the page's explanation is about a route this mail was never going to arrive by.
+    if (viaApi.kind === 'failed') {
+      return failed(`Ophalen via de API mislukt (${viaApi.error})`);
+    }
     const result = { page: pageHtml };
     const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
     const kortEnDuidelijk = uitleg.length > 0 && uitleg.length <= 300;
@@ -1553,6 +1614,17 @@ async function delegatedTokenFor(email: string): Promise<DelegatedTokenOutcome> 
   return { ok: false, error: lastError };
 }
 
+/** What to tell someone whose mailbox Gmail would not let a token into.
+ *
+ * The two kinds fail for reasons that need different actions: an own account has a link that
+ * can be renewed by reconnecting, a delegated mailbox has no link of its own and its access
+ * is someone else's to grant. Whatever Google's own wording was, it is not this — it names an
+ * OAuth credential and links to the developer console, which is a sentence for whoever built
+ * the app and not for whoever is trying to file an e-mail. */
+function mailboxRefusedText(email: string): string {
+  return isDelegatedMailbox(email) ? 'Geen toegang tot dit postvak' : 'Verbinding verlopen';
+}
+
 /** Drops a cached relay token, for when Gmail rejects it. A delegation can be revoked while
  * a token from it is still inside its hour, and the cache would otherwise keep handing out
  * the dead one until it expired on the clock. */
@@ -1570,6 +1642,63 @@ async function mailboxToken(email: string): Promise<DelegatedTokenOutcome> {
   if (!cfg || !oauthTokens) return { ok: false, error: 'Niet gekoppeld' };
   const token = await accessTokenFor(cfg, oauthTokens, email);
   return token ? { ok: true, token } : { ok: false, error: 'Verbinding verlopen' };
+}
+
+/** A token for a mailbox after Gmail refused the one it had, whichever kind it is.
+ *
+ * Recovering from a 401 differs per kind and using the wrong one is silent: a delegated
+ * mailbox has no refresh token to force, and an own account has no relay entry to forget. A
+ * delegation can be revoked while a token from it is still inside its hour, so the cached one
+ * has to go before asking again. */
+async function freshTokenAfter401(email: string): Promise<string | null> {
+  if (isDelegatedMailbox(email)) {
+    forgetDelegatedToken(email);
+    const again = await delegatedTokenFor(email);
+    return again.ok ? again.token : null;
+  }
+  const cfg = oauthConfig();
+  if (!cfg || !oauthTokens) return null;
+  const fresh = await forceRefresh(cfg, oauthTokens, email);
+  if (!fresh) {
+    // Only an own account can have a link that expired, so only it may be flagged for one.
+    refreshFailures.add(email);
+    scheduleOAuthHealthCheck();
+    return null;
+  }
+  refreshFailures.delete(email);
+  return fresh;
+}
+
+/** The access-token dance for any mailbox: use the token it has, and on a 401 recover the way
+ * that mailbox can and try once more. withTokenFor does the same for the user's own accounts
+ * only, which is exactly what shut the API route to a shared mailbox — no OAuth token can
+ * exist for a mailbox nobody signs into, so a drag out of one fell back to scraping Gmail's
+ * page, and that page cannot be reached without the /d/<token>/ part of the URL a drag does
+ * not carry. It came back as HTTP 403.
+ *
+ * Null means no token can be had at all, which tells the caller this mailbox has no API route
+ * rather than that the API failed. */
+async function withMailboxToken(
+  email: string,
+): Promise<(<T>(fn: (token: string) => Promise<T>) => Promise<T>) | null> {
+  const first = await mailboxToken(email);
+  if (!first.ok) return null;
+  let token = first.token;
+  // Once per runner, not per call: a token that is still refused after a fresh mint is refused
+  // for a reason no amount of reminting changes, and a label drag is hundreds of calls.
+  let mayRecover = true;
+  return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
+    try {
+      return await fn(token);
+    } catch (e) {
+      if (!mayRecover || !(e instanceof GmailHttpError) || e.status !== 401) throw e;
+      mayRecover = false;
+      const fresh = await freshTokenAfter401(email);
+      if (!fresh) throw e;
+      token = fresh;
+      return await fn(fresh);
+    }
+  };
 }
 
 function oauthConfig(): OAuthConfig | null {
@@ -1736,46 +1865,30 @@ interface CollectedThread {
 
 const THREAD_FETCH_LIMIT = 5;
 
+/** Every conversation in a label through the Gmail API, or null when this mailbox has no API
+ * route to it. The token goes through withMailboxToken for the reason threadMessagesViaApi
+ * carries: a mailbox reached by delegation has no OAuth token of its own, and the page route
+ * this falls back to cannot reach one at all. */
 async function collectLabelViaApi(
   account: string,
   label: string,
 ): Promise<{ collected: CollectedThread[]; capped: boolean } | null> {
-  const cfg = oauthConfig();
-  if (!cfg || !oauthTokens || !account) return null;
-  const first = await accessTokenFor(cfg, oauthTokens, account);
-  if (!first) return null;
-  let token: string = first;
-
-  let mayRefresh = true;
-  const refreshed = async (e: unknown): Promise<boolean> => {
-    if (!mayRefresh || !(e instanceof GmailHttpError) || e.status !== 401) return false;
-    mayRefresh = false;
-    const fresh = await forceRefresh(cfg, oauthTokens!, account);
-    if (!fresh) {
-      refreshFailures.add(account);
-      scheduleOAuthHealthCheck();
-      return false;
-    }
-    token = fresh;
-    refreshFailures.delete(account);
-    return true;
-  };
+  if (!account) return null;
+  const withToken = await withMailboxToken(account);
+  if (!withToken) return null;
 
   let list: { threadIds: string[]; capped: boolean };
   try {
-    let labelId = await fetchLabelId(token, label).catch(async (e) => {
-      if (!(await refreshed(e))) throw e;
-      return fetchLabelId(token, label);
-    });
+    const labelId = await withToken((token) => fetchLabelId(token, label));
     if (!labelId) return null;
-    list = await listLabelThreadIds(token, labelId, MAX_THREADS);
+    list = await withToken((token) => listLabelThreadIds(token, labelId, MAX_THREADS));
   } catch {
     return null;
   }
 
   const collected = await mapLimit(list.threadIds, THREAD_FETCH_LIMIT, async (threadId) => {
-    const read = async (): Promise<CollectedThread> => {
-      const raws = await fetchThreadRaw(token, threadId);
+    try {
+      const raws = await withToken((token) => fetchThreadRaw(token, threadId));
       const messages: SavedMessage[] = raws.map((raw) => ({
         raw,
         headers: parseHeaders(raw.toString('utf8')),
@@ -1785,17 +1898,7 @@ async function collectLabelViaApi(
         messages,
         error: messages.length === 0 ? 'Geen bericht in dit gesprek' : undefined,
       };
-    };
-    try {
-      return await read();
     } catch (e) {
-      if (await refreshed(e)) {
-        try {
-          return await read();
-        } catch (e2) {
-          e = e2;
-        }
-      }
       return {
         thread: { threadId, subject: '' },
         messages: [],
@@ -3545,57 +3648,71 @@ function registerIpc(): void {
         accounts: targetable.map((p) => ({ email: p.email, labels: [], error: 'Niet gekoppeld' })),
       };
     }
-    const accounts: AccountLabels[] = [];
-    for (const p of targetable) {
+    // One mailbox may not hold up the others. This ran in sequence, so a mailbox whose token
+    // or label list was slow to arrive stopped the window at "Labels ophalen…" for every
+    // account behind it — and before the deadlines in gmail-api.ts and delegated-token.ts,
+    // one that never arrived stopped it for good. mapLimit keeps the answers in input order,
+    // so the columns stay where the user expects them.
+    const tokens = oauthTokens;
+    const accounts: AccountLabels[] = await mapLimit(targetable, 4, async (p) => {
       const got = await mailboxToken(p.email);
-      if (!got.ok) {
-        accounts.push({ email: p.email, labels: [], error: got.error });
-        continue;
-      }
+      if (!got.ok) return { email: p.email, labels: [], error: got.error };
       const token = got.token;
       try {
-        accounts.push({ email: p.email, labels: await fetchLabels(token) });
+        return { email: p.email, labels: await fetchLabels(token) };
       } catch (e) {
-        const unauthorized = e instanceof GmailHttpError && e.status === 401;
+        // 403 counts as a refusal too. Gmail answers a token it will not let in with either
+        // status — a request it reads as carrying no credential comes back as "Request is
+        // missing required authentication credential", and that sentence, with its link to
+        // Google's console documentation, was being printed under the mailbox name for
+        // someone to read. Only 401 was recovered from, so a 403 skipped the fresh token and
+        // went straight to showing Google's own English.
+        const refused = e instanceof GmailHttpError && (e.status === 401 || e.status === 403);
+        if (e instanceof GmailHttpError) {
+          console.warn(
+            `[labels] ${p.email} (${isDelegatedMailbox(p.email) ? 'gedelegeerd' : 'eigen'}) HTTP ${e.status}: ${e.message}`,
+          );
+        }
         // Recovering from a 401 differs per kind, and using the wrong one is silent: a
         // delegated mailbox has no refresh token to force, and an own account has no relay
         // entry to forget. A delegation can be revoked while a token from it is still inside
         // its hour, so the cached one has to go before asking again.
         let fresh: string | null = null;
-        if (unauthorized && isDelegatedMailbox(p.email)) {
+        if (refused && isDelegatedMailbox(p.email)) {
           forgetDelegatedToken(p.email);
           const again = await delegatedTokenFor(p.email);
           fresh = again.ok ? again.token : null;
-        } else if (unauthorized) {
-          fresh = await forceRefresh(cfg, oauthTokens, p.email);
+        } else if (refused) {
+          fresh = await forceRefresh(cfg, tokens, p.email);
         }
         if (fresh) {
           try {
-            accounts.push({ email: p.email, labels: await fetchLabels(fresh) });
+            const labels = await fetchLabels(fresh);
             if (!isDelegatedMailbox(p.email)) refreshFailures.delete(p.email);
-            continue;
+            return { email: p.email, labels };
           } catch (e2) {
-            accounts.push({ email: p.email, labels: [], error: (e2 as Error).message });
-            continue;
+            // A brand-new token refused as well says the same thing as the first refusal, so
+            // it gets the same sentence. This branch is how Google's English reached the
+            // screen even after the rewriting below was added: it sat in front of it.
+            if (e2 instanceof GmailHttpError && (e2.status === 401 || e2.status === 403)) {
+              console.warn(`[labels] ${p.email} ook na een verse token HTTP ${e2.status}: ${e2.message}`);
+              return { email: p.email, labels: [], error: mailboxRefusedText(p.email) };
+            }
+            return { email: p.email, labels: [], error: (e2 as Error).message };
           }
         }
-        if (unauthorized) {
+        if (refused) {
           // Only an own account can have a link that expired; a delegated mailbox has none,
           // so it must not be flagged as needing a reconnect.
           if (!isDelegatedMailbox(p.email)) {
             refreshFailures.add(p.email);
             scheduleOAuthHealthCheck();
           }
-          accounts.push({
-            email: p.email,
-            labels: [],
-            error: isDelegatedMailbox(p.email) ? 'Geen toegang tot dit postvak' : 'Verbinding verlopen',
-          });
-        } else {
-          accounts.push({ email: p.email, labels: [], error: (e as Error).message });
+          return { email: p.email, labels: [], error: mailboxRefusedText(p.email) };
         }
+        return { email: p.email, labels: [], error: (e as Error).message };
       }
-    }
+    });
     return { accounts };
   });
   ipcMain.handle(
@@ -3784,6 +3901,9 @@ function registerIpc(): void {
     } satisfies MailDropCopyResult;
     },
   );
+  // The bar asks once it is listening, because ACTIVE_CHANGED for the first view is sent
+  // from did-finish-load — before the React tree that would hear it has mounted.
+  ipcMain.handle(IPC.ACTIVE_GET, () => activeTab());
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
   ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({
     configured: oauthConfig() !== null,
