@@ -9,10 +9,13 @@ import type {
   MailDropCopyMode,
 } from '../MailDropModal';
 import { labelKind, type LabelKind } from '../label-kind';
+import { filterLabels } from '../label-search';
 
 // The mail-drop modal, on its own page because it is shown in its own view on top of
 // Gmail; sharing a page with the bar meant recognising from a flag which view it was
-// running in, and that did not hold up. Copying takes visibly long - a search and then
+// running in, and that did not hold up. A mailbox has hundreds of labels, so the picker
+// opens with a search box that narrows every account's column at once. Copying takes
+// visibly long - a search and then
 // an insert per message per account - so the modal runs through phases: picking,
 // copying, confirming when mail already sits at the destination, done. 'check' looks
 // first and asks, 'new' skips what is there, 'all' adds it anyway. Labels are fetched
@@ -51,6 +54,7 @@ export default function MailDropModalPage() {
   const [items, setItems] = useState<MailDropItem[]>([]);
   const [accounts, setAccounts] = useState<AccountLabels[] | null>(null);
   const [picked, setPicked] = useState<Record<string, string[]>>({});
+  const [search, setSearch] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
 
   useEffect(() => {
@@ -70,6 +74,7 @@ export default function MailDropModalPage() {
     bridge.onMailDropPreview(({ items: i }) => {
       setItems(i);
       setPicked({});
+      setSearch('');
       setPhase({ kind: 'picking' });
       if (seenPreview) loadLabels();
       seenPreview = true;
@@ -174,6 +179,12 @@ export default function MailDropModalPage() {
             </button>
           </header>
 
+          {phase.kind === 'picking' && accounts !== null && accounts.length > 0 && (
+            <div className="shrink-0 border-b border-black/5 px-5 pb-3 pt-3 dark:border-white/10">
+              <LabelSearch value={search} onChange={setSearch} />
+            </div>
+          )}
+
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {phase.kind === 'done' ? (
               <CopyReport result={phase.result} />
@@ -193,47 +204,14 @@ export default function MailDropModalPage() {
                 style={{ gridTemplateColumns: `repeat(${accounts.length}, minmax(0, 1fr))` }}
               >
                 {accounts.map((acc) => (
-                  <div key={acc.email} className="flex min-w-0 flex-col">
-                    <div
-                      className="mb-2 truncate border-b border-black/5 pb-1.5 text-xs font-semibold text-neutral-900 dark:border-white/10 dark:text-neutral-100"
-                      title={acc.email}
-                    >
-                      {acc.email}
-                    </div>
-                    {acc.error ? (
-                      <span className="text-xs text-red-600 dark:text-red-500">{acc.error}</span>
-                    ) : acc.labels.length === 0 ? (
-                      <span className="text-xs text-neutral-400">Geen labels</span>
-                    ) : (
-                      <div className="flex flex-col gap-0.5">
-                        {acc.labels.map((label) => {
-                          const on = (picked[acc.email] ?? []).includes(label.id);
-                          return (
-                            <label
-                              key={label.id}
-                              className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm transition ${
-                                on
-                                  ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
-                                  : 'text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-300 dark:hover:bg-white/5'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={on}
-                                disabled={phase.kind === 'copying'}
-                                onChange={() => toggle(acc.email, label.id)}
-                                className="h-4 w-4 shrink-0 accent-blue-600"
-                              />
-                              <LabelIcon id={label.id} />
-                              <span className="truncate" title={label.name}>
-                                {label.name}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  <AccountColumn
+                    key={acc.email}
+                    account={acc}
+                    search={search}
+                    picked={picked[acc.email] ?? []}
+                    disabled={phase.kind === 'copying'}
+                    onToggle={(labelId) => toggle(acc.email, labelId)}
+                  />
                 ))}
               </div>
             )}
@@ -293,6 +271,135 @@ export default function MailDropModalPage() {
 //===========================
 // Helper components
 //===========================
+
+/**
+ * One account's labels to tick, narrowed by what is in the search box
+ *
+ * @param account
+ * @param search
+ * @param picked the labels ticked for this account
+ * @param disabled while a copy is running
+ * @param onToggle
+ */
+function AccountColumn({
+  account,
+  search,
+  picked,
+  disabled,
+  onToggle,
+}: {
+  account: AccountLabels;
+  search: string;
+  picked: string[];
+  disabled: boolean;
+  onToggle: (labelId: string) => void;
+}) {
+  const shown = filterLabels(account.labels, search, picked);
+  return (
+    <div className="flex min-w-0 flex-col">
+      <div
+        className="mb-2 truncate border-b border-black/5 pb-1.5 text-xs font-semibold text-neutral-900 dark:border-white/10 dark:text-neutral-100"
+        title={account.email}
+      >
+        {account.email}
+      </div>
+      {account.error ? (
+        <span className="text-xs text-red-600 dark:text-red-500">{account.error}</span>
+      ) : account.labels.length === 0 ? (
+        <span className="text-xs text-neutral-400">Geen labels</span>
+      ) : shown.length === 0 ? (
+        <span className="text-xs text-neutral-400">Geen label gevonden</span>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {shown.map((label) => {
+            const on = picked.includes(label.id);
+            return (
+              <label
+                key={label.id}
+                className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm transition ${
+                  on
+                    ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
+                    : 'text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-300 dark:hover:bg-white/5'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={disabled}
+                  onChange={() => onToggle(label.id)}
+                  className="h-4 w-4 shrink-0 accent-blue-600"
+                />
+                <LabelIcon id={label.id} />
+                <span className="truncate" title={label.name}>
+                  {label.name}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The box that narrows every account's label column
+ *
+ * @param value
+ * @param onChange
+ */
+function LabelSearch({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="relative">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        aria-hidden="true"
+        className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400"
+        style={{ height: 15, width: 15 }}
+      >
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-3.5-3.5" />
+      </svg>
+      <input
+        type="search"
+        value={value}
+        autoFocus
+        placeholder="Zoek een label…"
+        aria-label="Zoek een label"
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && value) {
+            e.stopPropagation();
+            onChange('');
+          }
+        }}
+        className="w-full rounded-lg border border-black/10 bg-black/[0.03] py-1.5 pl-8 pr-8 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-blue-500 focus:bg-transparent dark:border-white/10 dark:bg-white/5 dark:text-neutral-100 dark:focus:border-blue-400"
+      />
+      {value && (
+        <button
+          onClick={() => onChange('')}
+          aria-label="Zoekopdracht wissen"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-1 text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:hover:bg-white/10 dark:hover:text-neutral-100"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            style={{ height: 14, width: 14 }}
+          >
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
 
 function Status({
   phase,

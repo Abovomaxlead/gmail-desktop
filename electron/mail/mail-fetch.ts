@@ -1,6 +1,7 @@
 // Fetches the RFC822 source of every message in a thread through Gmail's own "show
 // original" page, for accounts without an API token. Per message it yields either
-// `raw` or `error`, so one unreachable message does not block the rest.
+// `raw` or `error` plus the perm id of the message it is, so one unreachable message does
+// not block the rest and a caller can tell the messages apart.
 //
 // The download link is the view=att one with disp=comp; disp=inline and disp=safe are
 // images, not messages. Messages the thread page only references get their own
@@ -25,6 +26,7 @@ export interface DropPayload {
 export interface FetchedMessage {
   raw?: Buffer;
   error?: string;
+  permMsgId?: string;
 }
 
 export interface OmPage {
@@ -93,6 +95,17 @@ export function parsePermMsgIds(html: string): string[] {
 }
 
 /**
+ * Which message a download link belongs to
+ *
+ * @param url a link out of parseOriginalLinks
+ * @returns the perm message id, or null when the link names none
+ */
+export function permMsgIdFromLink(url: string): string | null {
+  const m = /[?&]permmsgid=(msg-[a-z]-?(?:%3A|:)[0-9]+)/i.exec(url || '');
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+/**
  * Fetches a URL on the account's own session cookies
  *
  * @param ses
@@ -145,10 +158,11 @@ export async function fetchThreadEmls(
   }
   const messages: FetchedMessage[] = [];
   for (const link of links) {
+    const permMsgId = permMsgIdFromLink(link) ?? undefined;
     try {
-      messages.push({ raw: (await get(ses, link)).body });
+      messages.push({ raw: (await get(ses, link)).body, permMsgId });
     } catch (e) {
-      messages.push({ error: (e as Error).message });
+      messages.push({ error: (e as Error).message, permMsgId });
     }
   }
   return { messages, page: om };

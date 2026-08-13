@@ -13,6 +13,7 @@ import {
   writeLabel,
   appendLog,
   newestMessage,
+  draggedMessage,
   type SavedMessage,
 } from '../electron/mail/mail-archive';
 import type { EmlHeaders } from '../electron/mail/eml';
@@ -244,5 +245,45 @@ describe('newestMessage', () => {
 
   it('returns the one message of a single-message thread', () => {
     expect(newestMessage([msg('2026-08-12T10:00:00.000Z', 'solo')])?.headers.subject).toBe('solo');
+  });
+});
+
+// A drag that names one message asks for that message: one mail, the way a whole
+// conversation is one mail, with the older exchange quoted inside it and every newer reply
+// left behind.
+describe('draggedMessage', () => {
+  const msg = (
+    date: string | null,
+    subject: string,
+    ids: { id?: string; permMsgId?: string } = {},
+  ): SavedMessage => ({
+    raw: Buffer.from(`Subject: ${subject}`),
+    headers: headers({ subject, date }),
+    ...ids,
+  });
+  const thread = [
+    msg('2026-08-12T10:00:00.000Z', 'a', { id: 'm1', permMsgId: 'msg-f:1' }),
+    msg('2026-08-12T11:00:00.000Z', 'b', { id: 'm2', permMsgId: 'msg-f:2' }),
+    msg('2026-08-12T12:00:00.000Z', 'c', { id: 'm3', permMsgId: 'msg-f:3' }),
+  ];
+
+  it('picks the message that was named, not the newest', () => {
+    expect(draggedMessage(thread, { legacyId: 'm2' })?.headers.subject).toBe('b');
+  });
+  it('matches on the perm id, which is all the page route knows', () => {
+    expect(draggedMessage(thread, { permId: 'msg-f:2' })?.headers.subject).toBe('b');
+  });
+  it('takes the oldest message when that is the one named', () => {
+    expect(draggedMessage(thread, { legacyId: 'm1' })?.headers.subject).toBe('a');
+  });
+  it('is null without a ref, so the caller keeps its own rule', () => {
+    expect(draggedMessage(thread, null)).toBeNull();
+    expect(draggedMessage(thread, {})).toBeNull();
+  });
+  it('is null when the ref matches no message of this thread', () => {
+    expect(draggedMessage(thread, { legacyId: 'onbekend' })).toBeNull();
+  });
+  it('is null for an empty conversation', () => {
+    expect(draggedMessage([], { legacyId: 'm1' })).toBeNull();
   });
 });

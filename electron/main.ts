@@ -79,7 +79,7 @@ import {
   type CopyMode,
 } from './mail/mail-copy';
 import { parseHeaders, extractPlainText, htmlToText } from './mail/eml';
-import { writeThread, writeLabel, appendLog, displayName, newestMessage, type LogRecord, type SavedMessage } from './mail/mail-archive';
+import { writeThread, writeLabel, appendLog, displayName, newestMessage, draggedMessage, type LogRecord, type SavedMessage } from './mail/mail-archive';
 import {
   labelListUrl,
   mergeThreads,
@@ -90,7 +90,7 @@ import {
   type LabelThread,
 } from './mail/label-drop';
 import { fetchThreadEmls } from './mail/mail-fetch';
-import { NO_SUBJECT } from './mail/dropzone';
+import { NO_SUBJECT, type MessageRef } from './mail/dropzone';
 import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './menus/tray-controller';
 import { trayLabels } from './menus/tray-labels';
 import { autoUpdater } from 'electron-updater';
@@ -1232,6 +1232,7 @@ async function saveOneThread(
   threadId: string,
   authuser: string,
   ik: string,
+  message: MessageRef | null = null,
 ): Promise<{ count: number; total: number; error?: string; saved: SavedRef[] }> {
   const failed = (error: string, total = 0) => {
     try {
@@ -1251,10 +1252,10 @@ async function saveOneThread(
   // has no opinion about rendering: it lists every message in the thread, so what is
   // missing is missing loudly.
   const viaApi = await threadMessagesViaApi(account, threadId);
-  let fetched: { raw?: Buffer; error?: string }[];
+  let fetched: { raw?: Buffer; error?: string; id?: string; permMsgId?: string }[];
   let pageHtml: { html: string; status: number } | null = null;
   if (viaApi) {
-    fetched = viaApi.map((m) => ({ raw: m.raw, error: m.error }));
+    fetched = viaApi.map((m) => ({ raw: m.raw, error: m.error, id: m.id }));
   } else {
     let result;
     try {
@@ -1286,8 +1287,16 @@ async function saveOneThread(
   const all: SavedMessage[] = [];
   const failedRecords: LogRecord[] = [];
   for (const f of fetched) {
-    if (f.raw) all.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
-    else failedRecords.push({ ts, account, threadId, error: f.error ?? 'onbekende fout' });
+    if (f.raw) {
+      all.push({
+        raw: f.raw,
+        headers: parseHeaders(f.raw.toString('utf8')),
+        id: f.id,
+        permMsgId: f.permMsgId,
+      });
+    } else {
+      failedRecords.push({ ts, account, threadId, error: f.error ?? 'onbekende fout' });
+    }
   }
   if (all.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald', fetched.length);
 
@@ -1296,10 +1305,20 @@ async function saveOneThread(
   // to read the exchange in. Fetching all of them was still not wasted — it is how the
   // newest one is known to be the newest, and how it is complete rather than whatever a
   // collapsed page happened to link to.
-  const newest = newestMessage(all);
-  const ok = newest ? [newest] : [];
+  //
+  // Which message that is does depend on the drag. A row that stands for one message names
+  // it, and then it is that one: the replies that came after it are what the drag is meant
+  // to leave behind, and the older ones are inside it as quoted text either way.
+  const dragged = draggedMessage(all, message);
+  const chosen = dragged ?? newestMessage(all);
+  const ok = chosen ? [chosen] : [];
+  if (message && !dragged) {
+    notifyLog(`[maildrop] ${threadId}: gesleept bericht niet in de conversatie gevonden`);
+  }
   if (all.length > 1) {
-    notifyLog(`[maildrop] ${threadId}: ${all.length} berichten, alleen het laatste bewaard`);
+    notifyLog(
+      `[maildrop] ${threadId}: ${all.length} berichten, alleen ${dragged ? 'het gesleepte' : 'het laatste'} bewaard`,
+    );
   }
 
   let files: string[];
@@ -1329,7 +1348,7 @@ async function saveOneThread(
   }
   return {
     count: ok.length,
-    // One mail per conversation now, so this counts conversations rather than messages.
+    // One mail per drag now, so this counts what was dragged rather than messages.
     total: 1,
     saved: savedRefs(root, files, ok, threadId),
   };
@@ -1988,7 +2007,15 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
   let total = 0;
   let lastError: string | undefined;
   for (const item of items) {
-    const r = await saveOneThread(ts, account, root, item.threadId, payload.authuser, payload.ik);
+    const r = await saveOneThread(
+      ts,
+      account,
+      root,
+      item.threadId,
+      payload.authuser,
+      payload.ik,
+      item.message ?? null,
+    );
     count += r.count;
     total += r.total;
     if (r.error) lastError = r.error;

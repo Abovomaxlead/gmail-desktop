@@ -3,6 +3,82 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.1] — 2026-08-13
+
+### Toegevoegd
+- **Meldingen komen van Gmail zelf, en een klik opent de mail waar de melding
+  over ging.** Gmail's eigen pagina meldt de nieuwe mail, de app vangt die op en
+  vraagt de API welk bericht het was. Daardoor opent een kaartje precies dat
+  bericht, in plaats van het nieuwste van de conversatie.
+- **Gedelegeerde postvakken worden via de API gevonden** in plaats van uit de
+  accountswitcher gelezen. Een postvak dat in Gmail nog één keer aangeklikt moet
+  worden zegt dat er zelf bij, en een gedelegeerd postvak kan nu ook een doel zijn
+  als je gesleepte mail kopieert.
+- **Per account zie je of de Google-koppeling nog klopt.** Bij Instellingen →
+  Accounts staat de status per account, met een knop om de koppeling te
+  herstellen als er iets aan mankeert.
+- **Een verse machine kan koppelen zonder handwerk.** De app heeft een standaard
+  OAuth-config aan boord en accepteert daarnaast het bestand dat Google zelf laat
+  downloaden — een oudere config wordt nooit over een nieuwere heen gezet.
+- **De meldingenstapel heeft een donkere variant** en volgt het thema.
+- **Een zoekbalk boven de labels** in het venster na een sleep. Wat je typt
+  versmalt de kolom van elk account tegelijk; labels die je al aangevinkt hebt
+  blijven staan, wat je ook zoekt.
+
+### Opgelost
+- **Een gesleepte conversatie komt aan als één mail** in plaats van als een map
+  met een bericht per stuk.
+- **Eén bericht slepen levert dat bericht op, niet het nieuwste van het
+  gesprek.** Met gesprekweergave uit is elke regel in je lijst één bericht, en
+  die sleep je nu ook als zodanig: de oudere staan er als citaat in, de reacties
+  die er later op kwamen blijven achter — anders had je die wel gesleept. Sleep
+  je een hele conversatie, dan blijft het bij het laatste bericht.
+- **Rene-modus zoomt op 170%** in plaats van 200%.
+- **Dubbele en verdwenen meldingen.** Gmail's eigen kanaal werd niet meer stil
+  gezet, en elk kaartje komt uit één stapel in plaats van uit twee.
+- **Een mail die in zijn eigen venster opent laat het hoofdvenster staan** waar
+  het stond.
+- **Een gedelegeerd postvak zonder opgeslagen url laat de app niet meer
+  vastlopen**; hij weigert die weergave en zegt waarom.
+- **Vijf defecten die tegen 0.3.0 gemeld waren**, en de gaten die de review over
+  de hele branch aan het licht bracht.
+
+### Added
+- **Notifications now come from Gmail itself, and a click opens the mail the
+  notification was about.** Gmail's own page announces the new mail, the app
+  catches it and asks the API which message it was, so a card opens that message
+  rather than the newest one in the conversation.
+- **Delegated mailboxes are discovered through the API** instead of read out of
+  the account switcher. A mailbox that still needs one click in Gmail says so
+  itself, and a delegated mailbox can now be a target when copying dragged mail.
+- **Each account shows whether its Google connection still holds**, under
+  Settings → Accounts, with a button to repair it.
+- **A fresh machine can link without hand-editing anything.** The app ships a
+  default OAuth config and also accepts the file Google itself hands you — an
+  older config is never written over a newer one.
+- **The notification stack has a dark variant** and follows the theme.
+- **A search box above the labels** in the window a drag opens. What you type
+  narrows every account's column at once, and labels you already ticked stay in
+  sight whatever you search for.
+
+### Fixed
+- **A dragged conversation arrives as one mail** instead of a folder holding one
+  message per file.
+- **Dragging one message yields that message, not the newest of its thread.**
+  With conversation view off every row in the list is a single message, and it
+  now travels as one: the older exchange is quoted inside it, the replies that
+  came after it stay behind — you would have dragged one of those otherwise.
+  Dragging a whole conversation still yields its last message.
+- **Rene mode zooms to 170%** instead of 200%.
+- **Duplicate and missing notifications.** Gmail's own channel is no longer
+  silenced, and every card comes from one stack instead of two.
+- **A mail that opens in its own window leaves the main window** where it was.
+- **A delegated mailbox with no stored url no longer crashes the app**; it
+  refuses that view and says why.
+- **Five defects reported against 0.3.0**, plus the gaps the whole-branch review
+  turned up.
+
+
 ## [0.3.0] — 2026-08-07
 
 ### Toegevoegd

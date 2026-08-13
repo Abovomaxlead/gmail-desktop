@@ -29,6 +29,16 @@ export interface LabelRef {
   name: string;
 }
 
+/** Which message of a conversation a drag started on.
+ *
+ * Two ids for the two routes that fetch a thread: `legacyId` is what the API calls a
+ * message, `permId` is what the show-original links carry. Gmail's DOM offers both and
+ * neither route knows the other's, so both travel along. */
+export interface MessageRef {
+  legacyId?: string;
+  permId?: string;
+}
+
 export interface DocLike {
   querySelectorAll(sel: string): ArrayLike<DragNode>;
 }
@@ -80,6 +90,18 @@ export const NO_SUBJECT = '(geen onderwerp)';
 // how far the cursor has to travel before a press counts as a drag, in pixels
 export const DRAG_THRESHOLD = 15;
 
+// what an open conversation puts on the block around each of its messages; the perm one
+// is prefixed with a hash there
+const MESSAGE_ID_ATTR = 'data-legacy-message-id';
+const MESSAGE_PERM_ATTR = 'data-message-id';
+
+// and what a list row carries, on the same span as the thread id: with conversation view
+// off a row is one message, and then data-thread-id names it after a pipe
+// ("#thread-a:r-693|msg-f:181") and data-legacy-last-message-id is that message rather than
+// the thread's last one
+const ROW_MESSAGE_ID_ATTR = 'data-legacy-last-message-id';
+const ROW_THREAD_ATTR = 'data-thread-id';
+
 // Gmail's own views, which carry a bare route rather than a label/ one
 const SYSTEM_VIEWS: Record<string, string> = {
   inbox: 'Postvak IN',
@@ -123,6 +145,49 @@ export function threadIdFromDragTarget(el: DragNode | null): string | null {
       }
       if (ids.size === 1) return [...ids][0];
       if (ids.size > 1) return null;
+    }
+    const next: DragNode | null = cur.parentElement;
+    if (next === cur) break;
+    cur = next;
+  }
+  return null;
+}
+
+/**
+ * Finds the message of a conversation a drag started on
+ *
+ * Two places say it, and they are searched differently. An open conversation puts
+ * data-legacy-message-id on the block around each message, always above the press, and
+ * looking down there finds the wrong message rather than none: the older messages are
+ * collapsed, so the one id under a container is the last message — exactly the one a drag
+ * on an older message is trying to leave behind. A list row keeps it on the same span as
+ * the thread id, deep inside the row, so that one is searched downwards under the same
+ * rule as the thread: a hit counts only when the search sees exactly one row.
+ *
+ * @param el the element under the cursor when the press began
+ * @returns the ids of that message, or null when the press named a whole conversation
+ */
+export function messageRefFromDragTarget(el: DragNode | null): MessageRef | null {
+  let cur = el;
+  for (let depth = 0; cur && depth < 30; depth++) {
+    if (cur.getAttribute(MESSAGE_ID_ATTR)) return refOf(cur);
+    const own = rowRefOf(cur);
+    if (own) return own;
+    const inside = cur.querySelectorAll?.(`[${ROW_MESSAGE_ID_ATTR}]`);
+    if (inside && inside.length > 0) {
+      const ids = new Set<string>();
+      for (let i = 0; i < inside.length; i++) {
+        const id = inside[i].getAttribute(ROW_MESSAGE_ID_ATTR);
+        if (id) ids.add(id);
+      }
+      if (ids.size > 1) return null;
+      if (ids.size === 1) {
+        for (let i = 0; i < inside.length; i++) {
+          const row = rowRefOf(inside[i]);
+          if (row) return row;
+        }
+        return null;
+      }
     }
     const next: DragNode | null = cur.parentElement;
     if (next === cur) break;
@@ -211,15 +276,26 @@ export function threadSubjects(doc: DocLike): Record<string, string> {
 /**
  * Pairs every dragged thread with the subject to show
  *
+ * The pressed message rides along only when the drag is about one conversation: with a
+ * ticked selection the press landed in one of many, and "this message and everything
+ * older" has no meaning across the rest.
+ *
  * @param ids
  * @param subjects
+ * @param message the message the press landed on, when it landed in one
  * @returns one item per id, in drag order
  */
 export function itemsForDrag(
   ids: string[],
   subjects: Record<string, string>,
-): Array<{ threadId: string; subject: string }> {
-  return ids.map((threadId) => ({ threadId, subject: subjects[threadId] || NO_SUBJECT }));
+  message: MessageRef | null = null,
+): Array<{ threadId: string; subject: string; message?: MessageRef }> {
+  const one = ids.length === 1 && message ? message : null;
+  return ids.map((threadId) => ({
+    threadId,
+    subject: subjects[threadId] || NO_SUBJECT,
+    ...(one ? { message: one } : {}),
+  }));
 }
 
 export function isOverZone(p: Point, r: Rect): boolean {
@@ -274,4 +350,43 @@ export function resultText(r: { ok: boolean; count: number; total: number; error
   if (!r.ok) return `Mislukt: ${r.error ?? 'onbekende fout'}`;
   if (r.count < r.total) return `${r.count} van ${r.total} opgeslagen`;
   return `${r.count} bericht${r.count === 1 ? '' : 'en'} opgeslagen`;
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Reads both message ids off the block Gmail wraps a message in
+ *
+ * @param el
+ * @returns the ids, the perm one without the hash Gmail writes in front of it
+ * @private
+ */
+function refOf(el: { getAttribute(name: string): string | null }): MessageRef {
+  const legacyId = el.getAttribute(MESSAGE_ID_ATTR) ?? '';
+  const perm = (el.getAttribute(MESSAGE_PERM_ATTR) ?? '').replace(/^#/, '');
+  return { ...(legacyId ? { legacyId } : {}), ...(perm ? { permId: perm } : {}) };
+}
+
+// The pipe is the whole decision: "#thread-a:r-693|msg-f:181" is one message of a thread,
+// "#thread-a:r-693" is the thread itself. Without it the row stands for the conversation
+// and its last message is not the message anybody grabbed.
+
+/**
+ * Reads the message a list row stands for
+ *
+ * @param el the span that carries the row's ids
+ * @returns the ids, or null when this row is a whole conversation
+ * @private
+ */
+function rowRefOf(el: { getAttribute(name: string): string | null }): MessageRef | null {
+  const thread = el.getAttribute(ROW_THREAD_ATTR) ?? '';
+  const pipe = thread.indexOf('|');
+  if (pipe === -1) return null;
+  const permId = thread.slice(pipe + 1).replace(/^#/, '');
+  const legacyId = el.getAttribute(ROW_MESSAGE_ID_ATTR) ?? '';
+  if (!legacyId && !permId) return null;
+  return { ...(legacyId ? { legacyId } : {}), ...(permId ? { permId } : {}) };
 }

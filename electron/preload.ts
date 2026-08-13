@@ -23,6 +23,7 @@ import {
   DROPZONE_LABEL,
   DRAG_CHROME_Z,
   threadIdFromDragTarget,
+  messageRefFromDragTarget,
   selectedThreadIds,
   threadIdsForDrag,
   threadSubjects,
@@ -34,6 +35,7 @@ import {
   ikFromPage,
   resultText,
   type DragNode,
+  type MessageRef,
 } from './mail/dropzone';
 
 
@@ -324,10 +326,15 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
  * whenever Gmail rebuilds around it.
  *
  * @param send hands a finished drop to main
+ * @param log a line into notify.log, the only place a message from inside Google's page
+ *   is ever read back
  * @returns what to call with main's answer, which the strip then shows
  * @private
  */
-function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult) => void {
+function installDropzone(
+  send: (p: MailDropPayload) => void,
+  log: (message: string) => void,
+): (r: MailDropResult) => void {
   const style = document.createElement('style');
   style.textContent = DROPZONE_CSS;
   const zone = document.createElement('div');
@@ -354,6 +361,7 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
   };
 
   let pressThreadId: string | null = null;
+  let pressMessage: MessageRef | null = null;
   let pressLabel: string | null = null;
   let pressAt: Point | null = null;
   let dragging = false;
@@ -387,6 +395,7 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
 
   const endGesture = () => {
     pressThreadId = null;
+    pressMessage = null;
     pressLabel = null;
     pressAt = null;
     dragging = false;
@@ -399,6 +408,7 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
       if (e.button !== 0) return;
       const target = e.target as unknown as DragNode | null;
       pressThreadId = threadIdFromDragTarget(target);
+      pressMessage = pressThreadId ? messageRefFromDragTarget(target) : null;
       pressLabel = pressThreadId ? null : labelFromDragTarget(target);
       pressAt = { x: e.clientX, y: e.clientY };
       dragging = false;
@@ -438,6 +448,7 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
     'mouseup',
     (e) => {
       const threadId = pressThreadId;
+      const message = pressMessage;
       const label = pressLabel;
       const wasDragging = dragging;
       const over = isOverZone({ x: e.clientX, y: e.clientY }, zone.getBoundingClientRect());
@@ -465,7 +476,8 @@ function installDropzone(send: (p: MailDropPayload) => void): (r: MailDropResult
         return;
       }
       const threadIds = threadIdsForDrag(threadId, selectedThreadIds(document));
-      const items = itemsForDrag(threadIds, threadSubjects(document));
+      const items = itemsForDrag(threadIds, threadSubjects(document), message);
+      log(`[drag] thread=${threadId} message=${message ? JSON.stringify(message) : 'geen'}`);
       saving = true;
       zone.textContent = items.length > 1 ? `${items.length} gesprekken opslaan…` : 'Bezig met opslaan…';
       setState('armed');
@@ -587,7 +599,10 @@ if (typeof document !== 'undefined') {
     setInterval(report, 5000);
 
     if (location.hostname === 'mail.google.com') {
-      const showResult = installDropzone((p) => ipcRenderer.send(IPC.MAIL_DROP, p));
+      const showResult = installDropzone(
+        (p) => ipcRenderer.send(IPC.MAIL_DROP, p),
+        (message) => ipcRenderer.send(IPC.VIEW_LOG, message),
+      );
       ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e: unknown, r: MailDropResult) => showResult(r));
     }
 

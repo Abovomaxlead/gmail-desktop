@@ -36,9 +36,9 @@ describe('advanceReneSequence', () => {
 });
 
 describe('Rene zoom constants', () => {
-  it('zoom level maps to the 200% factor (Chromium: factor = 1.2^level)', () => {
+  it('zoom level maps to the 170% factor (Chromium: factor = 1.2^level)', () => {
     expect(Math.pow(1.2, RENE_ZOOM_LEVEL)).toBeCloseTo(RENE_ZOOM_FACTOR, 10);
-    expect(RENE_ZOOM_FACTOR).toBe(2);
+    expect(RENE_ZOOM_FACTOR).toBe(1.7);
   });
 });
 

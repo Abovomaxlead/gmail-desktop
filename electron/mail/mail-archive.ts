@@ -12,6 +12,7 @@
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EmlHeaders } from './eml';
+import type { MessageRef } from './dropzone';
 
 
 
@@ -19,9 +20,14 @@ import type { EmlHeaders } from './eml';
 // Types
 //===========================
 
+/** One message of a conversation, with whichever id the route that fetched it knew: the
+ * API answers with `id`, the show-original page with `permMsgId`. Both are absent for
+ * anything that was not fetched per message, and then a drag cannot point at it. */
 export interface SavedMessage {
   raw: Buffer;
   headers: EmlHeaders;
+  id?: string;
+  permMsgId?: string;
 }
 
 export interface LogRecord {
@@ -113,14 +119,37 @@ export function newestMessage(messages: SavedMessage[]): SavedMessage | null {
   let best: SavedMessage | null = null;
   let bestAt = -Infinity;
   for (const m of messages) {
-    const ms = m.headers.date ? Date.parse(m.headers.date) : NaN;
-    const at = Number.isNaN(ms) ? -Infinity : ms;
-    if (best === null || at >= bestAt) {
+    if (best === null || at(m) >= bestAt) {
       best = m;
-      bestAt = at;
+      bestAt = at(m);
     }
   }
   return best;
+}
+
+// A drag that names one message points newestMessage at a different message, not at a
+// different number of them: still one mail, but the one that was grabbed rather than the
+// last of the thread. The older messages come along inside it, quoted, the same way they do
+// for a whole conversation — what stays behind is every reply that came after it, which is
+// the reason for grabbing an older message at all.
+
+/**
+ * The message a drag named
+ *
+ * @param messages
+ * @param ref the ids the drag picked up
+ * @returns that message, or null when no message of this thread answers to the ref
+ */
+export function draggedMessage(
+  messages: SavedMessage[],
+  ref: MessageRef | null,
+): SavedMessage | null {
+  if (!ref || (!ref.legacyId && !ref.permId)) return null;
+  return (
+    messages.find(
+      (m) => (ref.legacyId && m.id === ref.legacyId) || (ref.permId && m.permMsgId === ref.permId),
+    ) ?? null
+  );
 }
 
 /**
@@ -229,6 +258,19 @@ export function appendLog(root: string, records: LogRecord[]): void {
 
 const stripControl = (s: string) =>
   Array.from(s, (c) => ((c.codePointAt(0) ?? 32) < 32 ? ' ' : c)).join('');
+
+/**
+ * When a message was sent, as something sortable
+ *
+ * @param m
+ * @returns the Date header in milliseconds, or -Infinity when it cannot be read, so a
+ *   message without a usable date never beats one that has it
+ * @private
+ */
+function at(m: SavedMessage): number {
+  const ms = m.headers.date ? Date.parse(m.headers.date) : NaN;
+  return Number.isNaN(ms) ? -Infinity : ms;
+}
 
 /**
  * Splits a timestamp into the date and time a folder name uses

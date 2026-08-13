@@ -8,6 +8,8 @@
 // notification may be raised at all, and whether that page may make noise. The text,
 // the privacy replacements and how long it stays are main's, because main draws it.
 
+import type { MessageRef } from '../mail/dropzone';
+
 
 //===========================
 // Channels
@@ -115,6 +117,9 @@ export const IPC = {
 export interface MailDropItem {
   threadId: string;
   subject: string;
+  /** Set when the press landed on one message of an open conversation: everything newer
+   * than this message stays behind. */
+  message?: MessageRef;
 }
 
 export interface MailDropPayload {

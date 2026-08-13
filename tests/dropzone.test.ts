@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   threadIdFromDragTarget,
+  messageRefFromDragTarget,
   authuserFromPath,
   ikFromPage,
   resultText,
@@ -72,6 +73,79 @@ describe('threadIdFromDragTarget', () => {
   });
 });
 
+// A press inside an open conversation lands on one message of it, and that is the message
+// the drag is about — the thread id alone cannot say which.
+describe('messageRefFromDragTarget', () => {
+  const gmailMessage = (legacy: string, perm?: string) =>
+    node({ 'data-legacy-message-id': legacy, ...(perm ? { 'data-message-id': `#${perm}` } : {}) });
+
+  it('finds the message the press landed on', () => {
+    expect(messageRefFromDragTarget(gmailMessage('18f2a', 'msg-f:111'))).toEqual({
+      legacyId: '18f2a',
+      permId: 'msg-f:111',
+    });
+  });
+  it('walks up from a span inside the message body', () => {
+    const span = node({}, node({}, gmailMessage('18f2a', 'msg-f:111')));
+    expect(messageRefFromDragTarget(span)?.legacyId).toBe('18f2a');
+  });
+  it('reads a message without a perm id', () => {
+    expect(messageRefFromDragTarget(gmailMessage('18f2a'))).toEqual({ legacyId: '18f2a' });
+  });
+  // The older messages of an open conversation are collapsed, so the one message id below
+  // a container is the last one — the message a drag on an older one wants to leave behind.
+  it('never takes a message from below the press', () => {
+    const conversation = node({}, null, [gmailMessage('laatste', 'msg-f:9')]);
+    expect(messageRefFromDragTarget(conversation)).toBeNull();
+  });
+  it('is null on a list row, which carries no message id', () => {
+    expect(messageRefFromDragTarget(gmailRow('18f2a'))).toBeNull();
+    expect(messageRefFromDragTarget(null)).toBeNull();
+  });
+  it('ignores an empty attribute value', () => {
+    expect(messageRefFromDragTarget(node({ 'data-legacy-message-id': '' }))).toBeNull();
+  });
+  it('stops after a sane number of levels instead of looping forever', () => {
+    const self: any = { getAttribute: () => null, parentElement: null };
+    self.parentElement = self;
+    expect(messageRefFromDragTarget(self)).toBeNull();
+  });
+
+  // With conversation view off a list row is one message, and Gmail says which one behind
+  // the pipe in data-thread-id. Without that pipe the row stands for the whole conversation.
+  describe('a list row that is one message', () => {
+    const messageRow = (thread: string, perm: string | null, last: string) => {
+      const span = node({
+        'data-thread-id': perm ? `#thread-a:r-693|${perm}` : '#thread-a:r-693',
+        'data-legacy-thread-id': thread,
+        'data-legacy-last-message-id': last,
+      });
+      return node({ role: 'row' }, null, [span]);
+    };
+
+    it('names the message the row stands for', () => {
+      expect(messageRefFromDragTarget(messageRow('19ff5f3f', 'msg-f:181', '19ff5f50'))).toEqual({
+        legacyId: '19ff5f50',
+        permId: 'msg-f:181',
+      });
+    });
+    it('finds it from a cell inside that row', () => {
+      const cell = node({}, messageRow('19ff5f3f', 'msg-f:181', '19ff5f50'));
+      expect(messageRefFromDragTarget(cell)?.legacyId).toBe('19ff5f50');
+    });
+    it('leaves a conversation row alone, whose last message is not what was grabbed', () => {
+      expect(messageRefFromDragTarget(messageRow('19ff5f3f', null, '19ff5f50'))).toBeNull();
+    });
+    it('refuses to guess once the search reaches more than one row', () => {
+      const list = node({}, null, [
+        node({ 'data-thread-id': '#t|msg-f:1', 'data-legacy-last-message-id': 'a' }),
+        node({ 'data-thread-id': '#t|msg-f:2', 'data-legacy-last-message-id': 'b' }),
+      ]);
+      expect(messageRefFromDragTarget(list)).toBeNull();
+    });
+  });
+});
+
 describe('selectedThreadIds / threadIdsForDrag', () => {
   const checkedRow = (threadId: string) => {
     const row = node({}, null, [node({ 'data-legacy-thread-id': threadId })]);
@@ -136,6 +210,18 @@ describe('threadSubjects / itemsForDrag', () => {
   });
   it('falls back to a placeholder when the subject is unknown', () => {
     expect(itemsForDrag(['z'], {})).toEqual([{ threadId: 'z', subject: NO_SUBJECT }]);
+  });
+
+  it('carries the pressed message along for a single conversation', () => {
+    expect(itemsForDrag(['a'], { a: 'Offerte' }, { legacyId: '18f2a' })).toEqual([
+      { threadId: 'a', subject: 'Offerte', message: { legacyId: '18f2a' } },
+    ]);
+  });
+  it('drops it for a multi-conversation drag, where one message means nothing', () => {
+    expect(itemsForDrag(['a', 'b'], {}, { legacyId: '18f2a' })).toEqual([
+      { threadId: 'a', subject: NO_SUBJECT },
+      { threadId: 'b', subject: NO_SUBJECT },
+    ]);
   });
 });
 

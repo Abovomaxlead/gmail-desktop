@@ -1,7 +1,12 @@
 // Fetching original messages: the om URL and the message ids parsed out of it.
 
 import { describe, it, expect } from 'vitest';
-import { omUrl, parseOriginalLinks, parsePermMsgIds } from '../electron/mail/mail-fetch';
+import {
+  omUrl,
+  parseOriginalLinks,
+  parsePermMsgIds,
+  permMsgIdFromLink,
+} from '../electron/mail/mail-fetch';
 
 describe('omUrl', () => {
   it('builds the show-original url for a thread', () => {
@@ -59,5 +64,21 @@ describe('parsePermMsgIds', () => {
   });
   it('returns an empty list when there are none', () => {
     expect(parsePermMsgIds('<html></html>')).toEqual([]);
+  });
+});
+
+// Which message a downloaded original is, so a drag that started on one message can tell
+// it apart from the replies that came after it.
+describe('permMsgIdFromLink', () => {
+  it('reads the message id out of a download link', () => {
+    expect(permMsgIdFromLink('https://mail.google.com/mail/u/0/?view=att&th=a&permmsgid=msg-f:111&disp=comp')).toBe(
+      'msg-f:111',
+    );
+  });
+  it('decodes an encoded colon', () => {
+    expect(permMsgIdFromLink('?view=att&permmsgid=msg-f%3A111&disp=comp')).toBe('msg-f:111');
+  });
+  it('is null for a link that names no message', () => {
+    expect(permMsgIdFromLink('?view=att&th=a&disp=comp')).toBeNull();
   });
 });
