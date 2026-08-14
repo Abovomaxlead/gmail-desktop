@@ -22,8 +22,8 @@ import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch } from 'node:fs';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
-import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
+import { ProfileViewManager, type Surface } from './windows/profile-view-manager';
+import { SURFACE_CONFIG } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './accounts/account-ref';
 import { type LanguagePref } from './core/locale';
 import { DelegatedStore } from './delegation/delegated-store';
@@ -37,6 +37,13 @@ import {
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
 import { startMailSync, syncRunnerFor } from './push/mail-sync-controller';
+import {
+  addAccount,
+  onIdentity,
+  redetect,
+  removeAccount,
+  startDetection,
+} from './accounts/detection-controller';
 import {
   activateNotification,
   activateToast,
@@ -55,7 +62,6 @@ import {
 } from './mail/mail-drop-controller';
 import {
   loadDelegatedProfiles,
-  maybeStartDelegatedApiScan,
   refreshDelegatedFromApi,
   startDelegatedUrlRefreshOnce,
 } from './delegation/delegated-controller';
@@ -63,7 +69,6 @@ import {
   setViewSurfaceHooks,
   showAccount,
   syncCalendarViews,
-  warmAccount,
 } from './windows/view-surfaces';
 import {
   oauthConfig,
@@ -109,7 +114,6 @@ import {
   setupUpdater,
 } from './updates/update-controller';
 import {
-  pushActive,
   pushDefaultMailStatus,
   pushPrefs,
   pushProfiles,
@@ -119,12 +123,10 @@ import {
 } from './core/broadcast';
 import {
   SESSION_PARTITION,
-  accountCache,
   accountCacheLoaded,
   activeTab,
   activeView,
   authIdx,
-  authRef,
   colors,
   coverage,
   currentLocale,
@@ -135,7 +137,6 @@ import {
   idxOfKey,
   isQuitting,
   keyOf,
-  keyOfIndex,
   lastUpdateStatus,
   mainWindow,
   manager,
@@ -167,7 +168,6 @@ import {
   setSettingsPanelOpen,
   setToastWindow,
   setToasts,
-  syncRunners,
   toastWindow,
   toasts,
   unread,
@@ -180,9 +180,6 @@ import {
 } from './core/prefs-store';
 import { hostOf, needsLinkConfirm, unwrapRedirect } from './system/link-guard';
 import { clampBoundsToDisplays, grownToMinimum } from './windows/window-bounds';
-import { colorForIndex } from './accounts/palette';
-import { planNext } from './accounts/detection-planner';
-import { addAccountUrl } from './gmail/google-urls';
 import { popupNativeMenu } from './menus/native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import { nativeLabels } from './menus/native-labels';
@@ -226,13 +223,10 @@ import { ToastController } from './toast/toast-controller';
 import { webNotifySourceKey, type ToastAction } from '../renderer/lib/toast';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { checkOAuthConfigFile } from './auth/oauth-config-file';
-import {
-  stopWatch,
-} from './gmail/gmail-api';
 import { type NotifiedMail } from './notify/notify-match';
 import { OAuthStore } from './auth/oauth-store';
 import { connectAccount } from './auth/oauth-flow';
-import { dropDisallowedTokens, isAllowedAccount } from './auth/account-domain';
+import { dropDisallowedTokens } from './auth/account-domain';
 import { HistoryStore } from './gmail/history-store';
 
 
@@ -263,8 +257,6 @@ try {
 const MIN_WINDOW_WIDTH = 800;
 const MIN_WINDOW_HEIGHT = 600;
 
-// how long an account probe waits for the page to say who it belongs to
-const PROBE_TIMEOUT_MS = 16000;
 
 //===========================
 // Module state
@@ -277,10 +269,6 @@ const composePicker = new ComposePicker<ComposeAccountAsk, string>({
   redispatch: (url) => void dispatchMailto(url),
 });
 
-const seenEmails = new Set<string>();
-let probeTimer: ReturnType<typeof setTimeout> | null = null;
-let probingIndex: number | null = null;
-let visibleProbe: number | null = null;
 
 
 //===========================
@@ -297,190 +285,6 @@ function registerAppProtocol(): void {
     const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     return net.fetch(pathToFileURL(join(RENDERER_DIST, rel)).toString());
   });
-}
-
-
-//===========================
-// Tabs, detection and cache
-//===========================
-
-function settleDetection(): void {
-  probingIndex = null;
-  setCachedAccounts([]);
-  pushProfiles();
-  maybeStartDelegatedApiScan();
-}
-
-function clearProbeTimer(): void {
-  if (probeTimer) {
-    clearTimeout(probeTimer);
-    probeTimer = null;
-  }
-}
-
-function probe(index: number): void {
-  probingIndex = index;
-  manager?.ensureView(authRef(index), 'mail', false);
-  clearProbeTimer();
-  if (index > 0) {
-    probeTimer = setTimeout(() => {
-      manager?.discardView(keyOfIndex(index), 'mail');
-      probeTimer = null;
-      settleDetection();
-    }, PROBE_TIMEOUT_MS);
-  }
-}
-
-function onIdentity(index: number, identity: { email: string; name: string; avatarUrl: string }): void {
-  if (profiles.some((p) => authIdx(p) === index)) return;
-
-  const email = identity?.email;
-  const isVisibleAdd = visibleProbe === index;
-
-  if (isVisibleAdd && email && removed!.has(email)) removed!.remove(email);
-
-  if (!isVisibleAdd && email && removed!.has(email)) {
-    clearProbeTimer();
-    probingIndex = null;
-    manager?.discardView(keyOfIndex(index), 'mail');
-    if (manager?.activeKey() == null && profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
-    probe(index + 1);
-    return;
-  }
-
-  const decision = planNext([...seenEmails], index, identity);
-  clearProbeTimer();
-  probingIndex = null;
-  if (decision.register && identity.email) {
-    if (isVisibleAdd) {
-      visibleProbe = null;
-      void addAccountAfterConsent(index, identity, decision.stop);
-      return;
-    }
-    registerAccount(index, identity);
-    if (manager?.activeKey() == null) {
-      switchSurface(index, 'mail');
-    }
-  } else if (index > 0) {
-    manager?.discardView(keyOfIndex(index), 'mail');
-    if (isVisibleAdd) {
-      visibleProbe = null;
-      if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
-    }
-  }
-  if (!decision.stop) probe(index + 1);
-  else if (identity?.email) settleDetection();
-}
-
-function registerAccount(
-  index: number,
-  identity: { email: string; name: string; avatarUrl: string },
-): void {
-  seenEmails.add(identity.email);
-  const dup = profiles.findIndex(
-    (p) => p.kind === 'delegated' && p.email.toLowerCase() === identity.email.toLowerCase(),
-  );
-  if (dup !== -1) {
-    for (const surface of SURFACES) manager?.discardView(keyOf(profiles[dup]), surface);
-    profiles.splice(dup, 1);
-  }
-  const color = colors!.get(identity.email) ?? colorForIndex(index);
-  const profile: Profile = {
-    ref: authRef(index),
-    kind: 'authuser',
-    email: identity.email,
-    name: identity.name,
-    avatarUrl: identity.avatarUrl,
-    color,
-  };
-  profiles.push(profile);
-  profiles.sort((a, b) => authIdx(a) - authIdx(b));
-  pushProfiles();
-  refreshNotifyAllowed();
-  startMailSync();
-  syncCalendarViews();
-  warmAccount(profile);
-}
-
-async function addAccountAfterConsent(
-  index: number,
-  identity: { email: string; name: string; avatarUrl: string },
-  stopProbing: boolean,
-): Promise<void> {
-  const email = identity.email;
-  const cfg = oauthConfig();
-  // An address outside the work domain is added without ever being asked for consent. Asking
-  // and being refused would land in the branch below, which throws the view away — so a
-  // private mailbox someone signed into would not be readable here at all. It is readable;
-  // it is only never linked to the API.
-  const needsConsent =
-    isAllowedAccount(email) &&
-    cfg !== null &&
-    oauthTokens !== null &&
-    !oauthTokens.get(email) &&
-    !!mainWindow &&
-    !mainWindow.isDestroyed();
-
-  if (needsConsent) {
-    const result = await connectAccount(mainWindow!, SESSION_PARTITION, cfg!, oauthTokens!, email);
-    if (!result.ok) {
-      manager?.discardView(keyOfIndex(index), 'mail');
-      if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
-      const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-      showToast({
-        kind: 'error',
-        title: L.accountNotAddedTitle,
-        body: L.accountNotAddedBody(email, result.error),
-        persist: true,
-      });
-      if (prefs) playNotificationSound(prefs.getAll());
-      if (!stopProbing) probe(index + 1);
-      else settleDetection();
-      return;
-    }
-  }
-
-  registerAccount(index, identity);
-  switchSurface(index, 'mail');
-  if (!stopProbing) probe(index + 1);
-  else settleDetection();
-}
-
-function removeAccount(email: string): void {
-  removed!.add(email);
-  accountCache?.remove(email);
-  const stopToken = oauthTokens?.get(email)?.accessToken;
-  if (stopToken) void stopWatch(stopToken).catch(() => undefined);
-  history?.remove(email);
-  coverage.forget(email);
-  syncRunners.delete(email);
-  oauthTokens?.remove(email);
-  const profile = profiles.find((p) => p.email === email);
-  if (!profile) {
-    pushProfiles();
-    return;
-  }
-  if (profile.kind === 'delegated') delegated?.remove(email);
-  const wasActive = manager?.activeKey() === keyOf(profile);
-  profiles.splice(profiles.indexOf(profile), 1);
-  seenEmails.delete(email);
-  unread.forget(keyOf(profile));
-  for (const surface of SURFACES) manager?.discardView(keyOf(profile), surface);
-  pushProfiles();
-  pushUnread();
-  refreshBadge();
-  startMailSync();
-  // profiles[0] is not necessarily openable: authIdx returns -1 for every delegated
-  // profile, so a mailbox known only by address (no mailUrl yet) sorts ahead of every
-  // authuser account and would otherwise be handed to showAccount, which now refuses it —
-  // leaving the window showing nothing at all where a removal used to always land on
-  // something. Pick the first profile that actually has a mail surface instead.
-  if (wasActive) {
-    const next = profiles.find((p) => surfacesForRef(p.ref).includes('mail'));
-    if (next) showAccount(next.ref, 'mail');
-    // Nothing left to show. Say so, or the bar keeps the tab that was just removed lit.
-    else pushActive();
-  }
 }
 
 
@@ -573,35 +377,6 @@ function flushPendingMailto(): void {
 //===========================
 // Window, zoom and shortcuts
 //===========================
-
-function switchSurface(index: number, surface: Surface): void {
-  showAccount(authRef(index), surface);
-}
-
-function startDetection(): void {
-  switchSurface(0, 'mail');
-}
-
-function redetect(): void {
-  clearProbeTimer();
-  if (probingIndex !== null && !profiles.some((p) => authIdx(p) === probingIndex)) {
-    manager?.discardView(keyOfIndex(probingIndex), 'mail');
-  }
-  probingIndex = null;
-  const maxIndex = profiles.length ? Math.max(...profiles.map((p) => authIdx(p))) : -1;
-  probe(maxIndex + 1);
-}
-
-function addAccount(): void {
-  clearProbeTimer();
-  if (probingIndex !== null && !profiles.some((p) => authIdx(p) === probingIndex)) {
-    manager?.discardView(keyOfIndex(probingIndex), 'mail');
-  }
-  const nextIndex = profiles.length ? Math.max(...profiles.map((p) => authIdx(p))) + 1 : 0;
-  probingIndex = nextIndex;
-  visibleProbe = nextIndex;
-  manager?.ensureView(authRef(nextIndex), 'mail', true, addAccountUrl());
-}
 
 let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null;
 function saveWindowBounds(): void {
