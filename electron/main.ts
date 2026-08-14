@@ -37,6 +37,30 @@ import {
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
 import {
+  delegatedMailboxesUrl,
+  oauthConfig,
+  pushConfig,
+} from './auth/oauth-config';
+import {
+  checkOAuthHealth,
+  clearPushRefusal,
+  clearRefreshFailure,
+  markRefreshFailed,
+  notePushRefused,
+  pushOAuthStatus,
+  scheduleOAuthHealthCheck,
+} from './auth/oauth-health-check';
+import {
+  delegatedTokenFor,
+  forgetDelegatedToken,
+  isDelegatedMailbox,
+  mailboxRefusedText,
+  mailboxToken,
+  requestersInOrder,
+  withMailboxToken,
+  withTokenFor,
+} from './auth/mailbox-token';
+import {
   attachSessionHandlers,
   downloadFolder,
   forgetDownloadClickPath,
@@ -232,23 +256,7 @@ import { ToastController } from './toast/toast-controller';
 import { webNotifySourceKey, type Toast, type ToastAction } from '../renderer/lib/toast';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { checkOAuthConfigFile } from './auth/oauth-config-file';
-import { chooseOAuthConfigText } from './auth/oauth-source';
-import {
-  cacheEntry,
-  isUsable,
-  requestDelegatedToken,
-  shouldTryAnotherRequester,
-  type CachedToken,
-  type DelegatedTokenOutcome,
-} from './delegation/delegated-token';
-import { parseMailboxesUrl, requestDelegatedMailboxes } from './delegation/delegated-mailboxes';
-import { readBundledOAuthConfig } from './auth/oauth-bundled';
-import {
-  accountOAuthStatuses,
-  accountsNeedingReconnect,
-  bannerBounds,
-  type ReconnectAccount,
-} from './auth/oauth-health';
+import { requestDelegatedMailboxes } from './delegation/delegated-mailboxes';
 import type { AccountOAuthStatus } from '../renderer/lib/oauth-status';
 import {
   fetchLabels,
@@ -278,9 +286,8 @@ import { pickNotifiedMessage, type NotifiedMail } from './notify/notify-match';
 import { mapLimit } from './core/concurrency';
 import { OAuthStore } from './auth/oauth-store';
 import { connectAccount, accessTokenFor, forceRefresh } from './auth/oauth-flow';
-import { dropDisallowedTokens, isAllowedAccount, linkableOwnEmails } from './auth/account-domain';
+import { dropDisallowedTokens, isAllowedAccount } from './auth/account-domain';
 import { hasScopes, type OAuthConfig } from './auth/google-oauth';
-import { parsePushConfig, type PushConfig } from './push/push-config';
 import { HistoryStore } from './gmail/history-store';
 import { startPushManager } from './push/push-manager';
 import { createSyncRunner } from './push/push-sync';
@@ -1271,331 +1278,6 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
 
 
 //===========================
-// OAuth config and tokens
-//===========================
-
-function readIfPresent(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch {
-    return null;
-  }
-}
-
-/** The config text in force: the machine's own if it has a usable one, otherwise the copy
- * shipped in the app. Both readers below go through this so they can never disagree about
- * which project the app is talking to — the push settings live in the same file as the
- * credentials, and picking them from different sources would link accounts against one
- * project and subscribe for notifications against another. See oauth-source.ts for the
- * precedence and oauth-bundled.ts for where the shipped copy lives. */
-function oauthConfigText(): string | null {
-  return chooseOAuthConfigText(readIfPresent(OAUTH_CONFIG_PATH), readBundledOAuthConfig());
-}
-
-/** Whether this address is a mailbox reached by delegation rather than one of the user's own
- * accounts. Read from the profiles rather than guessed from the address, so a mailbox the
- * app does not know about is not quietly treated as delegated. */
-function isDelegatedMailbox(email: string): boolean {
-  const wanted = email.trim().toLowerCase();
-  return profiles.some((p) => p.kind === 'delegated' && p.email.toLowerCase() === wanted);
-}
-
-/** Where to ask for a token for a mailbox nobody signed into. Absent means the relay is not
- * configured, and copying to delegated mailboxes stays off — the same optional shape push
- * config has. */
-function delegatedTokenUrl(): string | null {
-  const text = oauthConfigText();
-  if (text === null) return null;
-  try {
-    const raw = JSON.parse(text) as { delegatedTokenUrl?: unknown };
-    const url = typeof raw.delegatedTokenUrl === 'string' ? raw.delegatedTokenUrl.trim() : '';
-    return url === '' ? null : url;
-  } catch {
-    return null;
-  }
-}
-
-/** Where to ask which mailboxes this person may reach. Absent means discovery stays off and
- * the switcher scrape is the only source, which is what it is today.
- *
- * Environment before file, the rule push already follows (`push-config.ts:34`), and for the
- * same reason: a relay on loopback has to be testable without editing the one file that holds
- * the client secret. Read before the file is even opened, so it works on a machine that has no
- * config at all.
- *
- * An env var that is set but unusable is not quietly replaced by the file. It was set on
- * purpose; falling back would hide the mistake behind behaviour that looks like it worked,
- * which is the failure mode the whole config path is written to avoid. */
-function delegatedMailboxesUrl(): string | null {
-  const fromEnv = (process.env.GMAIL_DELEGATED_MAILBOXES_URL ?? '').trim();
-  if (fromEnv !== '') return parseMailboxesUrl(fromEnv);
-  const text = oauthConfigText();
-  if (text === null) return null;
-  try {
-    const raw = JSON.parse(text) as { delegatedMailboxesUrl?: unknown };
-    return parseMailboxesUrl(raw.delegatedMailboxesUrl);
-  } catch {
-    return null;
-  }
-}
-
-/** Tokens the relay handed out, per mailbox. They live an hour; without this every drag
- * would cost a fresh mint and a delegates-list read per mailbox. */
-const delegatedTokens = new Map<string, CachedToken>();
-
-/** The user's own accounts, active one first: it is the one the person was looking at, and
- * usually the one whose delegation (or discoverable mailbox list) they are thinking of.
- * Shared by every caller that asks the relay something on the user's behalf, so trying the
- * same account in the same order is not reimplemented per caller. */
-function requestersInOrder(): Profile[] {
-  const active = manager?.activeKey();
-  const own = profiles.filter((p) => p.kind === 'authuser');
-  return [...own.filter((p) => keyOf(p) === active), ...own.filter((p) => keyOf(p) !== active)];
-}
-
-/** A token for a mailbox that has none of its own, via the relay.
- *
- * The user's own accounts are tried, active one first, and the first token the relay grants
- * is used. That cannot widen anyone's access: the relay checks Google's delegation record on
- * every attempt, so trying is how the app finds the access you already have rather than how
- * it gets any. It also means a copy does not fail merely because the wrong tab was in front.
- *
- * Returns null with a reason, so the caller can report something truer than "Verbinding
- * verlopen" — which is what a delegated mailbox used to get, for an expiry it never had. */
-async function delegatedTokenFor(email: string): Promise<DelegatedTokenOutcome> {
-  const url = delegatedTokenUrl();
-  if (!url) return { ok: false, error: 'Relay voor gedelegeerde postvakken niet ingesteld' };
-
-  const cached = delegatedTokens.get(email.toLowerCase());
-  if (isUsable(cached, Date.now())) return { ok: true, token: cached!.accessToken };
-
-  const cfg = oauthConfig();
-  if (!cfg || !oauthTokens) return { ok: false, error: 'Koppeling niet ingesteld' };
-
-  let lastError = 'Geen van je accounts heeft toegang tot dit postvak';
-  for (const requester of requestersInOrder()) {
-    const requesterToken = await accessTokenFor(cfg, oauthTokens, requester.email);
-    if (!requesterToken) continue;
-    const result = await requestDelegatedToken({ url, requesterToken, target: email });
-    if (result.ok) {
-      delegatedTokens.set(email.toLowerCase(), cacheEntry(result.accessToken, result.expiresIn, Date.now()));
-      console.log(`[delegated] ${requester.email} -> ${email}: granted`);
-      return { ok: true, token: result.accessToken };
-    }
-    lastError = result.error;
-    // Only a delegation refusal says nothing about the next account; everything else is
-    // about the request or the relay, and asking again would just repeat it.
-    if (!shouldTryAnotherRequester(result.status)) break;
-  }
-  return { ok: false, error: lastError };
-}
-
-/** What to tell someone whose mailbox Gmail would not let a token into.
- *
- * The two kinds fail for reasons that need different actions: an own account has a link that
- * can be renewed by reconnecting, a delegated mailbox has no link of its own and its access
- * is someone else's to grant. Whatever Google's own wording was, it is not this — it names an
- * OAuth credential and links to the developer console, which is a sentence for whoever built
- * the app and not for whoever is trying to file an e-mail. */
-function mailboxRefusedText(email: string): string {
-  return isDelegatedMailbox(email) ? 'Geen toegang tot dit postvak' : 'Verbinding verlopen';
-}
-
-/** Drops a cached relay token, for when Gmail rejects it. A delegation can be revoked while
- * a token from it is still inside its hour, and the cache would otherwise keep handing out
- * the dead one until it expired on the clock. */
-function forgetDelegatedToken(email: string): void {
-  delegatedTokens.delete(email.toLowerCase());
-}
-
-/** A token for a mailbox, whichever kind it is: the user's own OAuth token, or one the relay
- * mints for a mailbox they are a delegate of. One entry point so every caller treats the two
- * the same — the label list and the copy path both used to know only about the first, which
- * is why a shared mailbox could not be picked at all. */
-async function mailboxToken(email: string): Promise<DelegatedTokenOutcome> {
-  if (isDelegatedMailbox(email)) return delegatedTokenFor(email);
-  const cfg = oauthConfig();
-  if (!cfg || !oauthTokens) return { ok: false, error: 'Niet gekoppeld' };
-  const token = await accessTokenFor(cfg, oauthTokens, email);
-  return token ? { ok: true, token } : { ok: false, error: 'Verbinding verlopen' };
-}
-
-/** A token for a mailbox after Gmail refused the one it had, whichever kind it is.
- *
- * Recovering from a 401 differs per kind and using the wrong one is silent: a delegated
- * mailbox has no refresh token to force, and an own account has no relay entry to forget. A
- * delegation can be revoked while a token from it is still inside its hour, so the cached one
- * has to go before asking again. */
-async function freshTokenAfter401(email: string): Promise<string | null> {
-  if (isDelegatedMailbox(email)) {
-    forgetDelegatedToken(email);
-    const again = await delegatedTokenFor(email);
-    return again.ok ? again.token : null;
-  }
-  const cfg = oauthConfig();
-  if (!cfg || !oauthTokens) return null;
-  const fresh = await forceRefresh(cfg, oauthTokens, email);
-  if (!fresh) {
-    // Only an own account can have a link that expired, so only it may be flagged for one.
-    refreshFailures.add(email);
-    scheduleOAuthHealthCheck();
-    return null;
-  }
-  refreshFailures.delete(email);
-  return fresh;
-}
-
-/** The access-token dance for any mailbox: use the token it has, and on a 401 recover the way
- * that mailbox can and try once more. withTokenFor does the same for the user's own accounts
- * only, which is exactly what shut the API route to a shared mailbox — no OAuth token can
- * exist for a mailbox nobody signs into, so a drag out of one fell back to scraping Gmail's
- * page, and that page cannot be reached without the /d/<token>/ part of the URL a drag does
- * not carry. It came back as HTTP 403.
- *
- * Null means no token can be had at all, which tells the caller this mailbox has no API route
- * rather than that the API failed. */
-async function withMailboxToken(
-  email: string,
-): Promise<(<T>(fn: (token: string) => Promise<T>) => Promise<T>) | null> {
-  const first = await mailboxToken(email);
-  if (!first.ok) return null;
-  let token = first.token;
-  // Once per runner, not per call: a token that is still refused after a fresh mint is refused
-  // for a reason no amount of reminting changes, and a label drag is hundreds of calls.
-  let mayRecover = true;
-  return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
-    try {
-      return await fn(token);
-    } catch (e) {
-      if (!mayRecover || !(e instanceof GmailHttpError) || e.status !== 401) throw e;
-      mayRecover = false;
-      const fresh = await freshTokenAfter401(email);
-      if (!fresh) throw e;
-      token = fresh;
-      return await fn(fresh);
-    }
-  };
-}
-
-function oauthConfig(): OAuthConfig | null {
-  const text = oauthConfigText();
-  if (text === null) return null;
-  try {
-    const raw = JSON.parse(text);
-    if (typeof raw?.clientId === 'string' && typeof raw?.clientSecret === 'string') {
-      return { clientId: raw.clientId, clientSecret: raw.clientSecret };
-    }
-  } catch {
-  }
-  return null;
-}
-
-function pushConfig(): PushConfig | null {
-  const text = oauthConfigText();
-  try {
-    return parsePushConfig(text === null ? null : JSON.parse(text), process.env);
-  } catch {
-    return parsePushConfig(null, process.env);
-  }
-}
-
-
-//===========================
-// OAuth health
-//===========================
-
-let healthTimer: ReturnType<typeof setTimeout> | null = null;
-function scheduleOAuthHealthCheck(): void {
-  if (healthTimer) clearTimeout(healthTimer);
-  healthTimer = setTimeout(() => void checkOAuthHealth(), 1500);
-}
-
-const refreshFailures = new Set<string>();
-
-const pushRefusals = new Set<string>();
-
-/** The one place the panel's picture of linking is sent. Reports whether this machine can
- * link at all as well as the per-account statuses, because those are different facts and
- * an empty list is the honest answer to both "nothing is wrong" and "nothing is possible". */
-function pushOAuthStatus(): void {
-  mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, {
-    configured: oauthConfig() !== null,
-    accounts: oauthStatuses,
-  });
-}
-
-async function checkOAuthHealth(): Promise<void> {
-  const cfg = oauthConfig();
-  // Split from the guard below on purpose. A machine with no OAuth config is not a machine
-  // with nothing to report — it is the one state where the panel would otherwise look
-  // identical to a healthy one, which is how an install with no consent screen, no status
-  // and no banner reached someone who then had to ask why.
-  if (!cfg) {
-    setOauthStatuses([]);
-    pushOAuthStatus();
-    return;
-  }
-  if (!oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
-
-  // Out-of-domain accounts are left out rather than reported as unlinked: they cannot be
-  // linked at all, and 'unlinked' would put a Verbinden button in the panel and a row in
-  // the banner that no amount of clicking could ever resolve.
-  const ownEmails = linkableOwnEmails(profiles);
-  for (const email of ownEmails) {
-    const token = oauthTokens.get(email);
-    if (!token) continue;
-    const fresh = await accessTokenFor(cfg, oauthTokens, email);
-    if (fresh) refreshFailures.delete(email);
-    else refreshFailures.add(email);
-  }
-
-  // One object, handed to both functions, so the banner and the accounts panel can never
-  // describe the same accounts differently. Its closures are not read once — OAuthStore.get
-  // hits the filesystem on every call, and accountsNeedingReconnect below calls
-  // accountOAuthStatuses again internally, so the token file is read roughly twice as often
-  // per health check as a single pass would suggest. That is fine here: both passes are
-  // synchronous with no `await` between them, so nothing can change underneath them, and at
-  // a handful of accounts every five minutes the extra reads cost nothing worth avoiding.
-  const health = {
-    ownEmails,
-    hasToken: (e: string) => oauthTokens!.get(e) !== undefined,
-    refreshFailed: (e: string) => refreshFailures.has(e),
-    pushConfigured: pushConfig() !== null,
-    missingScopes: (e: string) => {
-      const token = oauthTokens!.get(e);
-      return token !== undefined && !hasScopes(token);
-    },
-    pushRefused: (e: string) => pushRefusals.has(e),
-  };
-  setOauthStatuses(accountOAuthStatuses(health));
-  pushOAuthStatus();
-  showReconnectBanner(accountsNeedingReconnect(health));
-}
-
-function showReconnectBanner(accounts: ReconnectAccount[]): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (accounts.length === 0) {
-    reconnectBanner?.close();
-    setReconnectAccounts([]);
-    return;
-  }
-  setReconnectAccounts(accounts);
-  const banner =
-    reconnectBanner ??
-    new OverlayView(
-      mainWindow,
-      SIDEBAR_PRELOAD_PATH,
-      DEV_URL ? `${DEV_URL}/reconnect` : 'app://bundle/reconnect.html',
-      IPC.OAUTH_RECONNECT_LIST,
-      bannerBounds,
-    );
-  setReconnectBanner(banner);
-  if (banner.isOpen()) banner.update({ accounts }, accounts.length);
-  else banner.open({ accounts }, accounts.length);
-}
-
-
-//===========================
 // Copying mail to a mailbox
 //===========================
 
@@ -2202,31 +1884,6 @@ async function handleVerificationCode(
 // Push and sync
 //===========================
 
-// The access-token dance for one account: use what we have, and on a 401 force a refresh
-// and try once more. Lifted out of syncRunnerFor because the toast actions need the same
-// thing for whichever account the card belongs to, long after the sync that raised it.
-function withTokenFor(email: string): (<T>(fn: (token: string) => Promise<T>) => Promise<T>) | null {
-  const cfg = oauthConfig();
-  if (!cfg || !oauthTokens) return null;
-  return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
-    const token = await accessTokenFor(cfg, oauthTokens!, email);
-    if (!token) throw new Error('no token');
-    try {
-      return await fn(token);
-    } catch (e) {
-      if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
-      const fresh = await forceRefresh(cfg, oauthTokens!, email);
-      if (!fresh) {
-        refreshFailures.add(email);
-        scheduleOAuthHealthCheck();
-        throw e;
-      }
-      refreshFailures.delete(email);
-      return await fn(fresh);
-    }
-  };
-}
-
 function syncRunnerFor(email: string): { run(): Promise<void> } | null {
   const existing = syncRunners.get(email);
   if (existing) return existing;
@@ -2345,8 +2002,8 @@ function startRelayPush(): void {
     accessToken: (email) => accessTokenFor(cfg, oauthTokens!, email),
     refreshToken: async (email) => {
       const fresh = await forceRefresh(cfg, oauthTokens!, email);
-      if (fresh) refreshFailures.delete(email);
-      else refreshFailures.add(email);
+      if (fresh) clearRefreshFailure(email);
+      else markRefreshFailed(email);
       return fresh;
     },
     armWatch: async (email) => {
@@ -2363,14 +2020,14 @@ function startRelayPush(): void {
     onCoverage: (email, covered) => {
       if (covered) {
         coverage.cover(email);
-        if (pushRefusals.delete(email)) scheduleOAuthHealthCheck();
+        if (clearPushRefusal(email)) scheduleOAuthHealthCheck();
       } else coverage.drop(email);
       refreshNotifyAllowed();
     },
     onFatal: (email, code) => {
       console.warn(`[push] push definitief uit voor ${email} (code ${code})`);
       if (code === 4401) {
-        pushRefusals.add(email);
+        notePushRefused(email);
         void checkOAuthHealth();
       }
     },
@@ -3021,7 +2678,7 @@ function registerIpc(): void {
         if (fresh) {
           try {
             const labels = await fetchLabels(fresh);
-            if (!isDelegatedMailbox(p.email)) refreshFailures.delete(p.email);
+            if (!isDelegatedMailbox(p.email)) clearRefreshFailure(p.email);
             return { email: p.email, labels };
           } catch (e2) {
             // A brand-new token refused as well says the same thing as the first refusal, so
@@ -3037,10 +2694,7 @@ function registerIpc(): void {
         if (refused) {
           // Only an own account can have a link that expired; a delegated mailbox has none,
           // so it must not be flagged as needing a reconnect.
-          if (!isDelegatedMailbox(p.email)) {
-            refreshFailures.add(p.email);
-            scheduleOAuthHealthCheck();
-          }
+          if (!isDelegatedMailbox(p.email)) markRefreshFailed(p.email);
           return { email: p.email, labels: [], error: mailboxRefusedText(p.email) };
         }
         return { email: p.email, labels: [], error: (e as Error).message };
@@ -3114,10 +2768,7 @@ function registerIpc(): void {
       if (!got.ok) {
         // Only an own account can have a link that expired; a delegated mailbox has none, so
         // it must not be flagged as needing a reconnect.
-        if (!isDelegatedMailbox(target.email)) {
-          refreshFailures.add(target.email);
-          scheduleOAuthHealthCheck();
-        }
+        if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
         done += files.length;
         progress('copy', target.email);
         accounts.push({
@@ -3177,12 +2828,11 @@ function registerIpc(): void {
               if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
               const fresh = await forceRefresh(cfg, oauthTokens, target.email);
               if (!fresh) {
-                refreshFailures.add(target.email);
-                scheduleOAuthHealthCheck();
+                markRefreshFailed(target.email);
                 throw new Error('Verbinding verlopen');
               }
               token = fresh;
-              refreshFailures.delete(target.email);
+              clearRefreshFailure(target.email);
               inserted = await insert(token, landedIn);
             }
           }
@@ -3282,8 +2932,8 @@ function registerIpc(): void {
     }
     const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
     if (!result.ok) return result;
-    refreshFailures.delete(arg.email);
-    pushRefusals.delete(arg.email);
+    clearRefreshFailure(arg.email);
+    clearPushRefusal(arg.email);
     void checkOAuthHealth();
     startMailSync();
     return { ok: true };
