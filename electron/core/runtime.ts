@@ -17,9 +17,10 @@ import type { BrowserWindow } from 'electron';
 import { accountKey, parseAccountKey, type AccountRef } from '../accounts/account-ref';
 import { colorForIndex } from '../accounts/palette';
 import { resolveLocale, type Locale } from './locale';
+import { SURFACES } from '../../renderer/lib/surfaces';
 import { UnreadStore } from '../unread/unread-store';
 import { PushCoverage } from '../push/push-coverage';
-import type { ProfileViewManager, Profile } from '../windows/profile-view-manager';
+import type { ProfileViewManager, Profile, Surface } from '../windows/profile-view-manager';
 import type { ColorStore } from '../accounts/color-store';
 import type { RemovedStore } from '../accounts/removed-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
@@ -218,4 +219,36 @@ export function colorForEmail(email: string): string {
  * cannot disagree. */
 export function currentLocale(): Locale {
   return resolveLocale(prefs?.getAll().language ?? 'system', app.getLocale());
+}
+
+/**
+ * What the window is showing, for the bar that draws the active tab.
+ *
+ * The bar used to decide this itself, by taking the first tab that was not provisional, and
+ * that is not the same question. At startup the remembered own accounts arrive as
+ * provisional tabs while a delegated mailbox arrives ready, so the bar marked the delegated
+ * one active — and main, meanwhile, showed authuser 0. The result was a bar pointing at one
+ * mailbox with another one's mail underneath it.
+ *
+ * Read off the manager rather than through `profiles`: detection shows account 0 before it
+ * is registered, and a tab that does not exist yet is exactly the moment this has to be
+ * right — the bar will highlight the key as soon as the tab for it arrives.
+ */
+export function activeTab(): { key: string; surface: Surface } | null {
+  const m = manager;
+  const key = m?.activeKey();
+  if (!m || !key) return null;
+  const surface = SURFACES.find((s) => m.isShowing(key, s));
+  return surface ? { key, surface } : null;
+}
+
+/** The same question as activeTab, answered with the account itself rather than its key —
+ * for callers that need the ref to open something with. */
+export function activeView(): { ref: AccountRef; surface: Surface } | null {
+  const m = manager;
+  const key = m?.activeKey();
+  if (!m || !key) return null;
+  const p = profiles.find((x) => keyOf(x) === key);
+  const surface = SURFACES.find((s) => m.isShowing(key, s));
+  return p && surface ? { ref: p.ref, surface } : null;
 }

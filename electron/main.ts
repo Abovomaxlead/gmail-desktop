@@ -26,11 +26,10 @@ import type { Tray } from 'electron';
 import { parseChangelog, type ChangelogVersion } from './updates/changelog';
 import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
 import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
-import { accountCountVisible } from '../renderer/lib/badge-visibility';
 import { accountKey, type AccountRef } from './accounts/account-ref';
 import { type LanguagePref } from './core/locale';
 import { DelegatedStore, type StoredDelegate } from './delegation/delegated-store';
-import { AccountCacheStore, seedable, rememberedOrder } from './accounts/account-cache';
+import { AccountCacheStore, rememberedOrder } from './accounts/account-cache';
 import {
   CHANGELOG_PATH,
   DEV_URL,
@@ -41,12 +40,23 @@ import {
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
 import {
+  pushActive,
+  pushDefaultMailStatus,
+  pushPrefs,
+  pushProfiles,
+  pushUnread,
+  refreshBadge,
+  seedKey,
+  setOnProfilesPushed,
+} from './core/broadcast';
+import {
   SESSION_PARTITION,
   accountCache,
   accountCacheLoaded,
+  activeTab,
+  activeView,
   authIdx,
   authRef,
-  cachedAccounts,
   colorForEmail,
   colors,
   coverage,
@@ -73,7 +83,6 @@ import {
   reconnectAccounts,
   reconnectBanner,
   removed,
-  seedOrder,
   setAccountCache,
   setAccountCacheLoaded,
   setCachedAccounts,
@@ -125,7 +134,6 @@ import { addAccountUrl } from './gmail/google-urls';
 import { popupNativeMenu } from './menus/native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import { nativeLabels } from './menus/native-labels';
-import { applyBadge } from './unread/badge-controller';
 import { shouldNotifyUpdate } from './updates/update-notifier';
 import {
   IPC,
@@ -168,11 +176,8 @@ import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mail/ma
 import type { ComposeAccountAsk, ComposeAccountChoice } from '../renderer/lib/compose-account';
 import {
   MAIL_APP_NAME,
-  isOurProgId,
-  readMailtoProgId,
   registerMailClient,
 } from './system/mail-client-registration';
-import { sortByOrder } from './accounts/account-order';
 import {
   notificationsAllowed,
   notificationSilent,
@@ -338,8 +343,6 @@ const seenEmails = new Set<string>();
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
 let probingIndex: number | null = null;
 let visibleProbe: number | null = null;
-const SEED_KEY_PREFIX = 'seed:';
-const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
 
 //===========================
@@ -588,118 +591,11 @@ function addDelegatedMailbox(email: string, mailUrl: string): void {
 // Tabs, detection and cache
 //===========================
 
-interface TabRow {
-  key: string;
-  kind: AccountRef['kind'];
-  index: number;
-  email: string;
-  name: string;
-  avatarUrl: string;
-  color: string;
-  hasCalendar: boolean;
-  /** False for a mailbox the API found and nobody has opened in Gmail yet: known by address,
-   * with no URL to load. The seeded rows below are false for a different reason — they have
-   * no ref at all yet — and both mean "do not try to open this". */
-  hasMail: boolean;
-  order?: number;
-  label?: string;
-  provisional?: boolean;
-}
-
-function decorate(list: Profile[]): TabRow[] {
-  const confirmed: TabRow[] = list.map((p) => {
-    const ap = prefs?.getAccount(p.email) ?? {};
-    return {
-      key: keyOf(p),
-      kind: p.ref.kind,
-      index: authIdx(p),
-      email: p.email,
-      name: p.name,
-      avatarUrl: p.avatarUrl,
-      color: p.color,
-      hasCalendar: surfacesForRef(p.ref).includes('calendar'),
-      hasMail: surfacesForRef(p.ref).includes('mail'),
-      order: ap.order ?? seedOrder.get(p.email.toLowerCase()),
-      label: ap.label,
-    };
-  });
-  const seeds: TabRow[] = seedable(cachedAccounts, {
-    confirmed: profiles.map((p) => p.email),
-    removed: removed?.list() ?? [],
-  }).map((c) => {
-    const ap = prefs?.getAccount(c.email) ?? {};
-    return {
-      key: seedKey(c.email),
-      kind: 'authuser',
-      index: -1,
-      email: c.email,
-      name: c.name,
-      avatarUrl: c.avatarUrl,
-      color: colors?.get(c.email) ?? c.color,
-      hasCalendar: false,
-      hasMail: false,
-      order: ap.order ?? seedOrder.get(c.email),
-      label: ap.label,
-      provisional: true,
-    };
-  });
-  return sortByOrder([...confirmed, ...seeds]);
-}
-function pushProfiles(): void {
-  const rows = decorate([...profiles]);
-  mainWindow?.webContents.send(IPC.PROFILES_CHANGED, rows);
-  saveAccountCache(rows);
-  scheduleOAuthHealthCheck();
-}
-function pushUnread(): void {
-  mainWindow?.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
-}
-function saveAccountCache(rows: TabRow[]): void {
-  if (!accountCache) return;
-  const own = rows.filter((r) => r.kind === 'authuser');
-  if (own.length === 0) return;
-  accountCache.save(
-    own.map((r) => ({ email: r.email, name: r.name, avatarUrl: r.avatarUrl, color: r.color })),
-  );
-}
 function settleDetection(): void {
   probingIndex = null;
   setCachedAccounts([]);
   pushProfiles();
   maybeStartDelegatedApiScan();
-}
-function excludedBadgeKeys(): Set<string> {
-  const keys = new Set<string>();
-  for (const p of profiles) {
-    if (
-      !accountCountVisible(
-        prefs?.getAccount(p.email).badgeCount,
-        prefs?.getAll().appearance.showUnreadBadges,
-      )
-    ) {
-      keys.add(keyOf(p));
-    }
-  }
-  return keys;
-}
-function refreshBadge(): void {
-  applyBadge(unread.snapshot(), (n) => app.setBadgeCount(n), excludedBadgeKeys(), () => {
-    if (process.platform === 'win32') mainWindow?.setOverlayIcon(null, '');
-  });
-}
-// The resolved locale rides along with the prefs push rather than being worked out again
-// in the renderer.
-function pushPrefs(): void {
-  if (prefs) mainWindow?.webContents.send(IPC.PREFS_CHANGED, { ...prefs.getAll(), locale: currentLocale() });
-}
-// On Windows the truth lives in UrlAssociations\mailto\UserChoice, not in the legacy
-// HKCU\Software\Classes\mailto key, so ask the registry which ProgId actually wins.
-async function pushDefaultMailStatus(): Promise<void> {
-  const isDefault =
-    process.platform === 'win32'
-      ? isOurProgId(await readMailtoProgId())
-      : app.isDefaultProtocolClient('mailto');
-  mainWindow?.webContents.send(IPC.MAIL_DEFAULT_STATUS, isDefault);
 }
 
 function clearProbeTimer(): void {
@@ -884,37 +780,6 @@ function showAccount(ref: AccountRef, surface: Surface): void {
   pushActive();
   refreshNotifyAllowed();
   flushPendingMailto();
-}
-
-/** What the window is showing, for the bar that draws the active tab.
- *
- * The bar used to decide this itself, by taking the first tab that was not provisional, and
- * that is not the same question. At startup the remembered own accounts arrive as
- * provisional tabs while a delegated mailbox arrives ready, so the bar marked the delegated
- * one active — and main, meanwhile, showed authuser 0. The result was a bar pointing at one
- * mailbox with another one's mail underneath it. */
-function activeTab(): { key: string; surface: Surface } | null {
-  const m = manager;
-  const key = m?.activeKey();
-  if (!m || !key) return null;
-  // Read off the manager rather than through `profiles`: detection shows account 0 before it
-  // is registered, and a tab that does not exist yet is exactly the moment this has to be
-  // right — the bar will highlight the key as soon as the tab for it arrives.
-  const surface = SURFACES.find((s) => m.isShowing(key, s));
-  return surface ? { key, surface } : null;
-}
-
-function pushActive(): void {
-  mainWindow?.webContents.send(IPC.ACTIVE_CHANGED, activeTab());
-}
-
-function activeView(): { ref: AccountRef; surface: Surface } | null {
-  const m = manager;
-  const key = m?.activeKey();
-  if (!m || !key) return null;
-  const p = profiles.find((x) => keyOf(x) === key);
-  const surface = SURFACES.find((s) => m.isShowing(key, s));
-  return p && surface ? { ref: p.ref, surface } : null;
 }
 
 
@@ -4116,6 +3981,9 @@ app.whenReady().then(() => {
   app.on('session-created', (s) => attachSessionHandlers(s));
   attachSessionHandlers(session.defaultSession);
   setExternalOpener(openExternalGuarded);
+  // Late-bound on purpose: broadcast publishes the profile list and the OAuth layer re-checks
+  // the links for it, so wiring the two here is what keeps them from importing each other.
+  setOnProfilesPushed(() => scheduleOAuthHealthCheck());
   registerAppProtocol();
   setupNotifications();
   registerIpc();
