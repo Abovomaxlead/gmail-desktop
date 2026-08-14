@@ -38,6 +38,13 @@ import {
 } from './core/paths';
 import { startMailSync, syncRunnerFor } from './push/mail-sync-controller';
 import {
+  applyComposeAskSize,
+  cancelComposeAsk,
+  dispatchMailto,
+  openComposeWindow,
+  settleComposeAsk,
+} from './compose/mailto-controller';
+import {
   addAccount,
   onIdentity,
   redetect,
@@ -66,7 +73,6 @@ import {
   startDelegatedUrlRefreshOnce,
 } from './delegation/delegated-controller';
 import {
-  setViewSurfaceHooks,
   showAccount,
   syncCalendarViews,
 } from './windows/view-surfaces';
@@ -142,7 +148,6 @@ import {
   manager,
   oauthStatuses,
   oauthTokens,
-  pendingMailto,
   prefs,
   profiles,
   pushManager,
@@ -192,8 +197,7 @@ import {
 } from './mail/mail-copy';
 import { shouldHideOnClose } from './menus/tray-controller';
 import { resolveShortcut, type KeyInput } from './menus/shortcuts';
-import { openCompose } from './compose/compose-window';
-import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mail/mailto';
+import { extractMailtoFromArgv } from './mail/mailto';
 import type { ComposeAccountAsk, ComposeAccountChoice } from '../renderer/lib/compose-account';
 import {
   MAIL_APP_NAME,
@@ -213,11 +217,6 @@ import { attachExternalLinkHandling, setExternalOpener } from './system/external
 import { googleAppTarget } from './gmail/google-apps-open';
 import { DownloadHistoryStore } from './system/download-history';
 import { isDarkTheme, overlayOptions, supportsOverlay, supportsOverlayUpdate, windowBackground } from './windows/titlebar';
-import { ComposePicker } from './compose/compose-picker';
-import {
-  openComposeAccountWindow,
-  resizeAndShowComposeAccountWindow,
-} from './compose/compose-account-window';
 import { ToastWindow } from './toast/toast-window';
 import { ToastController } from './toast/toast-controller';
 import { webNotifySourceKey, type ToastAction } from '../renderer/lib/toast';
@@ -262,12 +261,6 @@ const MIN_WINDOW_HEIGHT = 600;
 // Module state
 //===========================
 
-let composeAccountWindow: BrowserWindow | null = null;
-const composePicker = new ComposePicker<ComposeAccountAsk, string>({
-  open: (ask) => showComposeAccountWindow(ask),
-  close: () => closeComposeAccountWindow(),
-  redispatch: (url) => void dispatchMailto(url),
-});
 
 
 
@@ -285,92 +278,6 @@ function registerAppProtocol(): void {
     const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     return net.fetch(pathToFileURL(join(RENDERER_DIST, rel)).toString());
   });
-}
-
-
-//===========================
-// Compose and mailto
-//===========================
-
-// One window per ask, destroyed on settle: reuse would carry the previous recipient into
-// an unrelated next question for no gain, since the picker is short-lived. The module
-// variable is nulled before the window is destroyed, so a stale instance can never be
-// left behind to wedge the feature, and the `closed` that destroying triggers finds the
-// resolver already cleared and harmlessly no-ops.
-function closeComposeAccountWindow(): void {
-  const win = composeAccountWindow;
-  composeAccountWindow = null;
-  if (win && !win.isDestroyed()) win.destroy();
-}
-
-function showComposeAccountWindow(ask: ComposeAccountAsk): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  closeComposeAccountWindow();
-  const win = openComposeAccountWindow(
-    mainWindow,
-    SIDEBAR_PRELOAD_PATH,
-    DEV_URL ? `${DEV_URL}/compose-account` : 'app://bundle/compose-account.html',
-    ask.accounts.length,
-    prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1,
-  );
-  composeAccountWindow = win;
-  win.webContents.on('did-finish-load', () => {
-    if (!win.isDestroyed()) win.webContents.send(IPC.COMPOSE_ACCOUNT_ASK, ask);
-  });
-  win.on('closed', () => {
-    if (composeAccountWindow === win) composeAccountWindow = null;
-    composePicker.settle(null);
-  });
-}
-
-function chooseComposeAccount(fields: MailtoFields, mailtoUrl: string): Promise<number | null> {
-  const authusers = profiles.filter((p) => p.ref.kind === 'authuser');
-  if (authusers.length === 0) return Promise.resolve(null);
-  if (authusers.length === 1) return Promise.resolve(authIdx(authusers[0]));
-  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(null);
-
-  const accounts: ComposeAccountChoice[] = authusers.map((p) => ({
-    index: authIdx(p),
-    email: p.email,
-    label: prefs?.getAccount(p.email).label ?? p.name ?? p.email,
-    color: p.color,
-    avatarUrl: p.avatarUrl,
-  }));
-  const ask: ComposeAccountAsk = {
-    to: fields.to,
-    subject: fields.subject,
-    accounts,
-    locale: currentLocale(),
-    reneMode: prefs?.getAll().reneMode === true,
-  };
-
-  return composePicker.ask(ask, mailtoUrl);
-}
-
-async function dispatchMailto(mailtoUrl: string): Promise<void> {
-  const fields = parseMailto(mailtoUrl);
-  if (!fields) return;
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
-  }
-  const ready = manager?.activeKey() != null && profiles.some((p) => p.ref.kind === 'authuser');
-  if (!ready) {
-    setPendingMailto(mailtoUrl);
-    return;
-  }
-  const index = await chooseComposeAccount(fields, mailtoUrl);
-  if (index == null) return;
-  openComposeWindow(index, fields);
-}
-
-function flushPendingMailto(): void {
-  if (!pendingMailto) return;
-  if (manager?.activeKey() == null) return;
-  const url = pendingMailto;
-  setPendingMailto(null);
-  void dispatchMailto(url);
 }
 
 
@@ -635,12 +542,12 @@ function createWindow(): void {
   win.on('closed', () => {
     if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
     setMainWindow(null);
-    composePicker.settle(null);
+    cancelComposeAsk();
   });
   // shouldHideOnClose turns a close into a hide unless the app is quitting, so 'closed'
   // fires only on quit; the tray toggle and the close box both end up here instead, and
   // an unanswered picker has to go with the window that its parent hid behind.
-  win.on('hide', () => composePicker.settle(null));
+  win.on('hide', () => cancelComposeAsk());
 
   win.webContents.on('before-input-event', (_e, input) => {
     handleInput(input as unknown as KeyInput);
@@ -773,11 +680,6 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
   });
   attachExternalLinkHandling(win.webContents);
   void win.loadURL(url);
-}
-
-function openComposeWindow(index: number, fields?: MailtoFields): void {
-  const title = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true).composeTitle;
-  openCompose(index, title, fields);
 }
 
 function openExternalGuarded(url: string): void {
@@ -1178,22 +1080,11 @@ function registerIpc(): void {
   // left registered by a cancelled dialog would answer the next one instead, a bug that
   // only shows up on the third mailto:.
   ipcMain.on(IPC.COMPOSE_ACCOUNT_PICK, (_e, index: number | null) => {
-    composePicker.settle(typeof index === 'number' ? index : null);
+    settleComposeAsk(typeof index === 'number' ? index : null);
   });
-  // The picker measures its own card once it has laid out, because no constant over a row
-  // count can know how a subject wraps or what the OS font metrics are. The window is
-  // still hidden at this point, so the resize is invisible and the reveal happens here.
-  ipcMain.on(IPC.COMPOSE_ACCOUNT_SIZE, (e, size: { width: number; height: number }) => {
-    const win = composeAccountWindow;
-    if (!win || win.isDestroyed() || e.sender !== win.webContents) return;
-    if (!Number.isFinite(size?.width) || !Number.isFinite(size?.height)) return;
-    const applied = resizeAndShowComposeAccountWindow(win, size.width, size.height);
-    if (DEV_URL) {
-      console.log(
-        `[picker] measured ${size.width}x${size.height} css, setContentSize ${applied.width}x${applied.height}`,
-      );
-    }
-  });
+  ipcMain.on(IPC.COMPOSE_ACCOUNT_SIZE, (e, size: { width: number; height: number }) =>
+    applyComposeAskSize(e.sender, size.width, size.height),
+  );
 }
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -1244,7 +1135,6 @@ app.whenReady().then(() => {
     reopenWindow: () => createWindow(),
     openSettingsPanel: () => openSettingsPanel(),
   });
-  setViewSurfaceHooks({ flushPendingMailto: () => flushPendingMailto() });
   setTrayHooks({
     refreshNotifyAllowed: () => refreshNotifyAllowed(),
     activateAccount: (accountKey) => activateNotification(accountKey, 'mail'),

@@ -10,6 +10,7 @@
 import { pushActive } from '../core/broadcast';
 import { keyOf, manager, prefs, profiles } from '../core/runtime';
 import { refreshNotifyAllowed } from '../notify/notify-gating';
+import { flushPendingMailto } from '../compose/mailto-controller';
 import { wantsCalendarView } from '../notify/notification-policy';
 import { WarmupTracker } from './view-warmup';
 import type { AccountRef } from '../accounts/account-ref';
@@ -17,21 +18,8 @@ import type { Profile, Surface } from './profile-view-manager';
 
 
 //===========================
-// Types
-//===========================
-
-/** The one thing this needs from above it: a mailto: that arrived before there was anything
- * to compose with waits for a view, and showing one is the moment it can go through. */
-export interface ViewSurfaceHooks {
-  flushPendingMailto(): void;
-}
-
-
-//===========================
 // Module state
 //===========================
-
-let hooks: ViewSurfaceHooks = { flushPendingMailto: () => {} };
 
 const warmup = new WarmupTracker();
 let warmupTimer: ReturnType<typeof setInterval> | null = null;
@@ -41,15 +29,11 @@ let warmupTimer: ReturnType<typeof setInterval> | null = null;
 // Exported functions
 //===========================
 
-export function setViewSurfaceHooks(h: ViewSurfaceHooks): void {
-  hooks = h;
-}
-
 export function showAccount(ref: AccountRef, surface: Surface): void {
   manager?.show(ref, surface);
   pushActive();
   refreshNotifyAllowed();
-  hooks.flushPendingMailto();
+  flushPendingMailto();
 }
 
 /** Builds a mail view off-screen so it is ready the first time it is switched to. Skipped
