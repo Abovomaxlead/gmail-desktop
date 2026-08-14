@@ -2,7 +2,8 @@
 // through the navigation link's href (`#label/<name>`), never Gmail's obfuscated
 // class names or visible text, so it is language-independent and survives a rebuild
 // of the navigation; only real labels have such an href, the inbox and sent items do
-// not.
+// not. That link covers the name alone, so the row around it is searched downwards as
+// well — a press beside the name is still a press on that label.
 //
 // There is no API for listing a label, so pages of Gmail's own list view are scraped,
 // reading the same data-legacy-thread-id subject spans as a single-thread drag. Gmail
@@ -57,7 +58,15 @@ export function labelFromHref(href: string): string | null {
 }
 
 /**
- * Walks up from the dragged element for the label link it sits in
+ * Finds the label a drag started on
+ *
+ * The link wraps the name and nothing else, while the row it sits in is the full width of
+ * the navigation: the unread count, the hover menu and the space around the name are all
+ * outside the anchor. A press there recognised no label, so the strip stayed away — and
+ * the browser was free to start its own drag of the link, which swallows the mouse moves
+ * the strip is armed by. Ancestors are therefore searched downwards too, and — as with a
+ * conversation row — a hit counts only when exactly one label is found: two mean the
+ * search climbed past the row into the navigation.
  *
  * @param el the drag's target element
  * @returns the label, or null when the drag did not start on one
@@ -65,10 +74,17 @@ export function labelFromHref(href: string): string | null {
 export function labelFromDragTarget(el: DragNode | null): string | null {
   let cur = el;
   for (let depth = 0; cur && depth < 30; depth++) {
-    const href = cur.getAttribute('href');
-    if (href) {
-      const label = labelFromHref(href);
-      if (label) return label;
+    const own = labelFromHref(cur.getAttribute('href') ?? '');
+    if (own) return own;
+    const inside = cur.querySelectorAll?.('[href]');
+    if (inside && inside.length > 0) {
+      const names = new Set<string>();
+      for (let i = 0; i < inside.length; i++) {
+        const name = labelFromHref(inside[i].getAttribute('href') ?? '');
+        if (name) names.add(name);
+      }
+      if (names.size > 1) return null;
+      if (names.size === 1) return [...names][0];
     }
     const next: DragNode | null = cur.parentElement;
     if (next === cur) break;

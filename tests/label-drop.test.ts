@@ -10,9 +10,10 @@ import {
   type LabelThread,
 } from '../electron/mail/label-drop';
 
-const node = (attrs: Record<string, string>, parent: any = null): any => ({
+const node = (attrs: Record<string, string>, parent: any = null, descendants: any[] = []): any => ({
   getAttribute: (n: string) => attrs[n] ?? null,
   parentElement: parent,
+  querySelectorAll: () => descendants,
 });
 
 describe('labelFromHref', () => {
@@ -51,6 +52,26 @@ describe('labelFromDragTarget', () => {
     const self: any = { getAttribute: () => null, parentElement: null };
     self.parentElement = self;
     expect(labelFromDragTarget(self)).toBeNull();
+  });
+
+  // A nav row is far wider than the link inside it: the unread count, the hover menu and
+  // the space around the name all sit outside the anchor, and a press there saw no label.
+  describe('a press beside the link inside the row', () => {
+    const navRow = (...labels: string[]) =>
+      node({ role: 'link' }, null, labels.map((l) => node({ href: `#label/${l}` })));
+
+    it('finds the link inside the pressed row', () => {
+      expect(labelFromDragTarget(navRow('Offertes'))).toBe('Offertes');
+    });
+    it('finds it from the unread count beside the name', () => {
+      expect(labelFromDragTarget(node({}, navRow('Offertes')))).toBe('Offertes');
+    });
+    it('refuses to guess once the search reaches the whole navigation', () => {
+      expect(labelFromDragTarget(navRow('Offertes', 'Klanten'))).toBeNull();
+    });
+    it('leaves a row of a built-in view alone', () => {
+      expect(labelFromDragTarget(node({ role: 'link' }, null, [node({ href: '#inbox' })]))).toBeNull();
+    });
   });
 });
 

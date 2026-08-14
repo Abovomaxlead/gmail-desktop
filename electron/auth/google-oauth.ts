@@ -13,6 +13,7 @@
 // connection to an account via tokeninfo — without it the relay closes with 4401.
 
 import { createHash, randomBytes } from 'node:crypto';
+import { ALLOWED_EMAIL_DOMAINS } from './account-domain';
 
 
 
@@ -74,7 +75,7 @@ export function pkce(random: (n: number) => Buffer = randomBytes): Pkce {
  * Builds the consent URL the user is sent to
  *
  * @param opts loginHint preselects an account, scopes defaults to SCOPES
- * @returns the full authorization endpoint URL
+ * @returns the full authorization endpoint URL, limited to the allowed domains
  */
 export function authUrl(opts: {
   clientId: string;
@@ -92,6 +93,10 @@ export function authUrl(opts: {
     access_type: 'offline',
     prompt: 'consent',
     include_granted_scopes: 'true',
+    // Google's half of the domain limit. The app already refuses to start consent for an
+    // address outside the work domain, but the consent page has its own account switcher,
+    // and this is what stops someone who used it from linking a private mailbox anyway.
+    hd: ALLOWED_EMAIL_DOMAINS.join(','),
   });
   if (opts.loginHint) q.set('login_hint', opts.loginHint);
   return `${AUTH_ENDPOINT}?${q.toString()}`;

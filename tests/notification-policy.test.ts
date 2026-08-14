@@ -309,23 +309,23 @@ describe('notificationsAllowed — push', () => {
 });
 
 describe('notificationPersist', () => {
-  it('persists by default (field absent)', () => {
-    expect(notificationPersist(prefs({}), 'a@x.com')).toBe(true);
+  it('fades by default (field absent)', () => {
+    expect(notificationPersist(prefs({}), 'a@x.com')).toBe(false);
   });
-  it('persists when notifyPersist is true', () => {
+  it('persists only when notifyPersist is explicitly true', () => {
     const p = prefs({ accounts: { 'a@x.com': { notifyPersist: true } } });
     expect(notificationPersist(p, 'a@x.com')).toBe(true);
   });
-  it('stops persisting only when notifyPersist is explicitly false', () => {
+  it('fades when notifyPersist is false', () => {
     const p = prefs({ accounts: { 'a@x.com': { notifyPersist: false } } });
     expect(notificationPersist(p, 'a@x.com')).toBe(false);
   });
   it('is per account', () => {
-    const p = prefs({ accounts: { 'a@x.com': { notifyPersist: false }, 'b@x.com': {} } });
-    expect(notificationPersist(p, 'a@x.com')).toBe(false);
-    expect(notificationPersist(p, 'b@x.com')).toBe(true);
+    const p = prefs({ accounts: { 'a@x.com': { notifyPersist: true }, 'b@x.com': {} } });
+    expect(notificationPersist(p, 'a@x.com')).toBe(true);
+    expect(notificationPersist(p, 'b@x.com')).toBe(false);
   });
   it('is unknown-account safe', () => {
-    expect(notificationPersist(prefs({}), 'nobody@x.com')).toBe(true);
+    expect(notificationPersist(prefs({}), 'nobody@x.com')).toBe(false);
   });
 });

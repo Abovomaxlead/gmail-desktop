@@ -181,6 +181,7 @@ import { pickNotifiedMessage, type NotifiedMail } from './notify/notify-match';
 import { mapLimit } from './core/concurrency';
 import { OAuthStore } from './auth/oauth-store';
 import { connectAccount, accessTokenFor, forceRefresh } from './auth/oauth-flow';
+import { dropDisallowedTokens, isAllowedAccount, linkableOwnEmails } from './auth/account-domain';
 import { hasScopes, type OAuthConfig } from './auth/google-oauth';
 import { parsePushConfig, type PushConfig } from './push/push-config';
 import { PushCoverage } from './push/push-coverage';
@@ -811,8 +812,17 @@ async function addAccountAfterConsent(
 ): Promise<void> {
   const email = identity.email;
   const cfg = oauthConfig();
+  // An address outside the work domain is added without ever being asked for consent. Asking
+  // and being refused would land in the branch below, which throws the view away — so a
+  // private mailbox someone signed into would not be readable here at all. It is readable;
+  // it is only never linked to the API.
   const needsConsent =
-    cfg !== null && oauthTokens !== null && !oauthTokens.get(email) && !!mainWindow && !mainWindow.isDestroyed();
+    isAllowedAccount(email) &&
+    cfg !== null &&
+    oauthTokens !== null &&
+    !oauthTokens.get(email) &&
+    !!mainWindow &&
+    !mainWindow.isDestroyed();
 
   if (needsConsent) {
     const result = await connectAccount(mainWindow!, SESSION_PARTITION, cfg!, oauthTokens!, email);
@@ -1761,7 +1771,10 @@ async function checkOAuthHealth(): Promise<void> {
   }
   if (!oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
 
-  const ownEmails = profiles.filter((p) => p.kind === 'authuser').map((p) => p.email);
+  // Out-of-domain accounts are left out rather than reported as unlinked: they cannot be
+  // linked at all, and 'unlinked' would put a Verbinden button in the panel and a row in
+  // the banner that no amount of clicking could ever resolve.
+  const ownEmails = linkableOwnEmails(profiles);
   for (const email of ownEmails) {
     const token = oauthTokens.get(email);
     if (!token) continue;
@@ -2728,6 +2741,11 @@ function createWindow(): void {
   mainWindow.on('focus', () => void pushDefaultMailStatus());
   colors = new ColorStore(join(app.getPath('userData'), 'colors.json'));
   oauthTokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
+  // A token that predates the domain limit, or one carried over from another machine. It
+  // would be invisible in the panel from here on and still be used for syncing, pushing and
+  // dropping mail, which is the one combination worse than either alone.
+  const dropped = dropDisallowedTokens(oauthTokens);
+  if (dropped.length > 0) console.warn('[oauth] unlinked, outside the allowed domain:', dropped);
   history = new HistoryStore(join(app.getPath('userData'), 'gmail-history.json'));
   removed = new RemovedStore(join(app.getPath('userData'), 'removed.json'));
   downloadHistory = new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json'));

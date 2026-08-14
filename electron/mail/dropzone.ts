@@ -128,12 +128,18 @@ const SYSTEM_VIEWS: Record<string, string> = {
  * ancestors are searched downwards too and a hit counts only when exactly one id is
  * found — two ids mean the search climbed past the row into the list.
  *
+ * A press inside an opened message is no drag at all: the reading view hangs every message
+ * under the one thread id of the conversation, so without this the strip would arm on
+ * selecting a line of text. Dragging comes from the list, and the message block sits below
+ * that thread id, so the walk meets it first.
+ *
  * @param el the element under the cursor when the press began
  * @returns the thread id, or null when the drag did not start on one row
  */
 export function threadIdFromDragTarget(el: DragNode | null): string | null {
   let cur = el;
   for (let depth = 0; cur && depth < 30; depth++) {
+    if (cur.getAttribute(MESSAGE_ID_ATTR)) return null;
     const own = cur.getAttribute('data-legacy-thread-id');
     if (own) return own;
     const inside = cur.querySelectorAll?.('[data-legacy-thread-id]');

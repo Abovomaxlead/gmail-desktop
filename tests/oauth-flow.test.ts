@@ -2,7 +2,8 @@
 // postForm, which vi.mock cannot reach, so the test fills Node's CJS cache instead.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { accessTokenFor, forceRefresh } from '../electron/auth/oauth-flow';
+import type { BrowserWindow } from 'electron';
+import { accessTokenFor, forceRefresh, connectAccount } from '../electron/auth/oauth-flow';
 import type { OAuthConfig, StoredToken } from '../electron/auth/google-oauth';
 import type { OAuthStore } from '../electron/auth/oauth-store';
 
@@ -74,6 +75,27 @@ function fakeStore(initial: Record<string, StoredToken>) {
   };
   return { store: store as unknown as OAuthStore, map, written };
 }
+
+describe('connectAccount', () => {
+  // No window is passed on purpose: reaching the consent view at all would throw on it,
+  // so returning an answer proves the address was refused before anything was opened.
+  const noWindow = null as unknown as BrowserWindow;
+
+  it('refuses an address outside the work domain before opening consent', async () => {
+    const { store, written } = fakeStore({});
+    const result = await connectAccount(noWindow, 'persist:test', cfg, store, 'luca@gmail.com', NOW);
+    expect(result.ok).toBe(false);
+    expect(result).toMatchObject({ error: expect.stringContaining('abovomaxlead.nl') });
+    expect(written).toEqual([]);
+  });
+
+  it('stores nothing for a refused address, even one it already had a token for', async () => {
+    const { store, map, written } = fakeStore({ 'luca@gmail.com': expired() });
+    await connectAccount(noWindow, 'persist:test', cfg, store, 'luca@gmail.com', NOW);
+    expect(written).toEqual([]);
+    expect(map.get('luca@gmail.com')?.accessToken).toBe('oud');
+  });
+});
 
 describe('accessTokenFor', () => {
   it('slaat het verlengde token op zolang het account gekoppeld blijft', async () => {

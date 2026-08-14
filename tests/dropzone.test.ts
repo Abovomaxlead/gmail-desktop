@@ -63,6 +63,15 @@ describe('threadIdFromDragTarget', () => {
     expect(threadIdFromDragTarget(node({}, node({})))).toBeNull();
     expect(threadIdFromDragTarget(null)).toBeNull();
   });
+  // An opened conversation hangs all of its messages under one thread id, so a press in
+  // the body would arm the strip on a gesture that is only selecting text. Dragging comes
+  // from the list.
+  it('refuses a press inside an opened conversation', () => {
+    const conversation = node({ 'data-legacy-thread-id': '18f2a' });
+    const message = node({ 'data-legacy-message-id': '19ff5f50' }, conversation);
+    expect(threadIdFromDragTarget(node({}, node({}, message)))).toBeNull();
+    expect(threadIdFromDragTarget(message)).toBeNull();
+  });
   it('ignores an empty attribute value', () => {
     expect(threadIdFromDragTarget(node({ 'data-legacy-thread-id': '' }))).toBeNull();
   });

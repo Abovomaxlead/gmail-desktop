@@ -127,8 +127,8 @@ export function notificationSilent(
   return prefs.accounts[email]?.notifySound === false;
 }
 
-// Reads `!== false` rather than `=== true` because staying is the default, and a prefs file
-// written before this existed has no opinion to honour.
+// Reads `=== true` rather than `!== false` because fading is the default: a card that has
+// to be clicked away is a chore for every mailbox at once, so it is asked for per account.
 
 /**
  * Whether an account's cards stay up until dismissed
@@ -138,7 +138,7 @@ export function notificationSilent(
  * @returns true to stay, false for a card that fades
  */
 export function notificationPersist(prefs: Prefs, email: string): boolean {
-  return prefs.accounts[email]?.notifyPersist !== false;
+  return prefs.accounts[email]?.notifyPersist === true;
 }
 
 /**

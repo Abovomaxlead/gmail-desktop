@@ -15,6 +15,7 @@ import {
   SCOPES,
   type StoredToken,
 } from '../electron/auth/google-oauth';
+import { ALLOWED_EMAIL_DOMAINS } from '../electron/auth/account-domain';
 
 const cfg = { clientId: 'client-123.apps.googleusercontent.com', clientSecret: 'GEHEIM' };
 
@@ -63,6 +64,10 @@ describe('authUrl', () => {
     );
     expect(withHint.searchParams.get('login_hint')).toBe('luca@example.com');
     expect(url().searchParams.has('login_hint')).toBe(false);
+  });
+
+  it('lets Google refuse an account outside the work domain', () => {
+    expect(url().searchParams.get('hd')).toBe(ALLOWED_EMAIL_DOMAINS.join(','));
   });
 });
 

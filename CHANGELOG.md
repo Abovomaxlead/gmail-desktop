@@ -3,6 +3,58 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.4] — 2026-08-13
+
+### Gewijzigd
+- **Alleen @abovomaxlead.nl-accounts worden aan Gmail gekoppeld.** Voeg je een
+  privé-account toe, dan komt er geen toestemmingsvenster meer: het postvak staat
+  gewoon in de zijbalk en je leest het als altijd, maar de app koppelt het niet aan
+  de Gmail-API. Er verschijnt dus ook geen Verbinden-knop en geen melding
+  rechtsonder die je vraagt iets te herstellen wat niet gekoppeld hoort te zijn.
+  Een koppeling van vóór deze versie voor zo'n account wordt bij het opstarten
+  ongedaan gemaakt.
+- **"Blijft staan" staat voortaan uit bij elk postvak.** Een melding verdwijnt
+  vanzelf na een paar tellen; blijven staan tot je hem wegklikt is iets wat je nu
+  per postvak aanzet bij Instellingen → Meldingen. Ook postvakken die de
+  schakelaar nooit hebben aangeraakt volgen de nieuwe stand.
+
+### Opgelost
+- **De sleepstrip verschijnt niet meer in een geopende mail.** De leesweergave
+  hangt al haar berichten onder één conversatie, waardoor een streep tekst
+  selecteren al gold als een sleep: de strip klapte uit en je selectie werd
+  gewist. Slepen begint weer alleen in de lijst en op een label.
+- **Een label slepen pakt nu de hele regel.** De link in de zijbalk zit alleen om
+  de naam heen, dus greep je hem net ernaast — op het aantal, op de witruimte —
+  dan zag de app geen label en bleef de strip weg; erger nog, de browser begon
+  dan zijn eigen sleep van die link, en die slikt de muisbewegingen op waarmee de
+  strip verschijnt. Vandaar dat het de eerste keer vaak misging en de tweede keer
+  wel lukte. De regel om de link telt nu mee.
+
+### Changed
+- **Only @abovomaxlead.nl accounts are linked to Gmail.** Adding a personal
+  account no longer brings up a consent screen: the mailbox sits in the sidebar and
+  reads as it always did, but the app never links it to the Gmail API. That also
+  means no Connect button and no banner in the corner asking you to repair a link
+  that was never meant to exist. A link made before this version for such an
+  account is undone at startup.
+- **"Persist" is off for every mailbox now.** A notification fades on its own
+  after a few seconds; staying up until you dismiss it is something you switch on
+  per mailbox under Settings → Notifications. Mailboxes that never touched the
+  toggle follow the new default too.
+
+### Fixed
+- **The drag strip no longer shows up inside an opened mail.** The reading view
+  hangs every message under one conversation, so selecting a line of text already
+  counted as a drag: the strip appeared and the selection was cleared. Dragging
+  starts in the list and on a label again.
+- **Dragging a label now takes the whole row.** The link in the sidebar wraps the
+  name and nothing else, so grabbing just beside it — on the count, on the empty
+  space — found no label and the strip stayed away; worse, the browser then
+  started its own drag of that link, which swallows the mouse moves the strip is
+  armed by. Hence the first attempt failing and the second one working. The row
+  around the link counts now.
+
+
 ## [0.3.1-beta.2] — 2026-08-13
 
 ### Opgelost

@@ -11,9 +11,9 @@ import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HI
 
 // Notifications: mute, quiet hours, the notification sound, and the per-account grid
 // of which notifications each account may give. The polarity per column is
-// deliberate and not sloppiness: mail, badge, sound and persist read `!== false`
-// because they are on until you turn them off, while calendar reads `=== true`
-// because it is off until you turn it on. A cell whose setting does not exist for an
+// deliberate and not sloppiness: mail, badge and sound read `!== false` because they
+// are on until you turn them off, while calendar and persist read `=== true` because
+// they are off until you turn them on. A cell whose setting does not exist for an
 // account (calendar on a delegated mailbox) stays empty, keeping the grid aligned.
 
 
@@ -445,7 +445,7 @@ function toggleColumns(S: UiStrings): ToggleColumn[] {
       header: S.persistToggle,
       name: S.persistToggleTitle,
       cell: (p, a) => ({
-        checked: a?.notifyPersist !== false,
+        checked: a?.notifyPersist === true,
         set: (v) => window.desktop?.setAccountPref({ email: p.email, notifyPersist: v }),
       }),
     },

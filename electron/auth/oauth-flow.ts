@@ -18,6 +18,7 @@ import {
   type OAuthConfig,
   type StoredToken,
 } from './google-oauth';
+import { ALLOWED_EMAIL_DOMAINS, isAllowedAccount } from './account-domain';
 import type { OAuthStore } from './oauth-store';
 
 
@@ -44,6 +45,14 @@ export async function connectAccount(
   email: string,
   now = Date.now(),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  // Before the window rather than after it: a private mailbox may be read in the Gmail
+  // view, and showing it a consent screen it is only going to be refused at suggests
+  // otherwise. Both callers — adding a detected account and the reconnect button — come
+  // through here, so this is the one place the rule has to hold.
+  if (!isAllowedAccount(email)) {
+    return { ok: false, error: `Alleen accounts van ${domainList()} kunnen gekoppeld worden` };
+  }
+
   const { verifier, challenge } = pkce();
   const consent = await consentCode(win, partition, cfg, challenge, email);
   if ('error' in consent) return { ok: false, error: consent.error };
@@ -124,6 +133,16 @@ export type { StoredToken };
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * The allowed domains as they are read out in the refusal
+ *
+ * @returns '@one.nl' or '@one.nl of @two.nl'
+ * @private
+ */
+function domainList(): string {
+  return ALLOWED_EMAIL_DOMAINS.map((d) => `@${d}`).join(' of ');
+}
 
 /**
  * Posts a urlencoded body and reads the JSON back
