@@ -34,6 +34,7 @@ import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
 import { createUpdateLog, type UpdateLogger } from './update-log';
 import { showToast } from '../toast/toast-presenter';
+import { playNotificationSound } from '../notify/notify-gating';
 
 
 //===========================
@@ -46,7 +47,6 @@ import { showToast } from '../toast/toast-presenter';
 export interface UpdateHooks {
   /** Brought to the front before a tray-started check, so its answer lands somewhere. */
   openSettingsPanel(): void;
-  playNotificationSound(): void;
   /** The status changed; whatever else draws it should redraw. */
   onStatusChanged(): void;
 }
@@ -58,7 +58,6 @@ export interface UpdateHooks {
 
 let hooks: UpdateHooks = {
   openSettingsPanel: () => {},
-  playNotificationSound: () => {},
   onStatusChanged: () => {},
 };
 
@@ -247,7 +246,7 @@ function maybeNotifyUpdate(version: string): void {
   // failed account link are the only two app toasts that arrive in silence, which reads
   // as a missed notification rather than a quiet one. The shared 1.5s throttle in
   // playNotificationSound is what keeps a burst from turning into a chord.
-  hooks.playNotificationSound();
+  if (prefs) playNotificationSound(prefs.getAll());
 }
 
 function attemptUpdateDownload(): void {

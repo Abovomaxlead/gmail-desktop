@@ -37,6 +37,15 @@ import {
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
 import {
+  hiddenNotificationText,
+  playNotificationSound,
+  refreshNotifyAllowed,
+  reportApiUnread,
+  resetSoundThrottle,
+  setNotifyGatingHooks,
+  startNotifyTimer,
+} from './notify/notify-gating';
+import {
   drainToSystem,
   repairToastStack,
   showToast,
@@ -140,7 +149,6 @@ import {
   PrefsStore,
   type AppearancePatch,
   type DownloadClickAction,
-  type Prefs,
 } from './core/prefs-store';
 import { hostOf, needsLinkConfirm, unwrapRedirect } from './system/link-guard';
 import { uniqueFileName } from './system/download-path';
@@ -217,7 +225,6 @@ import {
 import { ToastWindow } from './toast/toast-window';
 import { ToastController } from './toast/toast-controller';
 import { webNotifySourceKey, type Toast, type ToastAction } from '../renderer/lib/toast';
-import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { checkOAuthConfigFile } from './auth/oauth-config-file';
 import { chooseOAuthConfigText } from './auth/oauth-source';
@@ -952,98 +959,10 @@ function applyReneZoom(): void {
 
 
 //===========================
-// Notification gating
-//===========================
-
-const NOTIFY_HIDDEN_SENDER = 'New email';
-const NOTIFY_HIDDEN_SUBJECT = 'You have new mail.';
-let lastSoundAt = 0;
-const SOUND_GAP_MS = 1500;
-function playNotificationSound(p: Prefs): void {
-  if (p.notifications.sound === false) return;
-  const name = soundNameOrDefault(p.notifications.soundName);
-  const now = Date.now();
-  if (now - lastSoundAt < SOUND_GAP_MS) return;
-  lastSoundAt = now;
-  mainWindow?.webContents.send(IPC.NOTIFY_SOUND_PLAY, { name, volume: p.notifications.volume });
-}
-
-function hiddenNotificationText(p: Prefs): { hiddenSender?: string; hiddenSubject?: string } {
-  return {
-    ...(p.notifications.showSender === false ? { hiddenSender: NOTIFY_HIDDEN_SENDER } : {}),
-    ...(p.notifications.showSubject === false ? { hiddenSubject: NOTIFY_HIDDEN_SUBJECT } : {}),
-  };
-}
-
-let notifyTimer: ReturnType<typeof setInterval> | null = null;
-function refreshNotifyAllowed(): void {
-  if (!prefs) return;
-  let p = prefs.getAll();
-  const now = new Date();
-  if (p.notifications.dndUntil && now.getTime() >= p.notifications.dndUntil) {
-    prefs.setNotifications({ ...p.notifications, dndUntil: undefined });
-    p = prefs.getAll();
-    pushPrefs();
-    refreshTray();
-  }
-  for (const profile of profiles) {
-    for (const surface of SURFACES) {
-      const show = notificationsAllowed(p, profile.email, now, surface, coverage.has(profile.email));
-      // Only mail, and only when it changes: this runs every minute for every account and
-      // every surface, and a log that repeats the same thing sixty times an hour hides the
-      // line that matters. What matters is that a mail view told to keep quiet raises
-      // nothing at all, which from the outside is indistinguishable from mail not arriving.
-      if (surface === 'mail' && notifyAllowedLast.get(profile.email) !== show) {
-        notifyAllowedLast.set(profile.email, show);
-        notifyLog(
-          `[notify] mail view for ${profile.email} may notify: ${show}` +
-            (show ? '' : ` (dnd=${p.notifications.dnd} quiet=${p.notifications.quietHours.enabled} account=${p.accounts[profile.email]?.notify !== false} push=${coverage.has(profile.email)})`),
-        );
-      }
-      manager?.pushNotifyAllowed(keyOf(profile), surface, {
-        show,
-        silent: notificationSilent(p, profile.email, surface),
-      });
-    }
-  }
-}
-
-/** What each mail view was last told, so the line above is written on a change and not on
- * every tick of the minute timer. */
-const notifyAllowedLast = new Map<string, boolean>();
-
-/** The inbox count as the API counts it, used only for an account the relay delivers for.
- *
- * The gate looks like a leftover — push covers no account while RELAY_PUSH_ENABLED is false,
- * so this count is fetched every five minutes and dropped every time — and it stays, because
- * the two sources do not count the same mailbox. labels/INBOX/threadsUnread counts every
- * unread conversation in the inbox; the page title counts the tab Gmail is showing, which
- * with categories on is Primary alone. Letting both write would swap the badge between two
- * numbers every five minutes. The title is the one that matches what Gmail itself puts on
- * screen, so it stays the source, and preload.ts is where it was made to read the inbox
- * rather than whatever label is open. */
-function reportApiUnread(email: string, count: number | null): void {
-  if (count === null) return;
-  if (!coverage.has(email)) return;
-  const profile = profiles.find((p) => p.email === email);
-  if (!profile) return;
-  unread.report(keyOf(profile), count);
-  pushUnread();
-  refreshBadge();
-}
-
-function startNotifyTimer(): void {
-  if (notifyTimer) return;
-  notifyTimer = setInterval(refreshNotifyAllowed, 60_000);
-}
-
-const warmup = new WarmupTracker();
-
-
-//===========================
 // View warm-up
 //===========================
 
+const warmup = new WarmupTracker();
 let warmupTimer: ReturnType<typeof setInterval> | null = null;
 
 function warmAccount(profile: Profile): void {
@@ -2716,7 +2635,7 @@ function showTestNotification(): void {
   });
   // A deliberate test should always be heard, so the throttle is reset first. Whether it
   // may sound at all is playNotificationSound's decision, not this one's.
-  lastSoundAt = 0;
+  resetSoundThrottle();
   playNotificationSound(p);
 }
 
@@ -3606,11 +3525,9 @@ app.whenReady().then(() => {
   setOnProfilesPushed(() => scheduleOAuthHealthCheck());
   setUpdateHooks({
     openSettingsPanel: () => openSettingsPanel(),
-    playNotificationSound: () => {
-      if (prefs) playNotificationSound(prefs.getAll());
-    },
     onStatusChanged: () => refreshTray(),
   });
+  setNotifyGatingHooks({ onDndCleared: () => refreshTray() });
   setTrayHooks({
     refreshNotifyAllowed: () => refreshNotifyAllowed(),
     activateAccount: (accountKey) => activateNotification(accountKey, 'mail'),
