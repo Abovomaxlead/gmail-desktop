@@ -17,7 +17,7 @@
 // unread source at a time (labels.get under push, page title otherwise) or the number
 // oscillates; and reveal/open accept only paths already in the download log.
 
-import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, Notification, nativeTheme } from 'electron';
+import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, nativeTheme } from 'electron';
 import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
@@ -36,6 +36,12 @@ import {
   RENDERER_DIST,
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
+import {
+  drainToSystem,
+  repairToastStack,
+  showToast,
+  toastAccountFor,
+} from './toast/toast-presenter';
 import {
   applyTraySetting,
   refreshTray,
@@ -209,8 +215,8 @@ import {
   resizeAndShowComposeAccountWindow,
 } from './compose/compose-account-window';
 import { ToastWindow } from './toast/toast-window';
-import { ToastController, type ToastInput } from './toast/toast-controller';
-import { webNotifySourceKey, type Toast, type ToastAccount, type ToastAction } from '../renderer/lib/toast';
+import { ToastController } from './toast/toast-controller';
+import { webNotifySourceKey, type Toast, type ToastAction } from '../renderer/lib/toast';
 import { soundNameOrDefault } from '../renderer/lib/notification-sound';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { checkOAuthConfigFile } from './auth/oauth-config-file';
@@ -2049,100 +2055,6 @@ function activateNotification(
   else if (subject) manager?.openMailSearch(accountKey, subject);
 }
 
-// The account fields a card needs, resolved once at show time. A toast keeps the colour
-// and avatar it was raised with rather than a reference to a profile that may be removed
-// while the card is still on screen.
-function toastAccountFor(email: string): ToastAccount | undefined {
-  const profile = profiles.find((p) => p.email === email);
-  if (!profile) return undefined;
-  return {
-    key: keyOf(profile),
-    email: profile.email,
-    label: prefs?.getAccount(email).label ?? profile.name ?? email,
-    color: profile.color,
-    avatarUrl: profile.avatarUrl,
-  };
-}
-
-// The one place a toast is raised, and the one place that decides where it goes.
-//
-// The app's own stack first, always: it carries the account, honours every setting, and
-// opens the mail when clicked. A stack that cannot paint is repaired rather than routed
-// around — thrown away and built again, which is the only thing that has ever fixed it.
-//
-// The Windows shelf is what is left when that fails, and it is a poor stand-in: no
-// account, no settings, dead on click. It was taken out entirely, and that was a step too
-// far — a stack that could not paint then meant no notification at all, which is the one
-// outcome worse than a poor one. So it is back, but only after the repair has been tried
-// and refused, and it says so in the log: a system notification now means the stack is
-// broken, and the lines above it in notify.log say why.
-//
-// A null controller happens twice in the app's life, before createWindow and after the
-// main window closes; there is no stack to put a card in then and nothing to repair.
-function showToast(input: ToastInput): void {
-  if (!toasts) {
-    notifyLog(`[toast] no stack at all to show "${input.title}" in — falling back to Windows`);
-    systemNotify(input.title, input.body);
-    return;
-  }
-  if (toastWindow?.isBroken() && !repairToastStack()) {
-    notifyLog(`[toast] stack cannot be repaired — "${input.title}" goes to Windows instead`);
-    systemNotify(input.title, input.body);
-    return;
-  }
-  notifyLog(`[toast] stack draws "${input.title}"`);
-  toasts.show(input);
-}
-
-// The stand-in itself. Guarded rather than trusted, because the whole reason it is here is
-// that a notification must not be lost, and an unguarded throw would lose it just as
-// thoroughly as the stack that failed.
-function systemNotify(title: string, body: string): void {
-  try {
-    if (!Notification.isSupported()) return;
-    new Notification({ title, body }).show();
-  } catch (e) {
-    notifyLog(`[toast] even the system notification failed: ${String(e)}`);
-  }
-}
-
-// Called on the way into broken as well as before a raise, because the two cover different
-// cards: the cards already in the stack when the page died are past showToast's fork and
-// nothing would ever look at them again, and a rebuild alone would not redraw them. The
-// window bounds the attempts itself — a page that is broken for a reason rebuilding it
-// cannot fix must not turn every notification into a new window — and refresh() is what
-// puts the queued stack in front of the window that comes back.
-function repairToastStack(): boolean {
-  if (!toastWindow?.rebuild()) return false;
-  toasts?.refresh();
-  return true;
-}
-
-// The end of the line for a stack that has given up.
-//
-// showToast's fork only ever redirects the *next* notification. The cards already in the
-// controller when the page died are past it — they were accepted while the window still
-// looked healthy, they are what the rebuild was trying to save, and once the attempts are
-// spent nothing would ever look at them again. That is the silence this exists to break:
-// mail arrived, the log said the stack drew it, and nothing was on screen. The controller
-// hands the stack over and empties itself in one call, so a second attempt finds nothing
-// and nothing is raised twice.
-//
-// A summary has no cards left to raise — each one was released as it was folded into the
-// count — so what leaves is the count itself.
-function drainToSystem(): void {
-  const held = toasts?.drain();
-  if (!held) return;
-  for (const toast of held.toasts) {
-    notifyLog(`[toast] draining "${toast.title}" to Windows — the stack cannot paint`);
-    systemNotify(toast.title, toast.body);
-  }
-  if (!held.summary) return;
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  notifyLog(`[toast] draining a summary of ${held.summary.count} to Windows`);
-  systemNotify(app.getName(), L.collapsedNotifications(held.summary.count));
-}
-
 // What a card was holding while it was on screen, released when it leaves by any route
 // other than a click. A click consumes them itself, in activateToast; nothing consumed
 // them on the other four routes, so a dismissed relayed card left an entry in
@@ -3694,7 +3606,6 @@ app.whenReady().then(() => {
   setOnProfilesPushed(() => scheduleOAuthHealthCheck());
   setUpdateHooks({
     openSettingsPanel: () => openSettingsPanel(),
-    showToast: (input) => showToast(input),
     playNotificationSound: () => {
       if (prefs) playNotificationSound(prefs.getAll());
     },

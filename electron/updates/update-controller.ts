@@ -33,20 +33,19 @@ import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
 import { createUpdateLog, type UpdateLogger } from './update-log';
-import type { ToastInput } from '../toast/toast-controller';
+import { showToast } from '../toast/toast-presenter';
 
 
 //===========================
 // Types
 //===========================
 
-/** What this module needs from layers that sit above it. Injected rather than imported: the
- * tray draws the update state and the toast stack shows it, and both already reach for the
- * functions here. */
+/** What this module needs from layers that sit above it. Injected rather than imported
+ * because each of these already reaches down for the functions here — the tray menu offers
+ * check, download and install, and the settings panel is where a check reports back. */
 export interface UpdateHooks {
   /** Brought to the front before a tray-started check, so its answer lands somewhere. */
   openSettingsPanel(): void;
-  showToast(input: ToastInput): void;
   playNotificationSound(): void;
   /** The status changed; whatever else draws it should redraw. */
   onStatusChanged(): void;
@@ -59,7 +58,6 @@ export interface UpdateHooks {
 
 let hooks: UpdateHooks = {
   openSettingsPanel: () => {},
-  showToast: () => {},
   playNotificationSound: () => {},
   onStatusChanged: () => {},
 };
@@ -239,7 +237,7 @@ function maybeNotifyUpdate(version: string): void {
     return;
   notifiedUpdateVersion = version;
   const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  hooks.showToast({
+  showToast({
     kind: 'update',
     title: L.updateAvailableTitle,
     body: L.updateAvailableBody(version),
