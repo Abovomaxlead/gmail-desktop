@@ -82,6 +82,8 @@ export class ProfileViewManager {
   private notifClickUntil = new Map<string, number>();
   private warming = new Set<string>();
   private popoutExpectUntil = new Map<string, number>();
+  /** View keys already told they get no dropzone, so the view's retries log one line, not ten. */
+  private dropRefused = new Set<string>();
 
   constructor(
     private readonly win: BrowserWindow,
@@ -108,6 +110,23 @@ export class ProfileViewManager {
      * for the warm-up and the hidden scratch view too: both attach a real child and both
      * bury an open overlay exactly as thoroughly as a visible one does. */
     private readonly onViewAttached: () => void = () => {},
+    /**
+     * Whether this account's mail view may offer drag-to-save. Asked by the view before it
+     * builds its dropzone, so the answer decides whether a strip exists there at all.
+     *
+     * Three answers, and the third is the one that matters: `null` means the address behind
+     * this view is not known yet. A view exists before its account is registered — detection
+     * shows account 0 first and registers it after (`runtime.ts:233`) — so the first ask can
+     * arrive before anyone can say which mailbox it is. Answering `false` there took the
+     * dropzone away from every mailbox including the work ones; answering `true` would put
+     * one in a private mailbox for as long as the gap lasts. So it stays unanswered and the
+     * view asks again.
+     *
+     * A hook rather than the rule itself: which mailboxes qualify is a question about the
+     * work domain, and this class knows about views. Defaults to permitting, which is what
+     * every caller that has no opinion (the tests) means by not passing one.
+     */
+    private readonly mayDragToSave: (accountKey: string) => boolean | null = () => true,
   ) {
     this.win.on('resize', () => this.relayout());
   }
@@ -160,6 +179,20 @@ export class ProfileViewManager {
         if (channel === IPC.UNREAD_UPDATE) this.onUnread(acctKey, Number(args[0]) || 0);
         else if (channel === IPC.ACCOUNT_IDENTITY) this.onIdentity(acctKey, args[0]);
         else if (channel === IPC.MAIL_DROP) this.onMailDrop(acctKey, args[0] as MailDropPayload);
+        else if (channel === IPC.MAIL_DROP_ALLOWED_GET) {
+          const allowed = this.mayDragToSave(acctKey);
+          // Unknown stays unanswered: the view keeps asking until someone can say. Silence is
+          // the safe half of that — no answer builds no strip.
+          if (allowed === null) return;
+          // Only the refusal is logged, and only the first one per view: a strip that is
+          // absent looks exactly like one that failed to load, and this is the line that
+          // tells them apart. The retries would otherwise repeat it every couple of seconds.
+          if (!allowed && !this.dropRefused.has(k)) {
+            this.dropRefused.add(k);
+            console.log(`[maildrop] geen dropzone voor ${acctKey}: buiten het werkdomein`);
+          }
+          view.webContents.send(IPC.MAIL_DROP_ALLOWED, allowed);
+        }
       }
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
         // Diagnostic, sent by the WEB_NOTIFY_CLICK handler in preload.ts and logged here

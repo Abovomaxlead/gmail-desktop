@@ -20,6 +20,10 @@ export const IPC = {
   NOTIFICATION_ACTIVATE: 'notification:activate',
   ACCOUNT_IDENTITY: 'account:identity',
   MAIL_DROP: 'mail:drop',
+  /** Asked by a mail view before it installs the dropzone, answered on MAIL_DROP_ALLOWED.
+   * A question rather than a push, so the answer cannot arrive before the view is listening
+   * for it — a strip that never appears is the failure this has to not have. */
+  MAIL_DROP_ALLOWED_GET: 'maildrop:allowed-get',
   SWITCH_SURFACE: 'switch:surface',
   REDETECT: 'accounts:redetect',
   ADD_ACCOUNT: 'accounts:add',
@@ -82,6 +86,8 @@ export const IPC = {
   PREFS_CHANGED: 'prefs:changed',
   MAIL_DEFAULT_STATUS: 'mail:default-status',
   NOTIFY_ALLOWED: 'notify:allowed',
+  /** Whether this mail view may offer drag-to-save at all. Answers MAIL_DROP_ALLOWED_GET. */
+  MAIL_DROP_ALLOWED: 'maildrop:allowed',
   MAIL_DROP_RESULT: 'mail:drop-result',
   MAIL_DROP_PREVIEW: 'maildrop:preview',
   MAIL_DROP_PREVIEW_CLOSE: 'maildrop:preview-close',

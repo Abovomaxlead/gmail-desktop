@@ -607,11 +607,38 @@ if (typeof document !== 'undefined') {
     setInterval(report, 5000);
 
     if (location.hostname === 'mail.google.com') {
-      const showResult = installDropzone(
-        (p) => ipcRenderer.send(IPC.MAIL_DROP, p),
-        (message) => ipcRenderer.send(IPC.VIEW_LOG, message),
-      );
-      ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e: unknown, r: MailDropResult) => showResult(r));
+      // Whether this mailbox may hand mail to the app at all is main's answer, and the strip
+      // is not built until it says yes. A mailbox outside the work domain has no business
+      // offering one: what it would file is private mail, into a mailbox the whole
+      // restriction exists to keep private mail out of. Refusing the drop afterwards would
+      // be too late — by then a strip has invited the gesture and the mail is on disk.
+      //
+      // Asked rather than waited for, so the answer cannot have been sent before this
+      // listener existed. And asked again while it goes unanswered: this page exists before
+      // its account is registered, and until then nobody can say which mailbox it is. Main
+      // stays silent for that, so the retry is what turns "not yet" into an answer once the
+      // address is known. No answer at all leaves no strip, which is the safe outcome.
+      let answered = false;
+      ipcRenderer.on(IPC.MAIL_DROP_ALLOWED, (_e: unknown, allowed: boolean) => {
+        if (answered) return;
+        answered = true;
+        if (!allowed) return;
+        const showResult = installDropzone(
+          (p) => ipcRenderer.send(IPC.MAIL_DROP, p),
+          (message) => ipcRenderer.send(IPC.VIEW_LOG, message),
+        );
+        ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e2: unknown, r: MailDropResult) => showResult(r));
+      });
+      // Bounded: an account that is still nameless after this long is not going to be named,
+      // and asking forever would be a timer per view for the life of the app.
+      let asks = 0;
+      const ask = (): void => {
+        if (answered || asks >= 15) return;
+        asks += 1;
+        ipcRenderer.send(IPC.MAIL_DROP_ALLOWED_GET);
+        setTimeout(ask, 1000);
+      };
+      ask();
     }
 
     let identityTries = 0;

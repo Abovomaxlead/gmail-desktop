@@ -18,6 +18,8 @@ import type { AccountRef } from '../renderer/lib/account-ref';
 const { FakeWebContentsView } = vi.hoisted(() => {
   class FakeWebContents {
     private handlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    /** What main pushed into the page, in order. */
+    sent: Array<{ channel: string; args: unknown[] }> = [];
     on(event: string, cb: (...args: unknown[]) => void) {
       const list = this.handlers.get(event) ?? [];
       list.push(cb);
@@ -26,6 +28,13 @@ const { FakeWebContentsView } = vi.hoisted(() => {
     }
     once(event: string, cb: (...args: unknown[]) => void) {
       return this.on(event, cb);
+    }
+    /** Drives what the real WebContents raises, so a test can act as the page. */
+    emit(event: string, ...args: unknown[]): void {
+      for (const cb of this.handlers.get(event) ?? []) cb(...args);
+    }
+    send(channel: string, ...args: unknown[]): void {
+      this.sent.push({ channel, args });
     }
     setWindowOpenHandler(): void {}
     loadURL(): Promise<void> {
@@ -72,7 +81,7 @@ function fakeWin() {
   };
 }
 
-function manager(win: ReturnType<typeof fakeWin>) {
+function manager(win: ReturnType<typeof fakeWin>, mayDragToSave?: (accountKey: string) => boolean | null) {
   return new ProfileViewManager(
     win as never,
     'preload.js',
@@ -83,6 +92,10 @@ function manager(win: ReturnType<typeof fakeWin>) {
     () => 0,
     () => false,
     () => 'app',
+    () => 1,
+    () => {},
+    () => {},
+    mayDragToSave,
   );
 }
 
@@ -132,5 +145,65 @@ describe('ProfileViewManager funnel guard', () => {
     const m = manager(win);
     m.show(owned, 'mail');
     expect(m.isShowing(accountKey(owned), 'mail')).toBe(true);
+  });
+});
+
+// The dropzone is the way work mail is filed, so a mailbox outside the work domain must not
+// be offered one: what it would file is private mail, into a mailbox the restriction exists
+// to keep private mail out of. The view asks before it builds the strip, and the answer has
+// to reach it — an answer that never arrives leaves no strip, which is the safe side, but a
+// wrong `true` would put one in a private mailbox.
+describe('who may offer drag-to-save', () => {
+  const askFrom = (win: ReturnType<typeof fakeWin>, m: ReturnType<typeof manager>) => {
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void; sent: Array<{ channel: string; args: unknown[] }> };
+    };
+    view.webContents.emit('ipc-message', {}, 'maildrop:allowed-get');
+    return view.webContents.sent.filter((s) => s.channel === 'maildrop:allowed');
+  };
+
+  it('answers a work mailbox with yes', () => {
+    const win = fakeWin();
+    expect(askFrom(win, manager(win, () => true))).toEqual([{ channel: 'maildrop:allowed', args: [true] }]);
+  });
+
+  it('answers a mailbox outside the work domain with no', () => {
+    const win = fakeWin();
+    expect(askFrom(win, manager(win, () => false))).toEqual([{ channel: 'maildrop:allowed', args: [false] }]);
+  });
+
+  // Not passing the hook is what every caller with no opinion does, and it must not turn into
+  // a silent refusal: that would take drag-to-save away from everyone at once.
+  it('permits when no rule was wired', () => {
+    const win = fakeWin();
+    expect(askFrom(win, manager(win))).toEqual([{ channel: 'maildrop:allowed', args: [true] }]);
+  });
+
+  // The case that broke it the first time. A view is built before its account is registered,
+  // so the first ask lands while nobody can name the mailbox. Answering that with false took
+  // the dropzone away from the work mailboxes too, and answering true would hand one to a
+  // private mailbox for the length of the gap. Neither: say nothing, and be asked again.
+  it('says nothing while the mailbox behind the view is unknown', () => {
+    const win = fakeWin();
+    expect(askFrom(win, manager(win, () => null))).toEqual([]);
+  });
+
+  it('answers once the address arrives, having said nothing before', () => {
+    const win = fakeWin();
+    let email: string | null = null;
+    const m = manager(win, () => (email === null ? null : email.endsWith('@work.nl')));
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void; sent: Array<{ channel: string; args: unknown[] }> };
+    };
+    const sent = () => view.webContents.sent.filter((s) => s.channel === 'maildrop:allowed');
+
+    view.webContents.emit('ipc-message', {}, 'maildrop:allowed-get');
+    expect(sent()).toEqual([]);
+
+    email = 'someone@work.nl';
+    view.webContents.emit('ipc-message', {}, 'maildrop:allowed-get');
+    expect(sent()).toEqual([{ channel: 'maildrop:allowed', args: [true] }]);
   });
 });

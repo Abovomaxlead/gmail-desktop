@@ -82,7 +82,7 @@ import { RemovedStore } from '../accounts/removed-store';
 import { AccountCacheStore, rememberedOrder } from '../accounts/account-cache';
 import { DelegatedStore } from '../delegation/delegated-store';
 import { OAuthStore } from '../auth/oauth-store';
-import { dropDisallowedTokens } from '../auth/account-domain';
+import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
 import { DownloadHistoryStore } from '../system/download-history';
 import { shouldHideOnClose } from '../menus/tray-controller';
@@ -214,6 +214,16 @@ export function createWindow(): void {
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
     () => raiseOverlays(),
+    // The fifth caller of the one domain rule, and the earliest: the copy targets decide where
+    // a mail may land, this decides whether it may be picked up at all.
+    //
+    // No profile yet is null, not false. A view is built before its account is registered, so
+    // this is asked about mailboxes nobody can name yet, and calling those refused took the
+    // dropzone away from the work mailboxes too. The view asks again until there is an answer.
+    (acctKey) => {
+      const email = profiles.find((p) => keyOf(p) === acctKey)?.email;
+      return email ? isAllowedAccount(email) : null;
+    },
   );
   setManager(views);
 
