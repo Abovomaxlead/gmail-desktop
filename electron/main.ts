@@ -27,15 +27,84 @@ import { parseChangelog, type ChangelogVersion } from './updates/changelog';
 import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
 import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountCountVisible } from '../renderer/lib/badge-visibility';
-import { accountKey, parseAccountKey, type AccountRef } from './accounts/account-ref';
-import { resolveLocale, type LanguagePref, type Locale } from './core/locale';
+import { accountKey, type AccountRef } from './accounts/account-ref';
+import { type LanguagePref } from './core/locale';
 import { DelegatedStore, type StoredDelegate } from './delegation/delegated-store';
+import { AccountCacheStore, seedable, rememberedOrder } from './accounts/account-cache';
 import {
-  AccountCacheStore,
-  seedable,
-  rememberedOrder,
-  type CachedAccount,
-} from './accounts/account-cache';
+  CHANGELOG_PATH,
+  DEV_URL,
+  ICON_PATH,
+  OAUTH_CONFIG_PATH,
+  PRELOAD_PATH,
+  RENDERER_DIST,
+  SIDEBAR_PRELOAD_PATH,
+} from './core/paths';
+import {
+  SESSION_PARTITION,
+  accountCache,
+  accountCacheLoaded,
+  authIdx,
+  authRef,
+  cachedAccounts,
+  colorForEmail,
+  colors,
+  coverage,
+  currentLocale,
+  delegated,
+  detectionStarted,
+  downloadHistory,
+  dropOverlay,
+  history,
+  idxOfKey,
+  isQuitting,
+  keyOf,
+  keyOfIndex,
+  lastUpdateStatus,
+  mainWindow,
+  manager,
+  oauthStatuses,
+  oauthTokens,
+  pendingMailto,
+  prefs,
+  profiles,
+  pushManager,
+  raiseOverlays,
+  reconnectAccounts,
+  reconnectBanner,
+  removed,
+  seedOrder,
+  setAccountCache,
+  setAccountCacheLoaded,
+  setCachedAccounts,
+  setColors,
+  setDelegated,
+  setDetectionStarted,
+  setDownloadHistory,
+  setDropOverlay,
+  setHistory,
+  setIsQuitting,
+  setLastUpdateStatus,
+  setMainWindow,
+  setManager,
+  setOauthStatuses,
+  setOauthTokens,
+  setPendingMailto,
+  setPrefs,
+  setPushManager,
+  setReconnectAccounts,
+  setReconnectBanner,
+  setRemoved,
+  setSeedOrder,
+  setSettingsPanelOpen,
+  setToastWindow,
+  setToasts,
+  settingsPanelOpen,
+  syncRunners,
+  toastWindow,
+  toasts,
+  unread,
+} from './core/runtime';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation/delegation';
 import { canRunDelegatedApiScan } from './delegation/delegated-discovery-gate';
 import { ColorStore } from './accounts/color-store';
@@ -57,7 +126,6 @@ import { popupNativeMenu } from './menus/native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import { nativeLabels } from './menus/native-labels';
 import { applyBadge } from './unread/badge-controller';
-import { UnreadStore } from './unread/unread-store';
 import { shouldNotifyUpdate } from './updates/update-notifier';
 import {
   IPC,
@@ -184,7 +252,6 @@ import { connectAccount, accessTokenFor, forceRefresh } from './auth/oauth-flow'
 import { dropDisallowedTokens, isAllowedAccount, linkableOwnEmails } from './auth/account-domain';
 import { hasScopes, type OAuthConfig } from './auth/google-oauth';
 import { parsePushConfig, type PushConfig } from './push/push-config';
-import { PushCoverage } from './push/push-coverage';
 import { HistoryStore } from './gmail/history-store';
 import { startPushManager } from './push/push-manager';
 import { createSyncRunner } from './push/push-sync';
@@ -218,15 +285,6 @@ try {
 const MIN_WINDOW_WIDTH = 800;
 const MIN_WINDOW_HEIGHT = 600;
 
-const RENDERER_DIST = join(__dirname, '..', 'renderer', 'out');
-const CHANGELOG_PATH = join(__dirname, '..', 'CHANGELOG.md');
-
-const PRELOAD_PATH = join(__dirname, 'preload.js');
-const SIDEBAR_PRELOAD_PATH = join(__dirname, 'sidebar-preload.js');
-const ICON_PATH = join(app.getAppPath(), 'assets', 'icon.png');
-const DEV_URL = process.env.ELECTRON_RENDERER_URL;
-const OAUTH_CONFIG_PATH = join(app.getPath('userData'), 'google-oauth.json');
-
 // how long an account probe waits for the page to say who it belongs to
 const PROBE_TIMEOUT_MS = 16000;
 
@@ -249,16 +307,7 @@ function loadChangelog(): ChangelogVersion[] {
 // Module state
 //===========================
 
-let mainWindow: BrowserWindow | null = null;
-let manager: ProfileViewManager | null = null;
-let colors: ColorStore | null = null;
-let removed: RemovedStore | null = null;
-let delegated: DelegatedStore | null = null;
-let prefs: PrefsStore | null = null;
 let tray: Tray | null = null;
-let isQuitting = false;
-let settingsPanelOpen = false;
-let dropOverlay: OverlayView | null = null;
 let lastDropPreview: MailDropPreviewItem[] = [];
 interface SavedRef {
   file: string;
@@ -270,42 +319,14 @@ interface SavedRef {
 }
 let lastDropSaved: SavedRef[] = [];
 let lastDropSource = '';
-let oauthTokens: OAuthStore | null = null;
-let history: HistoryStore | null = null;
-let downloadHistory: DownloadHistoryStore | null = null;
-const coverage = new PushCoverage();
-let pushManager: { stop(): void; refresh(): void } | null = null;
-const syncRunners = new Map<string, { run(): Promise<void> }>();
-let reconnectBanner: OverlayView | null = null;
-let reconnectAccounts: ReconnectAccount[] = [];
-// The last statuses the health check computed, for a settings panel that opens between
-// two checks. Set in the same pass as the banner's list so the two cannot describe
-// different moments. A removed account lingers here until the next check, which is
-// harmless: the panel matches these against the profiles it has and an entry no profile
-// claims is never drawn.
-let oauthStatuses: AccountOAuthStatus[] = [];
-// Every overlay that has to stay above the Gmail layer, raised together whenever the
-// manager attaches a view — which appends and therefore covers whatever was there.
-// Closed overlays ignore the call, so this needs no bookkeeping about which is up.
-function raiseOverlays(): void {
-  dropOverlay?.raise();
-  reconnectBanner?.raise();
-}
-let toasts: ToastController | null = null;
-// Kept beside the controller because two callers need the window itself and not the stack
-// it holds: showToast has to ask whether it still works, and the Rene toggle has to push a
-// new zoom factor into it.
-let toastWindow: ToastWindow | null = null;
 let updateRequested = false;
 let downloadAttempt = 0;
 let downloadInFlight = false;
 let downloadRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let updateLog: UpdateLogger | null = null;
 let pendingTrayUpdateCheck = false;
-let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 let notifiedUpdateVersion: string | null = null;
 let lastCheckBackground = false;
-let pendingMailto: string | null = null;
 let composeAccountWindow: BrowserWindow | null = null;
 const composePicker = new ComposePicker<ComposeAccountAsk, string>({
   open: (ask) => showComposeAccountWindow(ask),
@@ -313,19 +334,10 @@ const composePicker = new ComposePicker<ComposeAccountAsk, string>({
   redispatch: (url) => void dispatchMailto(url),
 });
 
-const SESSION_PARTITION = 'persist:google';
-
-const profiles: Profile[] = [];
 const seenEmails = new Set<string>();
-const unread = new UnreadStore();
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
 let probingIndex: number | null = null;
 let visibleProbe: number | null = null;
-let detectionStarted = false;
-let cachedAccounts: CachedAccount[] = [];
-let accountCache: AccountCacheStore | null = null;
-let accountCacheLoaded = false;
-let seedOrder = new Map<string, number>();
 const SEED_KEY_PREFIX = 'seed:';
 const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
@@ -344,26 +356,6 @@ function registerAppProtocol(): void {
     const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
     return net.fetch(pathToFileURL(join(RENDERER_DIST, rel)).toString());
   });
-}
-
-
-//===========================
-// Accounts and profiles
-//===========================
-
-const authRef = (index: number): AccountRef => ({ kind: 'authuser', index });
-const keyOf = (p: Profile): string => accountKey(p.ref);
-const keyOfIndex = (index: number): string => accountKey(authRef(index));
-const authIdx = (p: Profile): number => (p.ref.kind === 'authuser' ? p.ref.index : -1);
-const idxOfKey = (key: string): number | null => {
-  const parsed = parseAccountKey(key);
-  return parsed.kind === 'authuser' ? parsed.index : null;
-};
-
-function colorForEmail(email: string): string {
-  let h = 0;
-  for (let i = 0; i < email.length; i++) h = (h * 31 + email.charCodeAt(i)) | 0;
-  return colorForIndex(Math.abs(h));
 }
 
 
@@ -672,7 +664,7 @@ function saveAccountCache(rows: TabRow[]): void {
 }
 function settleDetection(): void {
   probingIndex = null;
-  cachedAccounts = [];
+  setCachedAccounts([]);
   pushProfiles();
   maybeStartDelegatedApiScan();
 }
@@ -695,12 +687,8 @@ function refreshBadge(): void {
     if (process.platform === 'win32') mainWindow?.setOverlayIcon(null, '');
   });
 }
-// One place decides the language, so the panel, the context menu and the native dialogs
-// cannot disagree. The resolved locale rides along with the prefs push rather than
-// being worked out again in the renderer.
-function currentLocale(): Locale {
-  return resolveLocale(prefs?.getAll().language ?? 'system', app.getLocale());
-}
+// The resolved locale rides along with the prefs push rather than being worked out again
+// in the renderer.
 function pushPrefs(): void {
   if (prefs) mainWindow?.webContents.send(IPC.PREFS_CHANGED, { ...prefs.getAll(), locale: currentLocale() });
 }
@@ -999,7 +987,7 @@ async function dispatchMailto(mailtoUrl: string): Promise<void> {
   }
   const ready = manager?.activeKey() != null && profiles.some((p) => p.ref.kind === 'authuser');
   if (!ready) {
-    pendingMailto = mailtoUrl;
+    setPendingMailto(mailtoUrl);
     return;
   }
   const index = await chooseComposeAccount(fields, mailtoUrl);
@@ -1011,7 +999,7 @@ function flushPendingMailto(): void {
   if (!pendingMailto) return;
   if (manager?.activeKey() == null) return;
   const url = pendingMailto;
-  pendingMailto = null;
+  setPendingMailto(null);
   void dispatchMailto(url);
 }
 
@@ -1491,16 +1479,17 @@ function scanKey(targets: MailDropCopyTarget[]): string {
 
 function openDropPreview(items: MailDropPreviewItem[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (!dropOverlay) {
-    dropOverlay = new OverlayView(
+  const overlay =
+    dropOverlay ??
+    new OverlayView(
       mainWindow,
       SIDEBAR_PRELOAD_PATH,
       DEV_URL ? `${DEV_URL}/maildrop` : 'app://bundle/maildrop.html',
       IPC.MAIL_DROP_PREVIEW,
     );
-  }
+  setDropOverlay(overlay);
   lastDropPreview = items;
-  dropOverlay.open({ items });
+  overlay.open({ items });
 }
 
 
@@ -1765,7 +1754,7 @@ async function checkOAuthHealth(): Promise<void> {
   // identical to a healthy one, which is how an install with no consent screen, no status
   // and no banner reached someone who then had to ask why.
   if (!cfg) {
-    oauthStatuses = [];
+    setOauthStatuses([]);
     pushOAuthStatus();
     return;
   }
@@ -1801,7 +1790,7 @@ async function checkOAuthHealth(): Promise<void> {
     },
     pushRefused: (e: string) => pushRefusals.has(e),
   };
-  oauthStatuses = accountOAuthStatuses(health);
+  setOauthStatuses(accountOAuthStatuses(health));
   pushOAuthStatus();
   showReconnectBanner(accountsNeedingReconnect(health));
 }
@@ -1810,21 +1799,22 @@ function showReconnectBanner(accounts: ReconnectAccount[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (accounts.length === 0) {
     reconnectBanner?.close();
-    reconnectAccounts = [];
+    setReconnectAccounts([]);
     return;
   }
-  reconnectAccounts = accounts;
-  if (!reconnectBanner) {
-    reconnectBanner = new OverlayView(
+  setReconnectAccounts(accounts);
+  const banner =
+    reconnectBanner ??
+    new OverlayView(
       mainWindow,
       SIDEBAR_PRELOAD_PATH,
       DEV_URL ? `${DEV_URL}/reconnect` : 'app://bundle/reconnect.html',
       IPC.OAUTH_RECONNECT_LIST,
       bannerBounds,
     );
-  }
-  if (reconnectBanner.isOpen()) reconnectBanner.update({ accounts }, accounts.length);
-  else reconnectBanner.open({ accounts }, accounts.length);
+  setReconnectBanner(banner);
+  if (banner.isOpen()) banner.update({ accounts }, accounts.length);
+  else banner.open({ accounts }, accounts.length);
 }
 
 
@@ -2172,7 +2162,7 @@ function activateNotification(
   const idx = idxOfKey(accountKey);
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (isQuitting) return;
-    detectionStarted = false;
+    setDetectionStarted(false);
     createWindow();
     return;
   }
@@ -2203,7 +2193,7 @@ function activateNotification(
     mainWindow.focus();
   }
   if (settingsPanelOpen) {
-    settingsPanelOpen = false;
+    setSettingsPanelOpen(false);
     mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
   }
   if (idx != null) switchSurface(idx, surface);
@@ -2653,7 +2643,7 @@ function startRelayPush(): void {
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens) return;
 
-  pushManager = startPushManager({
+  const started = startPushManager({
     config,
     accounts: pushableEmails,
     accessToken: (email) => accessTokenFor(cfg, oauthTokens!, email),
@@ -2689,6 +2679,7 @@ function startRelayPush(): void {
       }
     },
   });
+  setPushManager(started);
 }
 
 
@@ -2703,8 +2694,13 @@ function createWindow(): void {
   // in it. Where: beside prefs.json in userData, as notify.log.
   openNotifyLog(join(app.getPath('userData'), 'notify.log'));
   notifyLog(`[notify] --- app start, ${app.getVersion()}${DEV_URL ? ' (dev)' : ''} ---`);
-  prefs = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
-  const stored = prefs.getAll().window;
+  // Held as locals for the length of this function as well as published to the runtime: the
+  // setup below is the one place that knows these are freshly built and non-null, and every
+  // callback registered here still reads the live binding, so a second window replaces what
+  // they see rather than leaving them on the first.
+  const store = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
+  setPrefs(store);
+  const stored = store.getAll().window;
   const bounds = clampBoundsToDisplays(
     { width: stored.width, height: stored.height, x: stored.x, y: stored.y },
     screen.getAllDisplays().map((d) => ({ bounds: d.bounds })),
@@ -2713,51 +2709,55 @@ function createWindow(): void {
     ? {
         titleBarStyle: 'hidden' as const,
         titleBarOverlay: overlayOptions(
-          prefs.getAll().theme,
+          store.getAll().theme,
           nativeTheme.shouldUseDarkColors,
-          prefs.getAll().reneMode,
+          store.getAll().reneMode,
         ),
       }
     : {};
-  mainWindow = new BrowserWindow({
+  const win = new BrowserWindow({
     width: bounds.width,
     height: bounds.height,
     x: bounds.x,
     y: bounds.y,
-    backgroundColor: windowBackground(prefs.getAll().theme, nativeTheme.shouldUseDarkColors),
+    backgroundColor: windowBackground(store.getAll().theme, nativeTheme.shouldUseDarkColors),
     icon: ICON_PATH,
-    minWidth: prefs.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_WIDTH,
-    minHeight: prefs.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_HEIGHT,
+    minWidth: store.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_WIDTH,
+    minHeight: store.getAll().appearance.restrictMinWindowSize === false ? 0 : MIN_WINDOW_HEIGHT,
     ...frameless,
     webPreferences: { preload: SIDEBAR_PRELOAD_PATH, contextIsolation: true },
   });
-  if (stored.maximized) mainWindow.maximize();
-  if (firstWindow && prefs.getAll().launchMinimized) mainWindow.minimize();
+  setMainWindow(win);
+  if (stored.maximized) win.maximize();
+  if (firstWindow && store.getAll().launchMinimized) win.minimize();
   firstWindow = false;
-  mainWindow.on('show', refreshBadge);
-  mainWindow.on('restore', refreshBadge);
+  win.on('show', refreshBadge);
+  win.on('restore', refreshBadge);
   // The user leaves for Windows Settings to pick a mail app and comes back, so re-read
   // the association on focus rather than trusting what we last showed.
-  mainWindow.on('focus', () => void pushDefaultMailStatus());
-  colors = new ColorStore(join(app.getPath('userData'), 'colors.json'));
-  oauthTokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
+  win.on('focus', () => void pushDefaultMailStatus());
+  setColors(new ColorStore(join(app.getPath('userData'), 'colors.json')));
+  const tokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
+  setOauthTokens(tokens);
   // A token that predates the domain limit, or one carried over from another machine. It
   // would be invisible in the panel from here on and still be used for syncing, pushing and
   // dropping mail, which is the one combination worse than either alone.
-  const dropped = dropDisallowedTokens(oauthTokens);
+  const dropped = dropDisallowedTokens(tokens);
   if (dropped.length > 0) console.warn('[oauth] unlinked, outside the allowed domain:', dropped);
-  history = new HistoryStore(join(app.getPath('userData'), 'gmail-history.json'));
-  removed = new RemovedStore(join(app.getPath('userData'), 'removed.json'));
-  downloadHistory = new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json'));
-  delegated = new DelegatedStore(join(app.getPath('userData'), 'delegated.json'));
-  accountCache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
+  setHistory(new HistoryStore(join(app.getPath('userData'), 'gmail-history.json')));
+  setRemoved(new RemovedStore(join(app.getPath('userData'), 'removed.json')));
+  setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
+  setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
+  const cache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
+  setAccountCache(cache);
   if (!accountCacheLoaded) {
-    accountCacheLoaded = true;
-    cachedAccounts = accountCache.list();
-    seedOrder = rememberedOrder(cachedAccounts);
+    setAccountCacheLoaded(true);
+    const remembered = cache.list();
+    setCachedAccounts(remembered);
+    setSeedOrder(rememberedOrder(remembered));
   }
-  manager = new ProfileViewManager(
-    mainWindow,
+  const views = new ProfileViewManager(
+    win,
     PRELOAD_PATH,
     (accountKey, count) => {
       const email = profiles.find((p) => keyOf(p) === accountKey)?.email;
@@ -2787,11 +2787,12 @@ function createWindow(): void {
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
     () => raiseOverlays(),
   );
+  setManager(views);
 
   // Built and torn down with the main window: a stack floating over a closed app is
   // nonsense. Where it appears is not the window's business — the stack always goes to
   // the primary display, whichever screen the app itself has been dragged to.
-  toastWindow = new ToastWindow(
+  const stack = new ToastWindow(
     SIDEBAR_PRELOAD_PATH,
     DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
@@ -2803,8 +2804,9 @@ function createWindow(): void {
       if (!repairToastStack()) drainToSystem();
     },
   );
-  toasts = new ToastController({
-    window: toastWindow,
+  setToastWindow(stack);
+  const controller = new ToastController({
+    window: stack,
     locale: () => currentLocale(),
     reneMode: () => prefs?.getAll().reneMode === true,
     dark: () => isDarkTheme(prefs?.getAll().theme ?? 'system', nativeTheme.shouldUseDarkColors),
@@ -2821,20 +2823,21 @@ function createWindow(): void {
     onAction: (toast, action) => void runToastAction(toast, action),
     onDiscard: (toast) => forgetToastResources(toast),
   });
-  mainWindow.on('closed', () => {
+  setToasts(controller);
+  win.on('closed', () => {
     toasts?.destroy();
-    toasts = null;
-    toastWindow = null;
+    setToasts(null);
+    setToastWindow(null);
   });
 
-  if (DEV_URL) void mainWindow.loadURL(DEV_URL);
-  else void mainWindow.loadURL('app://bundle/');
+  if (DEV_URL) void win.loadURL(DEV_URL);
+  else void win.loadURL('app://bundle/');
 
   if (DEV_URL) watchPreloadForReload();
 
   setInterval(() => void checkOAuthHealth(), 5 * 60 * 1000);
 
-  mainWindow.webContents.on('did-finish-load', () => {
+  win.webContents.on('did-finish-load', () => {
     loadDelegatedProfiles();
     pushProfiles();
     pushPrefs();
@@ -2846,38 +2849,38 @@ function createWindow(): void {
     applyReneZoom();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
     if (!detectionStarted) {
-      detectionStarted = true;
+      setDetectionStarted(true);
       startDetection();
     }
   });
 
-  mainWindow.on('close', (e) => {
+  win.on('close', (e) => {
     if (shouldHideOnClose({ isQuitting, platform: process.platform })) {
       e.preventDefault();
       mainWindow?.hide();
     }
   });
 
-  mainWindow.on('resize', scheduleSaveBounds);
-  mainWindow.on('move', scheduleSaveBounds);
-  mainWindow.on('close', saveWindowBounds);
-  mainWindow.on('closed', () => {
+  win.on('resize', scheduleSaveBounds);
+  win.on('move', scheduleSaveBounds);
+  win.on('close', saveWindowBounds);
+  win.on('closed', () => {
     if (saveBoundsTimer) clearTimeout(saveBoundsTimer);
-    mainWindow = null;
+    setMainWindow(null);
     composePicker.settle(null);
   });
   // shouldHideOnClose turns a close into a hide unless the app is quitting, so 'closed'
   // fires only on quit; the tray toggle and the close box both end up here instead, and
   // an unanswered picker has to go with the window that its parent hid behind.
-  mainWindow.on('hide', () => composePicker.settle(null));
+  win.on('hide', () => composePicker.settle(null));
 
-  mainWindow.webContents.on('before-input-event', (_e, input) => {
+  win.webContents.on('before-input-event', (_e, input) => {
     handleInput(input as unknown as KeyInput);
   });
 }
 
 function sendUpdate(status: Record<string, unknown>): void {
-  lastUpdateStatus = { ...status, currentVersion: app.getVersion() };
+  setLastUpdateStatus({ ...status, currentVersion: app.getVersion() });
   mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);
   refreshTray();
   maybeShowTrayUpdatePopup();
@@ -2888,7 +2891,7 @@ function openSettingsPanel(): void {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
-  settingsPanelOpen = true;
+  setSettingsPanelOpen(true);
   manager?.hideAll();
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
 }
@@ -3012,7 +3015,7 @@ function attemptUpdateDownload(): void {
     });
 }
 function installUpdate(): void {
-  isQuitting = true;
+  setIsQuitting(true);
   autoUpdater.quitAndInstall();
 }
 
@@ -3093,7 +3096,7 @@ function getTrayState(): TrayState {
     onOpen: () => mainWindow?.show(),
     onIconClick: openFromTrayIcon,
     onQuit: () => {
-      isQuitting = true;
+      setIsQuitting(true);
       app.quit();
     },
     isPackaged: app.isPackaged,
@@ -3425,7 +3428,7 @@ function setupUpdater(): void {
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdate({ state: 'downloaded', version: info.version });
     if (updateRequested) {
-      isQuitting = true;
+      setIsQuitting(true);
       autoUpdater.quitAndInstall();
     }
   });
@@ -3479,7 +3482,7 @@ function registerIpc(): void {
   ipcMain.on(IPC.UPDATE_DOWNLOAD, () => downloadUpdate());
   ipcMain.on(IPC.UPDATE_INSTALL, () => installUpdate());
   ipcMain.on(IPC.SETTINGS_TOGGLE, (_e, arg: { open: boolean }) => {
-    settingsPanelOpen = arg.open;
+    setSettingsPanelOpen(arg.open);
     if (arg.open) manager?.hideAll();
     else manager?.showActive();
   });
@@ -4128,7 +4131,7 @@ app.whenReady().then(() => {
   // is what makes the app show up in Windows Settings at all.
   void ensureMailClientRegistered();
   const initialMailto = extractMailtoFromArgv(process.argv);
-  if (initialMailto) pendingMailto = initialMailto;
+  if (initialMailto) setPendingMailto(initialMailto);
   startNotifyTimer();
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
   applyTraySetting();
@@ -4142,7 +4145,7 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
 });
 app.on('before-quit', () => {
-  isQuitting = true;
+  setIsQuitting(true);
   pushManager?.stop();
 });
 
