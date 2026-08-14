@@ -23,7 +23,6 @@ import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import type { Tray } from 'electron';
-import { parseChangelog, type ChangelogVersion } from './updates/changelog';
 import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
 import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './accounts/account-ref';
@@ -31,7 +30,6 @@ import { type LanguagePref } from './core/locale';
 import { DelegatedStore, type StoredDelegate } from './delegation/delegated-store';
 import { AccountCacheStore, rememberedOrder } from './accounts/account-cache';
 import {
-  CHANGELOG_PATH,
   DEV_URL,
   ICON_PATH,
   OAUTH_CONFIG_PATH,
@@ -39,6 +37,16 @@ import {
   RENDERER_DIST,
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
+import {
+  applyAutoUpdateCheck,
+  checkForUpdate,
+  checkForUpdateFromTray,
+  downloadUpdate,
+  installUpdate,
+  loadChangelog,
+  setUpdateHooks,
+  setupUpdater,
+} from './updates/update-controller';
 import {
   pushActive,
   pushDefaultMailStatus,
@@ -93,7 +101,6 @@ import {
   setDropOverlay,
   setHistory,
   setIsQuitting,
-  setLastUpdateStatus,
   setMainWindow,
   setManager,
   setOauthStatuses,
@@ -134,7 +141,6 @@ import { addAccountUrl } from './gmail/google-urls';
 import { popupNativeMenu } from './menus/native-menu';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import { nativeLabels } from './menus/native-labels';
-import { shouldNotifyUpdate } from './updates/update-notifier';
 import {
   IPC,
   type MailDropPayload,
@@ -169,7 +175,6 @@ import { fetchThreadEmls } from './mail/mail-fetch';
 import { NO_SUBJECT, type MessageRef } from './mail/dropzone';
 import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './menus/tray-controller';
 import { trayLabels } from './menus/tray-labels';
-import { autoUpdater } from 'electron-updater';
 import { resolveShortcut, type KeyInput } from './menus/shortcuts';
 import { openCompose, openFullThreadWindow } from './compose/compose-window';
 import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mail/mailto';
@@ -187,9 +192,6 @@ import {
   sessionPermissionAllowed,
 } from './notify/notification-policy';
 import { notifyLog, openNotifyLog } from './notify/notify-log';
-import { updateCheckPopup } from './updates/update-popup';
-import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './updates/update-retry';
-import { createUpdateLog, type UpdateLogger } from './updates/update-log';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from './core/rene';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menus/context-menu';
 import { attachExternalLinkHandling, setExternalOpener } from './system/external-links';
@@ -293,21 +295,6 @@ const MIN_WINDOW_HEIGHT = 600;
 // how long an account probe waits for the page to say who it belongs to
 const PROBE_TIMEOUT_MS = 16000;
 
-/**
- * The release notes the settings panel shows
- *
- * @returns {ChangelogVersion[]} empty when the file is missing, which it is in a checkout
- *   that has never been packaged
- */
-function loadChangelog(): ChangelogVersion[] {
-  try {
-    return parseChangelog(readFileSync(CHANGELOG_PATH, 'utf8'));
-  } catch {
-    return [];
-  }
-}
-
-
 //===========================
 // Module state
 //===========================
@@ -324,14 +311,6 @@ interface SavedRef {
 }
 let lastDropSaved: SavedRef[] = [];
 let lastDropSource = '';
-let updateRequested = false;
-let downloadAttempt = 0;
-let downloadInFlight = false;
-let downloadRetryTimer: ReturnType<typeof setTimeout> | null = null;
-let updateLog: UpdateLogger | null = null;
-let pendingTrayUpdateCheck = false;
-let notifiedUpdateVersion: string | null = null;
-let lastCheckBackground = false;
 let composeAccountWindow: BrowserWindow | null = null;
 const composePicker = new ComposePicker<ComposeAccountAsk, string>({
   open: (ask) => showComposeAccountWindow(ask),
@@ -2744,13 +2723,6 @@ function createWindow(): void {
   });
 }
 
-function sendUpdate(status: Record<string, unknown>): void {
-  setLastUpdateStatus({ ...status, currentVersion: app.getVersion() });
-  mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);
-  refreshTray();
-  maybeShowTrayUpdatePopup();
-}
-
 function openSettingsPanel(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -2759,129 +2731,6 @@ function openSettingsPanel(): void {
   setSettingsPanelOpen(true);
   manager?.hideAll();
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
-}
-
-
-//===========================
-// Updates
-//===========================
-
-function checkForUpdateFromTray(): void {
-  openSettingsPanel();
-  pendingTrayUpdateCheck = true;
-  checkForUpdate();
-}
-
-function maybeShowTrayUpdatePopup(): void {
-  if (!pendingTrayUpdateCheck) return;
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  const popup = updateCheckPopup(lastUpdateStatus as { state: string }, L);
-  if (!popup) return;
-  pendingTrayUpdateCheck = false;
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  void dialog
-    .showMessageBox(mainWindow, {
-      type: 'info',
-      title: 'Gmail Desktop',
-      message: popup.message,
-      detail: popup.detail,
-      buttons: popup.buttons,
-      defaultId: 0,
-      cancelId: popup.buttons.length - 1,
-      noLink: true,
-    })
-    .then((res) => {
-      if (popup.downloadButtonIndex != null && res.response === popup.downloadButtonIndex) {
-        downloadUpdate();
-      }
-    });
-}
-
-function checkForUpdate(opts?: { background?: boolean }): void {
-  lastCheckBackground = opts?.background === true;
-  if (!app.isPackaged) return sendUpdate({ state: 'dev' });
-  sendUpdate({ state: 'checking' });
-  autoUpdater
-    .checkForUpdates()
-    .catch((err) => sendUpdate({ state: 'error', message: String(err?.message || err) }));
-}
-function maybeNotifyUpdate(version: string): void {
-  if (prefs?.getAll().updates.notify === false) return;
-  if (
-    !shouldNotifyUpdate({
-      state: 'available',
-      version,
-      background: lastCheckBackground,
-      notifiedVersion: notifiedUpdateVersion,
-    })
-  )
-    return;
-  notifiedUpdateVersion = version;
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  showToast({
-    kind: 'update',
-    title: L.updateAvailableTitle,
-    body: L.updateAvailableBody(version),
-    persist: true,
-  });
-  // A system toast made its own noise; ours does not. Without this the update and the
-  // failed account link are the only two app toasts that arrive in silence, which reads
-  // as a missed notification rather than a quiet one. The shared 1.5s throttle in
-  // playNotificationSound is what keeps a burst from turning into a chord.
-  if (prefs) playNotificationSound(prefs.getAll());
-}
-// A download that failed once is not a download that cannot be done. The sha512 mismatch
-// reported from the field was answered by clicking download again a few times, which is
-// the shape of a bad transfer rather than a bad release: electron-updater throws the
-// cached file away behind a failed attempt, so the next one starts clean and there is
-// nothing left over to fail the same way. Doing that here means the person is not asked to
-// work it out. The error is still shown, just only once there is nothing left to try — and
-// the failures that will never come good, an invalid signature above all, are not retried
-// at all. See update-retry.ts.
-function downloadUpdate(): void {
-  updateRequested = true;
-  if (downloadRetryTimer) {
-    clearTimeout(downloadRetryTimer);
-    downloadRetryTimer = null;
-  }
-  downloadAttempt = 0;
-  attemptUpdateDownload();
-}
-
-function attemptUpdateDownload(): void {
-  downloadRetryTimer = null;
-  downloadAttempt += 1;
-  const attempt = downloadAttempt;
-  // A failed download reports itself twice: electron-updater emits `error` on its way to
-  // rejecting the promise. The event arrives first and knows nothing about the retry that
-  // is about to happen, so on its own it would flash an error state this function takes
-  // back a moment later — and an error state is what pops the tray dialog. Whether a
-  // download failure is worth reporting is decided here and nowhere else.
-  downloadInFlight = true;
-  autoUpdater
-    .downloadUpdate()
-    .then(() => {
-      downloadInFlight = false;
-    })
-    .catch((err) => {
-      downloadInFlight = false;
-      const message = String(err?.message || err);
-      if (!shouldRetryDownload(message, attempt)) {
-        updateLog?.error(`download failed after ${attempt} attempt(s): ${message}`);
-        sendUpdate({ state: 'error', message });
-        return;
-      }
-      updateLog?.warn(`download attempt ${attempt} failed, retrying: ${message}`);
-      // Held at downloading rather than flashed through error: nothing has gone wrong yet
-      // that the person could act on, and a percentage that starts over is the honest
-      // picture of a transfer that is starting over.
-      sendUpdate({ state: 'downloading', percent: 0 });
-      downloadRetryTimer = setTimeout(attemptUpdateDownload, UPDATE_RETRY_DELAY_MS);
-    });
-}
-function installUpdate(): void {
-  setIsQuitting(true);
-  autoUpdater.quitAndInstall();
 }
 
 
@@ -3247,56 +3096,6 @@ function applySpellcheckTo(s: Electron.Session): void {
     s.setSpellCheckerLanguages(spellcheckLanguagesFor(s));
   } catch {
   }
-}
-
-
-//===========================
-// Updater wiring
-//===========================
-
-let updateTimer: ReturnType<typeof setInterval> | null = null;
-
-function applyAutoUpdateCheck(): void {
-  const on = app.isPackaged && prefs?.getAll().updates.autoCheck !== false;
-  if (on && !updateTimer) {
-    checkForUpdate({ background: true });
-    updateTimer = setInterval(() => checkForUpdate({ background: true }), 30 * 60_000);
-    return;
-  }
-  if (!on && updateTimer) {
-    clearInterval(updateTimer);
-    updateTimer = null;
-  }
-}
-
-function setupUpdater(): void {
-  // electron-updater logs to `console` by default, which a packaged Windows build has no
-  // attachment for, so everything it says about a failed update is written to nowhere.
-  // That is why the sha512 report could not be traced any further than its dialog.
-  updateLog = createUpdateLog(join(app.getPath('userData'), 'update.log'));
-  autoUpdater.logger = updateLog;
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
-  autoUpdater.on('update-available', (info) => {
-    sendUpdate({ state: 'available', version: info.version });
-    maybeNotifyUpdate(info.version);
-  });
-  autoUpdater.on('update-not-available', (info) => sendUpdate({ state: 'not-available', version: info.version }));
-  autoUpdater.on('error', (err) => {
-    // A download decides its own reporting in attemptUpdateDownload, which may be about to
-    // retry this. Everything else — a failed check above all — is reported here.
-    if (downloadInFlight) return;
-    sendUpdate({ state: 'error', message: String(err?.message || err) });
-  });
-  autoUpdater.on('download-progress', (p) => sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }));
-  autoUpdater.on('update-downloaded', (info) => {
-    sendUpdate({ state: 'downloaded', version: info.version });
-    if (updateRequested) {
-      setIsQuitting(true);
-      autoUpdater.quitAndInstall();
-    }
-  });
 }
 
 
@@ -3984,6 +3783,14 @@ app.whenReady().then(() => {
   // Late-bound on purpose: broadcast publishes the profile list and the OAuth layer re-checks
   // the links for it, so wiring the two here is what keeps them from importing each other.
   setOnProfilesPushed(() => scheduleOAuthHealthCheck());
+  setUpdateHooks({
+    openSettingsPanel: () => openSettingsPanel(),
+    showToast: (input) => showToast(input),
+    playNotificationSound: () => {
+      if (prefs) playNotificationSound(prefs.getAll());
+    },
+    onStatusChanged: () => refreshTray(),
+  });
   registerAppProtocol();
   setupNotifications();
   registerIpc();
