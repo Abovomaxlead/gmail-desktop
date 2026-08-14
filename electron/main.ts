@@ -19,7 +19,7 @@
 
 import { app, BrowserWindow, protocol, net, ipcMain, session, Menu, screen, dialog, shell, clipboard, nativeTheme } from 'electron';
 import { dirname, join } from 'node:path';
-import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync, watch } from 'node:fs';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
@@ -36,6 +36,13 @@ import {
   RENDERER_DIST,
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
+import {
+  attachSessionHandlers,
+  downloadFolder,
+  forgetDownloadClickPath,
+  knownDownloadPath,
+  takeDownloadClickAction,
+} from './system/session-setup';
 import {
   hiddenNotificationText,
   playNotificationSound,
@@ -148,10 +155,8 @@ import { RemovedStore } from './accounts/removed-store';
 import {
   PrefsStore,
   type AppearancePatch,
-  type DownloadClickAction,
 } from './core/prefs-store';
 import { hostOf, needsLinkConfirm, unwrapRedirect } from './system/link-guard';
-import { uniqueFileName } from './system/download-path';
 import { clampBoundsToDisplays, grownToMinimum } from './windows/window-bounds';
 import { colorForIndex } from './accounts/palette';
 import { planNext } from './accounts/detection-planner';
@@ -1914,6 +1919,20 @@ async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promis
 // Notification cards
 //===========================
 
+// What a notification Gmail's page raised was, kept for as long as its card is up.
+//
+// The text is here rather than only in the page because it is what identifies the mail
+// again: the API is asked first, and it is asked about this sender and this subject —
+// unfolded and unreplaced, which is not what the card ended up showing when the privacy
+// settings are on. The view is kept alongside for when the API cannot answer, since its
+// DOM is the older lookup and still the fallback. Keyed by webNotifySourceKey rather than
+// by the page-side id alone, which is only unique within one view; the page-side id is
+// kept as well, because that is the name the page itself will recognise on the way back.
+const webNotifySources = new Map<
+  string,
+  { wc: Electron.WebContents; pageId: string; email: string; notified: NotifiedMail }
+>();
+
 function watchPreloadForReload(): void {
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
@@ -1983,7 +2002,7 @@ function activateNotification(
 // call site sees.
 function forgetToastResources(toast: Toast): void {
   if (toast.webNotifyId) webNotifySources.delete(toast.webNotifyId);
-  if (toast.kind === 'download' && toast.threadId) downloadClickPaths.delete(toast.threadId);
+  if (toast.kind === 'download' && toast.threadId) forgetDownloadClickPath(toast.threadId);
 }
 
 /** How much of the inbox is fetched to recognise one notification in, and how long that is
@@ -2082,8 +2101,7 @@ function activateToast(toast: Toast): void {
     return;
   }
   if (toast.kind === 'download' && toast.threadId) {
-    const action = downloadClickPaths.get(toast.threadId);
-    downloadClickPaths.delete(toast.threadId);
+    const action = takeDownloadClickAction(toast.threadId);
     if (action === 'open-file') void shell.openPath(toast.threadId);
     else if (action === 'show-in-folder') shell.showItemInFolder(toast.threadId);
     return;
@@ -2726,116 +2744,6 @@ function openExternalGuarded(url: string): void {
   };
   if (parent) void dialog.showMessageBox(parent, box).then(done);
   else void dialog.showMessageBox(box).then(done);
-}
-
-
-//===========================
-// Downloads and sessions
-//===========================
-
-function knownDownloadPath(path: string): boolean {
-  return downloadHistory?.all().some((r) => r.path === path) === true;
-}
-
-function downloadFolder(): string {
-  const chosen = prefs?.getAll().downloads.folder?.trim();
-  return chosen || app.getPath('downloads');
-}
-
-const sessions = new Set<Electron.Session>();
-
-function attachSessionHandlers(s: Electron.Session): void {
-  if (sessions.has(s)) return;
-  sessions.add(s);
-  applySpellcheckTo(s);
-  s.on('will-download', (_e, item) => {
-    const d = prefs?.getAll().downloads;
-    if (!d) return;
-    if (!d.saveAsDialog) {
-      const dir = downloadFolder();
-      try {
-        mkdirSync(dir, { recursive: true });
-        const name = uniqueFileName(item.getFilename(), (c) => existsSync(join(dir, c)));
-        item.setSavePath(join(dir, name));
-      } catch {
-      }
-    }
-    item.once('done', (_ev, state) => {
-      const path = item.getSavePath();
-      const started = item.getStartTime();
-      downloadHistory?.add({
-        filename: item.getFilename(),
-        path,
-        url: item.getURL(),
-        bytes: item.getReceivedBytes() || item.getTotalBytes(),
-        startedAt: started > 0 ? Math.round(started * 1000) : Date.now(),
-        state,
-      });
-      mainWindow?.webContents.send(IPC.DOWNLOAD_HISTORY_CHANGED);
-      if (state === 'completed' && d.openFolderWhenDone && path) shell.showItemInFolder(path);
-      if (d.notify) notifyDownloadDone(item.getFilename(), path, state, d.notifyClick);
-    });
-  });
-}
-
-// A download card carries its path in threadId — the only field on a Toast that is a free
-// string, and reusing it beats widening the type for one kind. The action is remembered
-// here rather than on the card, so a preference changed between download and click is the
-// one that applies.
-const downloadClickPaths = new Map<string, DownloadClickAction>();
-
-// What a notification Gmail's page raised was, kept for as long as its card is up.
-//
-// The text is here rather than only in the page because it is what identifies the mail
-// again: the API is asked first, and it is asked about this sender and this subject —
-// unfolded and unreplaced, which is not what the card ended up showing when the privacy
-// settings are on. The view is kept alongside for when the API cannot answer, since its
-// DOM is the older lookup and still the fallback. Keyed by webNotifySourceKey rather than
-// by the page-side id alone, which is only unique within one view; the page-side id is
-// kept as well, because that is the name the page itself will recognise on the way back.
-const webNotifySources = new Map<
-  string,
-  { wc: Electron.WebContents; pageId: string; email: string; notified: NotifiedMail }
->();
-
-function notifyDownloadDone(
-  filename: string,
-  path: string,
-  state: 'completed' | 'cancelled' | 'interrupted',
-  onClick: DownloadClickAction,
-): void {
-  const done = state === 'completed';
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  if (done && path && onClick !== 'nothing') downloadClickPaths.set(path, onClick);
-  showToast({
-    kind: 'download',
-    title: done ? L.downloadCompleteTitle : state === 'cancelled' ? L.downloadCancelledTitle : L.downloadFailedTitle,
-    body: filename,
-    ...(done && path && onClick !== 'nothing' ? { threadId: path } : {}),
-    persist: true,
-  });
-  if (prefs) playNotificationSound(prefs.getAll());
-}
-
-// The spellchecker follows the system language and nothing else - there is no setting
-// for it. Setting it explicitly rather than leaving it to Electron matters: its default
-// is en-US, which would underline every Dutch word in a compose window.
-function spellcheckLanguagesFor(s: Electron.Session): string[] {
-  const available = s.availableSpellCheckerLanguages;
-  const locale = app.getLocale();
-  const prefix = locale.split('-')[0]?.toLowerCase() ?? '';
-  const system =
-    available.find((c) => c.toLowerCase() === locale.toLowerCase()) ??
-    available.find((c) => c.toLowerCase() === prefix) ??
-    available.find((c) => c.toLowerCase().startsWith(`${prefix}-`));
-  return system ? [system] : [];
-}
-
-function applySpellcheckTo(s: Electron.Session): void {
-  try {
-    s.setSpellCheckerLanguages(spellcheckLanguagesFor(s));
-  } catch {
-  }
 }
 
 
