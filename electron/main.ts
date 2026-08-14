@@ -22,7 +22,6 @@ import { dirname, join } from 'node:path';
 import { readFileSync, mkdirSync, writeFileSync, watch, existsSync } from 'node:fs';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
-import type { Tray } from 'electron';
 import { ProfileViewManager, type Profile, type Surface } from './windows/profile-view-manager';
 import { SURFACES, SURFACE_CONFIG, surfacesForRef } from '../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from './accounts/account-ref';
@@ -37,6 +36,12 @@ import {
   RENDERER_DIST,
   SIDEBAR_PRELOAD_PATH,
 } from './core/paths';
+import {
+  applyTraySetting,
+  refreshTray,
+  setSnooze,
+  setTrayHooks,
+} from './menus/tray-setup';
 import {
   applyAutoUpdateCheck,
   checkForUpdate,
@@ -173,8 +178,7 @@ import {
 } from './mail/label-drop';
 import { fetchThreadEmls } from './mail/mail-fetch';
 import { NO_SUBJECT, type MessageRef } from './mail/dropzone';
-import { shouldHideOnClose, createTray, updateTrayMenu, type TrayState, type TrayUpdateStatus } from './menus/tray-controller';
-import { trayLabels } from './menus/tray-labels';
+import { shouldHideOnClose } from './menus/tray-controller';
 import { resolveShortcut, type KeyInput } from './menus/shortcuts';
 import { openCompose, openFullThreadWindow } from './compose/compose-window';
 import { parseMailto, extractMailtoFromArgv, type MailtoFields } from './mail/mailto';
@@ -299,7 +303,6 @@ const PROBE_TIMEOUT_MS = 16000;
 // Module state
 //===========================
 
-let tray: Tray | null = null;
 let lastDropPreview: MailDropPreviewItem[] = [];
 interface SavedRef {
   file: string;
@@ -2772,100 +2775,6 @@ function requestDefaultMail(): void {
 
 
 //===========================
-// Tray
-//===========================
-
-function setSnooze(minutes: number | null): void {
-  if (!prefs) return;
-  const n = prefs.getAll().notifications;
-  if (minutes === null) prefs.setNotifications({ ...n, dnd: true, dndUntil: undefined });
-  else if (minutes <= 0) prefs.setNotifications({ ...n, dnd: false, dndUntil: undefined });
-  else prefs.setNotifications({ ...n, dnd: false, dndUntil: Date.now() + minutes * 60_000 });
-  pushPrefs();
-  refreshNotifyAllowed();
-  refreshTray();
-}
-function clearSnooze(): void {
-  setSnooze(0);
-}
-
-function openFromTrayIcon(): void {
-  if (prefs?.getAll().appearance.tray.selectUnreadOnClick === true) {
-    const counts = unread.snapshot();
-    const target = profiles.find((p) => (counts[keyOf(p)] ?? 0) > 0);
-    if (target) {
-      activateNotification(keyOf(target), 'mail');
-      return;
-    }
-  }
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-}
-
-function getTrayState(): TrayState {
-  const p = prefs?.getAll();
-  return {
-    onOpen: () => mainWindow?.show(),
-    onIconClick: openFromTrayIcon,
-    onQuit: () => {
-      setIsQuitting(true);
-      app.quit();
-    },
-    isPackaged: app.isPackaged,
-    updateStatus: lastUpdateStatus as unknown as TrayUpdateStatus,
-    onCheckUpdate: checkForUpdateFromTray,
-    onDownloadUpdate: downloadUpdate,
-    onInstallUpdate: installUpdate,
-    autoStart: p?.autoStart ?? false,
-    onToggleAutoStart: setAutoStart,
-    dnd: p?.notifications.dnd ?? false,
-    dndUntil: p?.notifications.dndUntil,
-    now: Date.now(),
-    onSnooze: setSnooze,
-    onClearSnooze: clearSnooze,
-    labels: trayLabels(currentLocale(), p?.reneMode === true),
-  };
-}
-function refreshTray(): void {
-  if (tray) updateTrayMenu(tray, getTrayState());
-}
-
-function applyTraySetting(): void {
-  const want = prefs?.getAll().appearance.tray.enabled !== false;
-  if (want && !tray) {
-    tray = createTray(trayImage(), getTrayState());
-    return;
-  }
-  if (!want && tray) {
-    tray.destroy();
-    tray = null;
-  }
-  if (want && tray) tray.setImage(trayImage());
-}
-
-function trayImage(): Electron.NativeImage {
-  const { nativeImage } = require('electron') as typeof import('electron');
-  let image = nativeImage.createFromPath(ICON_PATH);
-  if (image.isEmpty()) return image;
-  image = image.resize({ width: 32, height: 32 });
-  const colour = prefs?.getAll().appearance.tray.color ?? 'system';
-  if (colour === 'system') return image;
-  const level = colour === 'light' ? 0xff : 0x00;
-  const { width, height } = image.getSize();
-  const bitmap = image.toBitmap();
-  for (let i = 0; i < bitmap.length; i += 4) {
-    if (bitmap[i + 3] === 0) continue;
-    bitmap[i] = level;
-    bitmap[i + 1] = level;
-    bitmap[i + 2] = level;
-  }
-  return nativeImage.createFromBitmap(bitmap, { width, height });
-}
-
-
-//===========================
 // Opening things
 //===========================
 
@@ -3790,6 +3699,11 @@ app.whenReady().then(() => {
       if (prefs) playNotificationSound(prefs.getAll());
     },
     onStatusChanged: () => refreshTray(),
+  });
+  setTrayHooks({
+    refreshNotifyAllowed: () => refreshNotifyAllowed(),
+    activateAccount: (accountKey) => activateNotification(accountKey, 'mail'),
+    setAutoStart: (v) => setAutoStart(v),
   });
   registerAppProtocol();
   setupNotifications();
