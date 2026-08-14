@@ -42,28 +42,8 @@ export type MailboxesOutcome =
 // Exported functions
 //===========================
 
-// Plain http is refused off loopback because the request carries a live Google access token
-// — the rule push already applies to ws://.
-
-/**
- * Reads the configured mailboxes endpoint
- *
- * @param raw the value out of the OAuth config file
- * @returns the URL to call, or null when there is none to use
- */
-export function parseMailboxesUrl(raw: unknown): string | null {
-  const text = typeof raw === 'string' ? raw.trim() : '';
-  if (text === '') return null;
-  let url: URL;
-  try {
-    url = new URL(text);
-  } catch {
-    return null;
-  }
-  if (url.protocol === 'https:') return text;
-  const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]';
-  return url.protocol === 'http:' && loopback ? text : null;
-}
+// Which URL may be called at all is `relay-url.ts`, shared with the token endpoint: the rule
+// belongs to the credential every relay call carries, not to the question being asked.
 
 /**
  * Asks the relay which mailboxes the requester may reach

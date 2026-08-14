@@ -5,7 +5,7 @@
 // wrong.
 
 import { describe, expect, it } from 'vitest';
-import { parseMailboxesUrl, requestDelegatedMailboxes } from '../electron/delegation/delegated-mailboxes';
+import { requestDelegatedMailboxes } from '../electron/delegation/delegated-mailboxes';
 
 const ok = (body: unknown) =>
   (async () => ({ ok: true, status: 200, json: async () => body })) as unknown as typeof fetch;
@@ -18,35 +18,8 @@ const deps = (f: typeof globalThis.fetch) => ({
   fetch: f,
 });
 
-describe('the configured url', () => {
-  it('accepts https', () => {
-    expect(parseMailboxesUrl('https://relay.example.nl/delegated/mailboxes')).toBe(
-      'https://relay.example.nl/delegated/mailboxes',
-    );
-  });
-
-  // The request carries a live Google access token, which is the same reason push refuses
-  // plain ws:// off-machine.
-  it('refuses plain http off-machine', () => {
-    expect(parseMailboxesUrl('http://relay.example.nl/delegated/mailboxes')).toBeNull();
-  });
-
-  it('allows plain http on loopback, so a local relay can be tested', () => {
-    expect(parseMailboxesUrl('http://127.0.0.1:8099/delegated/mailboxes')).toBe(
-      'http://127.0.0.1:8099/delegated/mailboxes',
-    );
-    expect(parseMailboxesUrl('http://localhost:8099/delegated/mailboxes')).toBe(
-      'http://localhost:8099/delegated/mailboxes',
-    );
-  });
-
-  it('treats absent, blank and unparseable alike', () => {
-    expect(parseMailboxesUrl(undefined)).toBeNull();
-    expect(parseMailboxesUrl('  ')).toBeNull();
-    expect(parseMailboxesUrl('not a url')).toBeNull();
-    expect(parseMailboxesUrl(42)).toBeNull();
-  });
-});
+// Which URL may be called at all now lives in tests/relay-url.test.ts, with the token
+// endpoint it shares the rule with.
 
 describe('what the relay answers', () => {
   it('returns the mailboxes, lowercased', async () => {

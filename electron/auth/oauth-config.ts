@@ -12,7 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import { OAUTH_CONFIG_PATH } from '../core/paths';
-import { parseMailboxesUrl } from '../delegation/delegated-mailboxes';
+import { chooseRelayUrl } from '../delegation/relay-url';
 import { readBundledOAuthConfig } from './oauth-bundled';
 import { chooseOAuthConfigText } from './oauth-source';
 import type { OAuthConfig } from './google-oauth';
@@ -51,45 +51,25 @@ export function pushConfig(): PushConfig | null {
   }
 }
 
-/** Where to ask for a token for a mailbox nobody signed into. Absent means the relay is not
+/**
+ * Where to ask for a token for a mailbox nobody signed into. Absent means the relay is not
  * configured, and copying to delegated mailboxes stays off — the same optional shape push
- * config has. */
+ * config has.
+ *
+ * This one used to read the file and trim it, and that was all: no scheme check, no
+ * environment. It is the endpoint whose answer carries gmail.insert and gmail.modify, so it
+ * was the worst of the three to leave that way — see `relay-url.ts` for both halves of why.
+ */
 export function delegatedTokenUrl(): string | null {
-  const text = oauthConfigText();
-  if (text === null) return null;
-  try {
-    const raw = JSON.parse(text) as { delegatedTokenUrl?: unknown };
-    const url = typeof raw.delegatedTokenUrl === 'string' ? raw.delegatedTokenUrl.trim() : '';
-    return url === '' ? null : url;
-  } catch {
-    return null;
-  }
+  return relayUrlFromConfig(process.env.GMAIL_DELEGATED_TOKEN_URL, 'delegatedTokenUrl');
 }
 
 /**
  * Where to ask which mailboxes this person may reach. Absent means discovery stays off and
  * the switcher scrape is the only source.
- *
- * Environment before file, the rule push already follows (`push-config.ts:34`), and for the
- * same reason: a relay on loopback has to be testable without editing the one file that holds
- * the client secret. Read before the file is even opened, so it works on a machine that has no
- * config at all.
- *
- * An env var that is set but unusable is not quietly replaced by the file. It was set on
- * purpose; falling back would hide the mistake behind behaviour that looks like it worked,
- * which is the failure mode the whole config path is written to avoid.
  */
 export function delegatedMailboxesUrl(): string | null {
-  const fromEnv = (process.env.GMAIL_DELEGATED_MAILBOXES_URL ?? '').trim();
-  if (fromEnv !== '') return parseMailboxesUrl(fromEnv);
-  const text = oauthConfigText();
-  if (text === null) return null;
-  try {
-    const raw = JSON.parse(text) as { delegatedMailboxesUrl?: unknown };
-    return parseMailboxesUrl(raw.delegatedMailboxesUrl);
-  } catch {
-    return null;
-  }
+  return relayUrlFromConfig(process.env.GMAIL_DELEGATED_MAILBOXES_URL, 'delegatedMailboxesUrl');
 }
 
 
@@ -102,5 +82,39 @@ function readIfPresent(path: string): string | null {
     return readFileSync(path, 'utf8');
   } catch {
     return null;
+  }
+}
+
+/**
+ * One relay endpoint, read the way every relay endpoint is read
+ *
+ * `chooseRelayUrl` owns which of the two sources wins and what counts as usable; this only
+ * fetches them. The file is left unopened when the environment has already decided, so an
+ * override works on a machine that has no config at all.
+ *
+ * @param fromEnv the value of this endpoint's environment variable
+ * @param key the endpoint's key in the OAuth config file
+ * @returns the URL to call, or null when neither source yields a usable one
+ * @private
+ */
+function relayUrlFromConfig(fromEnv: string | undefined, key: string): string | null {
+  const fromFile = (fromEnv ?? '').trim() === '' ? relayUrlInFile(key) : undefined;
+  return chooseRelayUrl(fromEnv, fromFile);
+}
+
+/**
+ * One endpoint's raw value out of the config file
+ *
+ * @param key
+ * @returns whatever stands under that key, or undefined when there is no readable config
+ * @private
+ */
+function relayUrlInFile(key: string): unknown {
+  const text = oauthConfigText();
+  if (text === null) return undefined;
+  try {
+    return (JSON.parse(text) as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
   }
 }
