@@ -44,6 +44,7 @@ import { mapLimit } from '../core/concurrency';
 import { OverlayView } from '../windows/overlay-view';
 import { accessTokenFor, forceRefresh } from '../auth/oauth-flow';
 import { oauthConfig } from '../auth/oauth-config';
+import { copyTargetEmails, isAllowedAccount } from '../auth/account-domain';
 import {
   clearRefreshFailure,
   markRefreshFailed,
@@ -736,15 +737,11 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
   // OAuth token of their own and there was no other way to read their labels, which meant
   // a shared mailbox could never be picked as a copy target — it was simply not offered,
   // so it read as "I cannot find it" rather than as a missing feature. The relay supplies
-  // the token now.
-  const targetable = profiles.filter(
-    (p) =>
-      (p.kind === 'authuser' || p.kind === 'delegated') &&
-      (!lastDropSource || p.email !== lastDropSource),
-  );
+  // the token now. Which mailboxes qualify is account-domain's to say.
+  const targetable = copyTargetEmails(profiles, lastDropSource);
   if (!cfg || !oauthTokens) {
     return {
-      accounts: targetable.map((p) => ({ email: p.email, labels: [], error: 'Niet gekoppeld' })),
+      accounts: targetable.map((email) => ({ email, labels: [], error: 'Niet gekoppeld' })),
     };
   }
   // One mailbox may not hold up the others. This ran in sequence, so a mailbox whose token
@@ -753,12 +750,12 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
   // one that never arrived stopped it for good. mapLimit keeps the answers in input order,
   // so the columns stay where the user expects them.
   const tokens = oauthTokens;
-  const accounts: AccountLabels[] = await mapLimit(targetable, 4, async (p) => {
-    const got = await mailboxToken(p.email);
-    if (!got.ok) return { email: p.email, labels: [], error: got.error };
+  const accounts: AccountLabels[] = await mapLimit(targetable, 4, async (email) => {
+    const got = await mailboxToken(email);
+    if (!got.ok) return { email, labels: [], error: got.error };
     const token = got.token;
     try {
-      return { email: p.email, labels: await fetchLabels(token) };
+      return { email, labels: await fetchLabels(token) };
     } catch (e) {
       // 403 counts as a refusal too. Gmail answers a token it will not let in with either
       // status — a request it reads as carrying no credential comes back as "Request is
@@ -769,7 +766,7 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
       const refused = e instanceof GmailHttpError && (e.status === 401 || e.status === 403);
       if (e instanceof GmailHttpError) {
         console.warn(
-          `[labels] ${p.email} (${isDelegatedMailbox(p.email) ? 'gedelegeerd' : 'eigen'}) HTTP ${e.status}: ${e.message}`,
+          `[labels] ${email} (${isDelegatedMailbox(email) ? 'gedelegeerd' : 'eigen'}) HTTP ${e.status}: ${e.message}`,
         );
       }
       // Recovering from a 401 differs per kind, and using the wrong one is silent: a
@@ -777,36 +774,36 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
       // entry to forget. A delegation can be revoked while a token from it is still inside
       // its hour, so the cached one has to go before asking again.
       let fresh: string | null = null;
-      if (refused && isDelegatedMailbox(p.email)) {
-        forgetDelegatedToken(p.email);
-        const again = await delegatedTokenFor(p.email);
+      if (refused && isDelegatedMailbox(email)) {
+        forgetDelegatedToken(email);
+        const again = await delegatedTokenFor(email);
         fresh = again.ok ? again.token : null;
       } else if (refused) {
-        fresh = await forceRefresh(cfg, tokens, p.email);
+        fresh = await forceRefresh(cfg, tokens, email);
       }
       if (fresh) {
         try {
           const labels = await fetchLabels(fresh);
-          if (!isDelegatedMailbox(p.email)) clearRefreshFailure(p.email);
-          return { email: p.email, labels };
+          if (!isDelegatedMailbox(email)) clearRefreshFailure(email);
+          return { email, labels };
         } catch (e2) {
           // A brand-new token refused as well says the same thing as the first refusal, so
           // it gets the same sentence. This branch is how Google's English reached the
           // screen even after the rewriting below was added: it sat in front of it.
           if (e2 instanceof GmailHttpError && (e2.status === 401 || e2.status === 403)) {
-            console.warn(`[labels] ${p.email} ook na een verse token HTTP ${e2.status}: ${e2.message}`);
-            return { email: p.email, labels: [], error: mailboxRefusedText(p.email) };
+            console.warn(`[labels] ${email} ook na een verse token HTTP ${e2.status}: ${e2.message}`);
+            return { email, labels: [], error: mailboxRefusedText(email) };
           }
-          return { email: p.email, labels: [], error: (e2 as Error).message };
+          return { email, labels: [], error: (e2 as Error).message };
         }
       }
       if (refused) {
         // Only an own account can have a link that expired; a delegated mailbox has none,
         // so it must not be flagged as needing a reconnect.
-        if (!isDelegatedMailbox(p.email)) markRefreshFailed(p.email);
-        return { email: p.email, labels: [], error: mailboxRefusedText(p.email) };
+        if (!isDelegatedMailbox(email)) markRefreshFailed(email);
+        return { email, labels: [], error: mailboxRefusedText(email) };
       }
-      return { email: p.email, labels: [], error: (e as Error).message };
+      return { email, labels: [], error: (e as Error).message };
     }
   });
   return { accounts };
@@ -821,7 +818,11 @@ export async function copyToMailboxes(arg: {
   mode?: CopyMode;
 }): Promise<MailDropCopyResult> {
   const cfg = oauthConfig();
-  const targets = normalizeTargets(arg?.targets ?? []);
+  const requested = normalizeTargets(arg?.targets ?? []);
+  // The window cannot offer a mailbox outside the work domain, so this is the guard for a
+  // request that did not come from the window. Checked here rather than trusted from there,
+  // because this is where mail actually leaves for another mailbox.
+  const targets = requested.filter((t) => isAllowedAccount(t.email));
   const mode: CopyMode = arg?.mode ?? 'check';
   const fail = (error: string): MailDropCopyResult => ({
     ok: false,
@@ -832,7 +833,8 @@ export async function copyToMailboxes(arg: {
     error,
   });
   if (!cfg || !oauthTokens) return fail('Koppeling niet ingesteld');
-  if (targets.length === 0) return fail('Geen label gekozen');
+  if (requested.length === 0) return fail('Geen label gekozen');
+  if (targets.length === 0) return fail('Alleen postvakken van het werkdomein kunnen worden gekozen');
   const files = lastDropSaved;
   if (files.length === 0) return fail('Geen opgeslagen berichten om te kopiëren');
 

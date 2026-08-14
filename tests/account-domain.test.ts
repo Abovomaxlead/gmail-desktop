@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ALLOWED_EMAIL_DOMAINS,
+  copyTargetEmails,
   isAllowedAccount,
   dropDisallowedTokens,
   linkableOwnEmails,
@@ -83,6 +84,44 @@ describe('linkableOwnEmails', () => {
       { kind: 'delegated' as const, email: 'info@abovomaxlead.nl' },
     ];
     expect(linkableOwnEmails(profiles)).toEqual(['luca@abovomaxlead.nl']);
+  });
+});
+
+// Which mailboxes the copy window may offer. An account left out here is not shown as a
+// column at all, rather than shown with an error under its name for a link it can never
+// have.
+describe('copyTargetEmails', () => {
+  const authuser = (email: string) => ({ kind: 'authuser' as const, email });
+  const delegated = (email: string) => ({ kind: 'delegated' as const, email });
+
+  it('keeps own and delegated work mailboxes in the order given', () => {
+    const profiles = [authuser('luca@abovomaxlead.nl'), delegated('support@abovomaxlead.nl')];
+    expect(copyTargetEmails(profiles, '')).toEqual([
+      'luca@abovomaxlead.nl',
+      'support@abovomaxlead.nl',
+    ]);
+  });
+
+  it('leaves out an own account outside the work domain', () => {
+    const profiles = [authuser('luca@abovomaxlead.nl'), authuser('luca@gmail.com')];
+    expect(copyTargetEmails(profiles, '')).toEqual(['luca@abovomaxlead.nl']);
+  });
+
+  it('leaves out a delegated mailbox outside the work domain', () => {
+    const profiles = [authuser('luca@abovomaxlead.nl'), delegated('shared@elsewhere.nl')];
+    expect(copyTargetEmails(profiles, '')).toEqual(['luca@abovomaxlead.nl']);
+  });
+
+  it('leaves out the mailbox the drag came from', () => {
+    const profiles = [authuser('luca@abovomaxlead.nl'), delegated('support@abovomaxlead.nl')];
+    expect(copyTargetEmails(profiles, 'luca@abovomaxlead.nl')).toEqual([
+      'support@abovomaxlead.nl',
+    ]);
+  });
+
+  it('offers everything when the source is not known', () => {
+    const profiles = [authuser('a@abovomaxlead.nl'), authuser('b@abovomaxlead.nl')];
+    expect(copyTargetEmails(profiles, '')).toEqual(['a@abovomaxlead.nl', 'b@abovomaxlead.nl']);
   });
 });
 

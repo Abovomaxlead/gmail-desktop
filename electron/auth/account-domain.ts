@@ -70,6 +70,30 @@ export function linkableOwnEmails(profiles: readonly AccountProfile[]): string[]
 }
 
 /**
+ * The mailboxes a dragged mail may be copied into
+ *
+ * Out-of-domain mailboxes are left out rather than offered and then refused. An own account
+ * outside the work domain holds no token and never will, so its column could only ever carry
+ * an error; and a delegated mailbox outside it is exactly the private mailbox this whole
+ * restriction exists to keep work mail out of.
+ *
+ * @param profiles every account in the sidebar, own and delegated
+ * @param source the mailbox the drag came out of, left out because filing a mail back where
+ *   it came from is never what was meant; empty when the source is not known
+ * @returns the addresses that may be offered as a copy target, in sidebar order
+ */
+export function copyTargetEmails(
+  profiles: readonly AccountProfile[],
+  source: string,
+): string[] {
+  return profiles
+    .filter((p) => p.kind === 'authuser' || p.kind === 'delegated')
+    .filter((p) => isAllowedAccount(p.email))
+    .filter((p) => !source || p.email !== source)
+    .map((p) => p.email);
+}
+
+/**
  * Unlinks every account that may no longer hold a token
  *
  * @param store the token file
