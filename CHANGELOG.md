@@ -3,6 +3,40 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.6] — 2026-08-17
+
+### Opgelost
+- **De teller in de taakbalk telt geen postvakken meer mee die er niet zijn.** Bij het
+  opstarten opent de app kort een venster per Google-account om te zien wie er is
+  aangemeld en of er nieuwe delegaties bij zijn gekomen. Leverde zo'n ronde niets op,
+  dan werd het venster weggegooid maar bleef het aantal ongelezen mail dat het had
+  doorgegeven staan — bij niemand, en dus voor altijd. Elke keer opstarten legde er
+  weer een paar bovenop, waardoor de teller te hoog stond en niet meer op nul kwam ook
+  al had je alles gelezen. De teller houdt nu alleen de postvakken aan die je echt hebt.
+
+### Fixed
+- **The taskbar counter no longer counts mailboxes that are not there.** At startup the
+  app briefly opens a window per Google account to see who is signed in and whether new
+  delegations have appeared. When such a round came up empty the window was thrown away,
+  but the unread count it had reported stayed behind — belonging to nobody, and therefore
+  forever. Every startup piled on a few more, leaving the counter too high and unable to
+  reach zero even with everything read. The counter now keeps only the mailboxes you
+  actually have.
+
+## [0.3.1-beta.5] — 2026-08-17
+
+### Gewijzigd
+- **De teller in de taakbalk schrijft op waar hij zijn getal vandaan haalt.** Alleen
+  om te kunnen zien waarom hij soms te hoog staat of blijft hangen: bij elke
+  verandering komt er een `[badge]`-regel in `notify.log` met per postvak het aantal
+  en de bron ervan. Aan de teller zelf verandert niets.
+
+### Changed
+- **The taskbar counter records where its number comes from.** Purely to find out why
+  it sometimes reads too high or stops moving: every change writes a `[badge]` line to
+  `notify.log` naming each mailbox, its count and the source that reported it. The
+  counter itself is unchanged.
+
 ## [0.3.1-beta.4] — 2026-08-13
 
 ### Gewijzigd

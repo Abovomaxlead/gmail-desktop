@@ -12,7 +12,9 @@ publish:
   provider: github
   owner: lucamanuel-art
   repo: gmail-desktop
-  releaseType: release
+  # a beta must not become the update everyone on the last stable version is offered:
+  # GitHub keeps the newest full release as Latest and electron-updater follows that
+  releaseType: prerelease
 linux:
   target:
     - AppImage
