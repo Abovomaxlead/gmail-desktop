@@ -84,10 +84,11 @@ import {
   PAGE_SIZE,
   labelListUrl,
   mergeThreads,
+  scrapeSettled,
   type LabelThread,
 } from './label-drop';
 import { fetchThreadEmls } from './mail-fetch';
-import { NO_SUBJECT, type MessageRef } from './dropzone';
+import { NO_SUBJECT, dropOutcome, type MessageRef } from './dropzone';
 import {
   GmailHttpError,
   fetchLabelId,
@@ -163,13 +164,13 @@ async function saveOneThread(
   authuser: string,
   ik: string,
   message: MessageRef | null = null,
-): Promise<{ count: number; total: number; error?: string; saved: SavedRef[] }> {
-  const failed = (error: string, total = 0) => {
+): Promise<{ count: number; error?: string; saved: SavedRef[] }> {
+  const failed = (error: string) => {
     try {
       appendLog(root, [{ ts, account, threadId, error }]);
     } catch {
     }
-    return { count: 0, total, error, saved: [] };
+    return { count: 0, error, saved: [] };
   };
 
   const viaApi = await threadMessagesViaApi(account, threadId);
@@ -227,7 +228,7 @@ async function saveOneThread(
       failedRecords.push({ ts, account, threadId, error: f.error ?? 'onbekende fout' });
     }
   }
-  if (all.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald', fetched.length);
+  if (all.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald');
 
   const dragged = draggedMessage(all, message);
   const chosen = dragged ?? newestMessage(all);
@@ -245,7 +246,7 @@ async function saveOneThread(
   try {
     files = writeThread(root, ts, ok);
   } catch {
-    return failed(`Kan niet schrijven naar ${root}`, fetched.length);
+    return failed(`Kan niet schrijven naar ${root}`);
   }
 
   const records: LogRecord[] = ok.map((m, i) => ({
@@ -268,7 +269,6 @@ async function saveOneThread(
   }
   return {
     count: ok.length,
-    total: 1,
     saved: savedRefs(root, files, ok, threadId),
   };
 }
@@ -367,12 +367,21 @@ async function collectLabelThreads(
         await wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => null);
       }
       let pageThreads: LabelThread[] = [];
-      for (let tries = 0; tries < 25; tries++) {
+      let settled = false;
+      for (let tries = 0; tries < 25 && !settled; tries++) {
         await delay(400);
-        pageThreads = (await wc.executeJavaScript(LABEL_SCRAPE_JS).catch(() => [])) as LabelThread[];
-        if (pageThreads.length > 0 && pageThreads[0].threadId !== firstOfPrevious) break;
+        const now = (await wc.executeJavaScript(LABEL_SCRAPE_JS).catch(() => [])) as LabelThread[];
+        settled = scrapeSettled(pageThreads, now, firstOfPrevious);
+        pageThreads = now;
       }
       if (pageThreads.length === 0) break;
+      // The last read rather than nothing when the list never stood still: a busy mailbox
+      // still has rows worth saving, and the log says the count is a floor.
+      if (!settled) {
+        notifyLog(
+          `[maildrop] label "${label}" pagina ${page}: lijst stond niet stil, ${pageThreads.length} rijen genomen`,
+        );
+      }
       firstOfPrevious = pageThreads[0].threadId;
 
       const { added, total } = mergeThreads(threads, pageThreads);
@@ -442,14 +451,14 @@ async function saveLabel(
   label: string,
   authuser: string,
   ik: string,
-): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[] }> {
+): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
   const empty = () => {
     const error = `Geen mail gevonden in label "${label}"`;
     try {
       appendLog(root, [{ ts, account, threadId: '', label, error }]);
     } catch {
     }
-    return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [] };
+    return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [], rows: [] };
   };
 
   const viaApi = await collectLabelViaApi(account, label);
@@ -457,11 +466,13 @@ async function saveLabel(
   let capped: boolean;
 
   if (viaApi) {
+    notifyLog(`[maildrop] label "${label}" via de API: ${viaApi.collected.length} gesprekken`);
     if (viaApi.collected.length === 0) return empty();
     collected = viaApi.collected;
     capped = viaApi.capped;
   } else {
     const scraped = await collectLabelThreads(ref, authuser, label);
+    notifyLog(`[maildrop] label "${label}" van de pagina gelezen: ${scraped.threads.length} gesprekken`);
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
 
@@ -514,6 +525,7 @@ async function saveLabel(
         error,
       })),
       saved: [],
+      rows: collected.map(() => 0),
     };
   }
 
@@ -579,7 +591,7 @@ async function saveLabel(
     saved.push(...savedRefs(root, files.slice(at, at + c.messages.length), c.messages, c.thread.threadId));
     at += c.messages.length;
   }
-  return { items, saved };
+  return { items, saved, rows: collected.map((c) => c.messages.length) };
 }
 
 export async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promise<void> {
@@ -609,7 +621,7 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
   if (payload.label) {
     const profile = profiles.find((p) => keyOf(p) === acctKey);
     if (!profile) return;
-    const { items: done, saved: refs } = await saveLabel(
+    const { items: done, saved: refs, rows } = await saveLabel(
       ts,
       account,
       root,
@@ -619,20 +631,15 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
       payload.ik,
     );
     lastDropSaved = refs;
-    const saved = done.reduce((n, i) => n + i.saved, 0);
-    manager?.sendDropResult(
-      acctKey,
-      saved === 0
-        ? { ok: false, count: 0, total: done.length, error: done[0]?.error ?? 'Niets opgeslagen' }
-        : { ok: true, count: saved, total: saved },
-    );
+    // rows rather than the display items: those carry the truncation notice too, which is
+    // not a conversation that failed to save.
+    manager?.sendDropResult(acctKey, dropOutcome(rows, done.find((i) => i.error)?.error));
     openDropPreview(done);
     return;
   }
 
   const done: MailDropPreviewItem[] = [];
-  let count = 0;
-  let total = 0;
+  const saved: number[] = [];
   let lastError: string | undefined;
   for (const item of items) {
     const r = await saveOneThread(
@@ -644,18 +651,12 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
       payload.ik,
       item.message ?? null,
     );
-    count += r.count;
-    total += r.total;
+    saved.push(r.count);
     if (r.error) lastError = r.error;
     lastDropSaved.push(...r.saved);
     done.push({ ...item, saved: r.count, error: r.error });
   }
-  manager?.sendDropResult(
-    acctKey,
-    count === 0
-      ? { ok: false, count: 0, total, error: lastError ?? 'Niets opgeslagen' }
-      : { ok: true, count, total },
-  );
+  manager?.sendDropResult(acctKey, dropOutcome(saved, lastError));
   openDropPreview(done);
 }
 

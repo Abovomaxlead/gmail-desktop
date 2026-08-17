@@ -6,6 +6,7 @@ import {
   labelFromDragTarget,
   labelListUrl,
   mergeThreads,
+  scrapeSettled,
   MAX_THREADS,
   type LabelThread,
 } from '../electron/mail/label-drop';
@@ -88,6 +89,34 @@ describe('labelListUrl', () => {
     expect(labelListUrl('0', 'Werk/Grote klanten', 1)).toBe(
       'https://mail.google.com/mail/u/0/#label/Werk/Grote%20klanten',
     );
+  });
+});
+
+// Gmail fills a list row by row, so the first read of a page is whatever had rendered by
+// then. Accepting it turned a label of forty into a folder of two.
+describe('scrapeSettled', () => {
+  const t = (id: string): LabelThread => ({ threadId: id, subject: `Onderwerp ${id}` });
+
+  it('refuses the first read, however many rows it already found', () => {
+    expect(scrapeSettled([], [t('a'), t('b')], '')).toBe(false);
+  });
+  it('refuses a read that grew since the one before it', () => {
+    expect(scrapeSettled([t('a'), t('b')], [t('a'), t('b'), t('c')], '')).toBe(false);
+  });
+  it('accepts a read that repeats the one before it', () => {
+    expect(scrapeSettled([t('a'), t('b')], [t('a'), t('b')], '')).toBe(true);
+  });
+  it('refuses a read whose rows changed without changing in number', () => {
+    expect(scrapeSettled([t('a'), t('b')], [t('a'), t('c')], '')).toBe(false);
+  });
+  it('refuses an empty page, which is a list that has not drawn yet', () => {
+    expect(scrapeSettled([], [], '')).toBe(false);
+  });
+  // Navigating to page 2 leaves page 1 on screen until Gmail replaces it, and a settled read
+  // of the wrong page is still the wrong page.
+  it('refuses a page still showing the one before it', () => {
+    expect(scrapeSettled([t('a'), t('b')], [t('a'), t('b')], 'a')).toBe(false);
+    expect(scrapeSettled([t('c'), t('d')], [t('c'), t('d')], 'a')).toBe(true);
   });
 });
 

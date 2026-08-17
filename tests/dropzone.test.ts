@@ -8,13 +8,15 @@ import {
   authuserFromPath,
   ikFromPage,
   resultText,
+  dropOutcome,
+  NOTHING_SAVED,
   DROPZONE_ID,
   DROPZONE_CSS,
   DROPZONE_Z,
   DRAG_CHROME_Z,
   ALWAYS_VISIBLE,
-  selectedThreadIds,
-  threadIdsForDrag,
+  selectedRows,
+  rowsForDrag,
   threadSubjects,
   itemsForDrag,
   NO_SUBJECT,
@@ -155,31 +157,73 @@ describe('messageRefFromDragTarget', () => {
   });
 });
 
-describe('selectedThreadIds / threadIdsForDrag', () => {
+describe('selectedRows / rowsForDrag', () => {
   const checkedRow = (threadId: string) => {
     const row = node({}, null, [node({ 'data-legacy-thread-id': threadId })]);
     return node({ role: 'checkbox', 'aria-checked': 'true' }, row);
   };
+  // With conversation view off a row is one message: same data-legacy-thread-id as its
+  // siblings, told apart by what stands behind the pipe in data-thread-id.
+  const checkedMessageRow = (threadId: string, perm: string, last: string) => {
+    const span = node({
+      'data-thread-id': `#thread-f:${threadId}|${perm}`,
+      'data-legacy-thread-id': threadId,
+      'data-legacy-last-message-id': last,
+    });
+    return node({ role: 'checkbox', 'aria-checked': 'true' }, node({ role: 'row' }, null, [span]));
+  };
   const doc = (boxes: any[]) => ({ querySelectorAll: () => boxes });
 
   it('collects the thread id of every checked row', () => {
-    expect(selectedThreadIds(doc([checkedRow('a'), checkedRow('b')]))).toEqual(['a', 'b']);
+    expect(selectedRows(doc([checkedRow('a'), checkedRow('b')]))).toEqual([
+      { threadId: 'a' },
+      { threadId: 'b' },
+    ]);
   });
-  it('deduplicates and skips rows without an id', () => {
-    expect(selectedThreadIds(doc([checkedRow('a'), checkedRow('a'), node({}, node({}))]))).toEqual(['a']);
+  it('deduplicates conversation rows and skips rows without an id', () => {
+    expect(selectedRows(doc([checkedRow('a'), checkedRow('a'), node({}, node({}))]))).toEqual([
+      { threadId: 'a' },
+    ]);
   });
   it('returns nothing when the selection is empty', () => {
-    expect(selectedThreadIds(doc([]))).toEqual([]);
+    expect(selectedRows(doc([]))).toEqual([]);
+  });
+
+  // Measured in Gmail: three ticked rows, two of them messages of one conversation. Keying
+  // the selection on the thread collapsed those two into one and dropped a mail.
+  it('keeps two messages of one conversation apart', () => {
+    const first = checkedMessageRow('1a00f50f', 'msg-f:1873768580910141322', '1a00f698');
+    const other = checkedMessageRow('1a00f5fe', 'msg-f:1873767919121614861', '1a00f5fe');
+    const second = checkedMessageRow('1a00f50f', 'msg-f:1873766890158687640', '1a00f50f');
+    expect(selectedRows(doc([first, other, second]))).toEqual([
+      { threadId: '1a00f50f', message: { legacyId: '1a00f698', permId: 'msg-f:1873768580910141322' } },
+      { threadId: '1a00f5fe', message: { legacyId: '1a00f5fe', permId: 'msg-f:1873767919121614861' } },
+      { threadId: '1a00f50f', message: { legacyId: '1a00f50f', permId: 'msg-f:1873766890158687640' } },
+    ]);
+  });
+  it('still drops a row Gmail lists twice over', () => {
+    const twice = () => checkedMessageRow('1a00f50f', 'msg-f:181', '1a00f698');
+    expect(selectedRows(doc([twice(), twice()]))).toHaveLength(1);
   });
 
   it('drags the whole selection when the pressed row is part of it', () => {
-    expect(threadIdsForDrag('b', ['a', 'b', 'c'])).toEqual(['a', 'b', 'c']);
+    const rows = [{ threadId: 'a' }, { threadId: 'b' }, { threadId: 'c' }];
+    expect(rowsForDrag({ threadId: 'b' }, rows)).toEqual(rows);
   });
   it('drags only the pressed row when it is outside the selection', () => {
-    expect(threadIdsForDrag('z', ['a', 'b'])).toEqual(['z']);
+    expect(rowsForDrag({ threadId: 'z' }, [{ threadId: 'a' }])).toEqual([{ threadId: 'z' }]);
   });
   it('drags only the pressed row when nothing is selected', () => {
-    expect(threadIdsForDrag('z', [])).toEqual(['z']);
+    expect(rowsForDrag({ threadId: 'z' }, [])).toEqual([{ threadId: 'z' }]);
+  });
+  // Pressing an unticked message of a conversation whose other message is ticked drags that
+  // message alone, the way Gmail treats a drag on a row outside the selection.
+  it('tells two messages of one conversation apart when deciding what the press meant', () => {
+    const ticked = [{ threadId: 'a', message: { permId: 'msg-f:1' } }];
+    expect(rowsForDrag({ threadId: 'a', message: { permId: 'msg-f:2' } }, ticked)).toEqual([
+      { threadId: 'a', message: { permId: 'msg-f:2' } },
+    ]);
+    expect(rowsForDrag({ threadId: 'a', message: { permId: 'msg-f:1' } }, ticked)).toEqual(ticked);
   });
 });
 
@@ -211,25 +255,37 @@ describe('threadSubjects / itemsForDrag', () => {
     expect(threadSubjects(doc([subjectSpan('', 'x'), subjectSpan('b', '   ')]))).toEqual({});
   });
 
-  it('pairs the dragged ids with their subjects, in order', () => {
-    expect(itemsForDrag(['b', 'a'], { a: 'Offerte', b: 'Factuur' })).toEqual([
+  it('pairs the dragged rows with their subjects, in order', () => {
+    expect(itemsForDrag([{ threadId: 'b' }, { threadId: 'a' }], { a: 'Offerte', b: 'Factuur' })).toEqual([
       { threadId: 'b', subject: 'Factuur' },
       { threadId: 'a', subject: 'Offerte' },
     ]);
   });
   it('falls back to a placeholder when the subject is unknown', () => {
-    expect(itemsForDrag(['z'], {})).toEqual([{ threadId: 'z', subject: NO_SUBJECT }]);
+    expect(itemsForDrag([{ threadId: 'z' }], {})).toEqual([{ threadId: 'z', subject: NO_SUBJECT }]);
   });
 
-  it('carries the pressed message along for a single conversation', () => {
-    expect(itemsForDrag(['a'], { a: 'Offerte' }, { legacyId: '18f2a' })).toEqual([
+  it('carries the message a row stands for', () => {
+    expect(itemsForDrag([{ threadId: 'a', message: { legacyId: '18f2a' } }], { a: 'Offerte' })).toEqual([
       { threadId: 'a', subject: 'Offerte', message: { legacyId: '18f2a' } },
     ]);
   });
-  it('drops it for a multi-conversation drag, where one message means nothing', () => {
-    expect(itemsForDrag(['a', 'b'], {}, { legacyId: '18f2a' })).toEqual([
-      { threadId: 'a', subject: NO_SUBJECT },
+  // Every row names its own message, so a selection spanning one conversation still saves
+  // the two mails that were ticked rather than that conversation's newest one twice.
+  it('keeps every row its own message across a multi-row drag', () => {
+    expect(
+      itemsForDrag(
+        [
+          { threadId: 'a', message: { permId: 'msg-f:2' } },
+          { threadId: 'b' },
+          { threadId: 'a', message: { permId: 'msg-f:1' } },
+        ],
+        {},
+      ),
+    ).toEqual([
+      { threadId: 'a', subject: NO_SUBJECT, message: { permId: 'msg-f:2' } },
       { threadId: 'b', subject: NO_SUBJECT },
+      { threadId: 'a', subject: NO_SUBJECT, message: { permId: 'msg-f:1' } },
     ]);
   });
 });
@@ -261,6 +317,38 @@ describe('ikFromPage', () => {
   });
   it('returns null when neither is available', () => {
     expect(ikFromPage({}, '<html></html>')).toBeNull();
+  });
+});
+
+// A row that saved nothing used to stay out of the total, so a drag of three that saved two
+// reported "2 berichten opgeslagen" — the wording of a complete drop.
+describe('dropOutcome', () => {
+  it('reports a drop where every row produced a mail', () => {
+    expect(dropOutcome([1, 1, 1])).toEqual({ ok: true, count: 3, total: 3 });
+    expect(resultText(dropOutcome([1, 1, 1]))).toBe('3 berichten opgeslagen');
+  });
+  it('counts a row that failed towards the total', () => {
+    expect(dropOutcome([1, 0, 1], 'HTTP 403')).toEqual({ ok: true, count: 2, total: 3 });
+    expect(resultText(dropOutcome([1, 0, 1], 'HTTP 403'))).toBe('2 van 3 opgeslagen');
+  });
+  it('fails with the reason when no row produced anything', () => {
+    expect(dropOutcome([0, 0], 'HTTP 403')).toEqual({
+      ok: false,
+      count: 0,
+      total: 2,
+      error: 'HTTP 403',
+    });
+  });
+  it('still fails when nothing said why', () => {
+    expect(dropOutcome([0])).toEqual({ ok: false, count: 0, total: 1, error: NOTHING_SAVED });
+  });
+  it('fails on a drop that found no rows at all', () => {
+    expect(dropOutcome([], 'Geen mail gevonden in label "x"')).toEqual({
+      ok: false,
+      count: 0,
+      total: 0,
+      error: 'Geen mail gevonden in label "x"',
+    });
   });
 });
 

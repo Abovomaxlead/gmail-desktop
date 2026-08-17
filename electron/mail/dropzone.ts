@@ -30,6 +30,14 @@ export interface MessageRef {
   permId?: string;
 }
 
+/** One row of Gmail's list as a drag sees it. With conversation view on that is a whole
+ * conversation and `message` stays empty; with it off every row is one message of a
+ * conversation, and then the thread id alone cannot tell two ticked rows apart. */
+export interface DragRow {
+  threadId: string;
+  message?: MessageRef;
+}
+
 export interface DocLike {
   querySelectorAll(sel: string): ArrayLike<DragNode>;
 }
@@ -77,6 +85,8 @@ export const DROPZONE_CSS = `
 export const DROPZONE_LABEL = 'Sleep hier om de mail op te slaan';
 
 export const NO_SUBJECT = '(geen onderwerp)';
+
+export const NOTHING_SAVED = 'Niets opgeslagen';
 
 export const DRAG_THRESHOLD = 15;
 
@@ -210,31 +220,43 @@ export function labelFromDragTarget(el: DragNode | null): LabelRef | null {
   return null;
 }
 
+// Each row names its own message, not just its conversation. Two ticked messages of one
+// conversation are two mails, and keying them on the thread threw the second one away and
+// then saved that conversation's newest message for the first — the wrong mail, one short.
+
 /**
- * The conversations whose checkbox is ticked
+ * The rows whose checkbox is ticked
  *
  * @param doc
- * @returns the thread ids, without duplicates, in list order
+ * @returns one entry per row, without duplicates, in list order
  */
-export function selectedThreadIds(doc: DocLike): string[] {
+export function selectedRows(doc: DocLike): DragRow[] {
   const boxes = doc.querySelectorAll('[role="checkbox"][aria-checked="true"]');
-  const ids: string[] = [];
+  const rows: DragRow[] = [];
+  const seen = new Set<string>();
   for (let i = 0; i < boxes.length; i++) {
-    const id = threadIdFromDragTarget(boxes[i]);
-    if (id && !ids.includes(id)) ids.push(id);
+    const threadId = threadIdFromDragTarget(boxes[i]);
+    if (!threadId) continue;
+    const message = messageRefFromDragTarget(boxes[i]);
+    const row: DragRow = { threadId, ...(message ? { message } : {}) };
+    const key = dragRowKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push(row);
   }
-  return ids;
+  return rows;
 }
 
 /**
  * What the drag carries: the selection, or only the row that was pressed
  *
- * @param pressed the thread the drag started on
- * @param selected the ticked threads
+ * @param pressed the row the drag started on
+ * @param selected the ticked rows
  * @returns the selection when the pressed row is part of it, otherwise that row alone
  */
-export function threadIdsForDrag(pressed: string, selected: string[]): string[] {
-  return selected.includes(pressed) ? selected : [pressed];
+export function rowsForDrag(pressed: DragRow, selected: DragRow[]): DragRow[] {
+  const key = dragRowKey(pressed);
+  return selected.some((row) => dragRowKey(row) === key) ? selected : [pressed];
 }
 
 /**
@@ -256,26 +278,23 @@ export function threadSubjects(doc: DocLike): Record<string, string> {
 }
 
 /**
- * Pairs every dragged thread with the subject to show
+ * Pairs every dragged row with the subject to show
  *
- * The pressed message rides along only for a single-conversation drag: across a selection,
- * "this message and everything older" means nothing.
+ * The message each row names travels with it however many rows the drag carries: it says
+ * which mail of that conversation was ticked, which a selection needs as much as one row.
  *
- * @param ids
+ * @param rows
  * @param subjects
- * @param message the message the press landed on, when it landed in one
- * @returns one item per id, in drag order
+ * @returns one item per row, in drag order
  */
 export function itemsForDrag(
-  ids: string[],
+  rows: DragRow[],
   subjects: Record<string, string>,
-  message: MessageRef | null = null,
 ): Array<{ threadId: string; subject: string; message?: MessageRef }> {
-  const one = ids.length === 1 && message ? message : null;
-  return ids.map((threadId) => ({
-    threadId,
-    subject: subjects[threadId] || NO_SUBJECT,
-    ...(one ? { message: one } : {}),
+  return rows.map((row) => ({
+    threadId: row.threadId,
+    subject: subjects[row.threadId] || NO_SUBJECT,
+    ...(row.message ? { message: row.message } : {}),
   }));
 }
 
@@ -322,6 +341,27 @@ export function ikFromPage(win: { GLOBALS?: unknown }, html: string): string | n
 }
 
 /**
+ * What a finished drop reports back to the strip
+ *
+ * Every dragged row counts towards the total, whether or not it produced a mail. A row that
+ * failed is exactly what "2 van 3 opgeslagen" exists to say, and leaving it out of the total
+ * made a short drop read as a complete one.
+ *
+ * @param saved how many mails each dragged row produced, in drag order
+ * @param error the last failure a row named
+ * @returns what resultText draws
+ */
+export function dropOutcome(
+  saved: number[],
+  error?: string,
+): { ok: boolean; count: number; total: number; error?: string } {
+  const count = saved.reduce((n, s) => n + s, 0);
+  const total = saved.length;
+  if (count === 0) return { ok: false, count: 0, total, error: error ?? NOTHING_SAVED };
+  return { ok: true, count, total };
+}
+
+/**
  * The line the strip shows once the drop is done
  *
  * @param r
@@ -337,6 +377,25 @@ export function resultText(r: { ok: boolean; count: number; total: number; error
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * What makes a row the same row, for deduplicating and for recognising the press
+ *
+ * The message when the row stands for one, so two messages of a conversation stay two; the
+ * thread when it stands for the whole conversation. Which one it is stays in the key, since
+ * a thread id and a message id are not drawn from the same pot.
+ *
+ * @param row
+ * @returns the key
+ * @private
+ */
+function dragRowKey(row: DragRow): string {
+  const permId = row.message?.permId;
+  const legacyId = row.message?.legacyId;
+  if (permId) return `msg:${permId}`;
+  if (legacyId) return `msg:${legacyId}`;
+  return `thread:${row.threadId}`;
+}
 
 /**
  * Reads both message ids off the block Gmail wraps a message in

@@ -24,8 +24,8 @@ import {
   DRAG_CHROME_Z,
   threadIdFromDragTarget,
   messageRefFromDragTarget,
-  selectedThreadIds,
-  threadIdsForDrag,
+  selectedRows,
+  rowsForDrag,
   threadSubjects,
   itemsForDrag,
   isOverZone,
@@ -458,11 +458,19 @@ function installDropzone(
         if (!saving) reset();
         return;
       }
-      const threadIds = threadIdsForDrag(threadId, selectedThreadIds(document));
-      const items = itemsForDrag(threadIds, threadSubjects(document), message);
-      log(`[drag] thread=${threadId} message=${message ? JSON.stringify(message) : 'geen'}`);
+      const rows = rowsForDrag(
+        { threadId, ...(message ? { message } : {}) },
+        selectedRows(document),
+      );
+      const items = itemsForDrag(rows, threadSubjects(document));
+      log(
+        `[drag] ${rows.length} rij(en) vanaf thread=${threadId}: ` +
+          rows
+            .map((r) => `${r.threadId}${r.message?.permId ? `|${r.message.permId}` : ''}`)
+            .join(' '),
+      );
       saving = true;
-      zone.textContent = items.length > 1 ? `${items.length} gesprekken opslaan…` : 'Bezig met opslaan…';
+      zone.textContent = items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…';
       setState('armed');
       send({
         items,

@@ -97,6 +97,31 @@ export function labelListUrl(authuser: string, label: string, page: number): str
   return `https://mail.google.com/mail/u/${authuser}/#label/${enc}${suffix}`;
 }
 
+// Gmail draws a list row by row, so the first scrape of a page answers with whatever had
+// rendered in that instant — which is how a label of forty came back as a folder of two. A
+// page is only taken once two reads in a row agree, and never while it is still the page
+// before it.
+
+/**
+ * Whether a scraped page can be taken as the whole page
+ *
+ * @param before the read before this one, empty on the first try
+ * @param now the read just taken
+ * @param firstOfPreviousPage the first thread of the page already collected, which a page
+ *   that has not been replaced yet still starts with
+ * @returns true when the page has stopped changing and is not the previous one
+ */
+export function scrapeSettled(
+  before: LabelThread[],
+  now: LabelThread[],
+  firstOfPreviousPage: string,
+): boolean {
+  if (now.length === 0) return false;
+  if (now[0].threadId === firstOfPreviousPage) return false;
+  if (before.length !== now.length) return false;
+  return before.every((t, i) => t.threadId === now[i].threadId);
+}
+
 // Gmail re-shows the last page for a too-high page number, so paging stops as soon as a
 // page adds nothing new.
 
