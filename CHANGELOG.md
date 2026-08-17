@@ -3,6 +3,34 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.8] — 2026-08-17
+
+### Opgelost
+- **Meerdere mails tegelijk slepen pakt nu alle mails die je aanvinkte.** Staat je lijst
+  op losse berichten in plaats van gesprekken, dan horen twee aangevinkte regels soms bij
+  hetzelfde gesprek. De app hield die twee voor één mail: er verdween er één, en van de
+  ander werd het nieuwste bericht van dat gesprek opgeslagen in plaats van de regel die je
+  had aangevinkt. Elke aangevinkte regel staat nu voor zijn eigen bericht.
+- **Een sleep die niet alles kon opslaan zegt dat nu ook.** Sleepte je drie mails en lukte
+  er één niet, dan meldde de balk "2 berichten opgeslagen" — precies de tekst van een
+  gelukte sleep. Er staat nu "2 van 3 opgeslagen".
+- **Een label slepen haalt het hele label op.** Gmail vult zo'n lijst regel voor regel, en
+  de app nam wat er op dat moment stond. Daardoor leverde hetzelfde label de ene keer twee
+  mails op en de andere keer één. Er wordt nu gewacht tot de lijst compleet is.
+
+### Fixed
+- **Dragging several mails at once now takes every mail you ticked.** When your list shows
+  separate messages instead of conversations, two ticked rows can belong to the same
+  conversation. The app treated those two as one mail: one disappeared, and for the other
+  it saved that conversation's newest message instead of the row you had ticked. Every
+  ticked row now stands for its own message.
+- **A drag that could not save everything now says so.** Drag three mails and have one
+  fail, and the strip reported "2 berichten opgeslagen" — the wording of a drag that
+  worked. It now reads "2 van 3 opgeslagen".
+- **Dragging a label fetches the whole label.** Gmail fills such a list row by row, and the
+  app took whatever stood there at that moment. The same label therefore yielded two mails
+  one time and one the next. It now waits until the list is complete.
+
 ## [0.3.1-beta.7] — 2026-08-17
 
 ### Opgelost
