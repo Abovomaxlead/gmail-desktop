@@ -8,6 +8,7 @@ import type {
   MailDropCopyProgress,
   MailDropCopyResult,
   MailDropCopyMode,
+  MailDropExisting,
 } from './MailDropModal';
 import { getStrings } from './strings';
 import type { Surface } from '../lib/surfaces';
@@ -224,6 +225,7 @@ interface DesktopBridge {
   closeMailDropPreview(): void;
   getMailDropPreview(): Promise<{ items: MailDropItem[] }>;
   getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
+  getMailDropExisting(): Promise<MailDropExisting>;
   copyMailDrop(
     targets: { email: string; labelIds: string[] }[],
     mode?: MailDropCopyMode,

@@ -123,6 +123,8 @@ contextBridge.exposeInMainWorld('desktop', {
   getMailDropPreview: (): Promise<{ items: unknown[] }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
   getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
+  getMailDropExisting: (): Promise<{ accounts: unknown[]; scanned: number }> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_EXISTING_GET),
   copyMailDrop: (
     targets: Array<{ email: string; labelIds: string[] }>,
     mode?: 'check' | 'new' | 'all',

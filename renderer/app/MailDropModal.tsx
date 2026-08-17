@@ -60,6 +60,24 @@ export interface MailDropCopyProgress {
   email: string;
 }
 
+export interface MailDropExistingLabel {
+  labelId: string;
+  count: number;
+}
+
+export interface MailDropExistingInMailbox {
+  email: string;
+  labels: MailDropExistingLabel[];
+  error?: string;
+}
+
+/** Where the dragged mail already sits, asked before anything is ticked. `scanned` is 0 when
+ * the drag was too big to look up, which is not the same as finding nothing. */
+export interface MailDropExisting {
+  accounts: MailDropExistingInMailbox[];
+  scanned: number;
+}
+
 
 //===========================
 // Component

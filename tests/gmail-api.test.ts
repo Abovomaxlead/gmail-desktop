@@ -22,6 +22,11 @@ import {
   messageIdQuery,
   searchInLabelUrl,
   parseHasMessage,
+  searchAnywhereUrl,
+  messageLabelsUrl,
+  parseFirstMessageId,
+  parseMessageLabelIds,
+  labelsHoldingMessage,
   WATCH_URL,
   STOP_URL,
   PROFILE_URL,
@@ -250,6 +255,68 @@ describe('parseHasMessage', () => {
     expect(parseHasMessage({ resultSizeEstimate: 0 })).toBe(false);
     expect(parseHasMessage({ messages: [] })).toBe(false);
     expect(parseHasMessage(null)).toBe(false);
+  });
+});
+
+describe('searchAnywhereUrl', () => {
+  it('looks for that one message without narrowing to a label', () => {
+    const url = new URL(searchAnywhereUrl('<a@b.nl>'));
+    expect(url.pathname).toBe('/gmail/v1/users/me/messages');
+    expect(url.searchParams.get('q')).toBe('rfc822msgid:a@b.nl');
+    expect(url.searchParams.get('labelIds')).toBeNull();
+    expect(url.searchParams.get('maxResults')).toBe('1');
+  });
+
+  it('leaves spam and trash out, the way the per-label search does', () => {
+    const url = new URL(searchAnywhereUrl('<a@b.nl>'));
+    expect(url.searchParams.get('includeSpamTrash')).toBeNull();
+  });
+});
+
+describe('messageLabelsUrl', () => {
+  it('asks for the smallest form, since only the labels are wanted', () => {
+    const url = new URL(messageLabelsUrl('18f2c'));
+    expect(url.pathname).toBe('/gmail/v1/users/me/messages/18f2c');
+    expect(url.searchParams.get('format')).toBe('minimal');
+  });
+
+  it('escapes a message id that needs it', () => {
+    expect(new URL(messageLabelsUrl('a/b')).pathname).toBe('/gmail/v1/users/me/messages/a%2Fb');
+  });
+});
+
+describe('parseFirstMessageId', () => {
+  it('names the message Gmail found', () => {
+    expect(parseFirstMessageId({ messages: [{ id: 'm1' }, { id: 'm2' }] })).toBe('m1');
+  });
+
+  it('is null when the search found nothing', () => {
+    expect(parseFirstMessageId({ messages: [] })).toBeNull();
+    expect(parseFirstMessageId({ resultSizeEstimate: 0 })).toBeNull();
+    expect(parseFirstMessageId(null)).toBeNull();
+  });
+});
+
+describe('parseMessageLabelIds', () => {
+  it('reads the labels the mailbox has this message under', () => {
+    expect(parseMessageLabelIds({ id: 'm1', labelIds: ['INBOX', 'L1'] })).toEqual(['INBOX', 'L1']);
+  });
+
+  it('returns nothing for a message without labels or an unexpected response', () => {
+    expect(parseMessageLabelIds({ id: 'm1' })).toEqual([]);
+    expect(parseMessageLabelIds({ labelIds: ['', 'L1'] })).toEqual(['L1']);
+    expect(parseMessageLabelIds(null)).toEqual([]);
+  });
+});
+
+describe('labelsHoldingMessage', () => {
+  it('exists and takes a token and a message id', () => {
+    expect(typeof labelsHoldingMessage).toBe('function');
+    expect(labelsHoldingMessage.length).toBe(2);
+  });
+
+  it('answers nothing without a Message-ID, since nothing can be matched', async () => {
+    expect(await labelsHoldingMessage('token', '  ')).toEqual([]);
   });
 });
 

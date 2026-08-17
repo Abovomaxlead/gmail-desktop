@@ -8,6 +8,8 @@ import {
   duplicateIndex,
   labelsStillNeeded,
   newMessageCount,
+  copyableLabelIds,
+  countExisting,
 } from '../electron/mail/mail-copy';
 
 describe('normalizeTargets', () => {
@@ -167,5 +169,51 @@ describe('newMessageCount', () => {
   it('is zero when everything already exists', () => {
     const index = duplicateIndex([dup('a@x.nl', 'L1', 'm1')]);
     expect(newMessageCount(index, targets, ['m1'])).toBe(0);
+  });
+});
+
+describe('copyableLabelIds', () => {
+  it('keeps the labels the picker offers', () => {
+    expect(copyableLabelIds(['INBOX', 'STARRED', 'IMPORTANT', 'Label_7'])).toEqual([
+      'INBOX',
+      'STARRED',
+      'IMPORTANT',
+      'Label_7',
+    ]);
+  });
+
+  it('drops the bookkeeping Gmail hangs on every message', () => {
+    expect(
+      copyableLabelIds(['UNREAD', 'CATEGORY_PERSONAL', 'SENT', 'DRAFT', 'CHAT', 'Label_7']),
+    ).toEqual(['Label_7']);
+  });
+
+  it('drops spam and trash, which are not a copy standing in the way', () => {
+    expect(copyableLabelIds(['SPAM', 'TRASH'])).toEqual([]);
+  });
+});
+
+describe('countExisting', () => {
+  it('counts how many of the dragged messages a label already holds', () => {
+    expect(
+      countExisting([
+        { email: 'a@x.nl', labelId: 'L1' },
+        { email: 'a@x.nl', labelId: 'L1' },
+        { email: 'a@x.nl', labelId: 'L2' },
+      ]),
+    ).toEqual([{ email: 'a@x.nl', labels: [{ labelId: 'L1', count: 2 }, { labelId: 'L2', count: 1 }] }]);
+  });
+
+  it('keeps the same label in two mailboxes apart', () => {
+    expect(
+      countExisting([
+        { email: 'a@x.nl', labelId: 'L1' },
+        { email: 'b@x.nl', labelId: 'L1' },
+      ]).map((a) => a.email),
+    ).toEqual(['a@x.nl', 'b@x.nl']);
+  });
+
+  it('reports nothing when nothing was found', () => {
+    expect(countExisting([])).toEqual([]);
   });
 });

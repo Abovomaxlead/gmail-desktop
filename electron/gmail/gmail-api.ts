@@ -502,6 +502,77 @@ export async function messageExistsInLabel(
   return parseHasMessage(await requestJson(searchInLabelUrl(messageId, labelId), accessToken));
 }
 
+// Asking the mailbox once instead of once per label. The per-label search answers "is it
+// under this one label", which costs a call for every label anyone ticked and stays silent
+// about the label they did not tick — and "it is already in that mailbox, under something
+// else" is exactly what a second copy is. Two calls per mailbox answer that whatever the
+// mailbox's label count is: find the message, then read what it is filed under.
+//
+// Spam and trash stay out, as they do in the per-label search: a mail someone threw away is
+// not a copy standing in the way of this one.
+
+/**
+ * The search that finds one message anywhere in a mailbox
+ *
+ * @param messageId the RFC822 Message-ID
+ * @returns the URL
+ */
+export function searchAnywhereUrl(messageId: string): string {
+  const q = new URLSearchParams({ q: messageIdQuery(messageId), maxResults: '1' });
+  return `${MESSAGES_URL}?${q.toString()}`;
+}
+
+/**
+ * The smallest form of a message, which carries its labels
+ *
+ * @param messageId Gmail's own id, not the RFC822 one
+ * @returns the URL
+ */
+export function messageLabelsUrl(messageId: string): string {
+  return `${MESSAGES_URL}/${encodeURIComponent(messageId)}?format=minimal`;
+}
+
+/**
+ * Reads the message a search turned up
+ *
+ * @param json
+ * @returns {string|null} null when the search found nothing
+ */
+export function parseFirstMessageId(json: unknown): string | null {
+  const raw = (json as { messages?: unknown })?.messages;
+  if (!Array.isArray(raw)) return null;
+  return stringFrom((raw[0] as { id?: unknown })?.id);
+}
+
+/**
+ * Reads the labels a mailbox has a message under
+ *
+ * @param json
+ * @returns the label ids, Gmail's own bookkeeping ones included
+ */
+export function parseMessageLabelIds(json: unknown): string[] {
+  const raw = (json as { labelIds?: unknown })?.labelIds;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((id) => stringFrom(id)).filter((id): id is string => !!id);
+}
+
+/**
+ * Which labels of a mailbox already hold this message
+ *
+ * @param accessToken
+ * @param messageId the RFC822 Message-ID
+ * @returns {Promise<string[]>} empty when the mailbox does not have it at all
+ */
+export async function labelsHoldingMessage(
+  accessToken: string,
+  messageId: string,
+): Promise<string[]> {
+  if (!(messageId ?? '').trim()) return [];
+  const found = parseFirstMessageId(await requestJson(searchAnywhereUrl(messageId), accessToken));
+  if (!found) return [];
+  return parseMessageLabelIds(await requestJson(messageLabelsUrl(found), accessToken));
+}
+
 
 //===========================
 // Watch and history

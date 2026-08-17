@@ -7,14 +7,20 @@ import type {
   MailDropCopyResult,
   MailDropCopyDuplicate,
   MailDropCopyMode,
+  MailDropExisting,
 } from '../MailDropModal';
 import { labelKind, type LabelKind } from '../label-kind';
 import { filterLabels } from '../label-search';
 import { dropFailures } from '../drop-outcome';
+import { existingCount, existingNotices, type ExistingNotice } from '../existing-labels';
 
 // The mail-drop modal, on its own page because it is shown in its own view on top of
 // Gmail; sharing a page with the bar meant recognising from a flag which view it was
-// running in, and that did not hold up. A drag that saved nothing shows the reason instead
+// running in, and that did not hold up. Mail that already sits at a destination is said
+// twice over, and deliberately: a banner the moment the picker opens, before anything is
+// ticked, and the confirmation at Kopieer. The second one only ever knew about the labels
+// someone had already ticked, so "this is in that mailbox already, under another label" was
+// something you found out by filing a second copy of it. A drag that saved nothing shows the reason instead
 // of the picker: there is nothing to copy, so labels would be a form that cannot be
 // submitted. A mailbox has hundreds of labels, so the picker opens with a search box that
 // narrows every account's column at once. Copying takes visibly long - a search and then
@@ -41,6 +47,9 @@ interface AccountLabels {
   error?: string;
 }
 
+/** Before the scan has answered, and after one that could not run. */
+const NOTHING_FOUND_YET: MailDropExisting = { accounts: [], scanned: 0 };
+
 type Phase =
   | { kind: 'picking' }
   | { kind: 'copying'; phase: 'check' | 'copy'; done: number; total: number; email: string }
@@ -58,6 +67,7 @@ export default function MailDropModalPage() {
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
+  const [existing, setExisting] = useState<MailDropExisting>(NOTHING_FOUND_YET);
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -69,6 +79,22 @@ export default function MailDropModalPage() {
         .then(({ accounts: a }) => setAccounts(a))
         .catch(() => setAccounts([]));
     };
+    // This view outlives the drag it was opened for, and the scan takes longer than the
+    // labels do, so an answer about the previous drag can land after the next one started.
+    // Only the newest run may write, or the picker warns about mail nobody dragged.
+    let run = 0;
+    const loadExisting = () => {
+      const mine = (run += 1);
+      setExisting(NOTHING_FOUND_YET);
+      void bridge
+        .getMailDropExisting()
+        .then((e) => {
+          if (mine === run) setExisting(e);
+        })
+        .catch(() => {
+          if (mine === run) setExisting(NOTHING_FOUND_YET);
+        });
+    };
     void bridge.getMailDropPreview().then(({ items: i }) => {
       if (i.length > 0) setItems(i);
     });
@@ -78,10 +104,14 @@ export default function MailDropModalPage() {
       setPicked({});
       setSearch('');
       setPhase({ kind: 'picking' });
-      if (seenPreview) loadLabels();
+      if (seenPreview) {
+        loadLabels();
+        loadExisting();
+      }
       seenPreview = true;
     });
     loadLabels();
+    loadExisting();
     bridge.onMailDropCopyProgress((p: MailDropCopyProgress) =>
       setPhase((cur) => (cur.kind === 'copying' ? { kind: 'copying', ...p } : cur)),
     );
@@ -107,6 +137,7 @@ export default function MailDropModalPage() {
 
   const savedCount = items.reduce((s, i) => s + i.saved, 0);
   const failures = dropFailures(items);
+  const notices = existingNotices(existing.accounts, accounts ?? []);
 
   const copy = async (mode: MailDropCopyMode = 'check') => {
     const bridge = window.desktop;
@@ -208,21 +239,27 @@ export default function MailDropModalPage() {
             ) : accounts.length === 0 ? (
               <p className="text-sm text-neutral-500">Geen ander gekoppeld account.</p>
             ) : (
-              <div
-                className="grid gap-x-5 gap-y-2"
-                style={{ gridTemplateColumns: `repeat(${accounts.length}, minmax(0, 1fr))` }}
-              >
-                {accounts.map((acc) => (
-                  <AccountColumn
-                    key={acc.email}
-                    account={acc}
-                    search={search}
-                    picked={picked[acc.email] ?? []}
-                    disabled={phase.kind === 'copying'}
-                    onToggle={(labelId) => toggle(acc.email, labelId)}
-                  />
-                ))}
-              </div>
+              <>
+                {notices.length > 0 && (
+                  <ExistingWarning notices={notices} scanned={existing.scanned} />
+                )}
+                <div
+                  className="grid gap-x-5 gap-y-2"
+                  style={{ gridTemplateColumns: `repeat(${accounts.length}, minmax(0, 1fr))` }}
+                >
+                  {accounts.map((acc) => (
+                    <AccountColumn
+                      key={acc.email}
+                      account={acc}
+                      search={search}
+                      picked={picked[acc.email] ?? []}
+                      disabled={phase.kind === 'copying'}
+                      countExisting={(labelId) => existingCount(existing.accounts, acc.email, labelId)}
+                      onToggle={(labelId) => toggle(acc.email, labelId)}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
 
@@ -293,6 +330,7 @@ export default function MailDropModalPage() {
  * @param search
  * @param picked the labels ticked for this account
  * @param disabled while a copy is running
+ * @param countExisting how much of the drag a label already holds
  * @param onToggle
  */
 function AccountColumn({
@@ -300,12 +338,14 @@ function AccountColumn({
   search,
   picked,
   disabled,
+  countExisting,
   onToggle,
 }: {
   account: AccountLabels;
   search: string;
   picked: string[];
   disabled: boolean;
+  countExisting: (labelId: string) => number;
   onToggle: (labelId: string) => void;
 }) {
   const shown = filterLabels(account.labels, search, picked);
@@ -327,6 +367,7 @@ function AccountColumn({
         <div className="flex flex-col gap-0.5">
           {shown.map((label) => {
             const on = picked.includes(label.id);
+            const already = countExisting(label.id);
             return (
               <label
                 key={label.id}
@@ -347,6 +388,11 @@ function AccountColumn({
                 <span className="truncate" title={label.name}>
                   {label.name}
                 </span>
+                {already > 0 && (
+                  <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
+                    {already === 1 ? 'staat er al' : `${already} staan er al`}
+                  </span>
+                )}
               </label>
             );
           })}
@@ -505,6 +551,46 @@ function DropFailure({ reasons }: { reasons: string[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * Which mailboxes already hold the dragged mail, above the labels rather than after them
+ *
+ * @param notices one per mailbox the scan had something to say about
+ * @param scanned how many messages the drag saved, which decides the wording
+ */
+function ExistingWarning({ notices, scanned }: { notices: ExistingNotice[]; scanned: number }) {
+  // A mailbox the scan could not reach is not a mailbox the mail is in, and must not be
+  // shown as one. It is still worth saying: silence here reads as "nothing found there".
+  const found = notices.filter((n) => !n.error);
+  const unchecked = notices.filter((n) => n.error);
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      {found.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
+          <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+            {scanned === 1
+              ? 'Deze mail staat al in een postvak dat je kunt kiezen.'
+              : 'Een deel van deze mail staat al in een postvak dat je kunt kiezen.'}
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {found.map((n) => (
+              <li key={n.email} className="truncate text-xs text-amber-700 dark:text-amber-500">
+                <span className="font-medium">{n.email}</span>
+                {n.labels.length > 0 ? ` — ${n.labels.join(', ')}` : ' — staat er al'}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {unchecked.length > 0 && (
+        <p className="text-xs text-neutral-500">
+          Niet nagekeken op dubbelen:{' '}
+          {unchecked.map((n) => `${n.email} (${n.error})`).join(', ')}
+        </p>
+      )}
     </div>
   );
 }

@@ -94,6 +94,8 @@ export const IPC = {
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get',
   MAIL_DROP_COPY: 'maildrop:copy',
   MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress',
+  /** Where the dragged mail already sits, asked by the picker before anything is ticked. */
+  MAIL_DROP_EXISTING_GET: 'maildrop:existing-get',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
@@ -160,6 +162,9 @@ export type {
   CopyAccountResult as MailDropCopyAccountResult,
   CopyResult as MailDropCopyResult,
   CopyDuplicate as MailDropCopyDuplicate,
+  ExistingLabel as MailDropExistingLabel,
+  ExistingInMailbox as MailDropExistingInMailbox,
+  ExistingResult as MailDropExisting,
 } from '../mail/mail-copy';
 
 export interface MailDropResult {

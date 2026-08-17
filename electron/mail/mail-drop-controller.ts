@@ -42,7 +42,7 @@ import {
 } from '../core/runtime';
 import { mapLimit } from '../core/concurrency';
 import { OverlayView } from '../windows/overlay-view';
-import { accessTokenFor, forceRefresh } from '../auth/oauth-flow';
+import { forceRefresh } from '../auth/oauth-flow';
 import { oauthConfig } from '../auth/oauth-config';
 import { copyTargetEmails, isAllowedAccount } from '../auth/account-domain';
 import {
@@ -70,6 +70,8 @@ import {
 } from './mail-archive';
 import {
   copyTotal,
+  copyableLabelIds,
+  countExisting,
   duplicateIndex,
   groupDuplicates,
   labelsStillNeeded,
@@ -77,6 +79,8 @@ import {
   normalizeTargets,
   type CopyMode,
   type DuplicateHit,
+  type ExistingInMailbox,
+  type ExistingResult,
 } from './mail-copy';
 import {
   LABEL_SCRAPE_JS,
@@ -96,13 +100,13 @@ import {
   fetchThreadMessages,
   fetchThreadRaw,
   insertMessage,
+  labelsHoldingMessage,
   listLabelThreadIds,
   messageExistsInLabel,
   type AccountLabels,
   type ThreadMessage,
 } from '../gmail/gmail-api';
 import type { AccountRef } from '../accounts/account-ref';
-import type { OAuthConfig } from '../auth/google-oauth';
 
 //===========================
 // Types
@@ -339,17 +343,21 @@ function savedRefs(
 
 const DUPLICATE_CHECK_LIMIT = 8;
 
+// The token comes from mailboxToken, not from the OAuth store. A delegated mailbox has no
+// token of its own, so accessTokenFor answered null for one and it was dropped from the
+// checks below without a word — the scan then found nothing, every label counted as still
+// needed, and a shared mailbox quietly got a second copy of a mail it already held. The rest
+// of this file has gone through mailboxToken for exactly that reason; this was the one place
+// left behind.
 async function findDuplicates(
-  cfg: OAuthConfig,
   targets: MailDropCopyTarget[],
   saved: SavedRef[],
   onProgress: (done: number, total: number, email: string) => void,
 ): Promise<DuplicateHit[]> {
-  if (!oauthTokens) return [];
   const tokens = new Map<string, string>();
   for (const t of targets) {
-    const token = await accessTokenFor(cfg, oauthTokens, t.email);
-    if (token) tokens.set(t.email, token);
+    const got = await mailboxToken(t.email);
+    if (got.ok) tokens.set(t.email, got.token);
   }
 
   const checks: Array<{ email: string; labelId: string; ref: SavedRef }> = [];
@@ -809,6 +817,60 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
   return { accounts };
 }
 
+// How many saved messages are still worth looking up before the picker is drawn. A drag off
+// a row is one mail, a ticked selection a handful; a label drag is hundreds, and there the
+// scan would cost more requests than the copy it is warning about. Past this the picker says
+// nothing and the check at Kopieer does the work, as it always did.
+const EXISTING_SCAN_LIMIT = 10;
+
+const EXISTING_SCAN_CONCURRENCY = 4;
+
+/** Where the last drag's mail already sits, asked the moment the picker opens.
+ *
+ * This is the warning before the choice rather than after it. The check at Kopieer only ever
+ * looked at the labels someone had already ticked, so "this mail is in that mailbox already,
+ * under a different label" was something you found out by filing a second copy of it.
+ *
+ * One search per mailbox per message rather than one per label: the message is looked up by
+ * its Message-ID and Gmail says what it is filed under, which is the same two requests
+ * whether the mailbox has four labels or four hundred. */
+export async function existingForCopyTargets(): Promise<ExistingResult> {
+  const files = lastDropSaved.filter((f) => f.messageId.trim());
+  const targetable = copyTargetEmails(profiles, lastDropSource);
+  if (files.length === 0 || files.length > EXISTING_SCAN_LIMIT || targetable.length === 0) {
+    return { accounts: [], scanned: 0 };
+  }
+
+  const scans = await mapLimit(targetable, EXISTING_SCAN_CONCURRENCY, async (email) => {
+    const got = await mailboxToken(email);
+    // A mailbox with no token at all is passed over without a word, and that is not the
+    // silence this feature is against: its column carries the refusal and offers no labels,
+    // so nothing can be copied there and there is nothing to warn about. A scan that failed
+    // with a working token is the opposite -- the labels are pickable and nothing else on
+    // screen says the check never ran.
+    if (!got.ok) return { email, labelIds: [] as string[] };
+    try {
+      const perMessage = await mapLimit(files, 2, (ref) =>
+        labelsHoldingMessage(got.token, ref.messageId),
+      );
+      return { email, labelIds: perMessage.flatMap(copyableLabelIds) };
+    } catch (e) {
+      // Reported rather than swallowed: a scan that failed is not a mailbox that is clean,
+      // and letting it read as clean is the whole failure this feature exists to prevent.
+      console.warn(`[maildrop] kon ${email} niet controleren op dubbelen:`, e);
+      return { email, labelIds: [], error: 'Kon niet controleren' };
+    }
+  });
+
+  const hits: Array<{ email: string; labelId: string }> = [];
+  const failed: ExistingInMailbox[] = [];
+  for (const scan of scans) {
+    if (scan.error) failed.push({ email: scan.email, labels: [], error: scan.error });
+    else for (const labelId of scan.labelIds) hits.push({ email: scan.email, labelId });
+  }
+  return { accounts: [...countExisting(hits), ...failed], scanned: files.length };
+}
+
 /** Copies whatever the last drag saved into the chosen labels, in the chosen mailboxes.
  *
  * Runs in three modes. 'check' scans for messages already there and reports them rather than
@@ -855,7 +917,7 @@ export async function copyToMailboxes(arg: {
     const hits =
       lastScan?.key === key
         ? lastScan.hits
-        : await findDuplicates(cfg, targets, files, (n, of, email) => {
+        : await findDuplicates(targets, files, (n, of, email) => {
             done = n;
             progress('check', email, of);
           });

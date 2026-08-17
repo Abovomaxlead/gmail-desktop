@@ -42,6 +42,7 @@ import {
   closeDropPreview,
   copyToMailboxes,
   dropPreviewItems,
+  existingForCopyTargets,
   labelsForCopyTargets,
   mailDropFolder,
 } from '../mail/mail-drop-controller';
@@ -286,6 +287,7 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => dropPreviewItems());
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => closeDropPreview());
   ipcMain.handle(IPC.LABELS_GET, () => labelsForCopyTargets());
+  ipcMain.handle(IPC.MAIL_DROP_EXISTING_GET, () => existingForCopyTargets());
   ipcMain.handle(IPC.MAIL_DROP_COPY, (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) =>
     copyToMailboxes(arg),
   );
