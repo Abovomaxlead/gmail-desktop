@@ -1,11 +1,8 @@
-// Decides whether a notification may show at all, whether it must be silent, and
-// whether it stays up until dismissed. Pure, so it is testable without Electron.
-// The master switches (sound, googleApps) are checked before the per-account flags;
-// only the mail surface honours a per-account toggle, and pushCovered means the API
-// already notifies so the webview must stay quiet. In mergeNotificationsFromPanel
-// ...current must come first: the panel knows only dnd and quietHours and would
-// otherwise wipe the sound and content fields, and a running dndUntil is cleared
-// only when dnd itself is flipped, never when the quiet hours change.
+// Decides whether a notification may show at all, whether it must be silent, and whether it
+// stays up until dismissed. Pure, so it is testable without Electron.
+//
+// The master switches are checked before the per-account flags; only the mail surface
+// honours a per-account toggle, and pushCovered means the API already notifies.
 import type { NotificationPrefs, Prefs, QuietHours } from '../core/prefs-store';
 import { surfacesForRef, type Surface } from '../../renderer/lib/surfaces';
 import type { AccountRef } from '../../renderer/lib/account-ref';
@@ -70,13 +67,6 @@ export function notificationsAllowed(
   return account?.notify !== false;
 }
 
-// The app's window.Notification shim lives in the page, so it never sees a notification
-// raised from inside Gmail's service worker: that one is drawn by Windows, sits outside the
-// app's own stack, ignores every setting the app has, and does nothing when clicked.
-// Refusing the permission is what stops it being drawn at all, and it costs nothing,
-// because the shim relays over IPC rather than through Chromium and tells the page
-// "granted" itself.
-
 /**
  * Chromium's own permission answer for the Google session
  *
@@ -90,9 +80,8 @@ export function sessionPermissionAllowed(permission: string): boolean {
 /**
  * Folds the panel's two fields onto the stored notification preferences
  *
- * ...current comes first because the panel knows only dnd and quietHours and would
- * otherwise wipe the sound and content fields. A running dndUntil is cleared only when
- * dnd itself is flipped, never when the quiet hours change.
+ * ...current comes first, or the panel wipes the sound and content fields it knows
+ * nothing about. A running dndUntil clears only when dnd itself is flipped.
  *
  * @param current
  * @param panel
@@ -126,9 +115,6 @@ export function notificationSilent(
   if (surface !== 'mail') return false;
   return prefs.accounts[email]?.notifySound === false;
 }
-
-// Reads `=== true` rather than `!== false` because fading is the default: a card that has
-// to be clicked away is a chore for every mailbox at once, so it is asked for per account.
 
 /**
  * Whether an account's cards stay up until dismissed

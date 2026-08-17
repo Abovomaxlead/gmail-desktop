@@ -1,21 +1,12 @@
-// The app's notification sounds. They are audio files under renderer/public/sounds, which
-// Next copies verbatim into the export, so a root-relative path resolves against the dev
-// server and against app://bundle alike and the page never has to know which one it is
-// running under. Nothing here touches `Audio` at module level: it does not exist under
-// Node, where the tests import this module, so the constructor sits inside playSound
-// behind a check.
+// The app's notification sounds: files under renderer/public/sounds, which Next copies
+// verbatim, so a root-relative path resolves under the dev server and app://bundle alike.
+// Nothing touches `Audio` at module level, since it does not exist under Node.
 //
-// Sound names are preference keys (`notifications.soundName`). A stored name that no longer
-// exists — a renamed file, or a sound dropped from the list — must not resolve to silence:
-// there is no system sound to fall back on now that the app draws its own notifications.
-// That is why soundNameOrDefault resolves anything it cannot find rather than only the
-// empty string, and why the test asserting DEFAULT_SOUND names a real entry is the one that
-// matters most in this file. The synthesised sounds these replaced were removed with their
-// names, so every preference written before this change lands on that path.
+// A stored sound name that no longer exists must not resolve to silence — there is no
+// system sound to fall back on — so soundNameOrDefault resolves anything it cannot find.
 //
-// A fresh element per play, rather than one reused per sound, so two notifications close
-// together overlap instead of the second cutting the first off. Main's SOUND_GAP_MS
-// throttle is what keeps that from becoming a pile.
+// A fresh element per play, so two notifications close together overlap rather than cutting
+// each other off; main's SOUND_GAP_MS keeps that from becoming a pile.
 
 
 //===========================

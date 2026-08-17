@@ -11,34 +11,6 @@ import {
   type ComposeAccountChoice,
 } from '../../lib/compose-account';
 
-// The picker shown for a mailto: link when more than one account is signed in. It fills
-// its own frameless window rather than covering the app, so there is nothing behind it to
-// dim and no scrim: the card is the window. It replaces a native message box that could
-// only carry account labels — it leads with the recipient and subject parseMailto already
-// extracted, and renders each account as the from-line it is about to become, with the
-// leading numeral doubling as its keyboard shortcut. The transparent background is set in
-// the rendered html rather than from an effect, because with a transparent window it is
-// what stops Chromium painting an opaque rectangle around the rounded corners. Strings
-// come from the locale carried IN the payload rather than from prefs: a short-lived dialog
-// that waited on a prefs round trip would risk rendering its first frame in the wrong
-// language.
-//
-// The card reports its own measured height to main, which resizes the still-hidden window
-// to it and only then shows it. That is why the card is auto-height until it has been
-// measured: capping it to the viewport first would make the row list shrink to whatever
-// size main guessed, and the measurement would then just echo the guess back. Once the
-// size is reported the cap goes on, so a clamped window (many accounts on a short screen)
-// keeps the footer — and so the cancel button — on screen with the list scrolling inside.
-//
-// Focus is drawn from the focusIndex the component tracks, not from :focus-visible, which
-// Chromium will not match for the programmatic .focus() that gives row one the keyboard on
-// open. It uses the row's own account colour — a thicker colour edge plus a wash of the
-// same hue at about 8% — because that edge is already this design's identity marker and the
-// account colours are the only colour the design allows. Hover stays a neutral grey so the
-// two states cannot be mistaken for each other. A frameless window has no close box, so
-// Esc is not the only way out: the footer carries a real cancel button. Note that dark:
-// variants are inert here — darkMode is class-based and the class is only toggled on the
-// main document — so this card always renders light, as maildrop and reconnect also do.
 
 
 //===========================
@@ -46,9 +18,6 @@ import {
 //===========================
 
 const LIST_MAX_HEIGHT = 504;
-// Windows at a fractional display scale rounds the content size, and the CSS viewport is
-// then divided by the zoom factor, so an exact fit can land a pixel short and show a
-// scrollbar for that one pixel. Two pixels of slack costs nothing and removes the class.
 const ROUNDING_SLACK = 2;
 
 

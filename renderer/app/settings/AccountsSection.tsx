@@ -16,13 +16,6 @@ import {
   SURFACE_FOCUS_RING,
 } from './tokens';
 
-// Accounts: who takes part, in which order the tabs sit, which colour each account
-// has, and removing one. The card is grey rather than white because it is a thing
-// you can drag, and it reuses SURFACE_FOCUS_RING since its two tints match the nav
-// column's. Which notifications an account may give is not settable here: that
-// belongs to the per-account grid in Notifications, and having it in both places
-// meant two controls for one setting.
-
 
 //===========================
 // Constants

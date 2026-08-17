@@ -10,11 +10,6 @@ import {
 } from './nav';
 import { HAIRLINE, SURFACE, SURFACE_FOCUS_RING } from './tokens';
 
-// The frame around every settings section: a nav column on the grey surface and one
-// white surface next to it holding the active section. Arrow keys, Home and End move
-// through the column, Escape closes the panel, and closing first blurs the focused
-// field so a pending account name is written away. Every word on screen arrives as a
-// prop, so this file contains no user-facing text of its own.
 
 
 //===========================

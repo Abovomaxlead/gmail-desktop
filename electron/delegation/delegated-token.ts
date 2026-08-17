@@ -1,25 +1,10 @@
-// Access tokens for mailboxes nobody signed into.
+// Access tokens for mailboxes nobody signed into, which therefore have no OAuth token of
+// their own.
 //
-// A shared mailbox like support@ has no OAuth token of its own and never will: nobody logs
-// in as it, you reach it because its owner delegated it to you. So the copy path used to
-// ask the local token store for a token that could not exist there, get null, and skip the
-// account with "Verbinding verlopen" — a message about an expiry, for a mailbox that had
-// nothing to expire.
-//
-// The token comes from the relay instead, which holds the domain-wide service account key
-// the app must never contain, and which checks Google's own delegation record before
-// handing anything over. The app therefore does not decide who may reach what; it asks, and
-// is told.
-//
-// Which of your accounts does the asking is settled the same way. The app tries them —
-// active one first — and takes the first token the relay grants. That cannot widen anyone's
-// access, because every attempt is checked against the delegation record on the other side:
-// trying is how the app discovers the access you already have, not how it gains any. It
-// also means a copy does not fail merely because the wrong tab happened to be in front.
-//
-// Tokens live an hour, so they are cached per mailbox. Not caching them would mean a fresh
-// consent-free mint and a delegates-list read for every mailbox on every drag, which is
-// slow and pointlessly chatty against Google.
+// The relay mints them: it holds the domain-wide service account key the app must never
+// contain, and checks Google's delegation record before handing anything over. So the app
+// does not decide who may reach what — it asks, and is told. Tokens live an hour and are
+// cached per mailbox, or every drag would cost a fresh mint and a delegates-list read.
 
 
 
@@ -43,7 +28,6 @@ export const RELAY_TIMEOUT_MS = 20_000;
 
 export interface CachedToken {
   accessToken: string;
-  /** Epoch ms at which this stops being offered. */
   usableUntil: number;
 }
 
@@ -80,20 +64,12 @@ export function isUsable(entry: CachedToken | undefined, now: number): boolean {
  * @returns the entry, its window shortened by EXPIRY_MARGIN_MS
  */
 export function cacheEntry(accessToken: string, expiresInSeconds: number, now: number): CachedToken {
-  // A relay that reports a nonsensical lifetime should not produce a token cached forever,
-  // nor one already expired: clamp to something a copy can actually use.
   const lifetime = Number.isFinite(expiresInSeconds) ? expiresInSeconds * 1000 : 0;
   return {
     accessToken,
     usableUntil: now + Math.max(0, lifetime - EXPIRY_MARGIN_MS),
   };
 }
-
-// 403 is the only status worth retrying with a different requester: it means this person is
-// not a delegate of that mailbox, which says nothing about the next person. A 401 is about
-// the token we sent, a 400 is about the request itself, and anything 5xx is the relay or
-// Google — retrying those with another account would multiply one failure by the number of
-// accounts and report the last one, which is the least informative of them.
 
 /**
  * Whether the relay's refusal is worth retrying as a different account
@@ -107,11 +83,9 @@ export function shouldTryAnotherRequester(status: number): boolean {
 
 export interface DelegatedTokenDeps {
   url: string;
-  /** An access token for the account doing the asking. */
   requesterToken: string;
   target: string;
   fetch?: typeof fetch;
-  /** Defaults to RELAY_TIMEOUT_MS; a test hands in its own so it need not wait for one. */
   timeoutMs?: number;
 }
 
@@ -134,9 +108,6 @@ export async function requestDelegatedToken(
         'content-type': 'application/json',
       },
       body: JSON.stringify({ target: deps.target }),
-      // A relay that accepts the connection and then says nothing would otherwise hold this
-      // promise open forever, and with it whatever asked — the label list of a drop window
-      // asks for a token per mailbox before it can draw anything at all.
       signal: AbortSignal.timeout(deps.timeoutMs ?? RELAY_TIMEOUT_MS),
     });
   } catch (e) {

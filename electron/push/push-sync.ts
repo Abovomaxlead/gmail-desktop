@@ -1,10 +1,9 @@
-// One sync: from "something changed" to "notify these and the count is this".
-// Everything touching the network arrives as a dependency, so this runs without
-// Electron. The cursor only advances past the last history page — moving it halfway
-// and then failing would lose that mail for good. Syncs never overlap: one arriving
-// during a run is remembered and replayed once afterwards, since two passes over the
-// same cursor would notify everything twice, and pump() must always release the
-// running flag or every later run() returns that same rejected promise forever.
+// One sync: from "something changed" to "notify these and the count is this". Everything
+// touching the network arrives as a dependency, so this runs without Electron.
+//
+// The cursor only advances past the last history page, and syncs never overlap — one
+// arriving mid-run is replayed once afterwards, since two passes over the same cursor
+// would notify everything twice.
 import type { HistoryPage, MessageMeta } from '../gmail/gmail-api';
 import { notifiableIds, shouldNotify } from '../gmail/history-sync';
 

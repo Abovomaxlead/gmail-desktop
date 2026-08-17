@@ -1,13 +1,10 @@
 // What every Electron session gets wired up with: where downloads land, what is recorded
 // about them, and the spellchecker's language.
 //
-// Sessions arrive twice over — once for the default one and again for each partition
-// Electron creates — so attachSessionHandlers is called from both and remembers which it has
-// already seen. Without that a download would be logged, notified and revealed once per
-// registration.
+// Sessions arrive twice over, so attachSessionHandlers remembers which it has seen; without
+// that a download is logged, notified and revealed once per registration.
 //
-// One trap worth keeping in mind: DownloadItem.getStartTime() is in seconds, not
-// milliseconds, and a zero means Electron has no start time to give.
+// One trap: DownloadItem.getStartTime() is in seconds, and zero means Electron has none.
 
 import { app, shell } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -27,10 +24,7 @@ import type { DownloadClickAction } from '../core/prefs-store';
 
 const sessions = new Set<Electron.Session>();
 
-// A download card carries its path in threadId — the only field on a Toast that is a free
-// string, and reusing it beats widening the type for one kind. The action is remembered
-// here rather than on the card, so a preference changed between download and click is the
-// one that applies.
+// Download card path stored in threadId; action remembered here so changed prefs apply on click.
 const downloadClickPaths = new Map<string, DownloadClickAction>();
 
 
@@ -62,7 +56,6 @@ export function attachSessionHandlers(s: Electron.Session): void {
         path,
         url: item.getURL(),
         bytes: item.getReceivedBytes() || item.getTotalBytes(),
-        // getStartTime is in seconds, and 0 means Electron has none to give.
         startedAt: started > 0 ? Math.round(started * 1000) : Date.now(),
         state,
       });
@@ -78,21 +71,16 @@ export function downloadFolder(): string {
   return chosen || app.getPath('downloads');
 }
 
-/** Reveal and open accept only paths the log already knows, so neither can be pointed at an
- * arbitrary file by whatever sent the message. */
 export function knownDownloadPath(path: string): boolean {
   return downloadHistory?.all().some((r) => r.path === path) === true;
 }
 
-/** What clicking this download's card should do, consumed in the taking: a card is spent
- * once clicked, and a second click must not open the file again. */
 export function takeDownloadClickAction(path: string): DownloadClickAction | undefined {
   const action = downloadClickPaths.get(path);
   downloadClickPaths.delete(path);
   return action;
 }
 
-/** Releases a card's remembered action when it leaves the stack without being clicked. */
 export function forgetDownloadClickPath(path: string): void {
   downloadClickPaths.delete(path);
 }
@@ -125,9 +113,6 @@ function notifyDownloadDone(
   if (prefs) playNotificationSound(prefs.getAll());
 }
 
-// The spellchecker follows the system language and nothing else - there is no setting
-// for it. Setting it explicitly rather than leaving it to Electron matters: its default
-// is en-US, which would underline every Dutch word in a compose window.
 function spellcheckLanguagesFor(s: Electron.Session): string[] {
   const available = s.availableSpellCheckerLanguages;
   const locale = app.getLocale();

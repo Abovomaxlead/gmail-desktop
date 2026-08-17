@@ -1,9 +1,8 @@
-// Text for the reconnect notice, kept pure so a test can hold it to account: the
-// notice cannot be dismissed, so a sentence that is not true stays on screen until
-// the next release. 'expired' means the token is gone and moving mail stops working;
-// 'push' means the token still works but lacks the scope push needs, so only the
-// notifications and the unread counter are affected. A mixed list may only say what
-// is true for every account in it.
+// Text for the reconnect notice, kept pure so a test can hold it to account: the notice
+// cannot be dismissed, so an untrue sentence stays on screen until the next release.
+//
+// 'expired' means the token is gone and moving mail stops; 'push' means only notifications
+// and the unread counter are down. A mixed list may only say what is true for every account.
 
 export type ReconnectReason = 'expired' | 'push';
 

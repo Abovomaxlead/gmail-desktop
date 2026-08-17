@@ -3,10 +3,6 @@
 import type { ReactNode } from 'react';
 import { HINT } from './tokens';
 
-// One row in the settings panel: label on the left, control on the right, so every
-// control in a section lines up. Passing `htmlFor` makes the label a real label, so
-// clicking the name toggles the control; rows without a single target stay a div.
-
 export function SettingRow({
   label,
   description,

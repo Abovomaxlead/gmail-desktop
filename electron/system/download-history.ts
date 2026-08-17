@@ -1,15 +1,12 @@
-// The download log: one JSON array in userData, newest record first. Its own file
-// rather than a pref, because it grows and a half-written line here must not take
-// every setting down with it. `./ipc` is a type-only import on purpose — a real one
-// would create a cycle, since ipc.ts must not know about storage.
+// The download log: one JSON array in userData, newest first. Its own file rather than a
+// pref, so a half-written line cannot take every setting down with it.
 //
-// Parsing is deliberately tolerant: the file is hand-editable and can be left
-// half-written, so bad records are dropped and the rest survives, and an unrecognised
-// state becomes 'interrupted' rather than 'completed' because 'completed' enables an
-// "open file" button for a file that may not exist. File order is the order (`add`
-// prepends) and is never sorted by `startedAt`, because a big download that began
-// earlier can finish later. The caller supplies `startedAt`, so the recorded time is
-// the download's rather than the write's.
+// Parsing is tolerant, since the file is hand-editable: bad records are dropped, and an
+// unrecognised state becomes 'interrupted' rather than 'completed', which would enable an
+// "open file" button for a file that may not exist.
+//
+// File order is the order and is never sorted by `startedAt`, because a big download that
+// began earlier can finish later.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { basename, dirname } from 'node:path';

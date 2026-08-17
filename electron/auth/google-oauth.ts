@@ -1,16 +1,12 @@
-// OAuth for the Gmail API. Separate from the Gmail views' sign-in: those run on
-// Google's session cookies, this yields an access token, and neither converts into the
-// other. They only share the session partition the consent page is shown in.
+// OAuth for the Gmail API, separate from the Gmail views' cookie sign-in; the two share
+// only the session partition the consent page is shown in.
 //
-// Desktop-app flow: authorization code + PKCE with a loopback redirect, the only
-// redirect Google allows for desktop clients — the port is arbitrary and nothing
-// listens, because the navigation to it is intercepted. `access_type=offline` with
-// `prompt=consent` is required or a second run returns no refresh token, and a refresh
-// response never carries a new refresh token, so the original must be kept.
+// Authorization code + PKCE on a loopback redirect nothing listens on, because the
+// navigation to it is intercepted. `access_type=offline` with `prompt=consent` is required
+// or a second run returns no refresh token, and a refresh response never carries a new one.
 //
-// Changing SCOPES invalidates every stored token, since `hasScopes` compares against
-// this list. userinfo.email is not for Gmail but for the push relay, which maps a
-// connection to an account via tokeninfo — without it the relay closes with 4401.
+// Changing SCOPES invalidates every stored token via hasScopes. userinfo.email is for the
+// push relay, which maps a connection to an account and closes with 4401 without it.
 
 import { createHash, randomBytes } from 'node:crypto';
 import { ALLOWED_EMAIL_DOMAINS } from './account-domain';
@@ -93,9 +89,6 @@ export function authUrl(opts: {
     access_type: 'offline',
     prompt: 'consent',
     include_granted_scopes: 'true',
-    // Google's half of the domain limit. The app already refuses to start consent for an
-    // address outside the work domain, but the consent page has its own account switcher,
-    // and this is what stops someone who used it from linking a private mailbox anyway.
     hd: ALLOWED_EMAIL_DOMAINS.join(','),
   });
   if (opts.loginHint) q.set('login_hint', opts.loginHint);

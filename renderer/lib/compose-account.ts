@@ -1,15 +1,9 @@
 // Types and pure helpers shared between main, the compose-account overlay page, and its
-// preload bridge. The payload carries everything the page needs to render without an
-// extra round trip: the recipient and subject parseMailto already extracted, plus one
-// choice per signed-in account with its own colour and avatar, and the locale to render
-// in — resolved by main rather than by the page, since a short-lived dialog that asked
-// prefs for its own language would risk one frame in the wrong one. shortcutFor and
-// rowForKey are the two ends of the same mapping — the digit a row shows, and the row a
-// keypress picks — kept as separate functions because a row past the ninth is still
-// pickable by click even though it has no digit left to show. nextFocusIndex is the arrow
-// keys' wrap-around, pulled out of the component so the wrap is assertable: the page
-// draws its focus ring from the index it tracks rather than from :focus-visible, which
-// Chromium will not match for a programmatic .focus().
+// preload bridge.
+//
+// The payload carries everything the page needs without an extra round trip, the locale
+// included — a short-lived dialog that asked prefs for its own language would risk one
+// frame in the wrong one.
 
 
 //===========================

@@ -1,14 +1,11 @@
-// What the stack contains, as a pure function of what it contained and what arrived.
-// Every function returns a new stack, or the same object when it changed nothing, so a
-// caller can skip a re-render on identity. Time is a parameter, never Date.now(), which
-// is what makes expiry testable.
+// What the stack contains, as a pure function of what it held and what arrived. Every
+// function returns a new stack, or the same object when nothing changed, so a caller can
+// skip a re-render on identity. Time is a parameter, which makes expiry testable.
 //
-// Collapsing is deliberately all-or-nothing: a sixth arrival does not push a "+1 more"
-// row under five cards, it replaces them with a single number. Five cards is already the
-// most that can arrive without the corner of the screen becoming a wall, and past that
-// the useful information is the count, not the five oldest senders. The summary keeps the
-// account key only while every toast behind it came from the same mailbox, because that
-// is the only case where clicking it can sensibly pick one.
+// Collapsing is all-or-nothing: a sixth arrival replaces the five with a single number,
+// because past five the useful information is the count. The summary keeps the account key
+// only while every toast behind it came from one mailbox, the only case where a click can
+// sensibly pick one.
 
 import type { Toast, ToastStack, ToastSummary } from '../../renderer/lib/toast';
 

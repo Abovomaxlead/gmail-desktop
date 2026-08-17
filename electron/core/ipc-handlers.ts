@@ -1,14 +1,8 @@
 // Every channel the renderer can reach the main process on, in one table.
 //
-// The handlers here are deliberately thin: each one validates what arrived, calls the module
-// that owns the job, and sends back what it returns. Where a handler grew a body of its own
-// it was moved -- the label list and the mailbox copy live in mail-drop-controller, the
-// picker size in mailto-controller -- because a channel name is not a home for logic.
-//
-// What comes down these channels is not all ours. IPC.WEB_NOTIFY_SHOW carries whatever
-// Gmail's own page passed to the Notification constructor, so its fields are checked rather
-// than trusted; an id of the wrong type would file a click under a name nothing can look up
-// again.
+// The handlers stay thin: validate what arrived, call the module that owns the job, send
+// back what it returns. What comes down these channels is not all ours — WEB_NOTIFY_SHOW
+// carries whatever Gmail's page passed the Notification constructor, so it is checked.
 
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -99,11 +93,6 @@ export function registerIpc(): void {
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
-  // "Look for delegated mailboxes" now asks the relay instead of reading Gmail's account
-  // menu, so it no longer has to bring account 0 to the front and put it back: nothing is
-  // read from a page. Whatever it finds is added straight away rather than offered as a
-  // suggestion — the app is not guessing any more, it is being told, and there is nothing
-  // for the user to confirm about a delegation Google has already recorded.
   ipcMain.on(IPC.ADD_DELEGATED, () => {
     void refreshDelegatedFromApi({ asked: true });
   });
@@ -178,18 +167,12 @@ export function registerIpc(): void {
     pushPrefs();
   });
   ipcMain.on(IPC.NOTIFY_TEST, () => showTestNotification());
-  // Whatever a page has to say about itself. Tagged with the account when the sender is one
-  // of the mail views, since "Gmail raised a notification" is only half an answer without
-  // knowing which mailbox said it.
   ipcMain.on(IPC.VIEW_LOG, (e, message: unknown) => {
     if (typeof message !== 'string' || !message) return;
     const key = manager?.keyForWebContents(e.sender) ?? null;
     const who = profiles.find((p) => keyOf(p) === key)?.email ?? key ?? `view ${e.sender.id}`;
     notifyLog(`[view ${who}] ${message.slice(0, 300)}`);
   });
-  // The page is listening and wants the stack. This is the handshake that matters; the
-  // did-finish-load one is kept because it costs nothing and covers a page that somehow
-  // never asks.
   ipcMain.on(IPC.TOAST_READY, () => toasts?.markReady());
   ipcMain.on(IPC.TOAST_SIZE, (_e, size: { width: number; height: number }) =>
     toasts?.applySize(size.width, size.height),
@@ -203,25 +186,16 @@ export function registerIpc(): void {
     toasts?.runAction(arg.id, arg.action),
   );
   ipcMain.on(IPC.TOAST_HOVER, (_e, hovered: boolean) => toasts?.setHovered(Boolean(hovered)));
-  // Gmail raised a notification in one of its views. The account comes from which view
-  // sent it, never from the page, and the privacy replacement is applied here so that one
-  // place decides it for both notification paths. Push-covered accounts never get here:
-  // notificationsAllowed already told that view to keep quiet.
+
   ipcMain.on(IPC.WEB_NOTIFY_SHOW, (e, arg: { id: string; title: string; body: string }) => {
     if (!prefs) return;
-    // The id is template-stringified into the source key, so any type would be accepted
-    // and would file the click under a name nothing can look up again. Checked the same
-    // way profile-view-manager checks NOTIFICATION_ACTIVATE's thread id, and for the same
-    // reason: what is on the other end of this channel is Google's page, not ours.
+
     if (typeof arg?.id !== 'string') {
       notifyLog(`[notify] a view raised a notification with a ${typeof arg?.id} id — dropped`);
       return;
     }
     const accountKey = manager?.keyForWebContents(e.sender) ?? null;
     const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
-    // Both of these are silent losses, and both have a cause worth naming: a view the
-    // manager no longer recognises (it was discarded, or it is a pop-out), or an account
-    // that has since been removed.
     if (!profile) {
       notifyLog(
         `[notify] a notification arrived from a view with no account (key=${accountKey ?? 'unknown'}) — dropped`,
@@ -232,15 +206,8 @@ export function registerIpc(): void {
     const hidden = hiddenNotificationText(p);
     const L = nativeLabels(currentLocale(), p.reneMode === true);
     const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
-    // Kept as Gmail wrote it, which is not what the card will show: the privacy settings
-    // may replace both lines below, and the API is asked about the mail, not about the
-    // card. Coerced because this is Google's page on the other end and `title: string` is
-    // the signature, not a promise.
     const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
     rememberWebNotifySource(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
-    // The other path: Gmail's own page, which sends no thread id, so a click has to work
-    // out which mail this was — the API first, the page's DOM after. Paired with the line
-    // whichever of the two answered writes on that click.
     notifyLog(
       `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
         ` persist=${notificationPersist(p, profile.email)} silent=${notificationSilent(p, profile.email, 'mail')}` +
@@ -255,9 +222,6 @@ export function registerIpc(): void {
       persist: notificationPersist(p, profile.email),
     });
     if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
-    // Gmail's page just said mail arrived, which is the one thing the relay was subscribed
-    // to hear. So the API side is told the same way: the sync that copies a verification
-    // code and moves the history cursor runs now, rather than up to five minutes from now.
     void syncRunnerFor(profile.email)?.run();
   });
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
@@ -291,18 +255,12 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_COPY, (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) =>
     copyToMailboxes(arg),
   );
-  // The bar asks once it is listening, because ACTIVE_CHANGED for the first view is sent
-  // from did-finish-load — before the React tree that would hear it has mounted.
   ipcMain.handle(IPC.ACTIVE_GET, () => activeTab());
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
   ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({
     configured: oauthConfig() !== null,
     accounts: oauthStatuses,
   }));
-  // Setting the machine up from inside the app, because the alternative is what happened:
-  // an install where nothing links and nothing says why, fixed by someone else copying a
-  // file into AppData. The file is written through byte for byte — see oauth-config-file.ts
-  // for why rebuilding it from the fields we validate would quietly break push.
   ipcMain.handle(IPC.OAUTH_CONFIG_IMPORT, async () => {
     if (!mainWindow || mainWindow.isDestroyed()) return { ok: false };
     const res = await dialog.showOpenDialog(mainWindow, {
@@ -314,7 +272,6 @@ export function registerIpc(): void {
     try {
       checked = checkOAuthConfigFile(readFileSync(res.filePaths[0], 'utf8'));
     } catch {
-      // Unreadable is the same answer as unusable to whoever picked it.
       return { ok: false, invalid: true };
     }
     if (!checked.ok) return { ok: false, invalid: true };
@@ -325,9 +282,6 @@ export function registerIpc(): void {
       console.warn('[oauth] could not write the config:', e);
       return { ok: false, invalid: true };
     }
-    // Nothing caches the config — oauthConfig() re-reads it — so the app is linkable from
-    // here on. The health check republishes the statuses, which turns every account into a
-    // Verbinden button, and the API sync can start now that there is a token to sign with.
     void checkOAuthHealth();
     startMailSync();
     return { ok: true };
@@ -399,9 +353,6 @@ export function registerIpc(): void {
     prefs!.setTheme(theme);
     pushPrefs();
     applyTitleBarOverlay();
-    // The stack is its own window, so pushPrefs does not reach it: it draws from the state
-    // the controller sends and nothing else. A card already on screen when the theme is
-    // switched would otherwise keep the old one until it is dismissed.
     toasts?.refresh();
   });
   ipcMain.on(IPC.SET_LANGUAGE, (_e, v: LanguagePref) => {
@@ -418,18 +369,11 @@ export function registerIpc(): void {
     prefs!.setReneMode(v === true);
     applyReneZoom();
     pushPrefs();
-    // applyReneZoom only reaches the main window and the profile views. The toast window
-    // is created lazily and then lives for the session, so it has to be told separately,
-    // and refresh() on its own is not enough: re-sending the stack makes the page lay out
-    // again but the CSS did not change, so it reports the same numbers into a window whose
-    // factor moved underneath them.
+
     toastWindow?.applyZoom();
     toasts?.refresh();
   });
   ipcMain.handle(IPC.CHANGELOG_GET, () => loadChangelog());
-  // One handler for the life of the app, not `ipcMain.once` per open: a `once` listener
-  // left registered by a cancelled dialog would answer the next one instead, a bug that
-  // only shows up on the third mailto:.
   ipcMain.on(IPC.COMPOSE_ACCOUNT_PICK, (_e, index: number | null) => {
     settleComposeAsk(typeof index === 'number' ? index : null);
   });

@@ -1,15 +1,13 @@
 // Building the main window and everything hung off it: the view manager, the toast stack,
 // and the handlers that keep them in step with the window's life.
 //
-// This runs more than once. A notification click that arrives after the window closed
-// rebuilds it, and so does 'activate' on macOS. Everything it creates is therefore published
-// to the runtime rather than held here, and every callback registered below reads the live
-// binding -- so a second window replaces what they see instead of leaving them on the first.
-// The locals are for this pass only, where the objects are known to be fresh and non-null.
+// This runs more than once -- a notification click after the window closed rebuilds it, and
+// so does 'activate' on macOS. Everything it creates is published to the runtime rather than
+// held here, and every callback below reads the live binding, so a second window replaces
+// what they see. The locals are for this pass only.
 //
-// The order inside is load-bearing in one place: the toast controller is built after the
-// window it belongs to and torn down with it, because a stack floating over a closed app is
-// nonsense.
+// One ordering matters: the toast controller is built after the window it belongs to and
+// torn down with it.
 
 import { BrowserWindow, nativeTheme, screen } from 'electron';
 import { app } from 'electron';
@@ -118,14 +116,9 @@ function watchPreloadForReload(): void {
 //===========================
 
 export function createWindow(): void {
-  // Opened before anything can raise a notification, so the first mail of the session is
-  // in it. Where: beside prefs.json in userData, as notify.log.
   openNotifyLog(join(app.getPath('userData'), 'notify.log'));
   notifyLog(`[notify] --- app start, ${app.getVersion()}${DEV_URL ? ' (dev)' : ''} ---`);
-  // Held as locals for the length of this function as well as published to the runtime: the
-  // setup below is the one place that knows these are freshly built and non-null, and every
-  // callback registered here still reads the live binding, so a second window replaces what
-  // they see rather than leaving them on the first.
+
   const store = new PrefsStore(join(app.getPath('userData'), 'prefs.json'));
   setPrefs(store);
   const stored = store.getAll().window;
@@ -161,22 +154,23 @@ export function createWindow(): void {
   firstWindow = false;
   win.on('show', refreshBadge);
   win.on('restore', refreshBadge);
-  // The user leaves for Windows Settings to pick a mail app and comes back, so re-read
-  // the association on focus rather than trusting what we last showed.
+
   win.on('focus', () => void pushDefaultMailStatus());
   setColors(new ColorStore(join(app.getPath('userData'), 'colors.json')));
   const tokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
+
   setOauthTokens(tokens);
-  // A token that predates the domain limit, or one carried over from another machine. It
-  // would be invisible in the panel from here on and still be used for syncing, pushing and
-  // dropping mail, which is the one combination worse than either alone.
+
   const dropped = dropDisallowedTokens(tokens);
+
   if (dropped.length > 0) console.warn('[oauth] unlinked, outside the allowed domain:', dropped);
   setHistory(new HistoryStore(join(app.getPath('userData'), 'gmail-history.json')));
   setRemoved(new RemovedStore(join(app.getPath('userData'), 'removed.json')));
   setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
   setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
+
   const cache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
+
   setAccountCache(cache);
   if (!accountCacheLoaded) {
     setAccountCacheLoaded(true);
@@ -214,12 +208,7 @@ export function createWindow(): void {
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     (acctKey, payload) => void handleMailDrop(acctKey, payload),
     () => raiseOverlays(),
-    // The fifth caller of the one domain rule, and the earliest: the copy targets decide where
-    // a mail may land, this decides whether it may be picked up at all.
-    //
-    // No profile yet is null, not false. A view is built before its account is registered, so
-    // this is asked about mailboxes nobody can name yet, and calling those refused took the
-    // dropzone away from the work mailboxes too. The view asks again until there is an answer.
+
     (acctKey) => {
       const email = profiles.find((p) => keyOf(p) === acctKey)?.email;
       return email ? isAllowedAccount(email) : null;
@@ -227,17 +216,11 @@ export function createWindow(): void {
   );
   setManager(views);
 
-  // Built and torn down with the main window: a stack floating over a closed app is
-  // nonsense. Where it appears is not the window's business — the stack always goes to
-  // the primary display, whichever screen the app itself has been dragged to.
   const stack = new ToastWindow(
     SIDEBAR_PRELOAD_PATH,
     DEV_URL ? `${DEV_URL}/toasts` : 'app://bundle/toasts.html',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
     () => toasts?.markReady(),
-    // Rebuild while there is a rebuild left, and when there is not, get what is queued out
-    // by the only route still open. Ignoring this answer is how a broken stack turned into
-    // no notification at all rather than a plain one.
     () => {
       if (!repairToastStack()) drainToSystem();
     },
@@ -304,9 +287,7 @@ export function createWindow(): void {
     setMainWindow(null);
     cancelComposeAsk();
   });
-  // shouldHideOnClose turns a close into a hide unless the app is quitting, so 'closed'
-  // fires only on quit; the tray toggle and the close box both end up here instead, and
-  // an unanswered picker has to go with the window that its parent hid behind.
+
   win.on('hide', () => cancelComposeAsk());
 
   win.webContents.on('before-input-event', (_e, input) => {

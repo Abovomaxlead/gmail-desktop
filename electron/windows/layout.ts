@@ -1,10 +1,9 @@
 // Where the active Gmail/Calendar view sits under the topbar. TOPBAR_HEIGHT lives in
-// renderer/lib because the bar's CSS needs it too and Next.js compiles nothing
-// outside its own root; it is re-exported here so titlebar.ts and the tests need know
-// nothing of that detour. There is no margin, so the webview sits flush against the
-// topbar and no dark renderer background shows through. `scale` is the renderer's
-// zoom factor (2 in Rene mode): the fixed 40px bar then draws scale times taller, so
-// the content view has to start lower.
+// renderer/lib because the bar's CSS needs it too, and is re-exported here so callers need
+// know nothing of that detour.
+//
+// No margin, so no dark renderer background shows through. `scale` is the renderer's zoom
+// factor: the fixed 40px bar draws that much taller, so the view starts lower.
 
 import { TOPBAR_HEIGHT } from '../../renderer/lib/topbar';
 

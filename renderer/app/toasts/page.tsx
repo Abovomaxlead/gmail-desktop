@@ -11,45 +11,12 @@ import {
   type ToastState,
 } from '../../lib/toast';
 
-// The notification stack, one card per notification, anchored to the bottom-right of the
-// screen by main and growing upward. It is its own frameless transparent window, so as in
-// compose-account/page.tsx the card is the window and the html background must be
-// transparent or Chromium paints an opaque rectangle around the rounded corners.
-//
-// The theme arrives resolved, in the state, and the dark class is put on this document
-// from it. That indirection is the whole point: the class the rest of the app reads is
-// only ever put on the main document, and a second window cannot see it. Reading the
-// system preference here instead would ignore an explicit light or dark choice, which is
-// two thirds of the setting.
-//
-// The card's height must not change on hover. The stack grows upward from a fixed bottom
-// edge, so a card that got taller when hovered would push the cards above it up under the
-// pointer, and the pointer would then be over a different card, and the height would
-// change again. The third line therefore holds the account address at rest and swaps it
-// in place for the action buttons — same row, same height, nothing moves. The close box
-// is absolutely positioned for the same reason.
-//
-// Hover is read from a document-level mousemove rather than onMouseEnter per card. Main
-// keeps the window click-through so the transparent gaps between cards do not swallow
-// clicks meant for the desktop, and a click-through window gets mouse moves but no enter
-// or leave events; elementFromPoint is what still works under that.
-//
-// Which card is lit is therefore state here and not a `:hover` variant, for the same
-// reason. CSS hover is Chromium's own idea of where the pointer is, and Chromium updates
-// that from the events this window does not get: move the pointer off the stack in one
-// go — off the edge, not into a gap — and there is no leave to clear it, so the card that
-// was last under the pointer keeps its close box and its buttons showing over an app the
-// pointer left entirely. Nothing on this side can notice, since the giveaway is the
-// absence of an event. Main watches the cursor for us and says so on onToastHoverEnd,
-// which is the only signal that ends a hover nobody saw end.
 
 
 //===========================
 // Constants
 //===========================
 
-// Windows at a fractional display scale rounds the content size and then divides the CSS
-// viewport by the zoom factor, so an exact fit can land a pixel short and clip a shadow.
 const ROUNDING_SLACK = 2;
 
 const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
@@ -57,7 +24,6 @@ const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-wh
 const ACTION =
   'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none dark:text-neutral-200 dark:hover:bg-white/10';
 
-/** The summary has no toast id of its own; it needs one to be hovered like the rest. */
 const SUMMARY_ID = 'summary';
 
 
@@ -71,11 +37,6 @@ export default function ToastsPage() {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const hoveredRef = useRef(false);
 
-  // Everything this page logs is forwarded into notify.log by the window that owns it, so
-  // these lines are not for a console nobody has open — they are the page's half of a
-  // handshake whose failures are otherwise completely silent. A missing bridge is the worst
-  // of them: every call below is optional-chained, so without it the page renders, measures
-  // nothing, reports nothing, and main waits for a size that can never come.
   useEffect(() => {
     console.log(`[toasts] mounted, bridge=${Boolean(window.desktop)}`);
   }, []);
@@ -86,49 +47,30 @@ export default function ToastsPage() {
         `[toasts] state received: ${next.toasts.length} card(s)` +
           `${next.summary ? ` + summary of ${next.summary.count}` : ''}`,
       );
-      // Mirrors the controller clearing its own hoveredSince when the stack empties: with
-      // no cards left there is nothing to be hovered over, and leaving this set would make
-      // the next toast arrive with the page believing the pointer is still parked on a
-      // card that no longer exists.
+
       if (next.toasts.length === 0 && next.summary === null) {
         hoveredRef.current = false;
         setHoveredId(null);
       }
       setState(next);
     });
-    // Main saw the cursor leave the window. Both halves are cleared, not just the lit
-    // card: the pointer is gone, so the ref has to agree or the next real move over a
-    // card reads as no change and main is never told the hover started again.
+
     window.desktop?.onToastHoverEnd(() => {
       hoveredRef.current = false;
       setHoveredId(null);
     });
-    // Last, and only now: the listener above exists, so a state sent in answer to this
-    // cannot land in the gap. Main used to push on did-finish-load, which is a loaded
-    // document and not a mounted tree — the push arrived before this effect ran and was
-    // simply gone, leaving a window with no cards, nothing to measure, and a watchdog
-    // correctly concluding the stack was dead. Asking from here also covers every reload,
-    // fast refresh and renderer crash for free: whatever brings this component back asks
-    // again.
+
     console.log('[toasts] listening, asking main for the stack');
     window.desktop?.toastReady();
   }, []);
 
-  // Declared before the size report below, and that order is load-bearing: effects run in
-  // the order they are declared, main only shows this window once a size has been reported,
-  // so the class is on the document before anything is on screen. The other way round, the
-  // first card of a dark session would be painted light for the frame between the two.
   useEffect(() => {
     document.documentElement.classList.toggle('dark', state?.dark === true);
   }, [state?.dark]);
 
-  // Rebuilt on every state change rather than attached once: the wrap div does not exist
-  // until the first card renders, so an empty dependency array would observe nothing.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) {
-      // Not nothing: main is waiting on a size, and there is no element to measure. With
-      // cards in the state this is the page failing to render them.
       const cards = state ? state.toasts.length : 0;
       if (cards > 0 || state?.summary) console.log('[toasts] nothing to measure yet');
       return;
@@ -152,9 +94,7 @@ export default function ToastsPage() {
     const onMove = (e: MouseEvent): void => {
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const card = el instanceof Element ? el.closest('[data-toast-card]') : null;
-      // Same lookup, two answers: whether anything is hovered, which main needs for the
-      // click-through and the expiry pause, and which card it is, which only the page
-      // needs. Setting the id to what it already is does not re-render.
+
       setHoveredId(card?.getAttribute('data-toast-id') ?? null);
       const over = card !== null;
       if (over === hoveredRef.current) return;
@@ -167,9 +107,7 @@ export default function ToastsPage() {
       hoveredRef.current = false;
       window.desktop?.setToastHovered(false);
     };
-    // mouseleave does not bubble, so a listener on document itself is not reliably in the
-    // dispatch path; the documentElement is the node the pointer actually leaves. mouseout
-    // with a null relatedTarget is a second net for the same event, since it does bubble.
+
     const onOut = (e: MouseEvent): void => {
       if (e.relatedTarget !== null) return;
       onLeave();
@@ -444,11 +382,8 @@ function Avatar({ toast, color }: { toast: Toast; color: string }) {
 /**
  * The glyph a toast with no mailbox behind it shows where the avatar would be
  *
- * The initial it would fall back to is the first letter of a sentence main wrote: a
- * finished download showed "D" for "Download complete" and "D" again for "Download
- * voltooid", and an update showed "U" or "N" depending on the language. A letter that
- * changes meaning with the locale is worse than no letter. Drawn in the card's own language
- * — currentColor on a 16-unit box with thin round strokes, the same as the close box.
+ * The initial it would fall back to is the first letter of a sentence main wrote, so it
+ * changes meaning with the locale — worse than no letter.
  *
  * @param kind
  * @returns the path, or null for a kind that has an avatar of its own

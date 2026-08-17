@@ -1,10 +1,8 @@
-// Minimal RFC822/MIME reader: just enough to log a saved message — the main headers
-// and a plain-text rendering of the body. Not a general MIME parser; attachments,
-// signing and encryption are ignored and only text parts count.
+// Minimal RFC822/MIME reader: the main headers and a plain-text body, which is all a log
+// line needs. Not a general parser — attachments, signing and encryption are ignored.
 //
-// Header values may continue across lines (a continuation starts with a space or tab),
-// RFC2047 "=?utf-8?B?...?=" words are decoded, and an unknown charset falls back to
-// utf-8. The rules that shape one function are stated where that function is.
+// Header values may continue across lines, RFC2047 encoded words are decoded, and an
+// unknown charset falls back to utf-8.
 
 
 
@@ -206,8 +204,6 @@ function decodeQuotedPrintable(s: string, charset: string): string {
   return decodeBytes(Buffer.from(bytes), charset);
 }
 
-// Splits only on commas outside quotes and angle brackets, so "Vries, A." <a@x> stays one
-// address.
 
 /**
  * Splits a header's address list

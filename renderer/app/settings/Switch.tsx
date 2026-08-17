@@ -1,8 +1,3 @@
-// The switch for a standalone setting. It is a real checkbox rather than a
-// `<button role="switch">` so the label in SettingRow can drive it through
-// `htmlFor`, and it sits invisibly on top of the pill so the pill itself is
-// clickable. The pill and the knob are decoration and are aria-hidden.
-
 'use client';
 
 export function Switch({

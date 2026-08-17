@@ -1,9 +1,8 @@
-// Where the relay is and which Pub/Sub topic Gmail publishes to. With either value
-// missing, push stays off and the app behaves exactly as before. Environment
-// variables win over the file, which lives beside the OAuth data in userData and not
-// in this public repo, since the topic name contains the GCP project. A plain ws://
-// url is rejected unless it is loopback: the first frame we send carries a live
-// Google access token, and unencrypted that may only travel to this machine.
+// Where the relay is and which Pub/Sub topic Gmail publishes to; with either missing, push
+// stays off. The environment wins over the file, which is out of this public repo because
+// the topic name contains the GCP project.
+//
+// A plain ws:// url is rejected off loopback: the first frame carries a live access token.
 
 
 //===========================

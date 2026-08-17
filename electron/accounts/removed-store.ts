@@ -1,7 +1,6 @@
-// Persists the account emails the user explicitly removed. Accounts are auto-detected
-// from the shared Google session, so without this a removed account would reappear at
-// the next detection. Detection skips any email listed here; signing in again through
-// the "+" flow clears it.
+// The account emails the user explicitly removed, so detection does not pick them up
+// again from the shared Google session. Signing in through the "+" flow clears one.
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -24,22 +23,11 @@ export class RemovedStore {
     }
   }
 
-  /**
-   * Writes the removed list
-   *
-   * @param list
-   * @private
-   */
   private write(list: string[]): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(list, null, 2), 'utf8');
   }
 
-  /**
-   * Returns every address the user removed
-   *
-   * @returns the removed addresses
-   */
   list(): string[] {
     return this.read();
   }
@@ -54,11 +42,6 @@ export class RemovedStore {
     return this.read().includes(email);
   }
 
-  /**
-   * Remembers that the user removed an address
-   *
-   * @param email
-   */
   add(email: string): void {
     const list = this.read();
     if (!list.includes(email)) {

@@ -1,16 +1,11 @@
-// URL predicates deciding whether a Google URL stays inside the app or goes to the
-// browser. Pure, so external-links.ts can be reasoned about without a window.
+// URL predicates deciding whether a Google URL stays inside the app or goes to the browser.
+// Pure, so external-links.ts can be reasoned about without a window.
 //
-// Each predicate exists because of a specific failure. A /popout URL and the ?view=lg
-// "View entire message" reader must open as their own windows: routed in-app they load
-// into the shared mail view and replace the inbox with no way back, as the reader has
-// no opener history. Attachment URLs (?view=att, plus the bytes on
-// mail-attachment.googleusercontent.com) are files rather than surfaces, and would
-// otherwise map straight back to the mail surface. about:blank must open as a real
-// window the opener can drive; handed to shell.openExternal, Windows pops a "no app can
-// open this link" dialog and the login window never appears. Any google.com host and
-// the federated Microsoft Entra login hosts stay in-app, because externalising a
-// federation POST re-issues it as a GET and Entra answers "AADSTS900561".
+// Each predicate exists because of a specific failure: a pop-out or the ?view=lg reader
+// routed in-app replaces the inbox with no way back; an attachment URL is a file rather than
+// a surface; about:blank handed to shell.openExternal pops a Windows dialog instead of the
+// login window; and externalising a federation POST re-issues it as a GET, which Entra
+// answers with AADSTS900561.
 
 import { SURFACES, SURFACE_CONFIG } from '../../renderer/lib/surfaces';
 
@@ -20,7 +15,6 @@ import { SURFACES, SURFACE_CONFIG } from '../../renderer/lib/surfaces';
 // Constants
 //===========================
 
-// Below this a search term is noise rather than a subject, and lands on everything.
 const MIN_SEARCH_TERM = 3;
 
 const IN_APP_HOSTS = new Set([
@@ -59,12 +53,6 @@ export function mailUrl(index: number): string {
 export function calendarUrl(index: number): string {
   return SURFACE_CONFIG.calendar.url({ kind: 'authuser', index });
 }
-
-// Where a notification click goes when the thread it stands for could not be identified:
-// Gmail's own search for the subject, as a phrase. The alternative is the account's inbox,
-// which is the app appearing to do nothing. A subject that arrives cut off — Gmail
-// truncates, and the click carries only the first sixty characters — ends in an ellipsis,
-// and the word before it may be half a word that no phrase contains, so that word goes.
 
 /**
  * Builds the hash that searches Gmail for a subject as a phrase

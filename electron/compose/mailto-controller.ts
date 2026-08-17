@@ -1,13 +1,8 @@
 // Opening a compose window, and deciding which account it should be from.
 //
-// A mailto: link can arrive before there is anything to compose with -- at launch, from a
-// second instance, or from the OS -- so one is held until a mail view is actually showing.
-// showAccount is what releases it.
-//
-// With more than one account signed in the user is asked which to send from. That ask is a
-// window of its own, one per question and destroyed on settle: reuse would carry the
-// previous recipient into an unrelated next question for no gain, since the picker is
-// short-lived.
+// A mailto: link can arrive before there is anything to compose with, so one is held until
+// a mail view is actually showing; showAccount releases it. With more than one account
+// signed in the user is asked, in a window created per ask and destroyed on settle.
 
 import { IPC } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
@@ -39,8 +34,6 @@ import type { ComposeAccountAsk, ComposeAccountChoice } from '../../renderer/lib
 
 let composeAccountWindow: BrowserWindow | null = null;
 
-/** One ask at a time, resolved by the picker window or cancelled when it or its parent
- * goes away. compose-picker.ts holds the promise; this holds the window it draws in. */
 const composePicker = new ComposePicker<ComposeAccountAsk, string>({
   open: (ask) => showComposeAccountWindow(ask),
   close: () => closeComposeAccountWindow(),
@@ -52,14 +45,10 @@ const composePicker = new ComposePicker<ComposeAccountAsk, string>({
 // Exported functions
 //===========================
 
-/** Cancels an unanswered ask. The window it was drawn in has gone, or its parent hid.*/
 export function cancelComposeAsk(): void {
   composePicker.settle(null);
 }
 
-/** The picker measured its own card and reports the size, because no constant over a row
- * count can know how a subject wraps or what the OS font metrics are. The window is still
- * hidden at this point, so the resize is invisible and the reveal happens with it. */
 export function applyComposeAskSize(sender: Electron.WebContents, width: number, height: number): void {
   const win = composeAccountWindow;
   if (!win || win.isDestroyed() || sender !== win.webContents) return;
@@ -72,16 +61,10 @@ export function applyComposeAskSize(sender: Electron.WebContents, width: number,
   }
 }
 
-/** The answer from the picker, or null when it was dismissed. */
 export function settleComposeAsk(index: number | null): void {
   composePicker.settle(index);
 }
 
-// One window per ask, destroyed on settle: reuse would carry the previous recipient into
-// an unrelated next question for no gain, since the picker is short-lived. The module
-// variable is nulled before the window is destroyed, so a stale instance can never be
-// left behind to wedge the feature, and the `closed` that destroying triggers finds the
-// resolver already cleared and harmlessly no-ops.
 export function closeComposeAccountWindow(): void {
   const win = composeAccountWindow;
   composeAccountWindow = null;

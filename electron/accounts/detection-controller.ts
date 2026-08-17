@@ -1,16 +1,8 @@
-// Finding out which Google accounts this browser session is signed into, and keeping the
-// list current.
+// Finding out which Google accounts this browser session is signed into.
 //
-// Google serves accounts at /mail/u/0, /u/1 and so on, and there is no API that lists them.
-// So they are probed: a mail view is opened at each index in turn and the page is asked who
-// it belongs to. detection-planner.ts decides what each answer means -- a new account, a
-// repeat, or the end of the list -- and this drives the walk.
-//
-// A probe that never answers is why there is a timeout. Index 0 is exempt: it always exists,
-// and giving up on it would leave the app showing nothing at all.
-//
-// accounts.json is never written empty, because empty usually means detection has confirmed
-// nothing yet rather than that there is nothing -- see broadcast.saveAccountCache.
+// No API lists them, so they are probed: a mail view is opened at /mail/u/0, /u/1 and so on
+// until detection-planner says to stop. Index 0 is exempt from the probe timeout, since
+// giving up on it would leave the app showing nothing at all.
 
 import { pushActive, pushProfiles, pushUnread, refreshBadge } from '../core/broadcast';
 import {
@@ -63,15 +55,11 @@ const PROBE_TIMEOUT_MS = 16000;
 // Module state
 //===========================
 
-/** Addresses already seen this run, so the planner can tell a new account from a repeat of
- * one Google served under a higher authuser index. */
 const seenEmails = new Set<string>();
 
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
 let probingIndex: number | null = null;
 
-/** Set when the probe is one the user started from the + menu, which is visible and asks for
- * consent rather than running quietly. */
 let visibleProbe: number | null = null;
 
 
@@ -213,10 +201,6 @@ async function addAccountAfterConsent(
 ): Promise<void> {
   const email = identity.email;
   const cfg = oauthConfig();
-  // An address outside the work domain is added without ever being asked for consent. Asking
-  // and being refused would land in the branch below, which throws the view away — so a
-  // private mailbox someone signed into would not be readable here at all. It is readable;
-  // it is only never linked to the API.
   const needsConsent =
     isAllowedAccount(email) &&
     cfg !== null &&
@@ -274,15 +258,9 @@ export function removeAccount(email: string): void {
   pushUnread();
   refreshBadge();
   startMailSync();
-  // profiles[0] is not necessarily openable: authIdx returns -1 for every delegated
-  // profile, so a mailbox known only by address (no mailUrl yet) sorts ahead of every
-  // authuser account and would otherwise be handed to showAccount, which now refuses it —
-  // leaving the window showing nothing at all where a removal used to always land on
-  // something. Pick the first profile that actually has a mail surface instead.
   if (wasActive) {
     const next = profiles.find((p) => surfacesForRef(p.ref).includes('mail'));
     if (next) showAccount(next.ref, 'mail');
-    // Nothing left to show. Say so, or the bar keeps the tab that was just removed lit.
     else pushActive();
   }
 }

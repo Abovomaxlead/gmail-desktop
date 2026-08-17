@@ -1,9 +1,6 @@
-// Which accounts push covers, and from what moment. That moment decides whether an
-// arriving message still deserves a notification, whether Gmail's own notification
-// in the webview is muted, and whether the API or the page title owns the unread
-// count. cover() must leave an existing moment alone: if it moved on a second
-// successful watch, mail that arrived in between would fall outside the window and
-// stay silent.
+// Which accounts push covers, and from what moment. That moment decides whether an arriving
+// message deserves a notification, whether the webview's own notification is muted, and
+// whether the API or the page title owns the unread count.
 export class PushCoverage {
   private since_ = new Map<string, number>();
 

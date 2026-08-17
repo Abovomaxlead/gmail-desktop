@@ -15,11 +15,6 @@ import {
   PANEL,
 } from './tokens';
 
-// Download history: what you have fetched, newest first, with the buttons to open a
-// file or show it in its folder. Sizes use steps of 1000 to match the kB/MB units
-// shown. The change listener is subscribed once per window and fanned out here,
-// because the preload bridge offers no way to remove a listener again.
-
 
 //===========================
 // Constants

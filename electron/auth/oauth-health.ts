@@ -1,10 +1,9 @@
 // Which accounts lost their Gmail link, and how big the banner about it should be.
-// The two reasons are not interchangeable: 'expired' means the link is really gone
-// and moving mail no longer works, 'push' means only notifications are down. Push
-// reasons count only when push is actually configured, since every pre-existing
-// token predates the push-only scope and would otherwise banner every machine after
-// an update. The banner is placed bottom-right and sized to itself, because a view
-// over the whole window would swallow every click meant for Gmail.
+//
+// 'expired' means the link is gone and moving mail no longer works; 'push' means only
+// notifications are down. The banner sits bottom-right and is sized to itself, because a
+// view over the whole window would swallow every click meant for Gmail.
+
 import type { AccountOAuthStatus, OAuthStatus } from '../../renderer/lib/oauth-status';
 
 
@@ -41,11 +40,6 @@ export interface Rect {
 // Constants
 //===========================
 
-// A total map rather than a Partial one on purpose: a Partial answers undefined for any
-// status nobody mapped, so a fifth OAuthStatus added later would drop its accounts out of
-// the banner silently, with a green test suite. A total map turns that same omission into
-// a compile error right here. 'linked' maps explicitly to null, and that is what keeps a
-// healthy account out of the banner.
 const RECONNECT_REASON: Record<OAuthStatus, ReconnectReason | null> = {
   linked: null,
   unlinked: 'expired',
@@ -74,12 +68,8 @@ export function accountOAuthStatuses(input: HealthInput): AccountOAuthStatus[] {
   return input.ownEmails.map((email) => ({ email, status: statusFor(input, email) }));
 }
 
-// Derived from the statuses rather than worked out again: two functions reading the same
-// inputs to answer overlapping questions is how the banner and the accounts panel would
-// come to disagree about one account, invisibly, until someone reported it. A link that is
-// gone reads as 'expired' whether it expired or was never made, because the sentence the
-// banner writes about it is the same either way.
-
+// derived from the statuses rather than worked out again, so the banner and the panel
+// cannot disagree about an account
 /**
  * Which accounts the reconnect banner should name
  *
@@ -119,13 +109,12 @@ export function bannerBounds(win: { width: number; height: number }, rows: numbe
 // Helper functions
 //===========================
 
-// Precedence is not arbitrary. A link that is gone outranks a scope that is missing,
-// because there is nothing to re-grant a scope on; and a push fault only counts when push
-// is configured, since every token stored before the push scope existed lacks it and would
-// otherwise flag every machine after an update.
-
 /**
  * The link state of one account
+ *
+ * A gone link outranks a missing scope, since there is nothing to re-grant a scope on; and
+ * a push fault counts only when push is configured, because every token stored before the
+ * push scope existed lacks it.
  *
  * @param input
  * @param email

@@ -93,13 +93,12 @@ export function AccountTab({
 // Icons
 //===========================
 
-// One account tab. The active tab is marked twice over - a filled background and the
-// account colour as a strip along the bottom edge - because the colour alone is too
-// weak with a muted account colour. A tab carries its surface icon when the account
-// is on something other than mail, and the delegated icon means what the tooltip
-// says. `showUnread` is the per-account Badge checkbox, the same question the taskbar
-// counter asks accountCountVisible. Without `-webkit-app-region: no-drag` the tab is
-// part of the window's drag region and cannot be clicked at all.
+// One account tab. The active one is marked twice over — a filled background and a strip of
+// the account colour along the bottom edge — because a muted colour alone is too weak.
+//
+// `showUnread` is the per-account Badge checkbox, the same question accountCountVisible
+// asks. Without `-webkit-app-region: no-drag` the tab is part of the window's drag region
+// and cannot be clicked at all.
 function DelegatedIcon({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden>

@@ -1,18 +1,13 @@
 // Shared style tokens for the settings panel, so its sections cannot drift apart.
-// The panel is grey with one white surface, and colour only appears where it means
-// something: an account's own colour (data-driven, in AccountsSection), ACCENT_BUTTON
-// on the one button that performs an update, and DANGER_* for deletion and failure.
-// Any other tint is decoration, and a switch that is on is dark rather than blue.
-// Opacity must be bracketed: Tailwind 3's default scale steps by 5, so
-// `border-black/8` emits nothing at all while `border-black/[0.08]` works.
 //
-// Muted text always carries its dark variant. `text-neutral-500` was picked against a
-// white panel and reads fine there, but on the dark card it comes to 4.18:1 against
-// neutral-950 and 3.78:1 against neutral-900 — under the 4.5:1 that text this size needs,
-// and legible enough in a bright room to survive review while being genuinely hard to read
-// at night. `dark:text-neutral-400` is 7.85:1 and is what the topbar already uses, so the
-// pairing below is the app's muted colour rather than a local choice. A `text-neutral-500`
-// written without it is the bug, not the exception.
+// The panel is grey with one white surface, and colour only appears where it means
+// something: an account's own colour, ACCENT_BUTTON on the update button, DANGER_* for
+// deletion and failure. Opacity must be bracketed — Tailwind 3's default scale steps by 5,
+// so `border-black/8` emits nothing while `border-black/[0.08]` works.
+//
+// Muted text always carries its dark variant: `text-neutral-500` is 4.18:1 on the dark
+// card, under the 4.5:1 this size needs, where `dark:text-neutral-400` is 7.85:1. A
+// `text-neutral-500` written without it is the bug, not the exception.
 
 export const FOCUS_RING =
   'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';

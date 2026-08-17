@@ -7,10 +7,6 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { HINT } from './tokens';
 
-// Advanced: the switches you only come looking for when something is broken.
-// Hardware acceleration only takes effect after a restart, which is why the section
-// says so on screen.
-
 export function AdvancedSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const on = prefs?.advanced.hardwareAcceleration !== false;
 

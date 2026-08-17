@@ -1,15 +1,8 @@
 // Everything the main process tells the interface about itself: the tab rows, the unread
-// counts, the settings, which tab is active, the taskbar badge and whether this app is the
-// system's mail client.
+// counts, the settings, the active tab, the taskbar badge and the default-mail-client state.
 //
-// One module because these are the same job seen from different angles — each is a snapshot
-// of runtime state, shaped for the renderer and sent down a channel — and because keeping
-// them together is what stops two of them describing different moments. decorate() is the
-// only real work here; the rest is a send.
-//
-// Nothing in here decides anything. A caller that has changed something calls the push for
-// it; these functions never call each other except where one genuinely contains the other
-// (pushProfiles saves the cache it just built).
+// Nothing here decides anything — a caller that changed something calls the push for it.
+// decorate() is the only real work; the rest is a send.
 
 import { app } from 'electron';
 import { IPC } from './ipc';
@@ -51,9 +44,7 @@ export interface TabRow {
   avatarUrl: string;
   color: string;
   hasCalendar: boolean;
-  /** False for a mailbox the API found and nobody has opened in Gmail yet: known by address,
-   * with no URL to load. The seeded rows below are false for a different reason — they have
-   * no ref at all yet — and both mean "do not try to open this". */
+  // false for a mailbox known by address with no URL to load: do not try to open it
   hasMail: boolean;
   order?: number;
   label?: string;
@@ -72,9 +63,7 @@ const SEED_KEY_PREFIX = 'seed:';
 // Module state
 //===========================
 
-/** Run after every profile push. Injected rather than imported because the one thing that
- * has to happen here belongs to the OAuth layer — it re-checks the links for the accounts
- * this just published — and importing it would have the two modules import each other. */
+// injected rather than imported: it belongs to the OAuth layer, which imports this one
 let onProfilesPushed: () => void = () => {};
 
 
@@ -103,16 +92,12 @@ export function pushActive(): void {
   mainWindow?.webContents.send(IPC.ACTIVE_CHANGED, activeTab());
 }
 
-// The resolved locale rides along with the prefs push rather than being worked out again
-// in the renderer.
 export function pushPrefs(): void {
   if (prefs) {
     mainWindow?.webContents.send(IPC.PREFS_CHANGED, { ...prefs.getAll(), locale: currentLocale() });
   }
 }
 
-// On Windows the truth lives in UrlAssociations\mailto\UserChoice, not in the legacy
-// HKCU\Software\Classes\mailto key, so ask the registry which ProgId actually wins.
 export async function pushDefaultMailStatus(): Promise<void> {
   const isDefault =
     process.platform === 'win32'
@@ -132,8 +117,6 @@ export function refreshBadge(): void {
 // Helper functions
 //===========================
 
-/** The tab rows the bar draws: the confirmed accounts, plus the ones remembered from the
- * last run that detection has not reached yet. */
 function decorate(list: Profile[]): TabRow[] {
   const confirmed: TabRow[] = list.map((p) => {
     const ap = prefs?.getAccount(p.email) ?? {};
@@ -174,8 +157,6 @@ function decorate(list: Profile[]): TabRow[] {
   return sortByOrder([...confirmed, ...seeds]);
 }
 
-/** Never written empty: an empty list usually means detection has confirmed nothing yet,
- * and writing it would throw away the seeds the next start draws its tabs from. */
 function saveAccountCache(rows: TabRow[]): void {
   if (!accountCache) return;
   const own = rows.filter((r) => r.kind === 'authuser');
@@ -185,8 +166,6 @@ function saveAccountCache(rows: TabRow[]): void {
   );
 }
 
-/** The accounts whose unread count must not reach the taskbar badge, either because that
- * account has it switched off or because the badge is off altogether. */
 function excludedBadgeKeys(): Set<string> {
   const keys = new Set<string>();
   for (const p of profiles) {

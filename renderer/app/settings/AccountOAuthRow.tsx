@@ -5,32 +5,8 @@ import type { OAuthStatus, OAuthStatusReport } from '../../lib/oauth-status';
 import type { UiStrings } from '../strings';
 import { BUTTON, DANGER_TEXT, PANEL } from './tokens';
 
-// Whether an account's Gmail link actually works, in the account's own card. Until this
-// existed the only place that said so was a banner in the bottom-right corner, and only
-// once something was already broken — so "is this account linked?" was a question you
-// answered by noticing that notifications had stopped.
-//
-// Its own file rather than more lines in AccountsSection, which already owns naming,
-// drag-ordering, colour and removal. This is the one concern here with async state and an
-// error to display, and it is the one a reader can skip entirely if they came for the
-// drag-and-drop.
-//
-// The button is only drawn for a state that needs it, so it reads as a signal rather than
-// as furniture — four identical buttons down the list would say nothing about which
-// account is the problem. Nothing is updated optimistically after a click: main re-runs
-// the health check as part of reconnecting, so the new status arrives over
-// onOAuthStatus by itself, and a row that guessed would only be able to guess wrong.
-
-// One IPC listener per page load, no matter how many times the accounts section is
-// mounted. The section unmounts every time the user visits another settings section, and
-// the bridge's `on` has no removal, so subscribing per mount would stack listeners for as
-// long as the panel is open. This is the same shape DownloadHistorySection uses.
 const listeners = new Set<(report: OAuthStatusReport) => void>();
 let subscribed = false;
-// The last report seen, so re-opening the section shows what is known instead of flashing
-// blank until the next check — which can be five minutes away. `configured: true` is the
-// safe thing to assume before anything has arrived: it draws nothing, where a hasty `false`
-// would accuse a working machine of having no link at all.
 let known: OAuthStatusReport = { configured: true, accounts: [] };
 let seenAnything = false;
 
@@ -55,8 +31,6 @@ export function useOAuthStatuses(): OAuthStatusReport {
     const pending = window.desktop?.getOAuthStatus();
     if (pending) {
       void pending.then((fetched) => {
-        // Only if nothing has arrived by push in the meantime: this answer was true when
-        // it was asked for, and a push that landed first is newer.
         if (!seenAnything) {
           known = fetched;
           seenAnything = true;
@@ -76,19 +50,6 @@ export function useOAuthStatuses(): OAuthStatusReport {
 // Components
 //===========================
 
-// Shown instead of the per-account rows when this machine has no OAuth config at all.
-//
-// It exists because its absence was a support call. The config is a file in userData
-// holding a client secret, so the installer cannot carry it; a fresh machine therefore has
-// nothing to link with, and every path that needs it gives up quietly — no consent screen
-// when an account is added, no statuses, no banner. The panel showed nothing, which looks
-// exactly like nothing being wrong, and the person had to ask someone else why their mail
-// app did not work.
-//
-// One notice rather than a line per account: not being set up is a property of the
-// computer, not of any mailbox, and repeating it under four names would say the same thing
-// four times while still not offering a way out. The button is the way out — it takes the
-// same file someone would otherwise copy into AppData by hand.
 export function OAuthNotConfiguredNotice({ S }: { S: UiStrings }) {
   const [busy, setBusy] = useState(false);
   const [invalid, setInvalid] = useState(false);
@@ -103,9 +64,6 @@ export function OAuthNotConfiguredNotice({ S }: { S: UiStrings }) {
     }
     void pending.then((r) => {
       setBusy(false);
-      // Only a file that was picked and rejected is worth a message. A cancelled picker
-      // comes back not-ok with nothing wrong, and saying so would scold the user for
-      // changing their mind.
       setInvalid(r.invalid === true);
     });
   }
@@ -150,9 +108,6 @@ export function AccountOAuthRow({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  // A failure belongs to the attempt that produced it. When the status changes underneath —
-  // main re-checked, or the account was linked from somewhere else — the message describes a
-  // state that no longer exists.
   useEffect(() => {
     setError('');
   }, [status]);
@@ -164,8 +119,7 @@ export function AccountOAuthRow({
     setBusy(true);
     setError('');
     const pending = window.desktop?.reconnectOAuth(email);
-    // No bridge means no consent screen will ever open, so the row must not sit on "busy"
-    // waiting for an answer that cannot come.
+
     if (!pending) {
       setBusy(false);
       return;
@@ -229,8 +183,6 @@ function CheckIcon({ className = '' }: { className?: string }) {
   );
 }
 
-// The same triangle the reconnect banner uses, so the two places that report this problem
-// look like they are reporting the same problem.
 function WarningIcon({ className = '' }: { className?: string }) {
   return (
     <svg
@@ -281,7 +233,6 @@ function statusLabel(status: OAuthStatus, S: UiStrings): string {
   }
 }
 
-/** Null for a link that works — there is nothing to ask for. */
 function actionLabel(status: OAuthStatus, S: UiStrings): string | null {
   switch (status) {
     case 'linked':

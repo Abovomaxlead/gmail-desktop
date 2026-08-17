@@ -8,12 +8,6 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { BUTTON, HINT, VALUE } from './tokens';
 
-// Downloads: what the app does with an incoming file and where it goes - a normal
-// download from Gmail, and mail you dropped on the bar. Folders are shown as text
-// with a system picker rather than a typed field, since a typed path yields a folder
-// that does not exist. The mail-drop path comes from the main process, which resolves
-// the default; the LRE/PDF pair around a path keeps a trailing separator in place.
-
 
 //===========================
 // Constants

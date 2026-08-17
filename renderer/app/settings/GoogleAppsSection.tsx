@@ -9,18 +9,6 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { CHECKBOX, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
 
-// Google Apps: how Calendar and the other Google apps open, and which of them are
-// pinned to the title bar. The app list comes from renderer/lib/surfaces.ts so it
-// cannot drift from the tab menu, minus mail. `known()` filters out keys a prefs
-// file from another version may still hold, and every write sends that cleaned list.
-// The new-window row is disabled rather than hidden so the section does not jump.
-//
-// Either master switch settles every app at once - "open in app" off sends them all to
-// the browser, "always a new window" gives them all their own window - and in both
-// cases googleAppTarget never reaches the exclusion list. So the list is disabled while
-// either is set, with a line saying which switch is deciding: ticking apps there would
-// be double work. The ticks are kept, not cleared, so they come back into play once
-// both switches are off again.
 
 
 //===========================

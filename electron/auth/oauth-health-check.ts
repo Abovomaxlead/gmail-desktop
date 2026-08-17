@@ -1,13 +1,9 @@
-// Whether each of the user's own accounts still has a working link to the Gmail API, and
-// the two places that answer shows up: the accounts panel, and the banner over the mail view
-// offering to reconnect.
+// Whether each own account still has a working link to the Gmail API, shown in the accounts
+// panel and in the reconnect banner over the mail view.
 //
-// oauth-health.ts decides what a set of facts means; this gathers the facts, publishes them
-// and draws the banner. Both readings come from one object built in a single synchronous
-// pass, so the banner and the panel can never describe different moments.
-//
-// The check is debounced rather than run on the spot. It is triggered by every profile push,
-// and a run of those at startup would otherwise mean a run of token refreshes.
+// oauth-health.ts decides what the facts mean; this gathers them in one synchronous pass, so
+// the banner and the panel cannot describe different moments. Debounced, because every
+// profile push triggers it and a startup run would mean a run of token refreshes.
 
 import { OverlayView } from '../windows/overlay-view';
 import { IPC } from '../core/ipc';
@@ -36,12 +32,8 @@ import type { ReconnectAccount } from './oauth-health';
 
 let healthTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** Own accounts whose refresh token would not produce an access token. Only an own account
- * can be in here: a delegated mailbox has no link of its own to expire. */
 const refreshFailures = new Set<string>();
 
-/** Accounts Google refused a push subscription for, which is a different fault from an
- * expired link and gets a different sentence in the panel. */
 const pushRefusals = new Set<string>();
 
 
@@ -54,7 +46,6 @@ export function scheduleOAuthHealthCheck(): void {
   healthTimer = setTimeout(() => void checkOAuthHealth(), 1500);
 }
 
-/** Flags an own account as needing a reconnect, and asks for the check that will say so. */
 export function markRefreshFailed(email: string): void {
   refreshFailures.add(email);
   scheduleOAuthHealthCheck();
@@ -68,15 +59,16 @@ export function notePushRefused(email: string): void {
   pushRefusals.add(email);
 }
 
-/** @returns {boolean} whether this account was in fact refused before, so the caller only
- *   asks for a re-check when something actually changed */
+/**
+ * Forgets a push refusal
+ *
+ * @param email
+ * @returns whether it was refused before, so the caller only re-checks on a real change
+ */
 export function clearPushRefusal(email: string): boolean {
   return pushRefusals.delete(email);
 }
 
-/** The one place the panel's picture of linking is sent. Reports whether this machine can
- * link at all as well as the per-account statuses, because those are different facts and
- * an empty list is the honest answer to both "nothing is wrong" and "nothing is possible". */
 export function pushOAuthStatus(): void {
   mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, {
     configured: oauthConfig() !== null,
@@ -86,10 +78,6 @@ export function pushOAuthStatus(): void {
 
 export async function checkOAuthHealth(): Promise<void> {
   const cfg = oauthConfig();
-  // Split from the guard below on purpose. A machine with no OAuth config is not a machine
-  // with nothing to report — it is the one state where the panel would otherwise look
-  // identical to a healthy one, which is how an install with no consent screen, no status
-  // and no banner reached someone who then had to ask why.
   if (!cfg) {
     setOauthStatuses([]);
     pushOAuthStatus();
@@ -97,9 +85,6 @@ export async function checkOAuthHealth(): Promise<void> {
   }
   if (!oauthTokens || !mainWindow || mainWindow.isDestroyed()) return;
 
-  // Out-of-domain accounts are left out rather than reported as unlinked: they cannot be
-  // linked at all, and 'unlinked' would put a Verbinden button in the panel and a row in
-  // the banner that no amount of clicking could ever resolve.
   const ownEmails = linkableOwnEmails(profiles);
   for (const email of ownEmails) {
     const token = oauthTokens.get(email);
@@ -109,13 +94,7 @@ export async function checkOAuthHealth(): Promise<void> {
     else refreshFailures.add(email);
   }
 
-  // One object, handed to both functions, so the banner and the accounts panel can never
-  // describe the same accounts differently. Its closures are not read once — OAuthStore.get
-  // hits the filesystem on every call, and accountsNeedingReconnect below calls
-  // accountOAuthStatuses again internally, so the token file is read roughly twice as often
-  // per health check as a single pass would suggest. That is fine here: both passes are
-  // synchronous with no `await` between them, so nothing can change underneath them, and at
-  // a handful of accounts every five minutes the extra reads cost nothing worth avoiding.
+
   const health = {
     ownEmails,
     hasToken: (e: string) => oauthTokens!.get(e) !== undefined,

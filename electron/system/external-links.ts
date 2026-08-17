@@ -1,16 +1,12 @@
-// Routes links that do not belong to the in-app Gmail/Calendar/auth surfaces to the
-// user's default browser instead of opening them inside a mail view. How a link leaves
-// is a module-level setting rather than a parameter, so there is one definition of
-// "outward" for all three call sites: main installs the Phishing Protection variant at
-// startup (see link-guard.ts).
+// Routes links outside the in-app surfaces to the user's default browser. How a link leaves
+// is a module-level setting, so all three call sites share one definition of "outward";
+// main installs the Phishing Protection variant at startup.
 //
-// Order inside the window.open decision is load-bearing. Attachments are tested before
-// isInAppUrl, since they live on mail.google.com and would otherwise clobber the
-// inbox, and before the `suppressed` check, since an attachment is always a deliberate
-// user action. A blank popup must open as a real window the opener can drive —
-// externalising about: pops an OS "no app for this link" dialog. Google-to-Google hops
-// and federated-login redirects stay in-app, because handing a federation POST to
-// shell.openExternal re-issues it as a GET and trips AADSTS900561.
+// Order inside the window.open decision is load-bearing: attachments are tested before
+// isInAppUrl, since they live on mail.google.com, and before `suppressed`, since an
+// attachment is always deliberate. A blank popup must open as a real window, and
+// Google-to-Google hops and federated logins stay in-app — externalising a federation POST
+// re-issues it as a GET and trips AADSTS900561.
 
 import { shell, type WebContents } from 'electron';
 import {

@@ -1,15 +1,9 @@
-// Right-click menu for every webContents in the app (sidebar, Gmail/Calendar views,
-// compose and pop-out windows). Chromium's own context menu is not available to an
+// Right-click menu for every webContents in the app. Chromium's own is not available to an
 // Electron app, so without this a right-click does nothing at all.
 //
-// planContextMenu is pure data and attachContextMenu turns it into a native Menu, so
-// the item logic is testable without Electron. An editable field gets the full edit
-// menu; everything else gets only what applies to what was clicked, and nothing
-// clicked means an empty plan and no menu rather than greyed-out items. The edit
-// commands act on `webContents` directly instead of via menu roles, so they hit the
-// view that was clicked and not whatever Chromium considers focused. "Open link" goes
-// through the same gate as a link in a mail, so Phishing Protection still asks; the
-// Google search URL the app builds itself does not.
+// planContextMenu is pure data and attachContextMenu turns it into a native Menu, so the
+// item logic is testable without Electron. "Open link" goes through the same gate as a link
+// in a mail, so Phishing Protection still asks; the Google search URL does not.
 
 import { Menu, clipboard, shell, type WebContents, type MenuItemConstructorOptions } from 'electron';
 import { openExternalLink } from '../system/external-links';
@@ -124,8 +118,7 @@ export const LABELS_NL: ContextMenuLabels = {
 /**
  * The items a right-click deserves, as data
  *
- * An editable field gets the full edit menu; everything else gets only what applies to
- * what was clicked.
+ * An editable field gets the full edit menu; everything else only what applies.
  *
  * @param p what Chromium reported about the click
  * @returns {PlannedItem[]} empty when nothing was clicked, which means no menu at all

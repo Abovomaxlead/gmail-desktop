@@ -1,11 +1,10 @@
-// What goes in a tab's right-click menu. Pure, so it can be tested without drawing
-// the bar; main turns the plan into a real OS menu, which places itself at the cursor.
-// It works on `kind` and `hasCalendar` because the renderer never sees the AccountRef.
-// A provisional tab (from the remembered bar, identity not settled yet) has no url for
-// anything, not even its own mail, so it gets no choices at all. Calendar appears only
-// when Google's switcher exposed one; Drive, Docs and the rest exist only for your own
-// accounts. Mail leads the list so the way back matches the way out, and an account
-// with nothing but mail yields an empty list, which keeps the menu shut.
+// What goes in a tab's right-click menu. Pure, so it can be tested without drawing the bar;
+// main turns the plan into a real OS menu. It works on `kind` and `hasCalendar`, because
+// the renderer never sees the AccountRef.
+//
+// A provisional tab has no url for anything, not even its own mail, so it gets no choices.
+// Mail leads the list so the way back matches the way out, and an account with nothing but
+// mail yields an empty list, which keeps the menu shut.
 
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../lib/surfaces';
 import type { NativeMenuItem } from '../lib/native-menu';

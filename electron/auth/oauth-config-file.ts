@@ -1,23 +1,10 @@
-// Whether a file someone picked is the OAuth config this app needs.
-//
-// The config lives in userData and holds a client secret, so the installer cannot carry it:
-// every machine gets it by hand. That was fine while one person set up one machine, and it
-// is how a colleague ends up with an app that silently cannot link anything — no consent
-// screen when an account is added, no status, no banner, because every one of those paths
-// checks the config first and gives up quietly when it is absent.
-//
-// So the panel offers to import one, and this decides whether what it was handed is really
-// it. Two fields are load-bearing — without clientId and clientSecret nothing can be linked
-// at all — and they are the only two checked. The rest of the file is passed through
-// untouched rather than rebuilt from the fields we recognise: `relayUrl` and `pushTopic`
-// live in the same file and are what make push notifications work, and a validator that
-// quietly dropped the keys it had no opinion about would hand back a machine that links
-// accounts and then never notifies about them. That is a worse bug than the one being
-// fixed, because it looks like it worked.
+// Whether a file someone picked in the panel's import button is the OAuth config this app
+// needs. Only clientId and clientSecret are checked; the rest of the file passes through
+// untouched, because relayUrl and pushTopic live in it and dropping them would leave a
+// machine that links accounts and then never notifies about them.
 
 export interface OAuthConfigFileOk {
   ok: true;
-  /** The file's own text, to be written through verbatim — see above. */
   text: string;
 }
 
@@ -31,10 +18,6 @@ function nonEmptyString(v: unknown): boolean {
   return typeof v === 'string' && v.trim().length > 0;
 }
 
-/** Google's own download for an OAuth client, which nests the credentials under `installed`
- * for a desktop client and `web` for a web one. It is the file a person actually has in
- * their downloads folder after creating a client, so refusing it would mean refusing the
- * obvious thing and demanding a hand-written translation of it. */
 function fromGoogleDownload(o: Record<string, unknown>): { clientId: string; clientSecret: string } | null {
   for (const wrapper of ['installed', 'web'] as const) {
     const inner = o[wrapper];
@@ -47,16 +30,16 @@ function fromGoogleDownload(o: Record<string, unknown>): { clientId: string; cli
   return null;
 }
 
-/** Reads as the OAuth config, or does not. One verdict rather than a reason code: bad JSON
- * and a JSON file that happens to lack the fields are the same thing to whoever picked it —
- * this is not the file — and one sentence is easier to write in three languages than a
- * taxonomy nobody acts on differently.
+/**
+ * Reads a picked file as the OAuth config, or does not
  *
- * Two shapes are accepted, and they are written out differently on purpose. Our own shape
- * passes through byte for byte, because it may carry `relayUrl` and `pushTopic` and
- * rebuilding it from the fields checked here would silently drop them. Google's download
- * carries nothing but the credentials, so it is converted — and must be, since nothing else
- * in the app reads `installed.client_id`. */
+ * One verdict rather than a reason code: to whoever picked it, bad JSON and a JSON file
+ * lacking the fields are the same answer. Our own shape passes through byte for byte;
+ * Google's download is converted, since nothing else here reads `installed.client_id`.
+ *
+ * @param text the raw file contents
+ * @returns ok with the text to write, or a flat refusal
+ */
 export function checkOAuthConfigFile(text: string): OAuthConfigFileCheck {
   let raw: unknown;
   try {

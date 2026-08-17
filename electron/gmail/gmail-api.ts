@@ -1,16 +1,10 @@
-// Gmail API, only what we need. The pure parts (URLs, reading responses) live here so
-// they are testable and `electron` is loaded lazily inside the functions that go on
-// the network. This is the one file that knows what a request to Gmail looks like,
-// which is why `requestJson` stays private.
+// Gmail API, only what we need. The pure parts live here so they are testable, and this is
+// the one file that knows what a request to Gmail looks like — hence the private requestJson.
 //
-// Traps worth knowing. `messages.insert` uses the upload endpoint with a multipart body,
-// so labels ride along in the metadata and the ceiling is 50 MB instead of a few;
-// `internalDateSource=dateHeader` is required or the copy lands under today's date, and
-// the boundary is randomised then checked against the message. Only `messages.get`
-// understands `format=raw` — `threads.get` answers 400 — so a thread costs two steps,
-// and Gmail encodes `raw` as base64url. Trashing uses `/trash`, never `DELETE`, to stay
-// reversible for thirty days. Duplicate detection matches the RFC822 Message-ID via
-// `rfc822msgid:`, the only id stable across mailboxes.
+// Traps worth knowing: `messages.insert` needs the upload endpoint and
+// `internalDateSource=dateHeader`, or the copy lands under today's date; only `messages.get`
+// understands `format=raw`, so a thread costs two steps; trashing uses `/trash` rather than
+// DELETE to stay reversible; and duplicates match on `rfc822msgid:`, the only stable id.
 
 import { randomBytes } from 'node:crypto';
 
@@ -34,15 +28,6 @@ export interface AccountLabels {
   error?: string;
 }
 
-/** One entry per message the thread actually holds, whether or not its source came back.
- *
- * The count is the point. Gmail's own conversation page renders what it feels like
- * rendering — a long thread arrives with its older messages collapsed and their download
- * links absent — so a copy taken from that page can be short without anything reporting a
- * failure. `threads.get` is asked instead, and it answers with every message id in the
- * thread regardless of how any page would draw it. A message whose source then fails to
- * arrive is kept here as an error rather than dropped, because a caller counting what it
- * saved must be able to see that one is missing. */
 export interface ThreadMessage {
   id: string;
   raw?: Buffer;
@@ -84,7 +69,6 @@ export class GmailHttpError extends Error {
 
 export const LABELS_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/labels';
 
-// the upload endpoint, which is the only one that takes a whole message
 export const INSERT_URL =
   'https://gmail.googleapis.com/upload/gmail/v1/users/me/messages' +
   '?uploadType=multipart&internalDateSource=dateHeader';
@@ -99,22 +83,14 @@ export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/histo
 
 export const MESSAGE_META_HEADERS = ['From', 'Subject'];
 
-// How long a call may stay unanswered before it is given up on. Long enough that a slow
-// answer is still an answer, short enough that whoever is waiting on it hears something.
-// The upload deadline is separate because the size of an insert is the user's attachment,
-// not a sign that anything is wrong.
 const REQUEST_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
 
 /**
  * The headers every call in this file carries
  *
- * A function of its own, and it earned that the hard way: these two lines sat inside
- * requestJson's callback, where an edit about something else deleted them and nothing said a
- * word. Every call then went out unauthenticated, and Google answers that with "Request is
- * missing required authentication credential" — a sentence that reads like a withdrawn client
- * id or a broken key, so it sends you looking everywhere except at the missing line. Out here
- * a test can hold it; inside a net.request callback nothing could.
+ * Out here so a test can hold it; inside a net.request callback nothing could, and a call
+ * that silently lost its Authorization reads as a withdrawn client id.
  *
  * @param accessToken
  * @param contentType set only for a call with a body
@@ -127,7 +103,6 @@ export function apiHeaders(accessToken: string, contentType?: string): Record<st
   };
 }
 
-// the system labels a mail can be copied into; the rest are Gmail's own bookkeeping
 const SYSTEM_TARGETS = new Set(['INBOX', 'STARRED', 'IMPORTANT']);
 
 const SYSTEM_NAMES: Record<string, string> = {
@@ -282,10 +257,8 @@ export async function listLabelThreadIds(
 /**
  * Reads every message of a thread
  *
- * The network is a dependency so this can be tested without one — the same arrangement
- * push-sync uses, and for the same reason: what is worth checking here is not that a
- * request was made but that the list keeps its shape. It is the dropping of unreadable
- * messages that once made a short copy look like a complete one.
+ * The network is a dependency so a test can check the list keeps its shape: dropping an
+ * unreadable message is what once made a short copy look like a complete one.
  *
  * @param ids
  * @param read
@@ -437,9 +410,8 @@ export async function trashMessage(accessToken: string, messageId: string): Prom
 /**
  * The newest mail in the inbox, ids only
  *
- * `max` is deliberately a handful. This exists to answer "which mail was that notification
- * about", and a notification is about mail that arrived seconds ago, so the answer is
- * among the last few or it is not worth more requests to find.
+ * `max` is a handful: this answers "which mail was that notification about", and that mail
+ * arrived seconds ago or is not worth more requests to find.
  *
  * @param max
  * @returns the URL
@@ -450,7 +422,6 @@ export function recentInboxUrl(max: number): string {
 }
 
 export async function fetchRecentInboxIds(accessToken: string, max: number): Promise<string[]> {
-  // messages.list answers in the same `{ messages: [{ id }] }` shape a thread does.
   return parseThreadMessageIds(await requestJson(recentInboxUrl(max), accessToken));
 }
 
@@ -502,14 +473,10 @@ export async function messageExistsInLabel(
   return parseHasMessage(await requestJson(searchInLabelUrl(messageId, labelId), accessToken));
 }
 
-// Asking the mailbox once instead of once per label. The per-label search answers "is it
-// under this one label", which costs a call for every label anyone ticked and stays silent
-// about the label they did not tick — and "it is already in that mailbox, under something
-// else" is exactly what a second copy is. Two calls per mailbox answer that whatever the
-// mailbox's label count is: find the message, then read what it is filed under.
+// two calls per mailbox rather than one per label: find the message, then read what it is
+// filed under, since "already there under another label" is exactly what a second copy is
 //
-// Spam and trash stay out, as they do in the per-label search: a mail someone threw away is
-// not a copy standing in the way of this one.
+// spam and trash stay out: a mail someone threw away is not a copy standing in the way
 
 /**
  * The search that finds one message anywhere in a mailbox
@@ -706,12 +673,8 @@ export function pickBoundary(
 /**
  * The upload body: the labels in JSON, then the message itself
  *
- * `threadId` is what keeps a copied conversation a conversation. Gmail does not thread an
- * inserted message on its headers alone: insert says the thread it belongs to, or it
- * becomes a thread of its own. Six replies copied to another mailbox then arrive as six
- * separate mails, which is what this is here to prevent. Google's own conditions still
- * apply beside it — References and In-Reply-To per RFC 2822, and a matching Subject — and
- * they hold, because what is inserted is the original message.
+ * `threadId` is what keeps a copied conversation a conversation: Gmail does not thread an
+ * inserted message on its headers alone, so six replies would arrive as six mails.
  *
  * @param raw
  * @param labelIds
@@ -745,8 +708,7 @@ export function parseInsertedId(json: unknown): string | null {
 /**
  * The thread the message landed in
  *
- * Read apart from the id because the caller needs both and for different reasons: the id
- * proves the insert happened, the thread is what the rest of the copy is filed under.
+ * Apart from the id: that proves the insert happened, this is what the rest is filed under.
  *
  * @param json
  * @returns the thread id, or null when the answer carries none
@@ -806,11 +768,7 @@ async function requestJson(
     for (const [name, value] of Object.entries(apiHeaders(accessToken, init?.contentType))) {
       req.setHeader(name, value);
     }
-    // A request that is never answered used to leave its promise unsettled for the life of
-    // the process, and every caller waiting on it with it: the label list of a drop window
-    // asks one account after another, so one stalled connection left "Labels ophalen…" on
-    // screen for good. An upload gets the longer deadline because it is the request whose
-    // length is the user's attachment rather than the network being ill.
+
     const timer = setTimeout(() => {
       req.abort();
       reject(new Error('geen antwoord van Google (time-out)'));

@@ -1,14 +1,9 @@
-// Reading the one config file everything Google-facing is configured from: the OAuth
-// credentials, the push settings, and the two relay URLs.
+// The one config file everything Google-facing is read from: the OAuth credentials, the push
+// settings, and the two relay URLs.
 //
-// Every reader goes through oauthConfigText so they can never disagree about which project
-// the app is talking to. The push settings live in the same file as the credentials, and
-// picking them from different sources would link accounts against one project and subscribe
-// for notifications against another. See oauth-source.ts for the precedence between the
-// machine's own copy and the shipped one, and oauth-bundled.ts for where the shipped one is.
-//
-// Nothing here is cached. The file can be imported from inside the app while it runs, and a
-// cache would mean the app stayed unlinkable until a restart.
+// Every reader goes through oauthConfigText, so the app cannot link against one project and
+// subscribe for notifications against another. Nothing is cached, because the file can be
+// imported from inside the running app.
 
 import { readFileSync } from 'node:fs';
 import { OAUTH_CONFIG_PATH } from '../core/paths';
@@ -23,8 +18,6 @@ import { parsePushConfig, type PushConfig } from '../push/push-config';
 // Exported functions
 //===========================
 
-/** The config text in force: the machine's own if it has a usable one, otherwise the copy
- * shipped in the app. */
 export function oauthConfigText(): string | null {
   return chooseOAuthConfigText(readIfPresent(OAUTH_CONFIG_PATH), readBundledOAuthConfig());
 }
@@ -51,23 +44,10 @@ export function pushConfig(): PushConfig | null {
   }
 }
 
-/**
- * Where to ask for a token for a mailbox nobody signed into. Absent means the relay is not
- * configured, and copying to delegated mailboxes stays off — the same optional shape push
- * config has.
- *
- * This one used to read the file and trim it, and that was all: no scheme check, no
- * environment. It is the endpoint whose answer carries gmail.insert and gmail.modify, so it
- * was the worst of the three to leave that way — see `relay-url.ts` for both halves of why.
- */
 export function delegatedTokenUrl(): string | null {
   return relayUrlFromConfig(process.env.GMAIL_DELEGATED_TOKEN_URL, 'delegatedTokenUrl');
 }
 
-/**
- * Where to ask which mailboxes this person may reach. Absent means discovery stays off and
- * the switcher scrape is the only source.
- */
 export function delegatedMailboxesUrl(): string | null {
   return relayUrlFromConfig(process.env.GMAIL_DELEGATED_MAILBOXES_URL, 'delegatedMailboxesUrl');
 }
@@ -88,9 +68,8 @@ function readIfPresent(path: string): string | null {
 /**
  * One relay endpoint, read the way every relay endpoint is read
  *
- * `chooseRelayUrl` owns which of the two sources wins and what counts as usable; this only
- * fetches them. The file is left unopened when the environment has already decided, so an
- * override works on a machine that has no config at all.
+ * The file is left unopened when the environment has already decided, so an override works
+ * on a machine with no config at all.
  *
  * @param fromEnv the value of this endpoint's environment variable
  * @param key the endpoint's key in the OAuth config file

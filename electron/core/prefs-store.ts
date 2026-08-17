@@ -1,11 +1,12 @@
-// Reads and writes the user preferences JSON and exposes one setter per settings tab.
-// Every default in DEFAULT_PREFS is chosen so the app behaves exactly as it did before
-// that setting existed: an update changes nothing until the user flips a switch, and
-// malformed or unknown values fall back to it. Each setter is a patch, so ...prefs must
-// come first or a caller sending one field wipes the fields it knows nothing about;
-// appearance.tray merges a level deeper for the same reason. Quiet-hours times are
-// "HH:MM", dndUntil is epoch ms, an empty folder string means the OS default that main
-// resolves, and hardwareAcceleration is read before app "ready" so it needs a restart.
+// Reads and writes the user preferences JSON, with one setter per settings tab.
+//
+// Every default in DEFAULT_PREFS makes the app behave as it did before that setting
+// existed, and anything malformed falls back to it. Each setter is a patch, so ...prefs
+// must come first or a one-field caller wipes what it knows nothing about; appearance.tray
+// merges a level deeper for the same reason.
+//
+// Quiet-hours times are "HH:MM", dndUntil is epoch ms, an empty folder string means the OS
+// default, and hardwareAcceleration is read before app "ready" so it needs a restart.
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { LanguagePref } from './locale';

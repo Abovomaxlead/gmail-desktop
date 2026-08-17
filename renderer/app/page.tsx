@@ -25,12 +25,10 @@ import type { ToastAction, ToastState } from '../lib/toast';
 // DownloadRecord shapes are copied from electron/ rather than imported, because an
 // `import type` from the main process pulls Electron into this page's bundle.
 //
-// A provisional tab comes from the remembered bar (accounts.json) before detection
-// has recovered its address; main does not know its session slot and cannot open one,
-// so such a tab is never marked active, and a click on it is remembered by lowercased
-// address until detection confirms the account. An app that opens outside the app must
-// not move the active tab: doing so once left the bar pointing at a tab with no view
-// behind it, a blank window.
+// A provisional tab comes from the remembered bar before detection has recovered its
+// address. Main cannot open one, so it is never marked active and a click on it is
+// remembered by address. An app opening outside the app must not move the active tab, or
+// the bar points at a tab with no view behind it.
 
 
 //===========================
@@ -284,12 +282,8 @@ export default function AppShell() {
     if (!bridge) return;
     bridge.onProfilesChanged((list) => {
       setProfiles(list);
-      // Only for the moment before main has said anything. Which view is on screen is main's
-      // to answer — it is the one that opens them — and the first non-provisional tab is a
-      // different question with a different answer: at startup a delegated mailbox is ready
-      // while the remembered own accounts are still provisional, so this used to light up the
-      // delegated tab over authuser 0's mail. Once main has spoken, its answer stands, even
-      // while the tab it names is still on its way into the list.
+      // only until main has spoken: the first non-provisional tab is a different question,
+      // and at startup a ready delegated mailbox would win over authuser 0's mail
       setActive((cur) => {
         if (cur) return cur;
         const first = list.find((p) => !p.provisional);

@@ -1,11 +1,9 @@
 // The tray icon: whether there is one, what it looks like, and the menu hanging off it.
-// tray-controller.ts builds the menu from a TrayState; this is where that state is gathered
-// and where the icon itself is tinted.
+// tray-controller.ts builds the menu from a TrayState; this gathers that state and tints
+// the icon.
 //
-// The menu is rebuilt rather than mutated on every change, because it carries live values —
-// the update status, whether notifications are snoozed and until when — and Electron gives
-// no way to edit one item in place. refreshTray is therefore called from everywhere those
-// values move, and is cheap enough for that.
+// Electron gives no way to edit one item in place, so refreshTray rebuilds the whole menu
+// and is called from everywhere its live values move.
 
 import { app } from 'electron';
 import type { Tray } from 'electron';
@@ -39,12 +37,8 @@ import { trayLabels } from './tray-labels';
 // Types
 //===========================
 
-/** What the tray needs from layers above it. Injected rather than imported: a click on the
- * icon may open a mailbox, and snoozing changes what the mail views are allowed to raise. */
 export interface TrayHooks {
-  /** Re-tells every view whether it may notify, after a snooze changed the answer. */
   refreshNotifyAllowed(): void;
-  /** Bring an account to the front, as a notification click would. */
   activateAccount(accountKey: string): void;
   setAutoStart(v: boolean): void;
 }
@@ -71,7 +65,6 @@ export function setTrayHooks(h: TrayHooks): void {
   hooks = h;
 }
 
-/** Adds or removes the icon to match the setting, and re-tints it when the colour changed. */
 export function applyTraySetting(): void {
   const want = prefs?.getAll().appearance.tray.enabled !== false;
   if (want && !tray) {
@@ -110,8 +103,6 @@ export function setSnooze(minutes: number | null): void {
 // Helper functions
 //===========================
 
-/** A click on the icon. Opens the first mailbox with unread mail when that setting is on,
- * and otherwise just brings the window back. */
 function openFromTrayIcon(): void {
   if (prefs?.getAll().appearance.tray.selectUnreadOnClick === true) {
     const counts = unread.snapshot();
@@ -152,8 +143,6 @@ function getTrayState(): TrayState {
   };
 }
 
-/** The icon, tinted to the chosen colour by flattening every non-transparent pixel to it.
- * "system" leaves it alone, which is the right answer wherever the OS themes it itself. */
 function trayImage(): Electron.NativeImage {
   const { nativeImage } = require('electron') as typeof import('electron');
   let image = nativeImage.createFromPath(ICON_PATH);

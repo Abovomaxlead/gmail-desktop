@@ -1,16 +1,9 @@
 // Which mailboxes the person may reach, asked of the relay rather than read out of Google's
 // account-switcher DOM.
 //
-// The app cannot work this out itself: the Gmail API answers "who may reach mailbox X" and
-// never "which mailboxes may I reach", so the inversion has to happen somewhere that may
-// impersonate every mailbox in the domain — which is the relay, and is why the answer is
-// taken on trust as far as membership goes. What is not taken on trust is its shape: this
-// list becomes rows in the sidebar, and a relay bug should not be able to put an arbitrary
-// string there under the name of a mailbox.
-//
-// Addresses only. The relay knows no URL for these mailboxes and never will — the id in
-// `/mail/u/<n>/d/<id>/` exists only in Google's own interface — so what comes back is a
-// mailbox you can reach over the API, not necessarily one you can open.
+// The Gmail API answers "who may reach mailbox X" and never the inverse, so the relay is the
+// only thing that can. Its membership answer is trusted; its shape is not, since these
+// become sidebar rows. Addresses only — the relay knows no URL and never will.
 
 
 
@@ -28,7 +21,6 @@ const EMAIL_RE = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 
 export interface MailboxesDeps {
   url: string;
-  /** An access token for the account doing the asking; the relay filters on its identity. */
   requesterToken: string;
   fetch?: typeof fetch;
 }
@@ -42,8 +34,6 @@ export type MailboxesOutcome =
 // Exported functions
 //===========================
 
-// Which URL may be called at all is `relay-url.ts`, shared with the token endpoint: the rule
-// belongs to the credential every relay call carries, not to the question being asked.
 
 /**
  * Asks the relay which mailboxes the requester may reach

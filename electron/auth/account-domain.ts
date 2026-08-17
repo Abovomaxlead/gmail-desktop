@@ -1,30 +1,19 @@
-// Which accounts may hold a Gmail API token. Signing into the Gmail view is Google's
-// business and stays open to anyone; linking an account is ours, and is limited to the
-// work domain.
+// Which accounts may hold a Gmail API token. Signing into the Gmail view stays open to
+// anyone; linking an account is limited to the work domain, so a private mailbox is
+// readable without being synced, watched for push or dropped into.
 //
-// The reason is that the two are easy to confuse. Adding a personal mailbox to the
-// sidebar looks like a display choice, and it is — until consent turns it into an
-// account the app syncs, watches for push, and drops mail into. Refusing the link is
-// the narrow way to keep a private mailbox out of all of that while still letting
-// someone read it in the view.
-//
-// A domain is compared whole rather than by suffix: 'notabovomaxlead.nl' ends in the
-// work domain as text and has nothing to do with it, and a subdomain is a different
-// Workspace. The check is one function so the consent flow, the status list and the
-// startup purge cannot disagree about what counts as a work account.
+// One function, so the consent flow, the status list and the startup purge cannot disagree.
 
 
 //===========================
 // Types
 //===========================
 
-/** Only the two members the purge needs, so a test can stand in for the store. */
 export interface TokenStore {
   connected(): string[];
   remove(email: string): void;
 }
 
-/** The two fields of a Profile this module reads, so it stays free of Electron. */
 export interface AccountProfile {
   kind: 'authuser' | 'delegated';
   email: string;
@@ -51,8 +40,6 @@ export const ALLOWED_EMAIL_DOMAINS: readonly string[] = ['abovomaxlead.nl'];
 export function isAllowedAccount(email: string): boolean {
   const address = email.trim().toLowerCase();
   const at = address.lastIndexOf('@');
-  // Zero means the address starts with '@' and has no local part; -1 means there is no
-  // separator at all. Neither is an address.
   if (at <= 0) return false;
   return ALLOWED_EMAIL_DOMAINS.includes(address.slice(at + 1));
 }
@@ -72,14 +59,8 @@ export function linkableOwnEmails(profiles: readonly AccountProfile[]): string[]
 /**
  * The mailboxes a dragged mail may be copied into
  *
- * Out-of-domain mailboxes are left out rather than offered and then refused. An own account
- * outside the work domain holds no token and never will, so its column could only ever carry
- * an error; and a delegated mailbox outside it is exactly the private mailbox this whole
- * restriction exists to keep work mail out of.
- *
  * @param profiles every account in the sidebar, own and delegated
- * @param source the mailbox the drag came out of, left out because filing a mail back where
- *   it came from is never what was meant; empty when the source is not known
+ * @param source the mailbox the drag came out of, left out; empty when it is not known
  * @returns the addresses that may be offered as a copy target, in sidebar order
  */
 export function copyTargetEmails(

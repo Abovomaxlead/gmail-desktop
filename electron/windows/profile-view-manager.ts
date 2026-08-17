@@ -1,12 +1,10 @@
-// Owns one WebContentsView per (account, surface) and everything done to them. The map
-// key is "<accountKey>:<surface>" and an accountKey may itself contain a colon
-// (delegated keys are "d:<email>"), so it is recovered by splitting on the LAST one. A
-// preloading view is parked off-window and stays visible: an invisible view counts as
-// occluded and Gmail then never builds its message list, so show() and hideAll() must
-// skip warming views. State a page load destroys — the audio mute that silences Gmail's
-// in-page chime — is re-sent on every load, so the manager holds the last value itself.
-// Discarding a mail view reports 0 unread so the badge total forgets it; a window.open
-// passes only when the app itself asked for it.
+// Owns one WebContentsView per (account, surface) and everything done to them. The map key
+// is "<accountKey>:<surface>", and since an accountKey may itself contain a colon it is
+// recovered by splitting on the LAST one.
+//
+// A preloading view is parked off-window and stays visible: an invisible view counts as
+// occluded and Gmail never builds its message list, so show() and hideAll() skip warming
+// views. State a page load destroys, like the audio mute, is re-sent on every load.
 
 import { BrowserWindow, WebContentsView, type WebContents } from 'electron';
 import { contentBounds } from './layout';
@@ -57,16 +55,11 @@ interface PopoutProbe {
 
 const SESSION_PARTITION = 'persist:google';
 
-// an accountKey may itself contain a colon, so a view key is split on the LAST one
 const viewKey = (acctKey: string, surface: Surface) => `${acctKey}:${surface}`;
 const acctKeyOfViewKey = (vk: string) => vk.slice(0, vk.lastIndexOf(':'));
 
-// off-window but still visible: an invisible view counts as occluded, and Gmail then
-// never builds its message list
 const WARM_BOUNDS = { x: -4000, y: 0, width: 1280, height: 900 };
 
-// how long the pop-out dance may take: the button has ~3s to render, and the window it
-// opens ~2s to actually appear before the mail view is sent back without it
 const POPOUT_CLICK_TRIES = 12;
 const POPOUT_CLICK_INTERVAL_MS = 250;
 const POPOUT_WINDOW_WAIT_MS = 2000;
@@ -82,7 +75,6 @@ export class ProfileViewManager {
   private notifClickUntil = new Map<string, number>();
   private warming = new Set<string>();
   private popoutExpectUntil = new Map<string, number>();
-  /** View keys already told they get no dropzone, so the view's retries log one line, not ten. */
   private dropRefused = new Set<string>();
 
   constructor(
@@ -105,27 +97,7 @@ export class ProfileViewManager {
     private readonly getOpenMode: () => 'app' | 'window',
     private readonly getUiScale: () => number = () => 1,
     private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
-    /** A view has just been attached, and contentView paints its children in order, so
-     * anything that has to stay above the Gmail layer has just been covered by it. Fired
-     * for the warm-up and the hidden scratch view too: both attach a real child and both
-     * bury an open overlay exactly as thoroughly as a visible one does. */
     private readonly onViewAttached: () => void = () => {},
-    /**
-     * Whether this account's mail view may offer drag-to-save. Asked by the view before it
-     * builds its dropzone, so the answer decides whether a strip exists there at all.
-     *
-     * Three answers, and the third is the one that matters: `null` means the address behind
-     * this view is not known yet. A view exists before its account is registered — detection
-     * shows account 0 first and registers it after (`runtime.ts:233`) — so the first ask can
-     * arrive before anyone can say which mailbox it is. Answering `false` there took the
-     * dropzone away from every mailbox including the work ones; answering `true` would put
-     * one in a private mailbox for as long as the gap lasts. So it stays unanswered and the
-     * view asks again.
-     *
-     * A hook rather than the rule itself: which mailboxes qualify is a question about the
-     * work domain, and this class knows about views. Defaults to permitting, which is what
-     * every caller that has no opinion (the tests) means by not passing one.
-     */
     private readonly mayDragToSave: (accountKey: string) => boolean | null = () => true,
   ) {
     this.win.on('resize', () => this.relayout());
@@ -151,11 +123,7 @@ export class ProfileViewManager {
       if (visible) this.show(ref, surface);
       return;
     }
-    // The one funnel every caller of ensureView/show/warm passes through before a view is
-    // ever built: a (ref, surface) pair outside surfacesForRef has no URL to load —
-    // SURFACE_CONFIG[surface].url(ref) below would throw — so it is refused here, once,
-    // rather than trusted to every caller (a sidebar click, a keyboard shortcut, the
-    // fallback after removing an account) to have checked first.
+
     if (!urlOverride && !surfacesForRef(ref).includes(surface)) {
       console.warn(`[view] refusing to open ${surface} for ${acctKey}: no url captured yet`);
       return;
@@ -181,12 +149,9 @@ export class ProfileViewManager {
         else if (channel === IPC.MAIL_DROP) this.onMailDrop(acctKey, args[0] as MailDropPayload);
         else if (channel === IPC.MAIL_DROP_ALLOWED_GET) {
           const allowed = this.mayDragToSave(acctKey);
-          // Unknown stays unanswered: the view keeps asking until someone can say. Silence is
-          // the safe half of that — no answer builds no strip.
+
           if (allowed === null) return;
-          // Only the refusal is logged, and only the first one per view: a strip that is
-          // absent looks exactly like one that failed to load, and this is the line that
-          // tells them apart. The retries would otherwise repeat it every couple of seconds.
+
           if (!allowed && !this.dropRefused.has(k)) {
             this.dropRefused.add(k);
             console.log(`[maildrop] geen dropzone voor ${acctKey}: buiten het werkdomein`);
@@ -195,15 +160,8 @@ export class ProfileViewManager {
         }
       }
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
-        // Diagnostic, sent by the WEB_NOTIFY_CLICK handler in preload.ts and logged here
-        // because a console line inside a Gmail view is somewhere nobody is looking. It
-        // records how the thread id beside it was arrived at — the one thing a click that
-        // opens the wrong conversation otherwise leaves no trace of.
         if (args[1]) notifyLog(`[notify] ${acctKey} lookup ${JSON.stringify(args[1])}`);
-        // The subject travels with the click for the case the lookup failed: it is the
-        // only thing left that still points at the mail, and it comes from here rather
-        // than from the card because the card's text may have been replaced by the
-        // privacy setting long before the click.
+
         const meta = args[1] as { body?: unknown } | undefined;
         this.onActivate(
           acctKey,
@@ -412,15 +370,10 @@ export class ProfileViewManager {
   openMailThread(accountKey: string, threadId: string): void {
     const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
     if (!wc || wc.isDestroyed()) {
-      // Silent until now, and it is one of the ways a notification opens nothing: the view
-      // for this mailbox has not been built yet, or was torn down.
       notifyLog(`[notify] ${accountKey} open ${threadId}: no mail view`);
       return;
     }
-    // What the hash is set on matters as much as what it is set to. A view still loading
-    // navigates to its own URL afterwards and takes the hash with it, and a hash that is
-    // already the target fires no hashchange at all — both end with the notified mail not
-    // on screen, and neither can be told from the outside.
+
     console.log(
       `[notify] ${accountKey} open ${threadId} (loading=${wc.isLoading()}, at ${wc.getURL()})`,
     );
@@ -430,11 +383,8 @@ export class ProfileViewManager {
   /**
    * Sends the mail view to Gmail's search for a subject
    *
-   * This is where a notification click ends up when the thread could not be identified —
-   * matching a subject against the rows that happen to be rendered answers nothing when the
-   * view is on another label or showing a conversation — and it beats the alternative,
-   * which is opening the account and looking, to the user, like the click did nothing at
-   * all.
+   * Where a notification click ends up when its thread could not be identified. It beats
+   * the alternative, which is opening the account and looking like the click did nothing.
    *
    * @param accountKey
    * @param subject
@@ -454,17 +404,10 @@ export class ProfileViewManager {
   /**
    * Pops a conversation out into Gmail's own reading window
    *
-   * The detour through the mail view is unavoidable: only Gmail can open a working pop-out,
-   * and the button that does it only exists while the thread is open. So the thread is
-   * opened here, the button is clicked, and the view is sent back — without that last step
-   * "open in a new window" also leaves the message sitting in the main window, which is the
-   * one thing it promises not to do.
-   *
-   * The restore waits for the pop-out window to exist rather than for the click to return,
-   * because Gmail does asynchronous work in between and a view already on its way back
-   * opens nothing. It is a race with a deadline, not a guarantee: after
-   * POPOUT_WINDOW_WAIT_MS the view goes back regardless, since a main window left on the
-   * message is the bug being fixed.
+   * Only Gmail can open a working pop-out, and its button exists only while the thread is
+   * open — so the thread is opened, the button clicked, and the view sent back. The restore
+   * waits for the pop-out window rather than the click, since Gmail works asynchronously in
+   * between, and goes back regardless after POPOUT_WINDOW_WAIT_MS.
    *
    * @param accountKey
    * @param threadId
@@ -539,24 +482,14 @@ export class ProfileViewManager {
   /**
    * Clicks Gmail's own pop-out button, once the right thread is on screen
    *
-   * Matched by Gmail's stable jslog action id first, then by a localized aria-label. The
-   * button only appears once a thread has rendered, so this retries rather than asking
-   * once.
+   * Matched by Gmail's stable jslog action id first, then by a localized aria-label, and
+   * retried because the button appears only once a thread has rendered.
    *
-   * Which thread that is, is the whole difficulty, and getting it wrong is how a
-   * notification popped out a mail from two days earlier. Opening the thread and clicking
-   * the button are two steps with a Gmail navigation in between, and for as long as that
-   * navigation is in flight the conversation that was open before is still on screen with
-   * its own pop-out button under this selector.
-   *
-   * The hash answers none of it, in both directions, and it took two logged failures to
-   * establish that. The app writes the hash itself, so it reads back as the target the
-   * instant it is set — 81 milliseconds before a click that popped out the wrong mail. And
-   * once Gmail does arrive it replaces what we wrote with its own permalink id, turning
-   * `#inbox/19ff4d23f66d4d3c` into `#inbox/FMfcgzQhVrDqdSFCTfmJlfHgxhKCQwXv`, so an
-   * equality that proved nothing before the navigation is impossible after it and the click
-   * never happened at all. The hash is still read, because it is worth having in the log
-   * the next time this goes wrong, but nothing is decided on it.
+   * Which thread is on screen is the whole difficulty: a navigation sits between opening
+   * the thread and clicking, and the previous conversation's button matches this selector
+   * throughout. The hash decides nothing — the app writes it itself, so it reads back as
+   * the target at once, and Gmail later replaces it with its own permalink id. It is still
+   * read, for the log.
    *
    * @param wc
    * @param shows reads the title — the one thing that changes only when the conversation is
@@ -578,8 +511,7 @@ export class ProfileViewManager {
           .test(b.getAttribute('aria-label') || ''));
       return byLog || byLabel() || null;
     })()`;
-    // Asked and answered before anything is clicked, so the decision is made here on values
-    // that can be logged and tested, rather than inside a string in Gmail's page.
+
     const probeScript = `(() => {
       const btn = ${findButton};
       return { hash: location.hash, title: document.title || '', hasButton: !!btn };

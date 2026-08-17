@@ -1,11 +1,8 @@
-// Bitmaps for native OS menu items: the renderer sends only a name (see
-// NativeMenuItem.icon) and this turns it into an image. Menu items want 16pt, so the
-// 96px source is scaled down and a 32px variant is added alongside — without it
-// Windows would blow up a 16px bitmap on a 200% display and the icon would be blurry.
-// Results are cached, since every menu that opens asks for the same images. A missing
-// entry means nativeImage could not read the format (it handles only PNG and JPEG);
-// `undefined` drops straight into MenuItemConstructorOptions as "no icon", which
-// beats a blank square or taking down the main process for a decoration.
+// Bitmaps for native OS menu items: the renderer sends a name and this turns it into an
+// image. Cached, since every menu that opens asks for the same ones.
+//
+// `undefined` drops into MenuItemConstructorOptions as "no icon", which beats a blank
+// square or taking down the main process for a decoration.
 
 import { nativeImage, type NativeImage } from 'electron';
 import { SURFACE_ICON_DATA_URIS } from '../../renderer/lib/surface-icon-data';

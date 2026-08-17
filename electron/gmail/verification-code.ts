@@ -1,13 +1,10 @@
-// Finds a verification code in one message. Pure — no Electron, DOM, network, clock or
-// randomness — because a setting behind this deletes the mail once the code is copied,
-// and something irreversible has to be reproducible. It picks precision over recall: a
-// missed code costs one retype, a false one costs a real mail, so any doubt means no.
-// Stages: normalise, blank the noise (urls, amounts, dates and the like become an equal
-// number of spaces, so every offset stays valid for the 60-character keyword window),
-// find keywords, collect candidates, take the hardest evidence and the earliest on a
-// tie. A candidate's confidence is the strength of that evidence, not the user's
-// setting. subjectSuggestsCode is deliberately looser: it is a gate that saves fetching
-// a body, and too strict a gate discards mail nothing can recover.
+// Finds a verification code in one message. Pure, because a setting behind this deletes the
+// mail once the code is copied, and something irreversible has to be reproducible.
+//
+// Precision over recall: a missed code costs one retype, a false one costs a real mail, so
+// any doubt means no. The stages are normalise, blank the noise into an equal number of
+// spaces so every offset stays valid, find keywords, collect candidates, take the hardest
+// evidence and the earliest on a tie.
 
 import type { CodeConfidence } from '../core/prefs-store';
 
@@ -36,17 +33,13 @@ interface Span {
 // Constants
 //===========================
 
-// a code is this many characters, either digits or upper-case letters and digits
 const MIN_LENGTH = 4;
 const MAX_LENGTH = 8;
 
-// how far from a keyword a token may sit and still count as backed by it, in characters
 const KEYWORD_WINDOW = 60;
 
-// how far back a negative word reaches to disqualify a token, in characters
 const NEGATIVE_WINDOW = 40;
 
-// the words that make a nearby token a code
 const KEYWORD_SOURCE = [
   'verification\\s*code',
   'security\\s*code',
@@ -64,7 +57,6 @@ const KEYWORD_SOURCE = [
   'inlog\\s*code',
 ].join('|');
 
-// the words that make a nearby number something else: an invoice, an order, a policy
 const NEGATIVE_SOURCE = [
   'factuur\\w*',
   'invoice',
@@ -97,7 +89,6 @@ const NEGATIVE_SOURCE = [
   '\\bphone\\b',
 ].join('|');
 
-// looser words, enough for a subject to be worth fetching the body for
 const HINT_SOURCE = [
   '\\bcodes?\\b',
   '\\bpin\\b',
@@ -124,11 +115,9 @@ const UNIT = /^\d{1,4}(?:KB|MB|GB|TB|PX|PT|AM|PM|EUR|USD|GBP)$/;
 const FORBIDDEN_BEFORE = '_#$€£¥+';
 const FORBIDDEN_AFTER = '_%°';
 
-// tags a sender puts between the digits of one code, which come out without a space
 const INLINE_TAG = 'b|strong|i|em|u|span|font|small|big|sub|sup|wbr|mark|tt|code';
 const DIGIT_GLUE = new RegExp(`(?<=\\d)(?:</?(?:${INLINE_TAG})\\b[^>]*>)+(?=\\d)`, 'gi');
 
-// urls, amounts, dates and the like, blanked before anything is looked for
 const NOISE: readonly RegExp[] = [
   /(?:https?:\/\/|mailto:|www\.)\S+/gi,
   /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
@@ -205,7 +194,6 @@ export function subjectSuggestsCode(subject: string): boolean {
 // Helper functions
 //===========================
 
-// a match becomes an equal number of spaces, so every offset after it stays valid
 const blanks = (m: string): string => ' '.repeat(m.length);
 
 function looksLikeHtml(text: string): boolean {

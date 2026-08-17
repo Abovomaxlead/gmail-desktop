@@ -7,10 +7,6 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { DIVIDER, FOCUS_RING, HINT, PANEL } from './tokens';
 
-// Phishing Protection: one look at the host before a link leaves for your browser,
-// plus the hosts you chose to trust. It does not judge whether a host is malicious -
-// there is no list behind it. Hosts are added from the confirmation dialog itself,
-// not typed here, since a typo would silently trust the wrong host.
 
 export function PhishingSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const hosts = prefs?.phishing.trustedHosts ?? [];

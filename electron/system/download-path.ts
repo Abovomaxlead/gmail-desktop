@@ -1,12 +1,9 @@
-// Where a download ends up, as a name. Pure: the filesystem arrives as a single "does
-// this name exist?" function, so this is testable without a disk.
+// Where a download ends up, as a name. Pure: the filesystem arrives as a single "does this
+// name exist?" function, so this is testable without a disk.
 //
-// Known double extensions stay together — "archief.tar.gz (1)", not
-// "archief.tar (1).gz", which would also change the file's type in Windows' eyes —
-// and a name starting with a dot is a name, not an extension (".gitignore"). The
-// " (1)" form is the one Windows and Chrome use, so a second download of the same
-// file does not silently overwrite the first. The counter stops at 999: past that,
-// something other than a duplicate download is going on.
+// Known double extensions stay together — "archief.tar.gz (1)", not "archief.tar (1).gz",
+// which would change the file's type in Windows' eyes — and a name starting with a dot is a
+// name, not an extension.
 
 
 //===========================

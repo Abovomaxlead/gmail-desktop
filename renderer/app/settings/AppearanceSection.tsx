@@ -7,11 +7,6 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { FIELD, HINT } from './tokens';
 
-// Appearance: the theme, the master switch above the per-account unread counts, the
-// tray icon, and the minimum window size. The tray row that depends on the tray
-// being enabled is disabled rather than hidden, because a disappearing row makes the
-// section jump under your hands. Tray colour is deliberately absent: it would need a
-// monochrome icon that is not in assets/ yet, so the section says so instead.
 
 export function AppearanceSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
   const tray = prefs?.appearance.tray;

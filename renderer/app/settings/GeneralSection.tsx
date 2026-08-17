@@ -7,13 +7,6 @@ import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { BUTTON } from './tokens';
 
-// General: how the app behaves towards Windows - what it does with a mail link and
-// what it does when you sign in. The default-mail state comes from Windows itself
-// rather than from prefs, since it can be changed outside this app.
-//
-// Mail is a button and not a switch on purpose: Windows signs the mailto: association
-// itself, so no app can flip it. A switch would spring back and read as a bug. The
-// button hands the choice to Windows and the line underneath reports what it made of it.
 
 export function GeneralSection({
   S,

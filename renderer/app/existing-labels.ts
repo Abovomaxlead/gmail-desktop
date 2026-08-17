@@ -1,10 +1,9 @@
 // Turning the scan the main process ran into what the picker draws: a line per mailbox that
 // already holds the dragged mail, and the count a single label row shows.
 //
-// The scan answers in label ids because that is what Gmail says; the names live in the label
-// lists the picker already fetched. An id it cannot name is dropped rather than printed —
-// "staat al in Label_7" is not a sentence anybody can act on — but the mailbox keeps its
-// warning, because the mail is in there whatever the label list managed to say.
+// The scan answers in label ids; the names live in the lists the picker already fetched. An
+// id it cannot name is dropped, since "staat al in Label_7" is not a sentence anybody can
+// act on — but the mailbox keeps its warning, because the mail is in there regardless.
 
 
 //===========================

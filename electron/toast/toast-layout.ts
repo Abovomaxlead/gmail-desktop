@@ -1,9 +1,9 @@
 // Where the stack window goes. Split from toast-window.ts so it can be tested without a
-// display: a second monitor left of the primary one has a negative x, and getting that
-// wrong puts the toasts off screen for exactly the people who would not think to report
-// it. Sizes arrive in CSS pixels because that is what the page can measure, and are
-// multiplied by the zoom factor actually in effect — Rene mode doubles the whole UI, and
-// a window sized to the unzoomed measurement would clip every card in half.
+// display: a monitor left of the primary one has a negative x, and getting that wrong puts
+// the toasts off screen.
+//
+// Sizes arrive in CSS pixels and are multiplied by the zoom factor in effect, or Rene mode
+// clips every card in half.
 
 
 //===========================
@@ -59,10 +59,8 @@ export function toastWindowBounds(
 /**
  * Whether a screen point falls inside a rect
  *
- * Used to ask whether the pointer is still over the stack at all, which is not something
- * the page can answer for itself: a click-through window is forwarded mouse moves but not
- * the leave that ends them, so a pointer that goes straight off the window edge simply
- * stops saying anything, and whatever was hovered stays hovered.
+ * Asks whether the pointer is still over the stack, which the page cannot answer: a
+ * click-through window is forwarded mouse moves but not the leave that ends them.
  *
  * @param rect
  * @param point

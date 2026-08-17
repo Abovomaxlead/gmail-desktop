@@ -140,12 +140,8 @@ contextBridge.exposeInMainWorld('desktop', {
   reconnectOAuth: (email: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC.OAUTH_RECONNECT, { email }),
   getOAuthStatus: (): Promise<OAuthStatusReport> => ipcRenderer.invoke(IPC.OAUTH_STATUS_GET),
-  // Picks a google-oauth.json and installs it, for a machine that has none. `invalid` is
-  // absent when the picker was simply cancelled, which is not a failure to report.
   importOAuthConfig: (): Promise<{ ok: boolean; invalid?: boolean }> =>
     ipcRenderer.invoke(IPC.OAUTH_CONFIG_IMPORT),
-  // Pushed after every health check. Paired with the get above because main may have sent
-  // a list before the settings panel existed — the same reason the reconnect page does both.
   onOAuthStatus: (cb: (arg: OAuthStatusReport) => void): void => {
     ipcRenderer.on(IPC.OAUTH_STATUS_CHANGED, (_e, arg) => cb(arg));
   },
@@ -166,8 +162,6 @@ contextBridge.exposeInMainWorld('desktop', {
   onToastState: (cb: (state: unknown) => void): void => {
     ipcRenderer.on(IPC.TOAST_STATE, (_e, state) => cb(state));
   },
-  // Main watching the cursor leave the stack, which is the one way the page can learn
-  // that a hover ended when the pointer left the window without an event to say so.
   onToastHoverEnd: (cb: () => void): void => {
     ipcRenderer.on(IPC.TOAST_HOVER_END, () => cb());
   },

@@ -1,9 +1,8 @@
-// The only module that knows the ws library. Mapping ws events onto PushSocket is a
-// real decision, not plumbing: the relay's heartbeat is a protocol ping, which
-// arrives as a 'ping' (answered by ws with a 'pong') and never as a 'message', so
-// both feed onPing — without that the manager sees nothing for 90 seconds on a quiet
-// mailbox and drops a healthy connection. Close codes are passed through because
-// 4400/4401/4403 are what separates "retry" from "this will never work".
+// The only module that knows the ws library.
+//
+// The relay's heartbeat is a protocol ping and never a 'message', so both feed onPing — or
+// the manager drops a healthy connection after 90 quiet seconds. Close codes pass through,
+// since 4400/4401/4403 separate "retry" from "this will never work".
 import WebSocket from 'ws';
 
 

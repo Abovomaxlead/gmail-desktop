@@ -14,24 +14,6 @@ import { filterLabels } from '../label-search';
 import { dropFailures } from '../drop-outcome';
 import { existingCount, existingNotices, type ExistingNotice } from '../existing-labels';
 
-// The mail-drop modal, on its own page because it is shown in its own view on top of
-// Gmail; sharing a page with the bar meant recognising from a flag which view it was
-// running in, and that did not hold up. Mail that already sits at a destination is said
-// twice over, and deliberately: a banner the moment the picker opens, before anything is
-// ticked, and the confirmation at Kopieer. The second one only ever knew about the labels
-// someone had already ticked, so "this is in that mailbox already, under another label" was
-// something you found out by filing a second copy of it. A drag that saved nothing shows the reason instead
-// of the picker: there is nothing to copy, so labels would be a form that cannot be
-// submitted. A mailbox has hundreds of labels, so the picker opens with a search box that
-// narrows every account's column at once. Copying takes visibly long - a search and then
-// an insert per message per account - so the modal runs through phases: picking,
-// copying, confirming when mail already sits at the destination, done. 'check' looks
-// first and asks, 'new' skips what is there, 'all' adds it anyway. Labels are fetched
-// again per drag, since this view survives between drags and which accounts are
-// possible targets depends on where you dragged from. The transparent background is
-// set in the rendered html rather than from an effect - one frame with an opaque
-// background flashes Gmail away.
-
 
 //===========================
 // Types
@@ -79,9 +61,7 @@ export default function MailDropModalPage() {
         .then(({ accounts: a }) => setAccounts(a))
         .catch(() => setAccounts([]));
     };
-    // This view outlives the drag it was opened for, and the scan takes longer than the
-    // labels do, so an answer about the previous drag can land after the next one started.
-    // Only the newest run may write, or the picker warns about mail nobody dragged.
+
     let run = 0;
     const loadExisting = () => {
       const mine = (run += 1);
@@ -500,8 +480,7 @@ function Status({
       </span>
     );
   }
-  // The body already names every reason a drop saved nothing; saying it again here is noise,
-  // and the empty span is what keeps the Sluiten button on its own side of the footer.
+
   if (failures.length > 0) return <span />;
   if (savedCount === 0) {
     return <span className="text-xs text-neutral-500">Niets opgeslagen om te kopiëren</span>;
@@ -562,8 +541,6 @@ function DropFailure({ reasons }: { reasons: string[] }) {
  * @param scanned how many messages the drag saved, which decides the wording
  */
 function ExistingWarning({ notices, scanned }: { notices: ExistingNotice[]; scanned: number }) {
-  // A mailbox the scan could not reach is not a mailbox the mail is in, and must not be
-  // shown as one. It is still worth saying: silence here reads as "nothing found there".
   const found = notices.filter((n) => !n.error);
   const unchecked = notices.filter((n) => n.error);
   return (

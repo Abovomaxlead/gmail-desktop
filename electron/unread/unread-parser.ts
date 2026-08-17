@@ -1,15 +1,10 @@
-// Reads the unread count out of Gmail's page title, and tells whether that title has
-// the shape it only takes once a mailbox is really loaded. Both go by shape, never by
-// text, since folder names are translated and the address and suffix are not. From a
-// thousand up Gmail groups the digits with a separator that differs per locale (".",
-// ",", a normal or narrow space, an apostrophe), so a group must be exactly three
-// digits: that is what keeps "(1.5)" from being read as 15.
+// Reads the unread count out of Gmail's page title, and tells whether that title has the
+// shape a loaded mailbox gives it. Both go by shape, never by text, since folder names are
+// translated. A digit group must be exactly three, which is what keeps "(1.5)" out.
 //
-// The third function is about *whose* count the title carries. Gmail titles the view on
-// screen, so a label with 40 unread mails titles the page "(40)" and the tab counter
-// followed whatever the user happened to have open — the inbox number the badge is for
-// was simply gone. The count is therefore only taken while the inbox list is the view;
-// on any other route the last inbox number stands, which is still true of the inbox.
+// The third function is about whose count the title carries: Gmail titles the view on
+// screen, so a label with 40 unread would otherwise become the badge. The count is only
+// taken on the inbox list; elsewhere the last inbox number stands, which is still true.
 
 
 //===========================

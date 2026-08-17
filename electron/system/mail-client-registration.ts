@@ -1,14 +1,11 @@
-// Makes the app selectable as the Windows mail client, and reads back which app
-// Windows actually hands mailto: to.
+// Makes the app selectable as the Windows mail client, and reads back which app Windows
+// actually hands mailto: to.
 //
-// Why this exists next to `app.setAsDefaultProtocolClient('mailto')`: that call only
-// writes HKCU\Software\Classes\mailto, the pre-Windows-8 fallback. Since Windows 8 the
-// answer comes from UrlAssociations\mailto\UserChoice, whose `Hash` is signed by
-// Windows itself, so no application can claim the default - write it yourself and
-// Windows discards the association. What an app *can* do is register its capability
-// and let the user pick it in Settings, which is how Chrome and Thunderbird do it too.
+// `app.setAsDefaultProtocolClient` only writes the pre-Windows-8 fallback. Since Windows 8
+// the answer comes from UrlAssociations\mailto\UserChoice, whose Hash Windows signs itself,
+// so an app can only register its capability and let the user pick it in Settings.
 //
-// All keys live under HKCU, matching this app's per-user install and needing no admin.
+// All keys live under HKCU, matching the per-user install and needing no admin.
 
 import { execFile } from 'node:child_process';
 
@@ -19,7 +16,6 @@ import { execFile } from 'node:child_process';
 
 export interface RegistryEntry {
   key: string;
-  /** Empty means the key's default value (reg's `/ve`). */
   name: string;
   value: string;
 }
@@ -59,13 +55,11 @@ export function mailClientEntries(
   const caps = `${client}\\Capabilities`;
 
   return [
-    // The ProgId Windows will point mailto: at once the user picks us.
     { key: cls, name: '', value: appName },
     { key: cls, name: 'URL Protocol', value: '' },
     { key: `${cls}\\DefaultIcon`, name: '', value: `${exe},0` },
     { key: `${cls}\\shell\\open\\command`, name: '', value: `${exe} "%1"` },
 
-    // Being a mail client is what lands the app in the Email category of Settings.
     { key: client, name: '', value: appName },
     { key: `${client}\\shell\\open\\command`, name: '', value: exe },
     { key: caps, name: 'ApplicationName', value: appName },
@@ -73,7 +67,6 @@ export function mailClientEntries(
     { key: caps, name: 'ApplicationDescription', value: 'Gmail as a desktop app' },
     { key: `${caps}\\UrlAssociations`, name: 'mailto', value: progId },
 
-    // Without this line the app exists but Settings never lists it.
     {
       key: 'HKCU\\Software\\RegisteredApplications',
       name: appName,

@@ -2,20 +2,14 @@
 // scheme, the single-instance lock, the app's lifecycle, and the wiring that introduces the
 // modules to each other. The work itself lives in those modules.
 //
-// Ordering that breaks if moved. disableHardwareAcceleration and the WSL software-rendering
-// switch must run before 'ready', which is why there is a throwaway PrefsStore up there and
-// no inverse call to re-enable. The 'session-created' and context-menu hooks must be
-// registered before createWindow. The nativeTheme listener is registered here rather than in
-// createWindow, which runs again after a notification click and would leak a listener each
-// time. And setAppUserModelId, inside setupNotifications, is required or Windows silently
-// drops Gmail's notifications.
+// Ordering that breaks if moved: disableHardwareAcceleration and the WSL rendering switch
+// must run before 'ready', which is what the throwaway PrefsStore is for; 'session-created'
+// and the context menu must be registered before createWindow; the nativeTheme listener
+// belongs here, since createWindow runs again and would leak one each time.
 //
-// The hooks. Four modules take a dependency that points back up the stack, and each is wired
-// here rather than imported, because importing it would close a loop: broadcast asks the
-// OAuth layer to re-check its links, the tray and the update flow each redraw the other, and
-// a notification click may have to rebuild the window whose creation registered that very
-// click handler. All four are set before createWindow, so nothing can fire against the no-op
-// defaults they start with.
+// The hooks. Four modules take a dependency pointing back up the stack, and each is wired
+// here rather than imported, because importing it would close a loop. All four are set
+// before createWindow, so nothing fires against the no-op defaults they start with.
 
 import { app, BrowserWindow, protocol, net, session, Menu, screen, nativeTheme } from 'electron';
 import { join } from 'node:path';
@@ -166,14 +160,11 @@ app.whenReady().then(() => {
   registerIpc();
   nativeTheme.on('updated', () => {
     applyTitleBarOverlay();
-    // Only matters while the choice is "system", but the resolver is the one that knows
-    // that, and asking it costs a boolean.
     toasts?.refresh();
   });
   screen.on('display-metrics-changed', () => toasts?.reposition());
   createWindow();
-  // Registering every launch keeps the exe path right after an update or a move, and
-  // is what makes the app show up in Windows Settings at all.
+
   void ensureMailClientRegistered();
   const initialMailto = extractMailtoFromArgv(process.argv);
   if (initialMailto) setPendingMailto(initialMailto);

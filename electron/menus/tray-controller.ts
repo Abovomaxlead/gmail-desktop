@@ -1,10 +1,8 @@
-// The tray icon and its context menu. Everything the menu shows or does arrives as
-// state, so the template stays a pure function that is testable without Electron and
-// this file knows nothing about preferences; now is epoch ms, used to tell whether
-// dndUntil is still active. Electron bakes labels and checkbox values in at build
-// time, so every state change has to rebuild the whole menu. The click binding
-// survives those rebuilds, and createTray takes a finished image because tinting it
-// depends on a preference main owns.
+// The tray icon and its context menu. Everything it shows or does arrives as state, so the
+// template stays pure and this file knows nothing about preferences.
+//
+// Electron bakes labels and checkbox values in at build time, so every state change
+// rebuilds the whole menu; the click binding survives those rebuilds.
 
 import type { Tray, Menu, MenuItemConstructorOptions } from 'electron';
 import type { TrayLabels } from './tray-labels';

@@ -37,8 +37,7 @@ export function showTestNotification(): void {
     ...(first ? { account: toastAccountFor(first.email) } : {}),
     persist: true,
   });
-  // A deliberate test should always be heard, so the throttle is reset first. Whether it
-  // may sound at all is playNotificationSound's decision, not this one's.
+
   resetSoundThrottle();
   playNotificationSound(p);
 }
@@ -95,9 +94,7 @@ export function openExternalGuarded(url: string): void {
     void shell.openExternal(url);
     return;
   }
-  // Ask about, show and trust where the link really goes, not the google.com/url
-  // wrapper Gmail puts around it. The browser still gets the URL as Gmail handed it
-  // over; that wrapper redirects to the very host the user just approved.
+
   const target = unwrapRedirect(url);
   const host = hostOf(target) ?? target;
   const parent = mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined;

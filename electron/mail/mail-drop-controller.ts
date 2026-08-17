@@ -1,21 +1,16 @@
 // Dragging mail out of Gmail and onto the desktop, and copying what that saved into another
 // mailbox.
 //
-// Two routes reach the same list and they do not find the same messages. The API lists every
-// message in a thread; the page route reads Gmail's "show original" page and can only save
-// what that page links to, and a long conversation arrives there with its older messages
-// collapsed and their links gone -- so a thread of twelve became a copy of three reporting
-// itself as three of three. The API goes first for that reason, and the page is what is left
-// when a mailbox has no token.
+// Two routes reach the same list and do not find the same messages. The API lists every
+// message in a thread; the page route can only save what Gmail's "show original" page links
+// to, and a long conversation arrives there collapsed. The API goes first for that reason,
+// and the page is what is left when a mailbox has no token.
 //
-// A mailbox reached by delegation has no second route at all. Its page needs the
-// /d/<token>/ part of the URL a drag does not carry, and Gmail answers without it with a 403
-// -- or with a page saying the message cannot be found, which is a sentence about the user's
-// mailbox for a problem that was never in it. So for those, an API failure is the answer.
+// A mailbox reached by delegation has no second route at all -- its page needs the
+// /d/<token>/ a drag does not carry -- so there an API failure is the answer.
 //
-// One mail leaves per drag, not the conversation in pieces: the last message quotes the ones
-// before it, which is the whole reason a thread gets dragged. Fetching them all is still not
-// wasted -- it is how the newest is known to be the newest.
+// One mail leaves per drag: the last message quotes the ones before it, which is the whole
+// reason a thread gets dragged. Fetching them all is how the newest is known to be newest.
 
 import { app, session } from 'electron';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -116,8 +111,6 @@ interface SavedRef {
   file: string;
   messageId: string;
   subject: string;
-  /** The thread this message came out of, so a copy can put its conversation back
-   * together in the target mailbox. Empty when the source is not known per message. */
   threadId: string;
 }
 
@@ -126,19 +119,12 @@ interface SavedRef {
 // Module state
 //===========================
 
-/** What the preview window is showing, kept so it can ask again once it has loaded. */
 let lastDropPreview: MailDropPreviewItem[] = [];
 
-/** The files the last drag wrote, which are what a copy copies. */
 let lastDropSaved: SavedRef[] = [];
 
-/** The mailbox the last drag came out of, left out of the copy targets: filing a mail back
- * into the mailbox it was just dragged from is never what was meant. */
 let lastDropSource = '';
 
-/** The duplicate scan for one set of targets, reused when the same drag is copied twice --
-* once to be told about duplicates and again to go ahead. Keyed by the drag as well as the
-* targets, so a new drag never reuses the previous one's answer. */
 let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
 let dropSerial = 0;
 
@@ -151,23 +137,6 @@ export function mailDropFolder(): string {
   return prefs?.getAll().mailDrop.folder || join(app.getPath('documents'), 'Gmail Desktop', 'Mail');
 }
 
-/** What the API route has to say about a thread: the messages, the reason it could not get
- * them, or that this mailbox has no API route at all.
- *
- * Three answers where there were two, and the missing one cost a drag its mail. "No token for
- * this mailbox" and "the API refused" both used to come back as null, on the reasoning that
- * neither was worth reporting because the page route still worked. The paragraph below says
- * why that reasoning does not hold, and the two are told apart here so the caller can act on
- * the difference instead of walking into a route that cannot answer and repeating what it
- * says.
- *
- * The token comes from withMailboxToken rather than the OAuth store, so a mailbox reached by
- * delegation gets the relay's token instead of nothing. For such a mailbox this is not the
- * better of two routes but the only one: the page route needs the /d/<token>/ part of the URL,
- * which a drag does not carry, and Gmail answers the URL without it with a 403 — or, when it
- * feels like phrasing it differently, with a page saying the message cannot be found. Falling
- * back there turned an API hiccup into "Het gevraagde bericht kan niet worden gevonden", which
- * is a sentence about the user's mailbox for a problem that was never in it. */
 type ApiThreadResult =
   | { kind: 'messages'; messages: ThreadMessage[] }
   | { kind: 'failed'; error: string }
@@ -203,19 +172,8 @@ async function saveOneThread(
     return { count: 0, total, error, saved: [] };
   };
 
-  // The API first, and the page only when there is no token for this account.
-  //
-  // Both routes end in the same list, but they do not find the same messages. The page
-  // route reads Gmail's "show original" page and can only save what that page links to,
-  // and a long conversation arrives there with its older messages collapsed and their
-  // links gone — so a thread of twelve becomes a copy of three that reports itself as
-  // three of three, since it counts what it found rather than what exists. threads.get
-  // has no opinion about rendering: it lists every message in the thread, so what is
-  // missing is missing loudly.
   const viaApi = await threadMessagesViaApi(account, threadId);
-  // A mailbox reached by delegation has no second route, so its API failure is the answer.
-  // Trying the page anyway is what turned "de API weigerde" into Gmail's own sentence about
-  // a message that cannot be found.
+
   if (viaApi.kind === 'failed' && isDelegatedMailbox(account)) {
     return failed(`Ophalen via de API mislukt (${viaApi.error})`);
   }
@@ -234,9 +192,7 @@ async function saveOneThread(
     pageHtml = result.page;
   }
   if (fetched.length === 0 && pageHtml) {
-    // An own account may still be saved by the page, so it is allowed to try. When that comes
-    // back empty too, the API's reason is the one to report: it is what actually went wrong,
-    // and the page's explanation is about a route this mail was never going to arrive by.
+
     if (viaApi.kind === 'failed') {
       return failed(`Ophalen via de API mislukt (${viaApi.error})`);
     }
@@ -273,15 +229,6 @@ async function saveOneThread(
   }
   if (all.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald', fetched.length);
 
-  // One mail out of the conversation, not the conversation in pieces. The last message
-  // quotes the ones before it, which is the whole reason a thread gets dragged: something
-  // to read the exchange in. Fetching all of them was still not wasted — it is how the
-  // newest one is known to be the newest, and how it is complete rather than whatever a
-  // collapsed page happened to link to.
-  //
-  // Which message that is does depend on the drag. A row that stands for one message names
-  // it, and then it is that one: the replies that came after it are what the drag is meant
-  // to leave behind, and the older ones are inside it as quoted text either way.
   const dragged = draggedMessage(all, message);
   const chosen = dragged ?? newestMessage(all);
   const ok = chosen ? [chosen] : [];
@@ -321,7 +268,6 @@ async function saveOneThread(
   }
   return {
     count: ok.length,
-    // One mail per drag now, so this counts what was dragged rather than messages.
     total: 1,
     saved: savedRefs(root, files, ok, threadId),
   };
@@ -343,12 +289,6 @@ function savedRefs(
 
 const DUPLICATE_CHECK_LIMIT = 8;
 
-// The token comes from mailboxToken, not from the OAuth store. A delegated mailbox has no
-// token of its own, so accessTokenFor answered null for one and it was dropped from the
-// checks below without a word — the scan then found nothing, every label counted as still
-// needed, and a shared mailbox quietly got a second copy of a mail it already held. The rest
-// of this file has gone through mailboxToken for exactly that reason; this was the one place
-// left behind.
 async function findDuplicates(
   targets: MailDropCopyTarget[],
   saved: SavedRef[],
@@ -454,10 +394,6 @@ interface CollectedThread {
 
 const THREAD_FETCH_LIMIT = 5;
 
-/** Every conversation in a label through the Gmail API, or null when this mailbox has no API
- * route to it. The token goes through withMailboxToken for the reason threadMessagesViaApi
- * carries: a mailbox reached by delegation has no OAuth token of its own, and the page route
- * this falls back to cannot reach one at all. */
 async function collectLabelViaApi(
   account: string,
   label: string,
@@ -733,30 +669,16 @@ export function closeDropPreview(): void {
   dropOverlay?.close();
 }
 
-/** The label lists the copy window offers, one column per mailbox that may be copied into.
- *
- * Delegated mailboxes belong in this list. They were filtered out because they have no OAuth
- * token of their own and there was no other way to read their labels, which meant a shared
- * mailbox could never be picked as a copy target -- it was simply not offered, so it read as
- * "I cannot find it" rather than as a missing feature. The relay supplies the token now. */
 export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[] }> {
   const cfg = oauthConfig();
-  // Delegated mailboxes belong in this list. They were filtered out because they have no
-  // OAuth token of their own and there was no other way to read their labels, which meant
-  // a shared mailbox could never be picked as a copy target — it was simply not offered,
-  // so it read as "I cannot find it" rather than as a missing feature. The relay supplies
-  // the token now. Which mailboxes qualify is account-domain's to say.
+
   const targetable = copyTargetEmails(profiles, lastDropSource);
   if (!cfg || !oauthTokens) {
     return {
       accounts: targetable.map((email) => ({ email, labels: [], error: 'Niet gekoppeld' })),
     };
   }
-  // One mailbox may not hold up the others. This ran in sequence, so a mailbox whose token
-  // or label list was slow to arrive stopped the window at "Labels ophalen…" for every
-  // account behind it — and before the deadlines in gmail-api.ts and delegated-token.ts,
-  // one that never arrived stopped it for good. mapLimit keeps the answers in input order,
-  // so the columns stay where the user expects them.
+
   const tokens = oauthTokens;
   const accounts: AccountLabels[] = await mapLimit(targetable, 4, async (email) => {
     const got = await mailboxToken(email);
@@ -765,22 +687,14 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
     try {
       return { email, labels: await fetchLabels(token) };
     } catch (e) {
-      // 403 counts as a refusal too. Gmail answers a token it will not let in with either
-      // status — a request it reads as carrying no credential comes back as "Request is
-      // missing required authentication credential", and that sentence, with its link to
-      // Google's console documentation, was being printed under the mailbox name for
-      // someone to read. Only 401 was recovered from, so a 403 skipped the fresh token and
-      // went straight to showing Google's own English.
+
       const refused = e instanceof GmailHttpError && (e.status === 401 || e.status === 403);
       if (e instanceof GmailHttpError) {
         console.warn(
           `[labels] ${email} (${isDelegatedMailbox(email) ? 'gedelegeerd' : 'eigen'}) HTTP ${e.status}: ${e.message}`,
         );
       }
-      // Recovering from a 401 differs per kind, and using the wrong one is silent: a
-      // delegated mailbox has no refresh token to force, and an own account has no relay
-      // entry to forget. A delegation can be revoked while a token from it is still inside
-      // its hour, so the cached one has to go before asking again.
+
       let fresh: string | null = null;
       if (refused && isDelegatedMailbox(email)) {
         forgetDelegatedToken(email);
@@ -795,9 +709,7 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
           if (!isDelegatedMailbox(email)) clearRefreshFailure(email);
           return { email, labels };
         } catch (e2) {
-          // A brand-new token refused as well says the same thing as the first refusal, so
-          // it gets the same sentence. This branch is how Google's English reached the
-          // screen even after the rewriting below was added: it sat in front of it.
+
           if (e2 instanceof GmailHttpError && (e2.status === 401 || e2.status === 403)) {
             console.warn(`[labels] ${email} ook na een verse token HTTP ${e2.status}: ${e2.message}`);
             return { email, labels: [], error: mailboxRefusedText(email) };
@@ -806,8 +718,6 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
         }
       }
       if (refused) {
-        // Only an own account can have a link that expired; a delegated mailbox has none,
-        // so it must not be flagged as needing a reconnect.
         if (!isDelegatedMailbox(email)) markRefreshFailed(email);
         return { email, labels: [], error: mailboxRefusedText(email) };
       }
@@ -817,22 +727,16 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
   return { accounts };
 }
 
-// How many saved messages are still worth looking up before the picker is drawn. A drag off
-// a row is one mail, a ticked selection a handful; a label drag is hundreds, and there the
-// scan would cost more requests than the copy it is warning about. Past this the picker says
-// nothing and the check at Kopieer does the work, as it always did.
 const EXISTING_SCAN_LIMIT = 10;
 
 const EXISTING_SCAN_CONCURRENCY = 4;
 
 /** Where the last drag's mail already sits, asked the moment the picker opens.
  *
- * This is the warning before the choice rather than after it. The check at Kopieer only ever
- * looked at the labels someone had already ticked, so "this mail is in that mailbox already,
- * under a different label" was something you found out by filing a second copy of it.
+ * The warning before the choice rather than after it: the check at Kopieer only looks at
+ * labels already ticked, so "already there, under another label" arrived too late.
  *
- * One search per mailbox per message rather than one per label: the message is looked up by
- * its Message-ID and Gmail says what it is filed under, which is the same two requests
+ * One search per mailbox per message rather than one per label — the same two requests
  * whether the mailbox has four labels or four hundred. */
 export async function existingForCopyTargets(): Promise<ExistingResult> {
   const files = lastDropSaved.filter((f) => f.messageId.trim());
@@ -843,11 +747,7 @@ export async function existingForCopyTargets(): Promise<ExistingResult> {
 
   const scans = await mapLimit(targetable, EXISTING_SCAN_CONCURRENCY, async (email) => {
     const got = await mailboxToken(email);
-    // A mailbox with no token at all is passed over without a word, and that is not the
-    // silence this feature is against: its column carries the refusal and offers no labels,
-    // so nothing can be copied there and there is nothing to warn about. A scan that failed
-    // with a working token is the opposite -- the labels are pickable and nothing else on
-    // screen says the check never ran.
+
     if (!got.ok) return { email, labelIds: [] as string[] };
     try {
       const perMessage = await mapLimit(files, 2, (ref) =>
@@ -855,8 +755,7 @@ export async function existingForCopyTargets(): Promise<ExistingResult> {
       );
       return { email, labelIds: perMessage.flatMap(copyableLabelIds) };
     } catch (e) {
-      // Reported rather than swallowed: a scan that failed is not a mailbox that is clean,
-      // and letting it read as clean is the whole failure this feature exists to prevent.
+
       console.warn(`[maildrop] kon ${email} niet controleren op dubbelen:`, e);
       return { email, labelIds: [], error: 'Kon niet controleren' };
     }
@@ -881,9 +780,6 @@ export async function copyToMailboxes(arg: {
 }): Promise<MailDropCopyResult> {
   const cfg = oauthConfig();
   const requested = normalizeTargets(arg?.targets ?? []);
-  // The window cannot offer a mailbox outside the work domain, so this is the guard for a
-  // request that did not come from the window. Checked here rather than trusted from there,
-  // because this is where mail actually leaves for another mailbox.
   const targets = requested.filter((t) => isAllowedAccount(t.email));
   const mode: CopyMode = arg?.mode ?? 'check';
   const fail = (error: string): MailDropCopyResult => ({
@@ -940,13 +836,9 @@ export async function copyToMailboxes(arg: {
 
   for (const target of targets) {
     progress('copy', target.email);
-    // One entry point for both kinds. A delegated mailbox has no token of its own and
-    // never will — nobody signs in as a shared mailbox — so its token comes from the
-    // relay, which checks Google's delegation record before handing one over.
+
     const got = await mailboxToken(target.email);
     if (!got.ok) {
-      // Only an own account can have a link that expired; a delegated mailbox has none, so
-      // it must not be flagged as needing a reconnect.
       if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
       done += files.length;
       progress('copy', target.email);
@@ -964,7 +856,7 @@ export async function copyToMailboxes(arg: {
     let ok = 0;
     let over = 0;
     let lastError: string | undefined;
-    /** Source thread id -> the thread it became in this account. */
+
     const threadOfCopy = new Map<string, string>();
     for (const { file, messageId, threadId: sourceThreadId } of files) {
       const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
@@ -984,11 +876,7 @@ export async function copyToMailboxes(arg: {
         progress('copy', target.email);
         continue;
       }
-      // The thread this message's conversation landed in, in this account. The first
-      // message of a conversation makes it and the rest are filed under it; without that
-      // Gmail files every insert as a thread of its own and a copied conversation arrives
-      // in pieces. Per target account, because a thread id is only meaningful inside the
-      // mailbox that issued it.
+
       const groupKey = sourceThreadId || file;
       const landedIn = threadOfCopy.get(groupKey);
       try {
@@ -998,9 +886,6 @@ export async function copyToMailboxes(arg: {
           inserted = await insert(token, landedIn);
         } catch (e) {
           if (e instanceof GmailHttpError && e.status === 400 && landedIn) {
-            // Google refused the thread rather than the message: its conditions on
-            // References and Subject were not met, which is a property of this one mail
-            // and not a reason to lose it. It goes in on its own instead.
             console.warn(`[maildrop] ${file} paste niet in thread ${landedIn}, los ingevoegd`);
             inserted = await insert(token);
           } else {

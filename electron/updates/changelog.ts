@@ -1,8 +1,5 @@
-// Parses the repo's CHANGELOG.md (Keep-a-Changelog style, bilingual) into structured
-// data for the "What's new" section in Settings. Pure and dependency-free so it can
-// be unit-tested and reused in main + renderer. Content under a version with no
-// explicit "###" heading becomes an entry with an empty heading, and versions that
-// end up with nothing displayable are dropped.
+// Parses the repo's CHANGELOG.md (Keep-a-Changelog style, bilingual) into the data the
+// "What's new" section draws. Pure, so it can be unit-tested and reused in both processes.
 
 
 

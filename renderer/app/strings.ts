@@ -1,10 +1,10 @@
-// All user-facing text in the app's own chrome (bar + settings), in three flavours: the
-// normal English UI, its Dutch counterpart in the same businesslike register, and Rene
-// mode's simple Dutch, short words a four-year-old can read. Gmail's own page content is
-// Google's and stays as it is. `numberLocale` is a formatting choice that belongs to the
-// language: which separator groups the thousands in an unread count (1.324 vs 1,324). A
-// nav name is also the heading above its own section, one key for both, because nineteen
-// sections with two keys each would be nineteen chances for the two to drift apart.
+// All user-facing text in the app's own chrome, in three flavours: English, its Dutch
+// counterpart in the same businesslike register, and Rene mode's simple Dutch. Gmail's own
+// page content is Google's and stays as it is.
+//
+// `numberLocale` belongs to the language: which separator groups the thousands in an unread
+// count. A nav name is also the heading above its own section, one key for both, or
+// nineteen sections would be nineteen chances for the two to drift apart.
 
 import type { Locale } from '../../electron/core/locale';
 
@@ -250,10 +250,6 @@ export interface UiStrings {
   redetect: string;
   redetectDescription: string;
   noAccounts: string;
-  // The OAuth link state of one account, in the accounts list. Three broken states get
-  // three different button words because they ask for three different things: an account
-  // that was never linked cannot be "reconnected", and a push fault needs consent for a
-  // scope rather than a new link.
   oauthLinked: string;
   oauthUnlinked: string;
   oauthExpired: string;
@@ -263,8 +259,6 @@ export interface UiStrings {
   oauthReallow: string;
   oauthBusy: string;
   oauthFailed: string;
-  // Shown when the machine itself has no Google link set up, which is a different problem
-  // from an account that lost its link: nothing here can be connected until it is fixed.
   oauthNotSetUpTitle: string;
   oauthNotSetUpBody: string;
   oauthImport: string;
@@ -294,7 +288,7 @@ export interface UiStrings {
 // Constants
 //===========================
 
-// the colours the palette hands out, by the hex an account is stored with
+// Account colors
 const COLOR_KEYS: Record<string, ColorKey> = {
   '#4285f4': 'blue',
   '#ea4335': 'red',

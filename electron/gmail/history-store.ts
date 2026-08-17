@@ -1,8 +1,7 @@
 // Per account, the last historyId seen from Gmail — the cursor for history.list.
-// Deliberately apart from google-tokens.json because this is progress, not a secret:
-// the file can be deleted without losing the link and the app re-calibrates on the
-// next sync. An unreadable file is treated as empty for the same reason —
-// re-calibrating costs one request, getting stuck costs every notification.
+//
+// Apart from google-tokens.json because this is progress, not a secret: deleting it costs
+// one re-calibration, where getting stuck costs every notification.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -27,12 +26,6 @@ export class HistoryStore {
     }
   }
 
-  /**
-   * Writes the whole cursor file
-   *
-   * @param map
-   * @private
-   */
   private write(map: Record<string, string>): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(map, null, 2), 'utf8');
@@ -61,11 +54,6 @@ export class HistoryStore {
     this.write(map);
   }
 
-  /**
-   * Forgets an account's cursor
-   *
-   * @param email
-   */
   remove(email: string): void {
     const map = this.all();
     delete map[email.toLowerCase()];

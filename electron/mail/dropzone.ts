@@ -1,16 +1,12 @@
-// Pure parts of the drag-to-save dropzone; preload.ts attaches them to the DOM. It
-// has to live inside the Gmail page, because drag & drop does not work between two
-// Electron views. Dragging is tracked with mouse events rather than dragstart/drop —
-// Gmail marks nothing draggable and reimplements dragging itself, so native HTML5 drag
-// events never fire — and the drop is decided on coordinates, since the element under
-// the cursor is Gmail's own drag image.
+// Pure parts of the drag-to-save dropzone; preload.ts attaches them to the DOM, inside the
+// Gmail page, because drag & drop does not work between two Electron views.
 //
-// Everything matches on structure, `role`/`aria-*` and hrefs, never on visible text or
-// Gmail's obfuscated class names. data-legacy-thread-id sits on the subject span deep
-// inside a row and never on the drag target, so ancestors are searched downwards too
-// and a hit counts only when exactly one id is found. The strip's z-index is one below
-// the maximum, leaving the top layer to Gmail's drag card. `ik` is Gmail's per-session
-// request token, without which the show-original URL is refused.
+// Dragging is tracked with mouse events rather than dragstart/drop, since Gmail marks
+// nothing draggable and reimplements dragging itself, and the drop is decided on
+// coordinates because the element under the cursor is Gmail's own drag image.
+//
+// Everything matches on structure, role/aria-* and hrefs, never on visible text or Gmail's
+// obfuscated class names.
 
 
 //===========================
@@ -29,11 +25,6 @@ export interface LabelRef {
   name: string;
 }
 
-/** Which message of a conversation a drag started on.
- *
- * Two ids for the two routes that fetch a thread: `legacyId` is what the API calls a
- * message, `permId` is what the show-original links carry. Gmail's DOM offers both and
- * neither route knows the other's, so both travel along. */
 export interface MessageRef {
   legacyId?: string;
   permId?: string;
@@ -87,22 +78,14 @@ export const DROPZONE_LABEL = 'Sleep hier om de mail op te slaan';
 
 export const NO_SUBJECT = '(geen onderwerp)';
 
-// how far the cursor has to travel before a press counts as a drag, in pixels
 export const DRAG_THRESHOLD = 15;
 
-// what an open conversation puts on the block around each of its messages; the perm one
-// is prefixed with a hash there
 const MESSAGE_ID_ATTR = 'data-legacy-message-id';
 const MESSAGE_PERM_ATTR = 'data-message-id';
 
-// and what a list row carries, on the same span as the thread id: with conversation view
-// off a row is one message, and then data-thread-id names it after a pipe
-// ("#thread-a:r-693|msg-f:181") and data-legacy-last-message-id is that message rather than
-// the thread's last one
 const ROW_MESSAGE_ID_ATTR = 'data-legacy-last-message-id';
 const ROW_THREAD_ATTR = 'data-thread-id';
 
-// Gmail's own views, which carry a bare route rather than a label/ one
 const SYSTEM_VIEWS: Record<string, string> = {
   inbox: 'Postvak IN',
   starred: 'Met ster',
@@ -124,14 +107,10 @@ const SYSTEM_VIEWS: Record<string, string> = {
 /**
  * Finds the conversation a drag started on
  *
- * The id sits on a subject span deep inside the row and never on the drag target, so
- * ancestors are searched downwards too and a hit counts only when exactly one id is
- * found — two ids mean the search climbed past the row into the list.
- *
- * A press inside an opened message is no drag at all: the reading view hangs every message
- * under the one thread id of the conversation, so without this the strip would arm on
- * selecting a line of text. Dragging comes from the list, and the message block sits below
- * that thread id, so the walk meets it first.
+ * The id sits deep inside the row and never on the drag target, so ancestors are searched
+ * downwards too and a hit counts only when exactly one id is found — two mean the search
+ * climbed into the list. A press inside an opened message is no drag, or the strip would
+ * arm on selecting a line of text.
  *
  * @param el the element under the cursor when the press began
  * @returns the thread id, or null when the drag did not start on one row
@@ -162,13 +141,10 @@ export function threadIdFromDragTarget(el: DragNode | null): string | null {
 /**
  * Finds the message of a conversation a drag started on
  *
- * Two places say it, and they are searched differently. An open conversation puts
- * data-legacy-message-id on the block around each message, always above the press, and
- * looking down there finds the wrong message rather than none: the older messages are
- * collapsed, so the one id under a container is the last message — exactly the one a drag
- * on an older message is trying to leave behind. A list row keeps it on the same span as
- * the thread id, deep inside the row, so that one is searched downwards under the same
- * rule as the thread: a hit counts only when the search sees exactly one row.
+ * Two places say it, searched differently. An open conversation puts the id above the
+ * press, and looking down there finds the last message — exactly the one a drag on an
+ * older message is leaving behind. A list row keeps it deep inside the row, so that one is
+ * searched downwards under the thread's rule: exactly one hit counts.
  *
  * @param el the element under the cursor when the press began
  * @returns the ids of that message, or null when the press named a whole conversation
@@ -282,9 +258,8 @@ export function threadSubjects(doc: DocLike): Record<string, string> {
 /**
  * Pairs every dragged thread with the subject to show
  *
- * The pressed message rides along only when the drag is about one conversation: with a
- * ticked selection the press landed in one of many, and "this message and everything
- * older" has no meaning across the rest.
+ * The pressed message rides along only for a single-conversation drag: across a selection,
+ * "this message and everything older" means nothing.
  *
  * @param ids
  * @param subjects

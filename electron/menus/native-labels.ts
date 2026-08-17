@@ -35,9 +35,6 @@ export interface NativeLabels {
   readonly downloadCancelledTitle: string;
   readonly downloadFailedTitle: string;
   readonly noSubject: string;
-  /** The stack folded several notifications into one card and then could not paint it, so
-   * the count has to leave as a system notification. Only main knows this happened, which
-   * is why the wording lives here and not with the page's own summary. */
   readonly collapsedNotifications: (count: number) => string;
 }
 

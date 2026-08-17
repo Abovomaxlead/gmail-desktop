@@ -13,19 +13,14 @@ import { playSound } from '../lib/notification-sound';
 import { SURFACE_ICON_DATA_URIS } from '../lib/surface-icon-data';
 import type { Profile, Surface, UpdateStatus, Prefs } from './page';
 
-// The bar is the window's own title bar, which sets two rules for this whole file.
-// The empty middle has `-webkit-app-region: drag` - that is what you grab the window
-// by - so every control needs `no-drag` or it cannot be clicked, which is why all bar
-// content lives here. The real window buttons are an Electron overlay whose position
-// Chromium reports through env(titlebar-area-*), right on Windows and left on macOS,
-// so AREA fills exactly that region rather than guessing a width per platform; the
-// 0 and 100% fallbacks apply on Linux, where there is no overlay.
+// The bar is the window's own title bar, which sets two rules for this file. The empty
+// middle is the drag region, so every control needs `no-drag` or it cannot be clicked. And
+// the real window buttons are an Electron overlay whose position Chromium reports through
+// env(titlebar-area-*), so AREA fills exactly that region rather than guessing per platform.
 //
-// The tab strip's maxWidth reserves the space to its right, computed from the parts
-// (GAP, ICON_BUTTON, GEAR_MARGIN, UPDATE_BUTTON, DRAG_RESERVE, plus one PINNED_BUTTON
-// per pinned app) instead of as one number, so whoever adds a control cannot forget
-// to count it. Reserve too little and the gear slides under the window overlay,
-// which is not ours and cannot be clicked.
+// The tab strip's maxWidth reserves the space to its right, computed from the parts rather
+// than as one number, so whoever adds a control cannot forget to count it. Reserve too
+// little and the gear slides under the window overlay, which is not ours to click.
 
 
 //===========================
@@ -94,9 +89,6 @@ export function Topbar({
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const updateReady = update.state === 'downloaded';
-  // A pin opens for the account in view, and a delegated mailbox has no Drive or Docs of
-  // its own, so the row is narrowed to what that account can open. Nothing in view means
-  // nothing to open: no buttons rather than dead ones.
   const activeProfile = active ? (profiles.find((p) => p.key === active.key) ?? null) : null;
   const pinned = activeProfile
     ? pinnedSurfacesFor(prefs?.googleApps.pinned ?? [], openableSurfaces(activeProfile))

@@ -1,13 +1,10 @@
-// Fetches the RFC822 source of every message in a thread through Gmail's own "show
-// original" page, for accounts without an API token. Per message it yields either
-// `raw` or `error` plus the perm id of the message it is, so one unreachable message does
-// not block the rest and a caller can tell the messages apart.
+// Fetches the RFC822 source of every message in a thread through Gmail's "show original"
+// page, for accounts without an API token. Per message it yields `raw` or `error` plus the
+// perm id, so one unreachable message does not block the rest.
 //
 // The download link is the view=att one with disp=comp; disp=inline and disp=safe are
-// images, not messages. Messages the thread page only references get their own
-// show-original page fetched. That page's text is kept only when no link at all came
-// out of it, as the sole evidence of why. Electron is loaded lazily so the pure
-// functions stay importable under Vitest.
+// images. Messages the thread page only references get their own page fetched, whose text
+// is kept only when no link came out of it, as the sole evidence of why.
 
 import type { Session } from 'electron';
 

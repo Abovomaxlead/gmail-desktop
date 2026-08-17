@@ -1,13 +1,9 @@
 // What a drop's result leaves the modal to do: offer labels, or say why there is nothing to
-// copy. A drag that saved nothing would otherwise open a picker that cannot be submitted —
-// tick a label, and the Kopieer button stays dead. A mail dragged out of a delegated mailbox
-// is exactly that case: it comes back as an HTTP 403 and saves nothing.
+// copy. A drag that saved nothing would otherwise open a picker that cannot be submitted.
 //
-// A partial drag is not a failure here. Three of five saved means two reasons and three mails
-// to file, and the picker is how they get filed.
-//
-// The reasons are deduplicated because a label drag reports per conversation, and forty rows
-// that all failed on the same refusal are one fact, not forty.
+// A partial drag is not a failure here — three of five saved still leaves three to file.
+// The reasons are deduplicated, since a label drag reports per conversation and forty rows
+// failing on one refusal are one fact.
 
 
 //===========================
@@ -24,8 +20,6 @@ export interface DropOutcomeItem {
 // Constants
 //===========================
 
-// The answer when every conversation saved nothing and none of them said why. Something has
-// to be shown, and an empty error box reads as if the modal itself broke.
 export const NOTHING_SAVED = 'Niets opgeslagen';
 
 

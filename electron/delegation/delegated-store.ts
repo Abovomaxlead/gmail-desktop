@@ -1,11 +1,8 @@
-// Durable storage for delegated mailboxes, holding Google's real URLs so a persisted
-// entry keeps working regardless of switcher-DOM changes. Detection only ever adds;
-// only explicit user removal deletes.
+// Durable storage for delegated mailboxes, holding Google's real URLs. Detection only ever
+// adds; only an explicit user removal deletes.
 //
-// mergeScan carries the health check: it never removes an entry a scan happened to
-// miss, and reports `healthOk === false` when a scan returns fewer entries than are
-// already held (probable scrape breakage), so the caller keeps the store intact
-// instead of pruning. Fields from a fresh scan overwrite the stored ones.
+// mergeScan carries the health check: it never removes an entry a scan missed, and reports
+// healthOk false when a scan returns fewer entries than are held, which reads as breakage.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -17,9 +14,6 @@ import { dirname } from 'node:path';
 
 export interface StoredDelegate {
   email: string;
-  /** Null for a mailbox discovered through the API, which knows the address and cannot know
-   * the URL: the id in `/mail/u/<n>/d/<id>/` exists only in Google's own interface. Such a
-   * mailbox is reachable over the API and not openable in a web view. */
   mailUrl: string | null;
   calendarUrl: string | null;
 }
@@ -71,12 +65,6 @@ export class DelegatedStore {
     }
   }
 
-  /**
-   * Writes the whole list
-   *
-   * @param items
-   * @private
-   */
   private write(items: StoredDelegate[]): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(items, null, 2), 'utf8');

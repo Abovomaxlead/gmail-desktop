@@ -1,34 +1,6 @@
-// The account picker's own window. It is a window rather than a view inside the main
-// window because the thing that triggers it — a mailto: in a browser, a PDF, Slack —
-// always comes from another app, so focus has to be taken anyway: a WebContentsView can
-// only receive keys once its host window is focused, and it is invisible altogether when
-// that window is minimised or hidden to the tray, which would leave the digit shortcuts
-// dead. show() followed by focus() takes real OS focus, and this window closes for real
-// rather than being hidden, so its `closed` event is a sound place to settle from.
-//
-// Frameless and transparent because the page paints its own rounded card with a border
-// and a shadow, as renderer/app/reconnect/page.tsx does. Showing before the first paint is
-// what produces a white flash on a transparent window, hence show: false.
-//
-// The height is MEASURED, not computed. Constants over a row count cannot know about a
-// subject that wraps to two lines, a long address, or the OS font metrics, so
-// pickerWindowSize is only the opening guess that gets the window roughly right; the page
-// reports the card's real height once it has laid out, and resizeAndShow applies it before
-// the window is ever visible, so the resize cannot be seen. Only then is it shown. A
-// fallback reveal is armed at ready-to-show in case that report never arrives — an
-// invisible window would leave the mailto: promise hanging with nothing on screen to
-// answer it.
-//
-// The zoom factor is set before load and multiplied into the size: applyReneZoom only
-// reaches the main window and its profile views, so a brand-new window would otherwise
-// render at factor 1 while the whole app around it is doubled. It is set twice on purpose
-// — before load, and again once the document exists, because Chromium keys the factor to
-// the loaded origin and drops one set against an empty webContents. The measured size
-// arrives in CSS pixels, so it is multiplied by the factor actually in effect.
-//
-// This module creates and sizes the window and nothing else — main owns the promise and
-// the lifecycle, and one window is created per ask and destroyed on settle, so no state
-// can carry over from one question to an unrelated next one.
+// The account picker's own window. A real window rather than a view, because a mailto:
+// always arrives from another app and a WebContentsView cannot take focus of its own —
+// it is invisible altogether while the main window is minimised or in the tray.
 
 import { BrowserWindow, screen } from 'electron';
 import { pickerWindowSize } from './compose-picker';

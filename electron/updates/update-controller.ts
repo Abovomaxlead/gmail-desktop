@@ -1,17 +1,13 @@
-// Everything about a new version: asking whether there is one, fetching it, reporting where
-// that got to, and installing it. electron-updater does the transfer; what lives here is the
-// decisions around it.
+// Everything about a new version: asking whether there is one, fetching it, reporting
+// progress and installing it. electron-updater does the transfer; the decisions are here.
 //
-// Two of those decisions are worth knowing about before reading. A failed download is
-// retried rather than reported, because the sha512 mismatch seen in the field was answered
-// by clicking download again — the shape of a bad transfer, not a bad release — so an error
-// is only shown once there is nothing left to try; see update-retry.ts for which failures
-// are worth another attempt. And a check started from the tray owes the user an answer even
-// when the answer is "nothing new", which the settings panel alone would never say out loud,
-// so that one check remembers it has a dialog to pop.
+// Two are worth knowing before reading. A failed download is retried rather than reported,
+// so an error only appears once there is nothing left to try — see update-retry.ts. And a
+// check started from the tray owes an answer even when it is "nothing new", so that one
+// check remembers it has a dialog to pop.
 //
-// The status is kept in runtime rather than here: the tray menu and the settings panel both
-// draw from it, and it has to survive the window this module has no hand in creating.
+// The status lives in runtime, because the tray and the settings panel both draw from it
+// and it must survive the window this module has no hand in creating.
 
 import { app, dialog } from 'electron';
 import { autoUpdater } from 'electron-updater';
@@ -45,9 +41,7 @@ import { playNotificationSound } from '../notify/notify-gating';
  * because each of these already reaches down for the functions here — the tray menu offers
  * check, download and install, and the settings panel is where a check reports back. */
 export interface UpdateHooks {
-  /** Brought to the front before a tray-started check, so its answer lands somewhere. */
   openSettingsPanel(): void;
-  /** The status changed; whatever else draws it should redraw. */
   onStatusChanged(): void;
 }
 
@@ -68,8 +62,7 @@ let downloadRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let updateLog: UpdateLogger | null = null;
 let updateTimer: ReturnType<typeof setInterval> | null = null;
 
-/** Set by a check the user started from the tray, so its result gets a dialog rather than
- * only a line in a panel they may not be looking at. */
+
 let pendingTrayUpdateCheck = false;
 
 let notifiedUpdateVersion: string | null = null;
@@ -113,14 +106,6 @@ export function checkForUpdateFromTray(): void {
   checkForUpdate();
 }
 
-// A download that failed once is not a download that cannot be done. The sha512 mismatch
-// reported from the field was answered by clicking download again a few times, which is
-// the shape of a bad transfer rather than a bad release: electron-updater throws the
-// cached file away behind a failed attempt, so the next one starts clean and there is
-// nothing left over to fail the same way. Doing that here means the person is not asked to
-// work it out. The error is still shown, just only once there is nothing left to try — and
-// the failures that will never come good, an invalid signature above all, are not retried
-// at all. See update-retry.ts.
 export function downloadUpdate(): void {
   updateRequested = true;
   if (downloadRetryTimer) {
@@ -150,9 +135,6 @@ export function applyAutoUpdateCheck(): void {
 }
 
 export function setupUpdater(): void {
-  // electron-updater logs to `console` by default, which a packaged Windows build has no
-  // attachment for, so everything it says about a failed update is written to nowhere.
-  // That is why the sha512 report could not be traced any further than its dialog.
   updateLog = createUpdateLog(join(app.getPath('userData'), 'update.log'));
   autoUpdater.logger = updateLog;
   autoUpdater.autoDownload = false;
@@ -166,8 +148,6 @@ export function setupUpdater(): void {
     sendUpdate({ state: 'not-available', version: info.version }),
   );
   autoUpdater.on('error', (err) => {
-    // A download decides its own reporting in attemptUpdateDownload, which may be about to
-    // retry this. Everything else — a failed check above all — is reported here.
     if (downloadInFlight) return;
     sendUpdate({ state: 'error', message: String(err?.message || err) });
   });
@@ -242,10 +222,6 @@ function maybeNotifyUpdate(version: string): void {
     body: L.updateAvailableBody(version),
     persist: true,
   });
-  // A system toast made its own noise; ours does not. Without this the update and the
-  // failed account link are the only two app toasts that arrive in silence, which reads
-  // as a missed notification rather than a quiet one. The shared 1.5s throttle in
-  // playNotificationSound is what keeps a burst from turning into a chord.
   if (prefs) playNotificationSound(prefs.getAll());
 }
 
@@ -253,11 +229,7 @@ function attemptUpdateDownload(): void {
   downloadRetryTimer = null;
   downloadAttempt += 1;
   const attempt = downloadAttempt;
-  // A failed download reports itself twice: electron-updater emits `error` on its way to
-  // rejecting the promise. The event arrives first and knows nothing about the retry that
-  // is about to happen, so on its own it would flash an error state this function takes
-  // back a moment later — and an error state is what pops the tray dialog. Whether a
-  // download failure is worth reporting is decided here and nowhere else.
+
   downloadInFlight = true;
   autoUpdater
     .downloadUpdate()
@@ -273,9 +245,7 @@ function attemptUpdateDownload(): void {
         return;
       }
       updateLog?.warn(`download attempt ${attempt} failed, retrying: ${message}`);
-      // Held at downloading rather than flashed through error: nothing has gone wrong yet
-      // that the person could act on, and a percentage that starts over is the honest
-      // picture of a transfer that is starting over.
+
       sendUpdate({ state: 'downloading', percent: 0 });
       downloadRetryTimer = setTimeout(attemptUpdateDownload, UPDATE_RETRY_DELAY_MS);
     });

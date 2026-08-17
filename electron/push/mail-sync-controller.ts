@@ -2,11 +2,9 @@
 // sweep, the verification codes copied out of arriving mail, and the relay push that is
 // switched off but still wired.
 //
-// Two sources could announce new mail and only one may. Push coverage is what tells a Gmail
-// view to keep quiet, so an account the relay delivers for is an account whose page stops
-// notifying -- and with the relay off, the page is the one that speaks. The API side below
-// keeps running either way, because it is how a code gets copied and how the cursor stays
-// fresh, neither of which the relay was ever the point of.
+// Two sources could announce new mail and only one may -- with the relay off, that is the
+// page. The API side keeps running either way, since it is how a code gets copied and how
+// the cursor stays fresh.
 
 import { clipboard } from 'electron';
 import {
@@ -80,10 +78,7 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   if (!notificationsAllowed(p, email, now, 'mail')) return;
   const hidden = hiddenNotificationText(p);
   const L = nativeLabels(currentLocale(), p.reneMode === true);
-  // Which of the two notification paths raised a card decides how exact its click can be,
-  // and nothing downstream records it. This one is push: the thread id comes from the Gmail
-  // API and is the mail itself, so a click that still lands wrong is about opening, not
-  // about finding.
+
   notifyLog(`[notify] raise push ${email} thread=${meta.threadId}`);
   showToast({
     kind: 'mail',
@@ -155,10 +150,7 @@ export function syncRunnerFor(email: string): { run(): Promise<void> } | null {
     isExpiredCursor: (e) => e instanceof GmailHttpError && e.status === 404,
     onOutcome: (outcome) => {
       reportApiUnread(email, outcome.unread);
-      // Only the relay's own mail cards go here. With it off, this same sync still runs —
-      // on a timer and on every notification Gmail's page raises — and a card per message
-      // would be a second card for mail the page has already announced. What the sync is
-      // for then is the line below it: the code in the mail, and a cursor that moved.
+
       if (RELAY_PUSH_ENABLED) for (const meta of outcome.notify) notifyNewMail(email, meta);
       for (const meta of outcome.notify) void handleVerificationCode(email, meta, withToken);
     },
@@ -179,44 +171,18 @@ function pushableEmails(): string[] {
     });
 }
 
-/** Whether the relay drives new mail.
- *
- * Off, and the notifications come from Gmail's own page instead — the shim in preload.ts,
- * raising the same cards through the same stack. The two cannot both run: push coverage is
- * what tells a view to keep quiet, so an account the relay delivers for is an account whose
- * page stops notifying, and turning this back on turns that back on with it. Every line the
- * relay needs is still here and still tested; what it has never had on this machine is a
- * relayUrl and a pushTopic in the config file, without which startRelayPush() returned on
- * the spot anyway — this only says so out loud.
- *
- * The API side below does not hang on it. That keeps running either way, because it is how
- * a verification code gets copied and how the history cursor stays fresh, neither of which
- * the relay was ever the point of. */
 const RELAY_PUSH_ENABLED: boolean = false;
 
-/** When the API sync started watching this mailbox. The same question push answers with its
- * coverage moment — mail older than this was already in the inbox and must stay quiet — but
- * deliberately not the same answer. Coverage means "the relay delivers for this account",
- * and it delivers for none; writing this into it would tell every mail view to go silent on
- * behalf of a sync that raises no notifications at all, and the app would go quiet. */
 const apiSyncSince = new Map<string, number>();
 
-/** Slow on purpose. Every notification from the page runs a sync of its own the moment it
- * arrives, so this is only the net underneath: mail that notified nobody — quiet hours, an
- * account with notifications off, a category Gmail keeps to itself — whose code still
- * deserves copying and whose history id still has to move. */
 const API_SYNC_MS = 5 * 60_000;
 let apiSyncTimer: ReturnType<typeof setInterval> | null = null;
 
-/** The API half, without a relay to start it. Idempotent, and called from everywhere
- * startMailSync is: accounts arrive, are removed, or get a token long after they appeared. */
 function startApiSync(): void {
   const wanted = new Set(pushableEmails());
   for (const email of apiSyncSince.keys()) if (!wanted.has(email)) apiSyncSince.delete(email);
   for (const email of wanted) {
     if (apiSyncSince.has(email)) continue;
-    // Set before the first run, never after: that run writes the baseline cursor, and a
-    // moment stamped afterwards would place every message it just skipped in the future.
     apiSyncSince.set(email, Date.now());
     void syncRunnerFor(email)?.run();
   }
@@ -226,8 +192,6 @@ function startApiSync(): void {
   }, API_SYNC_MS);
 }
 
-/** Everything that keeps the mailboxes current: the API sync always, the relay only while
- * it is switched on. */
 export function startMailSync(): void {
   startApiSync();
   if (!RELAY_PUSH_ENABLED) return;

@@ -1,13 +1,9 @@
-// Writes a saved mail to disk and appends a line to log.jsonl. On failure that line
-// carries `error` and whatever was known instead of file/bytes/body; a `target` entry
-// describes a copy to another account rather than the save itself.
+// Writes a saved mail to disk and appends a line to log.jsonl. A failed line carries
+// `error` instead of file/bytes/body; a `target` entry describes a copy to another account.
 //
-// Filenames are sanitised per code point rather than with a regex class, because a
-// subject can contain a newline and an escaped character class is easy to break here,
-// and Windows rejects a name ending in a dot or a space. Timestamps are split in UTC,
-// the same zone as the ISO stamp in the log, so folder and log line match. A label
-// drag puts everything in one folder with numbering that runs across the threads,
-// keeping Gmail's order visible in the filenames.
+// Filenames are sanitised per code point rather than with a regex class, since a subject
+// can contain a newline and Windows rejects a name ending in a dot or a space. Timestamps
+// are split in UTC, the log's own zone, so folder and log line match.
 
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -60,9 +56,6 @@ const MAX_NAME = 60;
 // Exported functions
 //===========================
 
-// Sanitised per code point rather than with a regex class, because a subject can contain a
-// newline and an escaped character class is easy to break here. Windows also rejects a name
-// ending in a dot or a space.
 
 /**
  * Turns a subject or sender into something Windows accepts as a filename
@@ -103,14 +96,10 @@ export function displayName(address: string): string {
 /**
  * The one message worth keeping out of a conversation
  *
- * The last one, because it carries the others inside it as quoted text: that is what a
- * dragged conversation is wanted for — one mail to read the whole exchange in, not a
- * folder of six to open in turn. What it costs is deliberate: an attachment that only
- * ever hung on an earlier message does not come along.
- *
- * Date headers decide, and thread order settles it when they cannot — senders' clocks
- * disagree, and a mail with an unreadable or missing Date must not win by accident. Ties
- * go to the later message, since Gmail hands a thread back oldest first.
+ * The last one, since it quotes the others: a dragged conversation is wanted as one mail,
+ * not a folder of six. The cost is deliberate — an attachment from an earlier message does
+ * not come along. Date headers decide, and thread order settles a tie in favour of the
+ * later message, since Gmail hands a thread back oldest first.
  *
  * @param messages
  * @returns the newest message, or null when there are none
@@ -127,11 +116,6 @@ export function newestMessage(messages: SavedMessage[]): SavedMessage | null {
   return best;
 }
 
-// A drag that names one message points newestMessage at a different message, not at a
-// different number of them: still one mail, but the one that was grabbed rather than the
-// last of the thread. The older messages come along inside it, quoted, the same way they do
-// for a whole conversation — what stays behind is every reply that came after it, which is
-// the reason for grabbing an older message at all.
 
 /**
  * The message a drag named

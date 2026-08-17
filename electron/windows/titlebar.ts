@@ -1,11 +1,9 @@
-// Sizes and colours for the native window-button overlay Electron draws over our
-// topbar, plus the window's own background for the moment before the renderer paints.
-// Both read the same two pairs (Tailwind neutral-100/neutral-950, matching the bar in
-// the renderer) so there is no seam and a light theme never opens black; the theme
-// itself is applied in the renderer, so main computes it here. supportsOverlay and
-// supportsOverlayUpdate differ on purpose: the constructor option works on Windows and
-// macOS, but setTitleBarOverlay does not exist on macOS, so overlay height there stays
-// at its startup value — visible in Rene mode, and accepted over a macOS-only path.
+// Sizes and colours for the native window-button overlay, plus the window's background for
+// the moment before the renderer paints. Both read the same two pairs as the topbar, so
+// there is no seam and a light theme never opens black.
+//
+// supportsOverlay and supportsOverlayUpdate differ on purpose: the constructor option works
+// on both platforms, but setTitleBarOverlay does not exist on macOS.
 import { TOPBAR_HEIGHT } from './layout';
 
 

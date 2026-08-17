@@ -1,12 +1,7 @@
-// The last known own accounts (accounts.json), so the tab bar is not empty at
-// startup — own accounts are stored nowhere else, as prefs.json holds only
-// per-address preferences and colors.json only colours.
+// The last known own accounts (accounts.json), so the tab bar is not empty at startup.
 //
-// Deliberately stores no session index (the digit in /mail/u/2/): that index belongs
-// to Google's browser session, not to the account, so a stored one would be a URL
-// you could wrongly build. Everything here is drawing material only; no URL, counter
-// or notification ever comes out of it. A broken file yields an empty tab bar rather
-// than a failed start, and an empty list is never written.
+// Drawing material only: no session index is stored, because the digit in /mail/u/2/
+// belongs to Google's browser session rather than to the account.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -117,11 +112,6 @@ export class AccountCacheStore {
     writeFileSync(this.filePath, JSON.stringify(parseCachedAccounts(items), null, 2), 'utf8');
   }
 
-  /**
-   * Drops one address from the cache
-   *
-   * @param email
-   */
   remove(email: string): void {
     if (!existsSync(this.filePath)) return;
     const e = email.trim().toLowerCase();

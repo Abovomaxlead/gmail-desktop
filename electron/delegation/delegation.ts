@@ -1,15 +1,9 @@
-// The delegation contract: the Gmail URL forms and account-switcher DOM shape for
-// delegated mailboxes. Pure and DOM-free, so it stays unit-testable.
+// The delegation contract: the Gmail URL forms and account-switcher DOM shape for delegated
+// mailboxes. Pure and DOM-free, so it stays unit-testable.
 //
-// Rules that govern everything here: no OAuth or API, only the logged-in web session;
-// match href structure and never UI text, since the "Gemachtigd"/"Delegated" badge is
-// translated; and adopt Google's own URLs verbatim, because the token in `/d/<token>/`
-// is opaque and cannot be derived from the email. SWITCHER_SCRAPE_JS must run inside
-// the ogs.google.com widget frame via WebFrameMain.executeJavaScript — the mail view's
-// own executeJavaScript is walled off cross-origin — and reads the email from the leaf
-// element whose whole text is an email, since the anchor's concatenated textContent has
-// no delimiters. delegatedCalendarUrl and isCalendarNoAccessUrl are stubs: those URL
-// forms are not observed yet, and null/false there means "calendar unavailable".
+// Three rules hold throughout: the logged-in web session only, never OAuth; match href
+// structure and never UI text, since the "Gemachtigd"/"Delegated" badge is translated; and
+// adopt Google's URLs verbatim, because the token in `/d/<token>/` cannot be derived.
 
 
 

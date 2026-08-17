@@ -1,11 +1,11 @@
 'use client';
 
-// The mail-drop modal and the types the main process hands back for a drag; the modal
-// itself still only shows "Test". A copy runs in two rounds: 'check' looks for mail
-// that already sits under a chosen label and asks, 'new' and 'all' are the user's
-// answer. `duplicates` carries a sample of subjects plus the real count, and a label
-// drag is hundreds of requests, so the modal follows the progress. The component
-// fills its own view, which main sizes to exactly what the window should be.
+// The mail-drop modal and the types main hands back for a drag; the modal itself still only
+// shows "Test".
+//
+// A copy runs in two rounds: 'check' looks for mail already under a chosen label and asks,
+// 'new' and 'all' are the answer. `duplicates` carries a sample of subjects plus the real
+// count, and a label drag is hundreds of requests, so the modal follows the progress.
 
 
 //===========================
@@ -71,8 +71,6 @@ export interface MailDropExistingInMailbox {
   error?: string;
 }
 
-/** Where the dragged mail already sits, asked before anything is ticked. `scanned` is 0 when
- * the drag was too big to look up, which is not the same as finding nothing. */
 export interface MailDropExisting {
   accounts: MailDropExistingInMailbox[];
   scanned: number;

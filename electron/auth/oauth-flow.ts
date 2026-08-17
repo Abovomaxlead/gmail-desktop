@@ -1,10 +1,10 @@
-// The Electron half of the OAuth flow; the pure parts live in google-oauth.ts and
-// 'electron' is required lazily so this module stays importable under Vitest.
-// Consent loads in a view on the same session partition as the Gmail views, so the
-// user only grants permission instead of signing in again, and the redirect to the
-// loopback url is intercepted before it loads so nothing has to listen on a port.
-// Every refresh re-checks that the account is still linked before saving: a removal
-// during the round trip must not put a working refresh token back.
+// The Electron half of the OAuth flow; the pure parts live in google-oauth.ts and 'electron'
+// is required lazily so this module stays importable under Vitest.
+//
+// Consent loads in a view on the Gmail views' session partition, so the user only grants
+// permission rather than signing in again, and the loopback redirect is intercepted before
+// it loads. Every refresh re-checks the account is still linked before saving.
+
 import type { BrowserWindow } from 'electron';
 import {
   authUrl,
@@ -45,10 +45,6 @@ export async function connectAccount(
   email: string,
   now = Date.now(),
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  // Before the window rather than after it: a private mailbox may be read in the Gmail
-  // view, and showing it a consent screen it is only going to be refused at suggests
-  // otherwise. Both callers — adding a detected account and the reconnect button — come
-  // through here, so this is the one place the rule has to hold.
   if (!isAllowedAccount(email)) {
     return { ok: false, error: `Alleen accounts van ${domainList()} kunnen gekoppeld worden` };
   }

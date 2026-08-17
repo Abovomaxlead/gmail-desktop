@@ -1,23 +1,12 @@
-// A view spanning the window on top of the Gmail view, with a transparent
-// background: the Gmail view is a native layer above the sidebar page, so a modal
-// drawn inside that page would sit behind it. Transparency needs both a transparent
-// background colour here and a page that paints none, or Chromium covers Gmail
-// completely. Bounds default to the area below the topbar rather than the whole
-// window (our bar is the titlebar, and covering it makes the window undraggable),
-// and follow the renderer zoom factor, which is 2 in Rene mode.
+// A transparent view spanning the window above the Gmail view, which is a native layer over
+// the sidebar page — a modal drawn inside that page would sit behind it. Transparency needs
+// both a transparent colour here and a page that paints none. Bounds default to below the
+// topbar, since covering our own titlebar makes the window undraggable.
 //
-// Being on top is not something a view keeps by itself. contentView paints its children
-// in order and every addChildView appends, so any view attached after this one covers it
-// — and the manager attaches one the first time each account and surface is opened, plus
-// one per account during the background warm-up that runs over the first half-minute of
-// a session. An overlay opened before those is buried by them while still believing it is
-// open: setVisible(true), correct bounds, nothing on screen. That is how the reconnect
-// banner, which opens about a second and a half after start and from then on only ever
-// update()s, could be up for a whole session without once being seen. So the overlay
-// re-asserts its place whenever it is opened or updated, and raise() lets the owner do
-// the same after attaching a view of its own. Re-adding a view that is already a child
-// moves it to the top rather than duplicating it, which is what makes this cheap enough
-// to do unconditionally.
+// Being on top is not something a view keeps by itself: contentView paints its children in
+// order and every addChildView appends, so anything attached later buries the overlay while
+// it still believes it is open. So it re-asserts its place on open and update, and raise()
+// lets the owner do the same. Re-adding an existing child reorders rather than duplicates.
 import { BrowserWindow, WebContentsView } from 'electron';
 import { contentBounds } from './layout';
 

@@ -3,10 +3,6 @@
 import type { ReactNode } from 'react';
 import { BLOCK_TITLE, HAIRLINE, HINT, SECTION_TITLE } from './tokens';
 
-// The shape every settings section shares: a title with groups of rows below it.
-// A group draws a hairline above itself unless it is the first one, which is why
-// groups have to stay direct children of Section - a wrapper in between would make
-// every group the first.
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (

@@ -1,14 +1,10 @@
-// Single source of truth for the Google surfaces the app hosts, shared by the
-// Electron main process, the preloads and the sidebar renderer. Everything under
-// renderer/lib/ lives there for that reason: Next.js cannot compile imports from
-// outside its own root, while esbuild and vitest can import from anywhere. Keep
-// these modules pure data - no Electron or DOM imports.
+// Single source of truth for the Google surfaces the app hosts, shared by main, the
+// preloads and the sidebar. Everything under renderer/lib/ lives there because Next.js
+// cannot compile imports from outside its own root. Pure data — no Electron or DOM.
 //
-// Delegated mailboxes offer mail only once a URL for it has been captured — a mailbox
-// known only by address, discovered through the relay rather than scraped from
-// Google's switcher, has nothing to load — plus calendar when Google's switcher
-// exposed one; other combinations throw rather than hand out a URL that would end up
-// in webContents.loadURL(null) and kill the main process.
+// A delegated mailbox offers mail only once a URL has been captured, and calendar only when
+// Google's switcher exposed one; other combinations throw rather than hand out a URL that
+// would end up in webContents.loadURL(null) and kill the main process.
 
 import type { AccountRef } from './account-ref';
 
@@ -65,13 +61,6 @@ export const SURFACE_CONFIG: Record<Surface, SurfaceConfig> = {
     host: 'mail.google.com',
     url: (ref) =>
       ref.kind === 'delegated' ? delegatedMailUrl(ref) : `https://mail.google.com/mail/u/${ref.index}/`,
-    // On, and it must stay on however tempting the alternative looks. Turning it off does
-    // not only stop the throttling: Electron's own documentation says it "also affects the
-    // Page Visibility API", so the page then reports itself visible whatever the window is
-    // doing. Gmail raises a desktop notification only when it believes you are not looking
-    // at it, so a mail view that always claims to be visible raises nothing at all, ever —
-    // tried, and it silenced every notification in the app. Calendar can have it off
-    // because a reminder falls due whether you are looking or not.
     backgroundThrottling: true,
   },
   calendar: {

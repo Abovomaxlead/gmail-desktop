@@ -1,13 +1,13 @@
 // Preload for the Gmail and Calendar views: reports unread counts and the signed-in
-// identity, gates and re-routes the page's notifications, and installs the mail-drop
-// strip. Everything above the Electron block at the bottom
-// is Node-safe so it can be unit-tested. Gmail is not our page, so anything found in it
-// is matched by shape, never by translated text, and all user-facing wording arrives
-// from main — which is why a notification click resolves its thread from the body the
-// page gave us, which we keep, and never from the text on screen — main replaced that
-// before drawing it. Notification.permission must stay a live getter or Gmail
-// freezes it at "default"; window.open must return a stub, since null reads as a popup
-// blocker. The drop strip has to live in <body> to render at all.
+// identity, gates and re-routes the page's notifications, and installs the mail-drop strip.
+// Everything above the Electron block at the bottom is Node-safe, so it can be unit-tested.
+//
+// Gmail is not our page, so anything found in it is matched by shape and never by
+// translated text, and all user-facing wording arrives from main — which is why a
+// notification click resolves its thread from the body the page gave us, kept for that.
+//
+// Notification.permission must stay a live getter or Gmail freezes it at "default";
+// window.open must return a stub, since null reads as a popup blocker.
 
 import { parseUnreadCount, showsInboxList } from './unread/unread-parser';
 import {
@@ -46,10 +46,8 @@ import {
 /**
  * Reads the unread count out of the page title and sends it on
  *
- * Only while the inbox list is the view. Gmail titles whatever is on screen, so a label
- * with forty unread mails made the title — and with it the tab counter and the taskbar
- * badge — say forty, and an open conversation made it say nothing at all. Neither is the
- * inbox number the badge stands for, and staying quiet leaves the last one that was.
+ * Only while the inbox list is the view: Gmail titles whatever is on screen, and neither a
+ * label's count nor an open conversation's silence is the number the badge stands for.
  *
  * @param view the page's title and route
  * @param send
@@ -99,12 +97,9 @@ export function extractIdentity(
 /**
  * Every thread whose subject matches, rather than only the first
  *
- * The count is the diagnostic. A click that opens the wrong conversation and a click that
- * opens no conversation at all look the same from the outside — "it opened something I did
- * not ask for" — but they are different failures: several rows carrying the same subject
- * means the first one won and it was the wrong thread, while none means the row was not in
- * the DOM to be found. Only the number tells them apart, and the caller cannot count what
- * this used to return the moment it found it.
+ * The count is the diagnostic: several rows means the first one won and was the wrong
+ * thread, none means the row was not in the DOM at all, and only the number tells the two
+ * failures apart.
  *
  * @param doc
  * @param subject a trailing ellipsis makes it a prefix match, since that is how Gmail
@@ -165,20 +160,13 @@ export function rerouteServiceWorkerNotifications(
 /**
  * The window.Notification the Gmail page gets instead of Chromium's
  *
- * It raises nothing itself: it hands the title and body to main, which draws the card in
- * the app's own stack, knows which account this page belongs to and what the privacy
- * settings replace.
+ * It raises nothing itself: it hands the title and body to main, which draws the card and
+ * knows which account this page belongs to.
  *
- * It also answers the permission question for itself, with "granted", and never asks the
- * browser. That is deliberate and it is what makes refusing the real permission safe: the
- * session denies notifications so that anything bypassing this shim — the service worker's
- * own showNotification — cannot reach the Windows shelf, and a page that consults
- * Notification.permission before it notifies must not read that refusal, or Gmail would
- * stop notifying and the stack would go quiet along with the shelf. What this shim
- * promises is a card in the app, which needs no permission from Chromium.
- *
- * The object handed back is the one Gmail's code goes on to use, so it answers to onclick,
- * close and addEventListener whatever was done with the notification.
+ * It answers the permission question itself, with "granted", which is what makes refusing
+ * the real permission safe — the session denies notifications so the service worker cannot
+ * reach the Windows shelf, and a page reading that refusal would stop notifying entirely.
+ * A card in the app needs no permission from Chromium.
  *
  * @param hooks.allowed asked per notification, since the settings can change
  * @param hooks.show returns what to run when the page closes the notification — the raise
@@ -216,15 +204,9 @@ export function createNotificationShim(hooks: {
 /**
  * Answers the second way a page can ask whether it may notify
  *
- * Notification.permission is answered by the shim above, but navigator.permissions.query
- * goes straight to Chromium, which now says "denied" — and a page that consults it before
- * notifying would stop, taking the app's own notifications with it. The answer for
- * notifications is therefore given here too, and only for notifications: every other
- * permission is still whatever the browser says it is.
- *
- * The status handed back is a plain object rather than the real one with its state
- * overridden, because PermissionStatus.state has no setter. It carries the members a
- * listener uses, so a page that subscribes to changes gets silence rather than a throw.
+ * navigator.permissions.query goes straight to Chromium, which says "denied", so a page
+ * consulting it would stop notifying. Answered here for notifications only. The status is
+ * a plain object, since PermissionStatus.state has no setter.
  *
  * @param permissions navigator.permissions, or nothing on a page that has none
  */
@@ -248,10 +230,8 @@ export function patchNotificationPermissionQuery(permissions: unknown): void {
 /**
  * The name this page gives one of its notifications
  *
- * The counter alone would not do: main files these under the view that sent them, and a
- * reload keeps the same view while restarting the counter at 1, so a card raised before the
- * reload and one raised after would answer to the same name and a click would resolve
- * against the wrong one.
+ * The counter alone would not do: a reload keeps the same view while restarting it at 1, so
+ * two cards would answer to one name and a click resolve against the wrong one.
  *
  * @param loadNonce per page load, which is exactly the lifetime of the bodies we keep
  * @param seq
@@ -264,12 +244,9 @@ export function webNotifyPageId(loadNonce: string, seq: number): string {
 /**
  * What travels to main when the page raises a notification
  *
- * Both fields are coerced, and the title is the one that has to be. `title: string` is what
- * the DOM signature says, not what arrives: this runs on `new Notification(x)` inside
- * Google's own page, so x is whatever that page passed. A non-primitive travels to main,
- * goes onto a card and is handed to React as a child, which throws "Objects are not valid
- * as a React child" and unmounts the toasts page — and a page that is not there reports no
- * size and raises no card, so every later notification goes with it.
+ * Both fields are coerced: `title: string` is the DOM signature, not what arrives, and a
+ * non-primitive handed to React as a child unmounts the toasts page — taking every later
+ * notification with it.
  *
  * @param id
  * @param title
@@ -521,26 +498,10 @@ if (typeof document !== 'undefined') {
 
   window.open = wrapWindowOpen(window.open.bind(window));
 
-  // Installed here rather than inside start(), which waits for DOMContentLoaded: Gmail's
-  // own scripts run before that and a page that took its own reference to
-  // window.Notification on the way past would go on raising real Chromium notifications
-  // for the rest of the session, straight onto the Windows shelf, where the app cannot
-  // draw them, cannot apply a single one of its settings to them, and cannot make them
-  // open the mail when clicked. Nothing in here touches the document, so there is nothing
-  // to wait for.
-  //
-  // Gmail's own notifications are relayed to main rather than raised: main draws every
-  // notification the app gives, and only main knows the account this view belongs to,
-  // whether it should stay, and what the privacy settings should replace. The original
-  // body is kept until the click, because finding the thread means matching that subject
-  // in this page's DOM, and by then main has long since replaced the text on screen.
   const bodies = new Map<string, string>();
   const loadNonce = Math.random().toString(36).slice(2, 10);
   let webNotifySeq = 0;
-  // Straight into notify.log, because everything below happens inside Google's page, where
-  // the app's own console is somewhere nobody is looking. The one question this answers is
-  // the one the log could not: did Gmail raise a notification at all? A page that never
-  // constructs one and a card that was suppressed on the way out look identical from main.
+
   const log = (message: string): void => ipcRenderer.send(IPC.VIEW_LOG, message);
   log(`notification shim installed on ${location.hostname}`);
   window.Notification = createNotificationShim({
@@ -569,18 +530,6 @@ if (typeof document !== 'undefined') {
     () => window.Notification,
   );
 
-  // Registered beside the shim rather than in start(), for the same reason: a card can now
-  // be raised before the document is ready, and a click on it must not arrive at a channel
-  // nobody is listening to.
-  //
-  // The second argument is diagnostic and travels with the click rather than being logged
-  // here, because a console line inside a Gmail view is somewhere nobody is looking. Main
-  // logs it, and now also uses the body: this lookup is a guess by construction — the
-  // notification carries no thread id, so the thread is found by matching its text against
-  // the rows that happen to be rendered — and when it finds nothing the subject is the only
-  // lead left. `rows` distinguishes a view showing an open conversation or a different
-  // label (no list, so nothing to match) from one showing the inbox; `matches`
-  // distinguishes an ambiguous subject from an absent one.
   ipcRenderer.on(IPC.WEB_NOTIFY_CLICK, (_e: unknown, id: string) => {
     const body = bodies.get(id) ?? '';
     bodies.delete(id);
@@ -607,17 +556,6 @@ if (typeof document !== 'undefined') {
     setInterval(report, 5000);
 
     if (location.hostname === 'mail.google.com') {
-      // Whether this mailbox may hand mail to the app at all is main's answer, and the strip
-      // is not built until it says yes. A mailbox outside the work domain has no business
-      // offering one: what it would file is private mail, into a mailbox the whole
-      // restriction exists to keep private mail out of. Refusing the drop afterwards would
-      // be too late — by then a strip has invited the gesture and the mail is on disk.
-      //
-      // Asked rather than waited for, so the answer cannot have been sent before this
-      // listener existed. And asked again while it goes unanswered: this page exists before
-      // its account is registered, and until then nobody can say which mailbox it is. Main
-      // stays silent for that, so the retry is what turns "not yet" into an answer once the
-      // address is known. No answer at all leaves no strip, which is the safe outcome.
       let answered = false;
       ipcRenderer.on(IPC.MAIL_DROP_ALLOWED, (_e: unknown, allowed: boolean) => {
         if (answered) return;
@@ -629,8 +567,7 @@ if (typeof document !== 'undefined') {
         );
         ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e2: unknown, r: MailDropResult) => showResult(r));
       });
-      // Bounded: an account that is still nameless after this long is not going to be named,
-      // and asking forever would be a timer per view for the life of the app.
+
       let asks = 0;
       const ask = (): void => {
         if (answered || asks >= 15) return;

@@ -1,13 +1,11 @@
 // Where the app meets the operating system: starting with it, registering as a mail client,
 // and the permissions its Google session may ask for.
 //
-// Windows picks the mailto: handler from a UserChoice hash it signs itself, so an app cannot
-// make itself the default however much it would like to. Registering the capability and
-// opening the page where the user picks us is the whole of what we can do. Other platforms
-// still let us claim it outright.
+// Windows picks the mailto: handler from a UserChoice hash it signs itself, so all an app
+// can do is register the capability and open the page where the user picks it. Other
+// platforms still let us claim it outright.
 //
-// setAppUserModelId is not optional: without it Windows silently drops every notification
-// Gmail raises.
+// setAppUserModelId is not optional: without it Windows drops every notification silently.
 
 import { app, session, shell } from 'electron';
 import { pushDefaultMailStatus, pushPrefs } from '../core/broadcast';
@@ -31,17 +29,13 @@ export function setLaunchMinimized(v: boolean): void {
   prefs!.setLaunchMinimized(v);
   pushPrefs();
 }
-// Only a packaged build has an exe worth registering; in dev process.execPath is
-// electron.exe, which would leave a bogus app sitting in Windows Settings.
+
 export function ensureMailClientRegistered(): Promise<void> {
   if (process.platform !== 'win32' || !app.isPackaged) return Promise.resolve();
   return registerMailClient(process.execPath);
 }
 
-// Windows picks the mailto: handler from a UserChoice hash it signs itself, so an app
-// cannot make itself the default however much it would like to. Registering the
-// capability and opening the page where the user picks us is the whole of what we can
-// do. Other platforms still let us claim it outright.
+
 export function requestDefaultMail(): void {
   if (process.platform !== 'win32') {
     app.setAsDefaultProtocolClient('mailto');
@@ -57,8 +51,7 @@ export function requestDefaultMail(): void {
 export function setupNotifications(): void {
   if (process.platform === 'win32') app.setAppUserModelId('com.gmaildesktop.app');
   const ses = session.fromPartition(SESSION_PARTITION);
-  // Everything except notifications, which the app draws itself — see
-  // sessionPermissionAllowed for why granting them put mail on the Windows shelf.
+  
   ses.setPermissionRequestHandler((_wc, permission, callback) =>
     callback(sessionPermissionAllowed(permission)),
   );

@@ -1,15 +1,11 @@
-// Dragging a label from Gmail's left navigation onto the dropzone. Recognition goes
-// through the navigation link's href (`#label/<name>`), never Gmail's obfuscated
-// class names or visible text, so it is language-independent and survives a rebuild
-// of the navigation; only real labels have such an href, the inbox and sent items do
-// not. That link covers the name alone, so the row around it is searched downwards as
-// well — a press beside the name is still a press on that label.
+// Dragging a label from Gmail's left navigation onto the dropzone. Recognised by the link's
+// href (`#label/<name>`), which is language-independent and which only real labels have;
+// the row around it is searched too, since a press beside the name still means that label.
 //
-// There is no API for listing a label, so pages of Gmail's own list view are scraped,
-// reading the same data-legacy-thread-id subject spans as a single-thread drag. Gmail
-// re-shows the last page for a too-high page number, so paging stops as soon as a
-// page adds nothing new, and MAX_THREADS caps the total — reported when it bites,
-// since truncating silently reads as "everything saved".
+// No API lists a label, so pages of Gmail's own list view are scraped. Gmail re-shows the
+// last page for a too-high number, so paging stops when a page adds nothing new, and
+// MAX_THREADS caps the total — reported when it bites, since truncating silently reads as
+// "everything saved".
 
 import type { DragNode } from './dropzone';
 
@@ -31,8 +27,6 @@ export interface LabelThread {
 
 export const PAGE_SIZE = 50;
 
-// Caps the total, and is reported when it bites: truncating silently reads as
-// "everything saved".
 export const MAX_THREADS = 200;
 export const MAX_PAGES = Math.ceil(MAX_THREADS / PAGE_SIZE);
 
@@ -60,13 +54,9 @@ export function labelFromHref(href: string): string | null {
 /**
  * Finds the label a drag started on
  *
- * The link wraps the name and nothing else, while the row it sits in is the full width of
- * the navigation: the unread count, the hover menu and the space around the name are all
- * outside the anchor. A press there recognised no label, so the strip stayed away — and
- * the browser was free to start its own drag of the link, which swallows the mouse moves
- * the strip is armed by. Ancestors are therefore searched downwards too, and — as with a
- * conversation row — a hit counts only when exactly one label is found: two mean the
- * search climbed past the row into the navigation.
+ * The link wraps the name alone, while the row spans the navigation, so a press beside the
+ * name recognised nothing and let the browser start its own drag instead. Ancestors are
+ * searched downwards too, and — as with a conversation row — exactly one hit counts.
  *
  * @param el the drag's target element
  * @returns the label, or null when the drag did not start on one

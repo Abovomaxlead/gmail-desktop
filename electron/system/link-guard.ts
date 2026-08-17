@@ -1,32 +1,16 @@
-// Whether to ask before a link leaves for the browser, and where that link wants to
-// go. Pure — no Electron, no dialog, main attaches the question — so the decision is
-// testable without a window.
+// Whether to ask before a link leaves for the browser, and where it wants to go. Pure, so
+// the decision is testable without a window; main attaches the dialog.
 //
-// This is the "Phishing Protection" tab. It gives the user one look at the host they
-// are being sent to; it does not judge whether that host is malicious, and nothing is
-// looked up. A trusted host covers its subdomains, which is why the comparison ends
-// with ".host" rather than using `includes`: "example.com" on the list must not make
-// "example.com.phish.test" trusted. No host in the URL means no question, since a
-// `mailto:` or a bare path has no destination to show.
+// This is the "Phishing Protection" tab: one look at the host, no judgement about whether
+// it is malicious and nothing looked up. A trusted host covers its subdomains, which is why
+// the comparison ends with ".host" — "example.com" must not trust "example.com.phish.test".
 //
-// Everything is decided on the unwrapped URL, never on what Gmail hands over. Gmail
-// rewrites every outgoing link to `google.com/url?q=<real target>`, so judging the URL
-// as-is would show "www.google.com" for all of them and — worse — a single tick of
-// "always allow" would put that host on the trusted list and silence the question for
-// every link in every mail from then on. Only google.com's own `/url` path is unwrapped,
-// and only to an absolute http(s) target: a `/url` path on another host is that host's
-// business, and a `javascript:` target must never be handed to a browser as a
-// destination the user appeared to approve.
+// Everything is decided on the unwrapped URL, since Gmail rewrites every outgoing link to
+// `google.com/url?q=<target>`: judging it as-is would show "www.google.com" for all of
+// them, and one "always allow" would silence the question for every link in every mail.
 
 import { SURFACES, SURFACE_CONFIG } from '../../renderer/lib/surfaces';
 
-// Google's own apps are never asked about: the app opens them itself, and a question
-// about Drive on the way to Drive is noise, not protection. This list is deliberately its
-// own thing rather than a reuse of IN_APP_HOSTS - that set decides what opens inside the
-// app, and a host added there for a routing reason must not silently widen what phishing
-// protection waves through. Matching is on the whole host, never a suffix, so
-// "drive.google.com.phish.test" is still a question. The rest of google.com is not on the
-// list: sites.google.com and friends carry whatever a stranger put there.
 const GOOGLE_APP_HOSTS: readonly string[] = [
   ...SURFACES.map((s) => SURFACE_CONFIG[s].host),
   'accounts.google.com',
@@ -92,9 +76,6 @@ export function hostOf(url: string): string | null {
   }
 }
 
-// A trusted host covers its subdomains, which is why the comparison ends with ".host"
-// rather than using includes: "example.com" on the list must not make
-// "example.com.phish.test" trusted.
 
 /**
  * Whether the user put this host on the trusted list

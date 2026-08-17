@@ -26,22 +26,10 @@ export class ColorStore {
     }
   }
 
-  /**
-   * Returns the colour set for an account
-   *
-   * @param email
-   * @returns the colour, or undefined when none is set
-   */
   get(email: string): string | undefined {
     return this.read()[email];
   }
 
-  /**
-   * Stores the colour for an account
-   *
-   * @param email
-   * @param color
-   */
   set(email: string, color: string): void {
     const next = { ...this.read(), [email]: color };
     mkdirSync(dirname(this.filePath), { recursive: true });

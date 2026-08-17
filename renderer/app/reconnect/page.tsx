@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import { reconnectHeading, type ReconnectAccount } from '../reconnect-text';
 
-// Standing notice for accounts whose Gmail connection has to be made again. No close
-// button on purpose: it goes away once every account is connected, and it runs in its
-// own view in the bottom right so the rest of Gmail stays usable. The transparent
-// background is set in the rendered html rather than from an effect - one frame with
-// an opaque background makes Gmail flash visibly. The list is both fetched and
-// listened for, since main may have sent it before this page finished loading.
+// Standing notice for accounts whose Gmail connection has to be made again. No close button
+// on purpose: it goes once every account is connected, and it sits in its own bottom-right
+// view so the rest of Gmail stays usable.
+//
+// The transparent background is set in the rendered html, or one opaque frame flashes Gmail
+// away. The list is both fetched and listened for, since main may have sent it already.
 export default function ReconnectPage() {
   const [accounts, setAccounts] = useState<ReconnectAccount[]>([]);
   const [busy, setBusy] = useState<string | null>(null);

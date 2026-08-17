@@ -22,11 +22,12 @@ import { WhatsNewSection } from './settings/WhatsNewSection';
 import { DEFAULT_SECTION, attentionFrom, type SettingsSection } from './settings/nav';
 import { NOTICE } from './settings/tokens';
 
-// The settings panel: the shell plus one section. Which section is open lives here
-// and is deliberately not persisted, sectionLabel is a switch so the compiler
-// catches a section without a name, and a section without a `case` below falls
-// through to the empty note. Also home to the Rene key sequence, which only
-// listens while the panel is mounted and never consumes the key it sees.
+// The settings panel: the shell plus one section. Which section is open lives here and is
+// deliberately not persisted, and sectionLabel is a switch so the compiler catches a
+// section without a name.
+//
+// Also home to the Rene key sequence, which listens only while the panel is mounted and
+// never consumes the key it sees.
 
 
 //===========================

@@ -1,15 +1,11 @@
-// Opens Gmail's standalone compose window for account `index`, optionally prefilled
-// from mailto fields. Injecting keystrokes into the main Gmail view does not work, so
-// compose is triggered by loading Gmail's compose URL in a small popup on the shared
-// Google session, and the window is returned so main can attach the closing
-// behaviour.
+// Opens Gmail's standalone compose window for account `index`. Injecting keystrokes into
+// the main Gmail view does not work, so compose is a small popup on the shared session.
 
 import { BrowserWindow } from 'electron';
 import { attachExternalLinkHandling } from '../system/external-links';
 import { composeUrl } from './compose-url';
 import type { MailtoFields } from '../mail/mailto';
 
-// the shared Google session every window in the app signs in on
 const SESSION_PARTITION = 'persist:google';
 
 /**
@@ -43,8 +39,7 @@ export function openCompose(
 /**
  * Opens a conversation in a window of its own
  *
- * The fallback for "open in a new window" when Gmail's own pop-out button cannot be
- * triggered — that focused pop-out only renders when Gmail itself opens it.
+ * The fallback for when Gmail's own pop-out button cannot be triggered.
  *
  * @param index the account, as Gmail numbers them in /mail/u/<n>
  * @param threadId

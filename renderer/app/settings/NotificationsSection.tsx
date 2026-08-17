@@ -9,13 +9,6 @@ import { Switch } from './Switch';
 import { SOUNDS, playSound, soundNameOrDefault } from '../../lib/notification-sound';
 import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
 
-// Notifications: mute, quiet hours, the notification sound, and the per-account grid
-// of which notifications each account may give. The polarity per column is
-// deliberate and not sloppiness: mail, badge and sound read `!== false` because they
-// are on until you turn them off, while calendar and persist read `=== true` because
-// they are off until you turn them on. A cell whose setting does not exist for an
-// account (calendar on a delegated mailbox) stays empty, keeping the grid aligned.
-
 
 
 //===========================

@@ -1,15 +1,5 @@
 // Getting an access token for a mailbox, whichever kind it is: one of the user's own
 // accounts, or a mailbox they are a delegate of.
-//
-// One entry point for both, because treating them as one question is what shut the API route
-// to a shared mailbox for so long. No OAuth token can exist for a mailbox nobody signs into,
-// so anything that only knew about own accounts fell back to scraping Gmail's page — and that
-// page cannot be reached without the /d/<token>/ part of the URL a drag does not carry. It
-// came back as HTTP 403, or, when Gmail felt like phrasing it differently, as a page saying
-// the message could not be found.
-//
-// Recovering from a refusal differs per kind and using the wrong one is silent: a delegated
-// mailbox has no refresh token to force, and an own account has no relay entry to forget.
 
 import {
   cacheEntry,
@@ -31,8 +21,6 @@ import type { Profile } from '../windows/profile-view-manager';
 // Module state
 //===========================
 
-/** Tokens the relay handed out, per mailbox. They live an hour; without this every drag
- * would cost a fresh mint and a delegates-list read per mailbox. */
 const delegatedTokens = new Map<string, CachedToken>();
 
 
@@ -40,18 +28,11 @@ const delegatedTokens = new Map<string, CachedToken>();
 // Exported functions
 //===========================
 
-/** Whether this address is a mailbox reached by delegation rather than one of the user's own
- * accounts. Read from the profiles rather than guessed from the address, so a mailbox the
- * app does not know about is not quietly treated as delegated. */
 export function isDelegatedMailbox(email: string): boolean {
   const wanted = email.trim().toLowerCase();
   return profiles.some((p) => p.kind === 'delegated' && p.email.toLowerCase() === wanted);
 }
 
-/** The user's own accounts, active one first: it is the one the person was looking at, and
- * usually the one whose delegation (or discoverable mailbox list) they are thinking of.
- * Shared by every caller that asks the relay something on the user's behalf, so trying the
- * same account in the same order is not reimplemented per caller. */
 export function requestersInOrder(): Profile[] {
   const active = manager?.activeKey();
   const own = profiles.filter((p) => p.kind === 'authuser');
@@ -59,15 +40,13 @@ export function requestersInOrder(): Profile[] {
 }
 
 /**
- * A token for a mailbox that has none of its own, via the relay.
+ * A token for a mailbox that has none of its own, via the relay
  *
- * The user's own accounts are tried, active one first, and the first token the relay grants
- * is used. That cannot widen anyone's access: the relay checks Google's delegation record on
- * every attempt, so trying is how the app finds the access you already have rather than how
- * it gets any. It also means a copy does not fail merely because the wrong tab was in front.
+ * Every own account is tried in turn; the relay re-checks Google's delegation record each
+ * time, so trying widens nobody's access.
  *
- * Returns null with a reason, so the caller can report something truer than "Verbinding
- * verlopen" — which is what a delegated mailbox used to get, for an expiry it never had.
+ * @param email the mailbox to get a token for
+ * @returns the token, or a reason the caller can report as itself
  */
 export async function delegatedTokenFor(email: string): Promise<DelegatedTokenOutcome> {
   const url = delegatedTokenUrl();
@@ -93,32 +72,19 @@ export async function delegatedTokenFor(email: string): Promise<DelegatedTokenOu
       return { ok: true, token: result.accessToken };
     }
     lastError = result.error;
-    // Only a delegation refusal says nothing about the next account; everything else is
-    // about the request or the relay, and asking again would just repeat it.
     if (!shouldTryAnotherRequester(result.status)) break;
   }
   return { ok: false, error: lastError };
 }
 
-/** Drops a cached relay token, for when Gmail rejects it. A delegation can be revoked while
- * a token from it is still inside its hour, and the cache would otherwise keep handing out
- * the dead one until it expired on the clock. */
 export function forgetDelegatedToken(email: string): void {
   delegatedTokens.delete(email.toLowerCase());
 }
 
-/** What to tell someone whose mailbox Gmail would not let a token into.
- *
- * The two kinds fail for reasons that need different actions: an own account has a link that
- * can be renewed by reconnecting, a delegated mailbox has no link of its own and its access
- * is someone else's to grant. Whatever Google's own wording was, it is not this — it names an
- * OAuth credential and links to the developer console, which is a sentence for whoever built
- * the app and not for whoever is trying to file an e-mail. */
 export function mailboxRefusedText(email: string): string {
   return isDelegatedMailbox(email) ? 'Geen toegang tot dit postvak' : 'Verbinding verlopen';
 }
 
-/** A token for a mailbox, whichever kind it is. */
 export async function mailboxToken(email: string): Promise<DelegatedTokenOutcome> {
   if (isDelegatedMailbox(email)) return delegatedTokenFor(email);
   const cfg = oauthConfig();
@@ -127,7 +93,6 @@ export async function mailboxToken(email: string): Promise<DelegatedTokenOutcome
   return token ? { ok: true, token } : { ok: false, error: 'Verbinding verlopen' };
 }
 
-/** A token for a mailbox after Gmail refused the one it had, whichever kind it is. */
 export async function freshTokenAfter401(email: string): Promise<string | null> {
   if (isDelegatedMailbox(email)) {
     forgetDelegatedToken(email);
@@ -138,7 +103,6 @@ export async function freshTokenAfter401(email: string): Promise<string | null> 
   if (!cfg || !oauthTokens) return null;
   const fresh = await forceRefresh(cfg, oauthTokens, email);
   if (!fresh) {
-    // Only an own account can have a link that expired, so only it may be flagged for one.
     markRefreshFailed(email);
     return null;
   }
@@ -147,11 +111,11 @@ export async function freshTokenAfter401(email: string): Promise<string | null> 
 }
 
 /**
- * The access-token dance for any mailbox: use the token it has, and on a 401 recover the way
- * that mailbox can and try once more.
+ * Runs calls against a mailbox, recovering once from a 401 the way that mailbox can
  *
- * Null means no token can be had at all, which tells the caller this mailbox has no API route
- * rather than that the API failed.
+ * @param email the mailbox to run against
+ * @returns a runner, or null when no token can be had at all — meaning no API route exists
+ *   for this mailbox, not that the API failed
  */
 export async function withMailboxToken(
   email: string,
@@ -159,8 +123,7 @@ export async function withMailboxToken(
   const first = await mailboxToken(email);
   if (!first.ok) return null;
   let token = first.token;
-  // Once per runner, not per call: a token that is still refused after a fresh mint is refused
-  // for a reason no amount of reminting changes, and a label drag is hundreds of calls.
+  // once per runner, not per call: a label drag is hundreds of calls
   let mayRecover = true;
   return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
     try {
@@ -177,12 +140,13 @@ export async function withMailboxToken(
 }
 
 /**
- * The access-token dance for one of the user's own accounts: use what we have, and on a 401
- * force a refresh and try once more.
+ * Runs calls against one of the user's own accounts, forcing a refresh once on a 401
  *
- * Kept apart from withMailboxToken because this one mints a token per call rather than
- * holding one — the sync runners and the toast actions reuse the returned function long after
- * the token they started with expired.
+ * Mints per call rather than holding a token, because the sync runners and toast actions
+ * reuse the returned function long after the token they started with expired.
+ *
+ * @param email the account to run against
+ * @returns a runner, or null when the app is not linked at all
  */
 export function withTokenFor(
   email: string,

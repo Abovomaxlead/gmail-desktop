@@ -1,8 +1,7 @@
-// Access and refresh tokens per account, in userData and deliberately in a separate
-// file from prefs.json: these are secrets, not settings, and can be thrown away on
-// their own. The file is hand-editable, so a scopes field that is not a list of
-// strings becomes an empty list rather than throwing — hasScopes runs synchronously
-// while accounts are registered, and push asks for re-consent instead of crashing.
+// Access and refresh tokens per account, kept apart from prefs.json because these are
+// secrets rather than settings and can be thrown away on their own. The file is
+// hand-editable, so an unusable scopes field degrades to an empty list rather than throwing.
+
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { StoredToken } from './google-oauth';
@@ -27,12 +26,6 @@ export class OAuthStore {
     }
   }
 
-  /**
-   * Writes the whole token file
-   *
-   * @param map
-   * @private
-   */
   private write(map: Record<string, StoredToken>): void {
     mkdirSync(dirname(this.filePath), { recursive: true });
     writeFileSync(this.filePath, JSON.stringify(map, null, 2), 'utf8');
@@ -51,12 +44,6 @@ export class OAuthStore {
     return { ...t, scopes };
   }
 
-  /**
-   * Stores the token for an account
-   *
-   * @param email
-   * @param token
-   */
   set(email: string, token: StoredToken): void {
     const map = this.all();
     map[email.toLowerCase()] = token;

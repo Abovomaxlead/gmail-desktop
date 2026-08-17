@@ -1,13 +1,12 @@
-// One relay connection per account: the relay authenticates a single token per
-// connection and routes on the address inside it. Concurrency is the difficulty —
-// every attempt carries a generation number and each slow step rechecks isLive after
-// its await, including that the socket is still the current one, so a superseded
-// attempt cannot re-enable coverage or reset the backoff. FATAL_CLOSE_CODES cannot be
-// fixed by retrying; 4401 gets one retry with a genuinely fresh token, re-armed only by
-// the relay's {type:'ready'} frame. The relay's heartbeat is a protocol ping and on a
-// quiet mailbox the only traffic there is, so it must feed the staleness timer. And
-// refresh() drops an account from the map before closing its socket, or the close event
-// revives it.
+// One relay connection per account, since the relay authenticates a single token per
+// connection and routes on the address inside it.
+//
+// Concurrency is the difficulty: every attempt carries a generation number and each slow
+// step rechecks isLive after its await, so a superseded attempt cannot re-enable coverage
+// or reset the backoff. FATAL_CLOSE_CODES cannot be fixed by retrying; 4401 gets one retry
+// with a fresh token. The heartbeat is a protocol ping and on a quiet mailbox the only
+// traffic there is, so it feeds the staleness timer. refresh() drops an account from the
+// map before closing its socket, or the close event revives it.
 import { wsTransport, type PushSocket, type PushTransport } from './push-transport';
 import type { PushConfig } from './push-config';
 
@@ -122,9 +121,6 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
     state.grace = undefined;
   };
 
-  // Every slow step rechecks this after its await, so a superseded attempt cannot
-  // re-enable coverage or reset the backoff.
-
   /**
    * Whether this attempt is still the one that owns the account
    *
@@ -172,9 +168,6 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
         });
     }, renewMs);
   };
-
-  // The relay's heartbeat is a protocol ping, and on a quiet mailbox the only traffic
-  // there is, so it has to feed this timer too.
 
   /**
    * Restarts the staleness timer that closes a silent connection
@@ -337,7 +330,7 @@ export function startPushManager(deps: PushManagerDeps): { stop(): void; refresh
     const wanted = new Set(deps.accounts());
     for (const [email, state] of conns) {
       if (wanted.has(email)) continue;
-      // Drop it from the map before closing, or the close event revives it.
+
       conns.delete(email);
       clearTimers(state);
       setCovered(email, state, false);
