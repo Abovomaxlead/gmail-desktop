@@ -3,7 +3,7 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [0.3.1-beta.6] — 2026-08-17
+## [0.3.1-beta.7] — 2026-08-17
 
 ### Opgelost
 - **De teller in de taakbalk telt geen postvakken meer mee die er niet zijn.** Bij het
@@ -13,6 +13,9 @@ to [Semantic Versioning](https://semver.org/).
   doorgegeven staan — bij niemand, en dus voor altijd. Elke keer opstarten legde er
   weer een paar bovenop, waardoor de teller te hoog stond en niet meer op nul kwam ook
   al had je alles gelezen. De teller houdt nu alleen de postvakken aan die je echt hebt.
+- **De Google-koppeling zit weer in de installer.** Op een verse computer vroeg de app
+  om zelf een configuratiebestand te importeren voordat je een account kon koppelen.
+  De koppeling hoort standaard mee te komen, en dat doet ze nu weer.
 
 ### Fixed
 - **The taskbar counter no longer counts mailboxes that are not there.** At startup the
@@ -22,6 +25,9 @@ to [Semantic Versioning](https://semver.org/).
   forever. Every startup piled on a few more, leaving the counter too high and unable to
   reach zero even with everything read. The counter now keeps only the mailboxes you
   actually have.
+- **The Google link ships in the installer again.** On a fresh machine the app asked you
+  to import a configuration file yourself before an account could be linked. That link is
+  meant to come along by default, and it does again.
 
 ## [0.3.1-beta.5] — 2026-08-17
 
