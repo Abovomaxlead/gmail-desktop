@@ -17,7 +17,6 @@ import {
   setPushManager,
   syncRunners,
   currentLocale,
-  type SyncRunner,
 } from '../core/runtime';
 import { accessTokenFor, forceRefresh } from '../auth/oauth-flow';
 import { oauthConfig, pushConfig } from '../auth/oauth-config';

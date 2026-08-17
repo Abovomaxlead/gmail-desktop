@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import type { Profile } from '../page';
 import type { UiStrings } from '../strings';
+import { Avatar } from '../Avatar';
 import { AccountOAuthRow, OAuthNotConfiguredNotice, useOAuthStatuses } from './AccountOAuthRow';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
@@ -41,7 +42,6 @@ export function AccountsSection({
   profiles: Profile[];
   onRedetect: () => void;
 }) {
-  const [brokenAvatars, setBrokenAvatars] = useState<Record<string, boolean>>({});
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [overEmail, setOverEmail] = useState<string | null>(null);
@@ -89,7 +89,6 @@ export function AccountsSection({
           )}
 
           {profiles.map((p) => {
-            const showImg = p.avatarUrl && !brokenAvatars[p.avatarUrl];
             const delegated = p.kind === 'delegated';
             // Only own accounts have a link of their own; a delegated mailbox is reached through
             // the account that delegates it. An account with no entry has no status line either —
@@ -132,24 +131,13 @@ export function AccountsSection({
                     <GripIcon className="h-4 w-2.5" />
                   </span>
 
-                  <span
-                    aria-hidden
-                    className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full text-[10px] font-semibold text-white"
-                    style={{ backgroundColor: p.color }}
-                  >
-                    {showImg ? (
-                      <img
-                        src={p.avatarUrl}
-                        alt=""
-                        referrerPolicy="no-referrer"
-                        draggable={false}
-                        onError={() => setBrokenAvatars((b) => ({ ...b, [p.avatarUrl]: true }))}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      initial(p)
-                    )}
-                  </span>
+                  <Avatar
+                    url={p.avatarUrl}
+                    color={p.color}
+                    name={p.name || p.email}
+                    size="sm"
+                    className="mt-0.5"
+                  />
 
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
                     <input
@@ -341,13 +329,4 @@ function DelegatedIcon({ className = '' }: { className?: string }) {
       <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
     </svg>
   );
-}
-
-
-//===========================
-// Helper functions
-//===========================
-
-function initial(p: Profile): string {
-  return (p.name || p.email || '?').trim().charAt(0).toUpperCase() || '?';
 }

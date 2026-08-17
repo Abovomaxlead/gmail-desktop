@@ -7,7 +7,7 @@ import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
 import { SOUNDS, playSound, soundNameOrDefault } from '../../lib/notification-sound';
-import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, HINT, PANEL } from './tokens';
+import { BLOCK_TITLE, BUTTON, CHECKBOX, DIVIDER, FIELD, FOCUS_RING, HAIRLINE, PANEL } from './tokens';
 
 
 

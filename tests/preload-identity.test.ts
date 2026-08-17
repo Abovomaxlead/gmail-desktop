@@ -1,7 +1,7 @@
-// Reading the signed-in identity out of the Gmail page, and spotting editable targets.
+// Reading the signed-in identity out of the Gmail page.
 
 import { describe, it, expect } from 'vitest';
-import { extractIdentity, isEditableTarget } from '../electron/preload';
+import { extractIdentity } from '../electron/preload';
 
 function fakeDoc(ariaLabel: string | null, imgSrc: string | null) {
   const anchor =
@@ -49,14 +49,3 @@ describe('extractIdentity', () => {
   });
 });
 
-describe('isEditableTarget', () => {
-  it('is true for input, textarea and contenteditable', () => {
-    expect(isEditableTarget({ tagName: 'INPUT' })).toBe(true);
-    expect(isEditableTarget({ tagName: 'TEXTAREA' })).toBe(true);
-    expect(isEditableTarget({ tagName: 'DIV', isContentEditable: true })).toBe(true);
-  });
-  it('is false for a plain element or null', () => {
-    expect(isEditableTarget({ tagName: 'DIV' })).toBe(false);
-    expect(isEditableTarget(null)).toBe(false);
-  });
-});

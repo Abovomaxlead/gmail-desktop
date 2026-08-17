@@ -12,7 +12,6 @@ import {
   dismissAll,
   dismissToast,
   expireToasts,
-  stackCount,
 } from '../electron/toast/toast-model';
 import type { Toast, ToastStack } from '../renderer/lib/toast';
 
@@ -173,16 +172,3 @@ describe('collapse', () => {
   });
 });
 
-describe('stackCount', () => {
-  it('counts the cards', () => {
-    expect(stackCount(withMails(3))).toBe(3);
-  });
-
-  it('reports the summary count', () => {
-    expect(stackCount(withMails(7))).toBe(7);
-  });
-
-  it('is zero when empty', () => {
-    expect(stackCount(EMPTY_STACK)).toBe(0);
-  });
-});

@@ -16,11 +16,11 @@ function render(value: NativeLabels[keyof NativeLabels]): string {
 
 describe('nativeLabels', () => {
   it('speaks English for the English locale', () => {
-    expect(nativeLabels('en', false).composeMessage).toBe('Send from which account?');
+    expect(nativeLabels('en', false).composeTitle).toBe('New message');
   });
 
   it('speaks Dutch for the Dutch locale', () => {
-    expect(nativeLabels('nl', false).composeMessage).toBe('Vanaf welk account wil je versturen?');
+    expect(nativeLabels('nl', false).composeTitle).toBe('Nieuw bericht');
   });
 
   it('lets Rene mode win over either locale', () => {

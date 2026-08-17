@@ -87,7 +87,6 @@ export function Topbar({
   onReorder(fromEmail: string, toEmail: string): void;
 }) {
   const [dragEmail, setDragEmail] = useState<string | null>(null);
-  const [plusOpen, setPlusOpen] = useState(false);
   const updateReady = update.state === 'downloaded';
   const activeProfile = active ? (profiles.find((p) => p.key === active.key) ?? null) : null;
   const pinned = activeProfile
@@ -101,9 +100,7 @@ export function Topbar({
   }, []);
 
   async function openPlusMenu(): Promise<void> {
-    setPlusOpen(true);
     const picked = await onPopupMenu(planPlusMenu({ strings }));
-    setPlusOpen(false);
     if (picked === PLUS_ADD_ACCOUNT) return onAddAccount();
     if (picked === PLUS_ADD_DELEGATED) return onAddDelegated();
   }

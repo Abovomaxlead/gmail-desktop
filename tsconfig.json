@@ -10,6 +10,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["electron", "src", "tests"],
+  "include": ["electron", "tests"],
   "exclude": ["node_modules", "renderer", "dist-electron"]
 }

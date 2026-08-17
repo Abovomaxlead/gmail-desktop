@@ -49,7 +49,6 @@ export const IPC = {
   SET_ACCOUNT_PREF: 'prefs:account',
   SET_ACCOUNT_ORDER: 'prefs:order',
   SET_NOTIFICATIONS: 'prefs:notifications',
-  SET_SNOOZE: 'prefs:snooze',
   SET_THEME: 'prefs:theme',
   SET_LANGUAGE: 'prefs:language',
   SET_NOTIFICATION_OPEN: 'prefs:notification-open',
@@ -126,13 +125,6 @@ export interface MailDropPreviewItem {
   error?: string;
 }
 
-export interface MailDropCopyProgress {
-  phase: 'check' | 'copy';
-  done: number;
-  total: number;
-  email: string;
-}
-
 export type {
   CopyTarget as MailDropCopyTarget,
   CopyAccountResult as MailDropCopyAccountResult,
@@ -163,5 +155,3 @@ export type NotifyState = {
   show: boolean;
   silent: boolean;
 };
-
-export type { ChangelogVersion, ChangelogEntry } from '../updates/changelog';

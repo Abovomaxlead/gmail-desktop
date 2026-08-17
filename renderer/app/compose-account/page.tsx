@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getStrings } from '../strings';
+import { Avatar } from '../Avatar';
 import { HAIRLINE, DIVIDER, BUTTON } from '../settings/tokens';
 import {
   nextFocusIndex,
   rowForKey,
   shortcutFor,
   type ComposeAccountAsk,
-  type ComposeAccountChoice,
 } from '../../lib/compose-account';
 
 
@@ -163,7 +163,7 @@ export default function ComposeAccountPage() {
               >
                 {shortcutFor(i)}
               </span>
-              <Avatar account={a} />
+              <Avatar url={a.avatarUrl} color={a.color} name={a.label || a.email} />
               <span className="flex min-w-0 flex-col">
                 <span className="truncate text-[13.5px] font-medium text-neutral-900 dark:text-neutral-100">
                   {a.label}
@@ -184,36 +184,5 @@ export default function ComposeAccountPage() {
         </div>
       </div>
     </>
-  );
-}
-
-
-//===========================
-// Helper components
-//===========================
-
-function Avatar({ account }: { account: ComposeAccountChoice }) {
-  const [broken, setBroken] = useState(false);
-  const showImg = account.avatarUrl && !broken;
-  const initial = (account.label || account.email || '?').trim().charAt(0).toUpperCase() || '?';
-  return (
-    <span
-      aria-hidden
-      className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
-      style={{ backgroundColor: account.color }}
-    >
-      {showImg ? (
-        <img
-          src={account.avatarUrl}
-          alt=""
-          referrerPolicy="no-referrer"
-          draggable={false}
-          onError={() => setBroken(true)}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        initial
-      )}
-    </span>
   );
 }

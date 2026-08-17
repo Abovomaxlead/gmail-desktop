@@ -35,26 +35,6 @@ const FEDERATED_LOGIN_HOSTS = new Set([
 //===========================
 
 /**
- * The mail URL for an account position
- *
- * @param index the authuser index
- * @returns the surface URL
- */
-export function mailUrl(index: number): string {
-  return SURFACE_CONFIG.mail.url({ kind: 'authuser', index });
-}
-
-/**
- * The calendar URL for an account position
- *
- * @param index the authuser index
- * @returns the surface URL
- */
-export function calendarUrl(index: number): string {
-  return SURFACE_CONFIG.calendar.url({ kind: 'authuser', index });
-}
-
-/**
  * Builds the hash that searches Gmail for a subject as a phrase
  *
  * @param subject

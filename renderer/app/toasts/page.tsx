@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { getStrings } from '../strings';
+import { Avatar } from '../Avatar';
 import { HAIRLINE } from '../settings/tokens';
 import {
   TOAST_WIDTH,
@@ -213,7 +214,12 @@ function ToastCard({
         onClick={() => window.desktop?.activateToast(toast.id)}
         className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left outline-none"
       >
-        <Avatar toast={toast} color={color} />
+        <Avatar
+          url={toast.account?.avatarUrl}
+          color={color}
+          name={toast.account?.label || toast.account?.email || toast.title}
+          fallback={statusFallback(toast)}
+        />
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate pr-6 text-[13.5px] font-medium text-neutral-900 dark:text-neutral-100">
             {toast.title}
@@ -334,43 +340,26 @@ function CloseBox({
   );
 }
 
-function Avatar({ toast, color }: { toast: Toast; color: string }) {
-  const [broken, setBroken] = useState(false);
-  const url = toast.account?.avatarUrl;
+/**
+ * The glyph a card without an account carries in place of an avatar
+ *
+ * @param toast
+ * @returns undefined for a card that has an account, which then falls back to its letter
+ */
+function statusFallback(toast: Toast): ReactNode | undefined {
   const status = toast.account ? null : statusIconPath(toast.kind);
-  const initial =
-    (toast.account?.label || toast.account?.email || toast.title || '?').trim().charAt(0).toUpperCase() ||
-    '?';
+  if (!status) return undefined;
   return (
-    <span
-      aria-hidden
-      className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold text-white"
-      style={{ backgroundColor: color }}
-    >
-      {url && !broken ? (
-        <img
-          src={url}
-          alt=""
-          referrerPolicy="no-referrer"
-          draggable={false}
-          onError={() => setBroken(true)}
-          className="h-full w-full object-cover"
-        />
-      ) : status ? (
-        <svg viewBox="0 0 16 16" className="h-4 w-4">
-          <path
-            d={status}
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            fill="none"
-          />
-        </svg>
-      ) : (
-        initial
-      )}
-    </span>
+    <svg viewBox="0 0 16 16" className="h-4 w-4">
+      <path
+        d={status}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
   );
 }
 

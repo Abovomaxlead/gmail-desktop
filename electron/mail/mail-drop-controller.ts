@@ -102,7 +102,6 @@ import {
   type AccountLabels,
   type ThreadMessage,
 } from '../gmail/gmail-api';
-import type { AccountRef } from '../accounts/account-ref';
 
 //===========================
 // Types
@@ -351,7 +350,6 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function collectLabelThreads(
-  ref: AccountRef,
   authuser: string,
   label: string,
 ): Promise<{ threads: LabelThread[]; capped: boolean }> {
@@ -447,7 +445,6 @@ async function saveLabel(
   ts: string,
   account: string,
   root: string,
-  ref: AccountRef,
   label: string,
   authuser: string,
   ik: string,
@@ -471,7 +468,7 @@ async function saveLabel(
     collected = viaApi.collected;
     capped = viaApi.capped;
   } else {
-    const scraped = await collectLabelThreads(ref, authuser, label);
+    const scraped = await collectLabelThreads(authuser, label);
     notifyLog(`[maildrop] label "${label}" van de pagina gelezen: ${scraped.threads.length} gesprekken`);
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
@@ -625,7 +622,6 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
       ts,
       account,
       root,
-      profile.ref,
       payload.label,
       payload.authuser,
       payload.ik,

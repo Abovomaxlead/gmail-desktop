@@ -2,8 +2,7 @@
 // be pinned to the bar, and which of those pins the account in view can actually open.
 
 import { describe, expect, it } from 'vitest';
-import { googleAppTarget, pinnedSurfaces } from '../electron/gmail/google-apps-open';
-import { pinnedSurfacesFor } from '../renderer/lib/google-apps';
+import { filterPinned, googleAppTarget, pinnedSurfacesFor } from '../renderer/lib/google-apps';
 import { openableSurfaces } from '../renderer/lib/surfaces';
 
 const BASE = { openInApp: true, alwaysNewWindow: false, excluded: [] as string[] };
@@ -63,34 +62,34 @@ describe('googleAppTarget', () => {
 
 const KNOWN = ['calendar', 'drive', 'docs', 'keep'];
 
-describe('pinnedSurfaces', () => {
+describe('filterPinned', () => {
   it('keeps the known keys in the order given', () => {
-    expect(pinnedSurfaces(['keep', 'calendar', 'docs'], KNOWN)).toEqual(['keep', 'calendar', 'docs']);
+    expect(filterPinned(['keep', 'calendar', 'docs'], KNOWN)).toEqual(['keep', 'calendar', 'docs']);
   });
 
   it('does not fall back to the order of the known list', () => {
-    expect(pinnedSurfaces(['docs', 'calendar'], KNOWN)).toEqual(['docs', 'calendar']);
-    expect(pinnedSurfaces(['calendar', 'docs'], KNOWN)).toEqual(['calendar', 'docs']);
+    expect(filterPinned(['docs', 'calendar'], KNOWN)).toEqual(['docs', 'calendar']);
+    expect(filterPinned(['calendar', 'docs'], KNOWN)).toEqual(['calendar', 'docs']);
   });
 
   it('drops keys the app does not know', () => {
-    expect(pinnedSurfaces(['drive', 'tasks', 'photos'], KNOWN)).toEqual(['drive']);
-    expect(pinnedSurfaces(['nope'], KNOWN)).toEqual([]);
+    expect(filterPinned(['drive', 'tasks', 'photos'], KNOWN)).toEqual(['drive']);
+    expect(filterPinned(['nope'], KNOWN)).toEqual([]);
   });
 
   it('removes duplicates and keeps the first position', () => {
-    expect(pinnedSurfaces(['drive', 'docs', 'drive'], KNOWN)).toEqual(['drive', 'docs']);
+    expect(filterPinned(['drive', 'docs', 'drive'], KNOWN)).toEqual(['drive', 'docs']);
   });
 
   it('handles empty input on either side', () => {
-    expect(pinnedSurfaces([], KNOWN)).toEqual([]);
-    expect(pinnedSurfaces(['drive'], [])).toEqual([]);
-    expect(pinnedSurfaces([], [])).toEqual([]);
+    expect(filterPinned([], KNOWN)).toEqual([]);
+    expect(filterPinned(['drive'], [])).toEqual([]);
+    expect(filterPinned([], [])).toEqual([]);
   });
 
   it('leaves the given list untouched', () => {
     const stored = ['drive', 'nope', 'drive'];
-    expect(pinnedSurfaces(stored, KNOWN)).toEqual(['drive']);
+    expect(filterPinned(stored, KNOWN)).toEqual(['drive']);
     expect(stored).toEqual(['drive', 'nope', 'drive']);
   });
 });

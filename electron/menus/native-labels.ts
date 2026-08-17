@@ -12,7 +12,6 @@ import type { Locale } from '../core/locale';
 
 export interface NativeLabels {
   readonly composeTitle: string;
-  readonly composeMessage: string;
   readonly cancel: string;
   readonly updateAvailableTitle: string;
   readonly updateAvailableBody: (version: string) => string;
@@ -45,7 +44,6 @@ export interface NativeLabels {
 
 const EN: NativeLabels = Object.freeze({
   composeTitle: 'New message',
-  composeMessage: 'Send from which account?',
   cancel: 'Cancel',
   updateAvailableTitle: 'Update available',
   updateAvailableBody: (version: string) => `Gmail Desktop ${version} is ready. Click to update.`,
@@ -74,7 +72,6 @@ const EN: NativeLabels = Object.freeze({
 
 const NL: NativeLabels = Object.freeze({
   composeTitle: 'Nieuw bericht',
-  composeMessage: 'Vanaf welk account wil je versturen?',
   cancel: 'Annuleren',
   updateAvailableTitle: 'Update beschikbaar',
   updateAvailableBody: (version: string) => `Gmail Desktop ${version} staat klaar. Klik om bij te werken.`,
@@ -103,7 +100,6 @@ const NL: NativeLabels = Object.freeze({
 
 const RENE: NativeLabels = Object.freeze({
   composeTitle: 'Nieuw mailtje',
-  composeMessage: 'Van wie moet het mailtje komen?',
   cancel: 'Laat maar',
   updateAvailableTitle: 'Er is iets nieuws',
   updateAvailableBody: (version: string) => `Gmail Desktop ${version} is er. Klik hier om hem op te halen.`,

@@ -1,7 +1,4 @@
-'use client';
-
-// The mail-drop modal and the types main hands back for a drag; the modal itself still only
-// shows "Test".
+// The types main hands back for a drag, shared by the sidebar and the mail-drop window.
 //
 // A copy runs in two rounds: 'check' looks for mail already under a chosen label and asks,
 // 'new' and 'all' are the answer. `duplicates` carries a sample of subjects plus the real
@@ -17,11 +14,6 @@ export interface MailDropItem {
   subject: string;
   saved: number;
   error?: string;
-}
-
-export interface MailDropCopyTarget {
-  email: string;
-  labelIds: string[];
 }
 
 export interface MailDropCopyAccountResult {
@@ -74,23 +66,4 @@ export interface MailDropExistingInMailbox {
 export interface MailDropExisting {
   accounts: MailDropExistingInMailbox[];
   scanned: number;
-}
-
-
-//===========================
-// Component
-//===========================
-
-export function MailDropModal({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="flex h-screen w-full flex-col items-center justify-center gap-4 border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-neutral-900">
-      <p className="text-lg font-medium text-neutral-900 dark:text-neutral-100">Test</p>
-      <button
-        onClick={onClose}
-        className="rounded-lg bg-neutral-200 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-neutral-300 dark:bg-neutral-800 dark:text-neutral-200 dark:hover:bg-neutral-700"
-      >
-        Sluiten
-      </button>
-    </div>
-  );
 }

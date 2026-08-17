@@ -14,7 +14,6 @@ import {
   DROPZONE_CSS,
   DROPZONE_Z,
   DRAG_CHROME_Z,
-  ALWAYS_VISIBLE,
   selectedRows,
   rowsForDrag,
   threadSubjects,
@@ -369,7 +368,6 @@ describe('resultText', () => {
 
 describe('constants', () => {
   it('keeps the strip hidden until a drag arms it', () => {
-    expect(ALWAYS_VISIBLE).toBe(false);
     expect(DROPZONE_CSS).toContain('display: none');
     expect(DROPZONE_CSS).toContain('[data-state="armed"] { display: flex');
   });

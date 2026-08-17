@@ -125,13 +125,6 @@ export function matchThreadsBySubject(
   return found;
 }
 
-export function findThreadIdBySubject(
-  doc: { querySelectorAll(sel: string): ArrayLike<any> },
-  subject: string,
-): string | null {
-  return matchThreadsBySubject(doc, subject)[0] ?? null;
-}
-
 /**
  * Sends the service worker's notifications through the shim as well
  *
@@ -264,14 +257,6 @@ export function webNotifyPayload(
     title: title === undefined || title === null ? '' : String(title),
     body: raw === undefined || raw === null ? '' : String(raw),
   };
-}
-
-export function isEditableTarget(
-  el: { tagName?: string; isContentEditable?: boolean } | null | undefined,
-): boolean {
-  if (!el) return false;
-  const tag = (el.tagName || '').toLowerCase();
-  return tag === 'input' || tag === 'textarea' || el.isContentEditable === true;
 }
 
 /**

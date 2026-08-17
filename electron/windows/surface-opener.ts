@@ -13,7 +13,7 @@ import { showAccount } from './view-surfaces';
 import { hiddenNotificationText, playNotificationSound, resetSoundThrottle } from '../notify/notify-gating';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
 import { nativeLabels } from '../menus/native-labels';
-import { googleAppTarget } from '../gmail/google-apps-open';
+import { googleAppTarget } from '../../renderer/lib/google-apps';
 import { hostOf, needsLinkConfirm, unwrapRedirect } from '../system/link-guard';
 import { attachExternalLinkHandling } from '../system/external-links';
 import { SURFACE_CONFIG } from '../../renderer/lib/surfaces';

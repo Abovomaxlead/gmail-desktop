@@ -53,9 +53,6 @@ export interface UiStrings {
   mailDropHint: string;
   mailDropChoose: string;
   mailDropOpen: string;
-  dropTitle: (threads: number) => string;
-  dropSubtitle: (ok: number, messages: number) => string;
-  dropSavedCount: (messages: number) => string;
   theme: string;
   themeDescription: string;
   themeSystem: string;
@@ -271,9 +268,6 @@ export interface UiStrings {
   addDelegatedLabel: string;
   delegatedTooltipSuffix: string;
   delegatedNeedsClick: string;
-  delegatedSuggestionsHeading: string;
-  delegatedScanning: string;
-  delegatedNoneFound: string;
   settingsTooltip: string;
 
   composePickerTo: string;
@@ -395,9 +389,6 @@ export const STRINGS_NORMAL: UiStrings = {
     'Mail you drag into the strip at the top of Gmail is saved here as .eml, with a log.jsonl next to it',
   mailDropChoose: 'Choose…',
   mailDropOpen: 'Open',
-  dropTitle: (t) => `${t} ${t === 1 ? 'conversation' : 'conversations'} moved`,
-  dropSubtitle: (ok, m) => `${ok} saved — ${m} ${m === 1 ? 'message' : 'messages'} written to disk`,
-  dropSavedCount: (m) => `${m} ${m === 1 ? 'message' : 'messages'} saved`,
   theme: 'Theme',
   themeDescription: 'Follow Windows, or keep the app light or dark whatever Windows does.',
   themeSystem: 'System',
@@ -649,9 +640,6 @@ export const STRINGS_NORMAL: UiStrings = {
   addDelegatedLabel: 'Add delegated mailbox',
   delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
   delegatedNeedsClick: 'open once in Gmail first',
-  delegatedSuggestionsHeading: 'Suggested delegated',
-  delegatedScanning: 'Looking in your account menu…',
-  delegatedNoneFound: 'No delegated mailboxes found.',
   settingsTooltip: 'Settings',
 
   composePickerTo: 'New message to',
@@ -700,9 +688,6 @@ export const STRINGS_RENE: UiStrings = {
   mailDropHint: 'Sleep een mailtje naar de balk boven Gmail. Dan komt hij hier te staan.',
   mailDropChoose: 'Kies map',
   mailDropOpen: 'Laat zien',
-  dropTitle: (t) => `${t} ${t === 1 ? 'mailtje' : 'mailtjes'} verplaatst`,
-  dropSubtitle: (ok, m) => `${ok} gelukt — ${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
-  dropSavedCount: (m) => `${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
   theme: 'Kleur',
   themeDescription: 'Licht of donker. Of laat de computer het kiezen.',
   themeSystem: 'De computer kiest',
@@ -942,9 +927,6 @@ export const STRINGS_RENE: UiStrings = {
   addDelegatedLabel: 'Doe een gedeelde postbus erbij',
   delegatedTooltipSuffix: '(de postbus van iemand anders)',
   delegatedNeedsClick: 'moet nog één keer open in Gmail',
-  delegatedSuggestionsHeading: 'Gevonden postbussen',
-  delegatedScanning: 'Even in je accountmenu kijken…',
-  delegatedNoneFound: 'Geen gedeelde postbussen gevonden.',
   settingsTooltip: 'Knopjes',
 
   composePickerTo: 'Een mailtje naar',
@@ -995,10 +977,6 @@ export const STRINGS_NL: UiStrings = {
     'Mail die je naar de strook boven Gmail sleept, komt hier als .eml te staan, met een log.jsonl ernaast',
   mailDropChoose: 'Kiezen…',
   mailDropOpen: 'Openen',
-  dropTitle: (t) => `${t} ${t === 1 ? 'gesprek' : 'gesprekken'} verplaatst`,
-  dropSubtitle: (ok, m) =>
-    `${ok} bewaard — ${m} ${m === 1 ? 'bericht' : 'berichten'} naar schijf geschreven`,
-  dropSavedCount: (m) => `${m} ${m === 1 ? 'bericht' : 'berichten'} bewaard`,
   theme: 'Thema',
   themeDescription: 'Volg Windows, of houd de app licht of donker wat Windows ook doet.',
   themeSystem: 'Systeem',
@@ -1254,9 +1232,6 @@ export const STRINGS_NL: UiStrings = {
   addDelegatedLabel: 'Gedelegeerd postvak toevoegen',
   delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
   delegatedNeedsClick: 'nog één keer openen in Gmail',
-  delegatedSuggestionsHeading: 'Voorgestelde postvakken',
-  delegatedScanning: 'Even in je accountmenu kijken…',
-  delegatedNoneFound: 'Geen gedelegeerde postvakken gevonden.',
   settingsTooltip: 'Instellingen',
 
   composePickerTo: 'Nieuw bericht aan',

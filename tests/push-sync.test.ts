@@ -204,7 +204,7 @@ describe('createSyncRunner — recovery', () => {
     const r = createSyncRunner({
       client: {
         profileHistoryId: async () => '5000',
-        historyPage: async (start) => {
+        historyPage: async (_start) => {
           call += 1;
           if (call === 1) return { added: [], historyId: '4950', nextPageToken: 'p2' };
           throw { status: 500 };
@@ -266,7 +266,7 @@ describe('createSyncRunner — resilience', () => {
     const r = createSyncRunner({
       client: {
         profileHistoryId: async () => '5000',
-        historyPage: async (start) => {
+        historyPage: async (_start) => {
           call += 1;
           if (call === 1) throw { status: 500 };
           return { added: [], historyId: '5000' };

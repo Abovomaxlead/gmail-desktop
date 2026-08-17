@@ -20,11 +20,6 @@ export interface DragNode {
   parentElement: DragNode | null;
 }
 
-export interface LabelRef {
-  hash: string;
-  name: string;
-}
-
 export interface MessageRef {
   legacyId?: string;
   permId?: string;
@@ -61,15 +56,13 @@ export interface Rect {
 
 export const DROPZONE_ID = 'gmd-dropzone';
 
-export const ALWAYS_VISIBLE = false;
-
 export const DROPZONE_Z = 2147483646;
 export const DRAG_CHROME_Z = 2147483647;
 
 export const DROPZONE_CSS = `
 #${DROPZONE_ID} {
   position: fixed; top: 0; left: 0; right: 0; height: 56px;
-  display: ${ALWAYS_VISIBLE ? 'flex' : 'none'}; align-items: center; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   box-sizing: border-box; margin: 8px;
   font: 500 14px/1.2 Roboto, Arial, sans-serif; color: #1a73e8;
   background: rgba(232, 240, 254, 0.97);
@@ -95,19 +88,6 @@ const MESSAGE_PERM_ATTR = 'data-message-id';
 
 const ROW_MESSAGE_ID_ATTR = 'data-legacy-last-message-id';
 const ROW_THREAD_ATTR = 'data-thread-id';
-
-const SYSTEM_VIEWS: Record<string, string> = {
-  inbox: 'Postvak IN',
-  starred: 'Met ster',
-  snoozed: 'Snoozed',
-  sent: 'Verzonden',
-  drafts: 'Concepten',
-  imp: 'Belangrijk',
-  scheduled: 'Gepland',
-  all: 'Alle berichten',
-  spam: 'Spam',
-  trash: 'Prullenbak',
-};
 
 
 //===========================
@@ -180,38 +160,6 @@ export function messageRefFromDragTarget(el: DragNode | null): MessageRef | null
         }
         return null;
       }
-    }
-    const next: DragNode | null = cur.parentElement;
-    if (next === cur) break;
-    cur = next;
-  }
-  return null;
-}
-
-/**
- * Finds the label or system view a drag started on
- *
- * @param el the element under the cursor when the press began
- * @returns the route and the name to show, or null when it was not a view
- */
-export function labelFromDragTarget(el: DragNode | null): LabelRef | null {
-  let cur = el;
-  for (let depth = 0; cur && depth < 30; depth++) {
-    const href = cur.getAttribute('href');
-    const hash = href && href.includes('#') ? href.slice(href.indexOf('#') + 1) : '';
-    if (hash) {
-      const route = hash.replace(/\/p\d+$/, '');
-      if (/^label\//i.test(route)) {
-        const raw = route.slice('label/'.length);
-        let name = raw;
-        try {
-          name = decodeURIComponent(raw);
-        } catch {
-        }
-        if (name) return { hash: route, name: name.split('/').filter(Boolean).pop() || name };
-      }
-      const system = SYSTEM_VIEWS[route.toLowerCase()];
-      if (system) return { hash: route.toLowerCase(), name: system };
     }
     const next: DragNode | null = cur.parentElement;
     if (next === cur) break;

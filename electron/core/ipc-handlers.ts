@@ -59,7 +59,7 @@ import {
 } from '../notify/notification-policy';
 import { notifyLog } from '../notify/notify-log';
 import { type NotifiedMail } from '../notify/notify-match';
-import { applyTraySetting, refreshTray, setSnooze } from '../menus/tray-setup';
+import { applyTraySetting, refreshTray } from '../menus/tray-setup';
 import { popupNativeMenu } from '../menus/native-menu';
 import { nativeLabels } from '../menus/native-labels';
 import {
@@ -319,7 +319,6 @@ export function registerIpc(): void {
     }
     void shell.openPath(dir);
   });
-  ipcMain.on(IPC.SET_SNOOZE, (_e, minutes: number | null) => setSnooze(minutes));
   ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }) => {
     const patch: Record<string, unknown> = {};
     if ('label' in arg) patch.label = arg.label;

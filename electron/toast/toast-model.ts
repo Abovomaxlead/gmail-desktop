@@ -108,11 +108,6 @@ export function collapse(stack: ToastStack): ToastStack {
   return { toasts: [], summary: summarise(stack.toasts) };
 }
 
-/** How many notifications the stack stands for, collapsed or not. */
-export function stackCount(stack: ToastStack): number {
-  return stack.summary ? stack.summary.count : stack.toasts.length;
-}
-
 
 //===========================
 // Helper functions

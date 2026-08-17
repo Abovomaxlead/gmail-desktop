@@ -270,7 +270,6 @@ export default function AppShell() {
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [dropItems, setDropItems] = useState<MailDropItem[] | null>(null);
   const [update, setUpdate] = useState<UpdateStatus>({ state: 'idle' });
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const S = getStrings(prefs?.locale ?? 'en', prefs?.reneMode === true);
@@ -297,7 +296,6 @@ export default function AppShell() {
     bridge.onUnreadChanged(setUnread);
     bridge.onSettingsForceClose(() => setSettingsOpen(false));
     bridge.onSettingsForceOpen(() => setSettingsOpen(true));
-    bridge.onMailDropPreview(({ items }) => setDropItems(items));
     bridge.onUpdateStatus(setUpdate);
     bridge.onPrefsChanged((p) => setPrefs(p as Prefs));
     bridge.onDefaultMailStatus(setIsDefaultMail);

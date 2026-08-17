@@ -1,5 +1,5 @@
-// The delegation contract: the Gmail URL forms and account-switcher DOM shape for delegated
-// mailboxes. Pure and DOM-free, so it stays unit-testable.
+// The delegation contract: the account-switcher DOM shape for delegated mailboxes.
+// Pure and DOM-free, so it stays unit-testable.
 //
 // Three rules hold throughout: the logged-in web session only, never OAuth; match href
 // structure and never UI text, since the "Gemachtigd"/"Delegated" badge is translated; and
@@ -33,51 +33,6 @@ export function parseDelegatedEntries(
   return raw
     .filter((r) => r.email && r.href)
     .map((r) => ({ email: r.email.trim().toLowerCase(), mailUrl: r.href }));
-}
-
-/**
- * The URL a delegated mailbox opens at
- *
- * @param entry
- * @returns Google's own URL, adopted verbatim because its token cannot be derived
- */
-export function delegatedMailUrl(entry: DelegatedEntry): string {
-  return entry.mailUrl;
-}
-
-/**
- * Recognises a delegated mailbox URL by its shape
- *
- * @param url
- * @returns true for /mail/u/<n>/d/<token>/ on mail.google.com
- */
-export function isDelegatedMailUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    return u.hostname === 'mail.google.com' && /^\/mail\/u\/\d+\/d\/[^/]+/.test(u.pathname);
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The calendar URL for a delegated mailbox
- *
- * @param _entry
- * @returns always null; this URL form is not observed yet, and null means unavailable
- */
-export function delegatedCalendarUrl(_entry: DelegatedEntry): string | null {
-  return null;
-}
-
-/**
- * Whether a calendar navigation landed on a no-access page
- *
- * @param _finalUrl
- * @returns always false; the URL form is not observed yet
- */
-export function isCalendarNoAccessUrl(_finalUrl: string): boolean {
-  return false;
 }
 
 
