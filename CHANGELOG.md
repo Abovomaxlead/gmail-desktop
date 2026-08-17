@@ -3,6 +3,47 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.9] — 2026-08-17
+
+### Gewijzigd
+- **Aan de app verandert in deze versie niets; er is alleen code weg die al niets meer
+  deed.** Bijna 500 regels: een venster dat nog "Test" toonde en nooit werd geopend, twee
+  hulpfuncties die overbleven toen de Outlook-sneltoetsen eruit gingen, dubbele varianten
+  van code die elders al in een betere vorm stond, een kanaal tussen de twee helften van
+  de app dat niemand ooit gebruikte, en zes teksten die nergens meer op het scherm komen.
+  De tests draaien alle 1372 nog.
+
+### Changed
+- **Nothing about the app changes in this version; only code that had stopped doing
+  anything is gone.** Close to 500 lines: a window that still read "Test" and was never
+  opened, two helpers left behind when the Outlook shortcuts went, duplicate versions of
+  code that already stood elsewhere in a better shape, a channel between the app's two
+  halves that nobody ever sent on, and six strings that no longer reach the screen. All
+  1372 tests still run.
+
+### Voor ontwikkelaars
+- **De hele boom is één keer nagelopen op dode einden.** Niet op gevoel: een importgraaf
+  over alle 279 bestanden, `tsc` met `--noUnusedLocals --noUnusedParameters` over beide
+  tsconfigs, en alle 87 IPC-kanalen, 245 UI-teksten en prefs-keys aan beide kanten
+  geteld. Eruit: `src/sanity.ts` met zijn test en de `src`-regel in `tsconfig.json`;
+  `electron/gmail/google-apps-open.ts`, een shim die na opruiming één re-export overhield
+  terwijl `surface-opener.ts` al rechtstreeks uit `renderer/lib/` importeerde; het
+  `SET_SNOOZE`-kanaal met zijn handler, want de tray regelt snooze in main zelf; de
+  `labelFromDragTarget` in `dropzone.ts` die stil verloren had van die in
+  `label-drop.ts`; en de vlag `ALWAYS_VISIBLE`, die alleen `false` kon zijn.
+  Dekking is verhuisd in plaats van geschrapt: de trim-, ellipsis- en leeg-onderwerp-
+  gevallen staan nu op `matchThreadsBySubject`, de orde- en dubbelen-gevallen op
+  `filterPinned`. De 13 tests die wél verdwenen, hoorden bij weggehaalde code.
+- **De avatar was drie keer nagebouwd en is nu één `renderer/app/Avatar.tsx`.**
+  Compose-picker, toastkaart en de accountlijst in de instellingen tekenden alle drie
+  hetzelfde rondje met dezelfde terugval op de eerste letter. Omdat de lijstversie in een
+  `.map()` stond, hield die stukke foto's bij in een map (`brokenAvatars`); nu houdt elke
+  avatar zijn eigen vlag bij en is die map weg. Eén verschil is bewust blijven staan: de
+  instellingenrij neemt de letter van `p.name`, de compose-picker die van `a.label`.
+  Blijven staan: `metadata` in `layout.tsx` (dat leest Next.js zelf), en de ruim honderd
+  dingen die `export` zijn maar alleen in hun eigen bestand gebruikt worden.
+  De opruiming zelf zit in commit `8e18e9c`.
+
 ## [0.3.1-beta.8] — 2026-08-17
 
 ### Opgelost
