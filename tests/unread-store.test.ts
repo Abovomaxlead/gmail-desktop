@@ -43,4 +43,38 @@ describe('UnreadStore', () => {
     snap.u0 = 999;
     expect(s.snapshot().u0).toBe(3);
   });
+
+  describe('retain', () => {
+    it('drops a key no live account owns — the probe view that never became a profile', () => {
+      const s = new UnreadStore();
+      s.report('u0', 2);
+      s.report('u2', 2);
+      s.retain(['u0']);
+      expect('u2' in s.snapshot()).toBe(false);
+      expect(totalUnread(s.snapshot())).toBe(2);
+    });
+
+    it('reports whether anything was dropped, so the caller can push the new total', () => {
+      const s = new UnreadStore();
+      s.report('u0', 2);
+      s.report('u2', 2);
+      expect(s.retain(['u0'])).toBe(true);
+      expect(s.retain(['u0'])).toBe(false);
+    });
+
+    it('keeps every key that is still live', () => {
+      const s = new UnreadStore();
+      s.report('u0', 2);
+      s.report('d:support@x.com', 10);
+      expect(s.retain(['u0', 'd:support@x.com'])).toBe(false);
+      expect(totalUnread(s.snapshot())).toBe(12);
+    });
+
+    it('empties the store when no account is left', () => {
+      const s = new UnreadStore();
+      s.report('u0', 2);
+      s.retain([]);
+      expect(totalUnread(s.snapshot())).toBe(0);
+    });
+  });
 });

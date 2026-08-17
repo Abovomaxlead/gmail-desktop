@@ -12,6 +12,7 @@ import {
   authIdx,
   cachedAccounts,
   colors,
+  coverage,
   currentLocale,
   keyOf,
   mainWindow,
@@ -21,6 +22,7 @@ import {
   seedOrder,
   unread,
 } from './runtime';
+import { notifyLog } from '../notify/notify-log';
 import { seedable } from '../accounts/account-cache';
 import { sortByOrder } from '../accounts/account-order';
 import { applyBadge } from '../unread/badge-controller';
@@ -66,6 +68,9 @@ const SEED_KEY_PREFIX = 'seed:';
 // injected rather than imported: it belongs to the OAuth layer, which imports this one
 let onProfilesPushed: () => void = () => {};
 
+// the last badge trace, so a total that does not move is written once instead of every report
+let lastBadgeTrace = '';
+
 
 //===========================
 // Exported functions
@@ -81,6 +86,11 @@ export function pushProfiles(): void {
   const rows = decorate([...profiles]);
   mainWindow?.webContents.send(IPC.PROFILES_CHANGED, rows);
   saveAccountCache(rows);
+  // the list of accounts is the only thing that says which counts are still somebody's
+  if (unread.retain(profiles.map(keyOf))) {
+    pushUnread();
+    refreshBadge();
+  }
   onProfilesPushed();
 }
 
@@ -107,9 +117,12 @@ export async function pushDefaultMailStatus(): Promise<void> {
 }
 
 export function refreshBadge(): void {
-  applyBadge(unread.snapshot(), (n) => app.setBadgeCount(n), excludedBadgeKeys(), () => {
+  const counts = unread.snapshot();
+  const excluded = excludedBadgeKeys();
+  const total = applyBadge(counts, (n) => app.setBadgeCount(n), excluded, () => {
     if (process.platform === 'win32') mainWindow?.setOverlayIcon(null, '');
   });
+  traceBadge(total, counts, excluded);
 }
 
 
@@ -164,6 +177,32 @@ function saveAccountCache(rows: TabRow[]): void {
   accountCache.save(
     own.map((r) => ({ email: r.email, name: r.name, avatarUrl: r.avatarUrl, color: r.color })),
   );
+}
+
+/**
+ * Records what the badge total was summed from
+ *
+ * The number itself says nothing about where it went wrong: every account brings its own
+ * count from its own source, so the line names the source per key. A key no live profile
+ * owns is the one thing that cannot be right — nothing will ever report it to zero again.
+ *
+ * @param total what went to the OS
+ * @param counts unread per accountKey
+ * @param excluded the keys the user left out of the badge
+ * @private
+ */
+function traceBadge(total: number, counts: Record<string, number>, excluded: Set<string>): void {
+  const live = new Map(profiles.map((p) => [keyOf(p), p.email]));
+  const parts = Object.entries(counts).map(([key, n]) => {
+    const email = live.get(key);
+    if (!email) return `${key}=${n}(orphan)`;
+    const source = coverage.has(email) ? 'api' : 'title';
+    return `${key}=${n}(${email},${source}${excluded.has(key) ? ',excluded' : ''})`;
+  });
+  const line = `[badge] total=${total} ${parts.join(' ') || '(nothing counted)'}`;
+  if (line === lastBadgeTrace) return;
+  lastBadgeTrace = line;
+  notifyLog(line);
 }
 
 function excludedBadgeKeys(): Set<string> {
