@@ -3,6 +3,82 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.10] — 2026-08-18
+
+### Toegevoegd
+- **Opgeslagen mail wordt na drie dagen weggegooid.** De map waarin een sleep landt was een
+  archief dat alleen groeide: er werd nooit iets opgeruimd, terwijl er volledige klantmail
+  in staat, buiten Gmail, op een netwerkschijf. De app ruimt nu op bij het opstarten en
+  daarna elke zes uur, zodat een computer die een week aan blijft staan niet alleen op de
+  dag van opstarten opruimt. De leeftijd komt uit de datum in de mapnaam en niet uit de
+  tijd van het bestand zelf, want die is op een omgeleide netwerkschijf niet te vertrouwen.
+
+### Gewijzigd
+- **In `log.jsonl` staat niet langer de inhoud van je mail.** Die log hield van elke
+  opgeslagen mail de volledige tekst bij — een tweede kopie van elke mail die ooit door de
+  app ging, op een schijf waar niemand mail verwacht, en hij bleef staan als de mails zelf
+  al lang weg waren. De log houdt nu alleen bij *wat* er met een mail gebeurde: wanneer,
+  welk postvak, welk gesprek, afzender, onderwerp en waar hij is neergezet. De tekst die
+  eerdere versies er al in schreven wordt bij elke opruimronde uit de bestaande regels
+  gehaald, ongeacht hoe oud ze zijn.
+
+### Opgelost
+- **Een sleep pakt het bericht dat je aanwijst, of hij zegt dat hij het niet kon.** Twee
+  wegen leverden stil een mail op die je niet had aangewezen. Vinkte je drie berichten van
+  hetzelfde gesprek aan, dan kon Gmail bij één van die regels niet zeggen welk bericht het
+  was; daar sloeg de app dan het nieuwste bericht van dat gesprek op — een mail die een
+  andere regel van diezelfde sleep al had opgeslagen. Zo werden drie aangevinkte mails er
+  twee, met een dubbele. En sleepte je een ouder bericht uit een lang gesprek in een
+  postvak zonder koppeling, dan kon dat bericht helemaal niet opgehaald worden en ging
+  ook daar het nieuwste mee. Dat bericht wordt nu bij naam opgevraagd, en lukt het dan nog
+  niet, dan meldt de balk "2 van 3 opgeslagen" in plaats van je een verkeerde mail te geven.
+
+### Added
+- **Saved mail is thrown away after three days.** The folder a drag lands in was an archive
+  that only ever grew: nothing was ever removed, while it holds complete customer mail
+  outside Gmail on a network share. The app now sweeps at startup and every six hours after,
+  so a machine that stays on for a week does not only clean up on the day it was started.
+  Age comes from the date in the folder name rather than the file's own timestamp, which on
+  a redirected share is not to be trusted.
+
+### Changed
+- **`log.jsonl` no longer holds the content of your mail.** That log kept the full text of
+  every mail saved — a second copy of every mail that ever passed through the app, on a
+  share where nobody expects mail to be, still there long after the mails themselves were
+  gone. It now records only *what* happened to a mail: when, which mailbox, which
+  conversation, sender, subject and where it was put. Text that earlier versions already
+  wrote is taken out of the existing lines on every sweep, however old they are.
+
+### Fixed
+- **A drag takes the message you point at, or says it could not.** Two routes silently
+  handed over a mail you had not pointed at. With three messages of one conversation ticked,
+  Gmail could not say which message one of those rows was, and the app saved that
+  conversation's newest message for it — a mail another row of the same drag had already
+  saved. Three ticked mails became two, with a duplicate. And dragging an older message out
+  of a long conversation in a mailbox without a link, that message could not be fetched at
+  all and the newest went along there too. That message is now asked for by name, and if it
+  still cannot be found the strip reads "2 van 3 opgeslagen" instead of giving you the
+  wrong mail.
+
+### Voor ontwikkelaars
+- **Beide sleepfouten zijn op productielogs gemeten, niet beredeneerd.** De eerste stond in
+  een log als drie rijen van één gesprek waarvan de middelste geen `|msg-f:` in
+  `data-thread-id` had; `itemsForDrag` markeert zo'n rij nu (`messageUnknown`) en
+  `saveOneThread` weigert hem vóór het ophalen. Waaróm Gmail die rij zo rendert is nog niet
+  gemeten — dit voorkomt de verkeerde mail, het haalt de goede nog niet op. De tweede stond
+  er twee keer als `gesleept bericht niet in de conversatie gevonden`: de pagina-route
+  refereert een ingeklapt gesprek niet volledig, dus `permMsgIdsToFetch` zet de id die de
+  sleep draagt vooraan de lijst met op te halen berichtpagina's.
+- **De logregels zeggen nu genoeg om dit zonder DOM-meting te lezen.** Een onleesbare rij
+  krijgt `|?` in de `[drag]`-regel, en de terugval noemt het bericht dat hij koos — zonder
+  dat laatste is uit een log niet te zien of twee rijen op dezelfde mail landden.
+- **Het opruimen is twee pure functies plus één die schrijft.** `expiredEntries` en
+  `logLinesWithoutBody` zijn getest op de termijngrens, op stempel-boven-mtime en op een
+  regel die niet te parsen valt; `cleanMailDrop` draait in de tests tegen een echte
+  tijdelijke map, omdat het de enige functie in de app is die iets verwijdert. `log.jsonl`
+  wordt via een tijdelijk bestand en een rename herschreven, zodat een halve schrijfactie
+  de log laat staan zoals hij was.
+
 ## [0.3.1-beta.9] — 2026-08-17
 
 ### Gewijzigd
