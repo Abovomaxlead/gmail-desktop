@@ -3,6 +3,53 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.12] — 2026-08-18
+
+### Opgelost
+- **Een submap levert de mail van de submap, niet die van de map erboven.** Een submap is in
+  Gmail geen aparte map maar één labelnaam met een schuine streep erin — `Werk/Grote
+  klanten` — en Gmail schrijft die naam voluit in de link van de rij. De app las alleen het
+  stuk vóór de eerste streep, want een streep op diezelfde plek kondigt ook Gmail's
+  paginanummer aan (`/p3`), en hield `Werk/Grote klanten` dus voor `Werk`. Daarna klopte de
+  hele keten: dat label werd opgezocht, gaf het id van de hoofdmap, en er kwam alle mail uit
+  de hoofdmap mee — een sleep van een submap met vier gesprekken schreef de honderd van de
+  map erboven weg. Alleen een afsluitende `/p<nummer>` gaat er nu nog af.
+- **En de map waarin die mail landt draagt de naam van de submap.** Een mapnaam kan geen pad
+  bevatten, dus de streep werd weggepoetst en de twee namen plakten aan elkaar tot
+  `..._label_WerkGrote klanten`. Dat pad was onbereikbaar zolang elke submap als zijn
+  hoofdmap binnenkwam; het heet nu `..._label_Werk - Grote klanten`.
+
+### Fixed
+- **A subfolder yields the subfolder's mail, not that of the folder above it.** A subfolder is
+  not a folder of its own in Gmail but one label name with a slash in it — `Werk/Grote
+  klanten` — and Gmail writes that name out in full in the href of the row. The app read only
+  what came before the first slash, because a slash in that same place also announces Gmail's
+  page number (`/p3`), and so took `Werk/Grote klanten` for `Werk`. Everything after that was
+  consistent: that label was looked up, answered with the parent's id, and the whole parent
+  folder came along — a drag of a subfolder holding four conversations saved the hundred of
+  the folder above it. Only a trailing `/p<number>` comes off now.
+- **And the folder that mail lands in is named after the subfolder.** A folder name cannot
+  hold a path, so the slash was stripped and the two names glued into
+  `..._label_WerkGrote klanten`. That path was unreachable while every subfolder arrived as
+  its parent; it now reads `..._label_Werk - Grote klanten`.
+
+### Voor ontwikkelaars
+- **De bug zat in één teken van een reguliere expressie.** `labelFromHref` matchte op
+  `/#label\/([^/?#]+)/`, waarin de schuine streep het einde van de naam markeert; dat is nu
+  `/#label\/([^?#]+)/` met een aparte `/p\d+$` eraf. Beide spellingen die Gmail kan
+  aanleveren komen zo op dezelfde naam uit: een echte streep en `%2F`, want
+  `decodeURIComponent` maakt van de tweede de eerste. De keten eronder had niets nodig:
+  `fetchLabelId` matcht exact op de volledige naam die de API zelf teruggeeft.
+- **Twee tests faalden eerst op de oude code.** `labelFromHref` antwoordde `Werk` op
+  `#label/Werk/Grote+klanten`, en `writeLabel` schreef de aan elkaar geplakte mapnaam die de
+  oude test nog als juist vastlegde. 1419 tests groen, `tsc --noEmit` schoon.
+- **Nog niet in een draaiende installatie gezien: een sleep van een hoofdmap met uitgeklapte
+  submappen.** `labelFromDragTarget` weigert te gokken zodra het binnen één rij twee
+  verschillende labelnamen vindt. Vóór deze fix waren dat er altijd één — de submap werd
+  immers gelezen als zijn hoofdmap — en nu zijn ze verschillend. Tekent Gmail de submaprijen
+  binnen de rij van de hoofdmap, dan doet een sleep die náást de naam van de hoofdmap begint
+  niets meer; op de naam zelf blijft werken, en er komt in geen geval verkeerde mail uit.
+  Daarom een beta.
 ## [0.3.1-beta.11] — 2026-08-18
 
 ### Gewijzigd
