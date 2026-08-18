@@ -53,7 +53,7 @@ import {
   withMailboxToken,
 } from '../auth/mailbox-token';
 import { notifyLog } from '../notify/notify-log';
-import { extractPlainText, htmlToText, parseHeaders } from './eml';
+import { htmlToText, parseHeaders } from './eml';
 import {
   appendLog,
   draggedMessage,
@@ -284,7 +284,6 @@ async function saveOneThread(
     date: m.headers.date,
     file: files[i],
     bytes: m.raw.length,
-    body: extractPlainText(m.raw.toString('utf8')),
   }));
   try {
     appendLog(root, [...records, ...failedRecords]);
@@ -571,7 +570,6 @@ async function saveLabel(
         date: m.headers.date,
         file: files[fileIndex++],
         bytes: m.raw.length,
-        body: extractPlainText(m.raw.toString('utf8')),
       });
     }
   }

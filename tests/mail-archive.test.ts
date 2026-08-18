@@ -191,12 +191,12 @@ describe('appendLog', () => {
     expect(JSON.parse(lines[1]).ts).toBe('nu');
   });
 
-  it('escapes newlines in the body so one record stays one line', () => {
+  it('escapes a newline in a value so one record stays one line', () => {
     const dir = root();
-    appendLog(dir, [{ ts: 'nu', account: 'a@b.c', threadId: 't1', body: 'regel1\nregel2' }]);
+    appendLog(dir, [{ ts: 'nu', account: 'a@b.c', threadId: 't1', subject: 'regel1\nregel2' }]);
     const lines = readFileSync(join(dir, 'log.jsonl'), 'utf8').trim().split('\n');
     expect(lines).toHaveLength(1);
-    expect(JSON.parse(lines[0]).body).toBe('regel1\nregel2');
+    expect(JSON.parse(lines[0]).subject).toBe('regel1\nregel2');
   });
 
   it('does nothing for an empty record list', () => {

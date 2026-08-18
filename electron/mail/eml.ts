@@ -1,5 +1,7 @@
-// Minimal RFC822/MIME reader: the main headers and a plain-text body, which is all a log
-// line needs. Not a general parser — attachments, signing and encryption are ignored.
+// Minimal RFC822/MIME reader: the main headers and a plain-text body, which is all a
+// notification and a filename need. Nothing here reaches a file: the body is read to put a
+// line of text on a toast, never to be written down. Not a general parser — attachments,
+// signing and encryption are ignored.
 //
 // Header values may continue across lines, RFC2047 encoded words are decoded, and an
 // unknown charset falls back to utf-8.

@@ -1,5 +1,9 @@
 // Writes a saved mail to disk and appends a line to log.jsonl. A failed line carries
-// `error` instead of file/bytes/body; a `target` entry describes a copy to another account.
+// `error` instead of file and bytes; a `copy` entry describes a copy to another account.
+//
+// The mail's own text is deliberately absent. This log records what happened to a mail, not
+// what was in it: it outlives the .eml files beside it, so a body field would leave a second
+// copy of every mail that ever passed through, on a share where nobody expects mail to be.
 //
 // Filenames are sanitised per code point rather than with a regex class, since a subject
 // can contain a newline and Windows rejects a name ending in a dot or a space. Timestamps
@@ -38,7 +42,6 @@ export interface LogRecord {
   date?: string | null;
   file?: string;
   bytes?: number;
-  body?: string;
   error?: string;
   label?: string;
   copy?: { to: string; labels: string[]; ok: boolean; error?: string };

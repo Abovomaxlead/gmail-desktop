@@ -50,6 +50,8 @@ import { applyAutoUpdateCheck, setUpdateHooks, setupUpdater } from './updates/up
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menus/context-menu';
 import { setExternalOpener } from './system/external-links';
 import { extractMailtoFromArgv } from './mail/mailto';
+import { startMailDropCleanup } from './mail/mail-drop-cleanup';
+import { mailDropFolder } from './mail/mail-drop-controller';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 
 
@@ -169,6 +171,8 @@ app.whenReady().then(() => {
   const initialMailto = extractMailtoFromArgv(process.argv);
   if (initialMailto) setPendingMailto(initialMailto);
   startNotifyTimer();
+  // After createWindow, which is what builds the prefs store the folder is read from.
+  startMailDropCleanup(() => mailDropFolder());
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
   applyTraySetting();
   app.on('activate', () => {
