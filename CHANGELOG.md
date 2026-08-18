@@ -3,6 +3,73 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.11] — 2026-08-18
+
+### Gewijzigd
+- **De labelkiezer laat één postvak tegelijk zien.** Elk gekoppeld postvak kreeg een eigen
+  kolom in een paneel van 768 px breed, dus bij tien accounts stonden er negen kolommen van
+  63 px naast elkaar. Een regel heeft 59 px nodig aan vinkje, icoon en tussenruimte voordat
+  de naam begint, dus daar bleef 4 px labelnaam van over, met kolomkoppen afgekapt op zeven
+  tekens en één lijst die zo lang werd als het langste postvak. Nu staat er een lijst
+  postvakken van 240 px naast één labellijst over de volle breedte, elk met eigen scroll, en
+  blijft het adres van het open postvak boven zijn labels staan in plaats van weg te
+  scrollen. Per postvak staat in die lijst wat je anders alleen kon zien door erin te kijken:
+  een amber stip als deze mail daar al staat, een blauw getal met hoeveel labels je er koos,
+  een rode stip als het postvak niet te lezen is, en tijdens zoeken hoeveel labels er
+  overblijven — typ "fact" en je ziet meteen in welke postvakken dat iets oplevert. Onderin
+  staat per postvak welk label je koos, want met deze indeling is er altijd een postvak uit
+  het zicht.
+
+### Opgelost
+- **Twee gesleepte mails zijn geen drie meer.** Gmail's eigen "alles selecteren" in de
+  werkbalk is dezelfde soort checkbox als die van een regel, en staat aangevinkt zodra alle
+  zichtbare regels dat zijn. In een lijst waarin elke regel bij hetzelfde gesprek hoort — na
+  zoeken op één conversatie bijvoorbeeld — hield de app dat vakje voor een regel, en die
+  regel noemde geen bericht. Een sleep van twee aangevinkte berichten kwam zo als drie
+  regels binnen: twee mails en één die werd geweigerd met "Kon niet zien welk bericht deze
+  rij is", terwijl de balk "2 van 3 opgeslagen" meldde. Een vinkje telt nu alleen als regel
+  wanneer er een regel om heen staat.
+
+### Changed
+- **The label picker shows one mailbox at a time.** Every linked mailbox got a column of its
+  own in a 768 px panel, so ten accounts left nine columns of 63 px. A row spends 59 px on
+  its checkbox, icon and gaps before the name starts, which left 4 px of label name, heads
+  cut to seven characters, and one list as long as the longest mailbox. There is now a 240 px
+  rail of mailboxes beside a single full-width label list, each with its own scroll, and the
+  open mailbox stays above its labels instead of scrolling away. Every rail row carries what
+  a column used to say by being in sight: an amber dot when the scan already found this mail
+  there, a blue count of what is ticked, a red dot when the mailbox cannot be read, and while
+  a search runs, how many labels it leaves standing — type "fact" and you see which mailboxes
+  hold one. The footer names the ticked label per mailbox, because with a rail there is
+  always a mailbox out of sight.
+
+### Fixed
+- **Two dragged mails are no longer three.** Gmail's own select-all in the toolbar is the
+  same kind of checkbox as a row's and is ticked as soon as every visible row is. In a list
+  where every row belongs to one conversation — after searching for that conversation, say —
+  the app took that box for a row, and that row named no message. A drag of two ticked
+  messages arrived as three rows: two mails and one refused with "Kon niet zien welk bericht
+  deze rij is", while the strip read "2 van 3 opgeslagen". A tick now counts as a row only
+  when a row encloses it.
+
+### Voor ontwikkelaars
+- **De fantoomrij is in de DOM gemeten, niet beredeneerd.** De console gaf voor twee
+  aangevinkte mails drie treffers op `[role="checkbox"][aria-checked="true"]`, waarvan één
+  zonder rij-voorouder. Dat sluit aan op de 26 eerdere sleepacties in `notify.log`: geen
+  daarvan had een kale rij, en geen daarvan had een selectie binnen één gesprek — precies de
+  voorwaarde die de werkbalk-checkbox nodig heeft om aan een threadId te komen, want
+  `threadIdFromDragTarget` haakt alleen af als de zoektocht meer dan één id vindt.
+  `selectedRows` slaat zo'n vakje nu over via `insideOneRow`, dat op `role="row"` matcht of
+  op een voorouder die zelf het threadId draagt.
+- **De rail is afgeleide staat, geen tweede waarheid.** `mailbox-rail.ts` bevat de vier pure
+  functies erachter — `mailboxRows`, `pickedChips`, `firstPickable`, `localPart` — met eigen
+  tests op de tellers, de zoektreffers en de volgorde van de chips. `mailboxRows` gebruikt
+  dezelfde `filterLabels` als de lijst ernaast, zodat het getal in de rail niet uit elkaar
+  kan lopen met wat je te zien krijgt.
+- **De layout zelf is nog niet in een draaiende installatie bekeken.** De logica eronder is
+  getest, de indeling is op maat nagebouwd — maar dat is niet hetzelfde als het ding zien
+  werken. Daarom een beta.
+
 ## [0.3.1-beta.10] — 2026-08-18
 
 ### Toegevoegd
