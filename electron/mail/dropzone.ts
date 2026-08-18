@@ -183,6 +183,7 @@ export function selectedRows(doc: DocLike): DragRow[] {
   const rows: DragRow[] = [];
   const seen = new Set<string>();
   for (let i = 0; i < boxes.length; i++) {
+    if (!insideOneRow(boxes[i])) continue;
     const threadId = threadIdFromDragTarget(boxes[i]);
     if (!threadId) continue;
     const message = messageRefFromDragTarget(boxes[i]);
@@ -336,6 +337,32 @@ export function resultText(r: { ok: boolean; count: number; total: number; error
 //===========================
 // Helper functions
 //===========================
+
+// Gmail ticks more than rows. Its select-all sits in the toolbar, is a checkbox like any
+// row's, and turns aria-checked="true" the moment every visible row is ticked. Nothing
+// below it says which mail it is, and the search for a thread id climbs until it finds
+// one, so in a list showing a single conversation it answered with that conversation --
+// a row nobody ticked, naming no message, refused later as unreadable. Hence the ancestry
+// check: a tick counts when it sits in a row, and the toolbar is not one.
+
+/**
+ * Whether a ticked checkbox belongs to one row of the list
+ *
+ * @param el the checkbox
+ * @returns true when a row encloses it, by role or by carrying a thread id
+ * @private
+ */
+function insideOneRow(el: DragNode | null): boolean {
+  let cur = el;
+  for (let depth = 0; cur && depth < 30; depth++) {
+    if (cur.getAttribute('role') === 'row') return true;
+    if (cur.getAttribute('data-legacy-thread-id')) return true;
+    const next: DragNode | null = cur.parentElement;
+    if (next === cur) break;
+    cur = next;
+  }
+  return false;
+}
 
 /**
  * What makes a row the same row, for deduplicating and for recognising the press

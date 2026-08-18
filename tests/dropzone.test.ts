@@ -157,8 +157,10 @@ describe('messageRefFromDragTarget', () => {
 });
 
 describe('selectedRows / rowsForDrag', () => {
+  // The row carries role="row", the way Gmail marks it: that is what tells a row's tick
+  // apart from the select-all in the toolbar, which no row encloses.
   const checkedRow = (threadId: string) => {
-    const row = node({}, null, [node({ 'data-legacy-thread-id': threadId })]);
+    const row = node({ role: 'row' }, null, [node({ 'data-legacy-thread-id': threadId })]);
     return node({ role: 'checkbox', 'aria-checked': 'true' }, row);
   };
   // With conversation view off a row is one message: same data-legacy-thread-id as its
@@ -203,6 +205,24 @@ describe('selectedRows / rowsForDrag', () => {
   it('still drops a row Gmail lists twice over', () => {
     const twice = () => checkedMessageRow('1a00f50f', 'msg-f:181', '1a00f698');
     expect(selectedRows(doc([twice(), twice()]))).toHaveLength(1);
+  });
+
+  // Gmail's own select-all sits in the toolbar and goes aria-checked="true" the moment every
+  // visible row is ticked. It is no row, but in a list showing one conversation the search
+  // below it reaches exactly one thread id, so it answered as a row that names no message --
+  // measured in production, where two ticked messages of one conversation arrived as three
+  // rows: two mails and one refused with "Kon niet zien welk bericht deze rij is".
+  it('leaves out a ticked checkbox that sits outside the rows', () => {
+    const first = checkedMessageRow('19fefd61', 'msg-f:1', '19fefd6a');
+    const second = checkedMessageRow('19fefd61', 'msg-f:2', '19fefd6b');
+    const selectAll = node(
+      { role: 'checkbox', 'aria-checked': 'true' },
+      node({}, null, [node({ 'data-legacy-thread-id': '19fefd61' })]),
+    );
+    expect(selectedRows(doc([selectAll, first, second]))).toEqual([
+      { threadId: '19fefd61', message: { legacyId: '19fefd6a', permId: 'msg-f:1' } },
+      { threadId: '19fefd61', message: { legacyId: '19fefd6b', permId: 'msg-f:2' } },
+    ]);
   });
 
   it('drags the whole selection when the pressed row is part of it', () => {
