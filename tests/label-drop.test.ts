@@ -29,6 +29,16 @@ describe('labelFromHref', () => {
   it('keeps only the label itself, not the page suffix', () => {
     expect(labelFromHref('#label/Klanten/p3')).toBe('Klanten');
   });
+  // A nested label is one name with a slash in it, and Gmail spells it out in full in its
+  // own link. Reading only the part before the slash handed back the parent, so dragging a
+  // subfolder emptied the folder above it.
+  it('keeps the whole path of a nested label', () => {
+    expect(labelFromHref('#label/Werk/Grote+klanten')).toBe('Werk/Grote klanten');
+    expect(labelFromHref('#label/Werk/Klanten/Groot')).toBe('Werk/Klanten/Groot');
+  });
+  it('drops the page suffix of a nested label too', () => {
+    expect(labelFromHref('#label/Werk/Grote+klanten/p2')).toBe('Werk/Grote klanten');
+  });
   it('rejects the inbox and other built-in views', () => {
     expect(labelFromHref('#inbox')).toBeNull();
     expect(labelFromHref('#sent')).toBeNull();
@@ -69,6 +79,9 @@ describe('labelFromDragTarget', () => {
     });
     it('refuses to guess once the search reaches the whole navigation', () => {
       expect(labelFromDragTarget(navRow('Offertes', 'Klanten'))).toBeNull();
+    });
+    it('finds a nested label in full from the row around it', () => {
+      expect(labelFromDragTarget(navRow('Werk/Grote+klanten'))).toBe('Werk/Grote klanten');
     });
     it('leaves a row of a built-in view alone', () => {
       expect(labelFromDragTarget(node({ role: 'link' }, null, [node({ href: '#inbox' })]))).toBeNull();

@@ -146,12 +146,14 @@ describe('writeLabel', () => {
     expect(readFileSync(join(dir, paths[1]), 'utf8')).toBe('TWEE');
   });
 
-  it('sanitises a label with a slash in it', () => {
+  // A nested label is a path, and a folder name cannot hold one. Dropping the slash glued
+  // the two names into one word, so the parent and the subfolder stay readable apart.
+  it('spells out a nested label instead of gluing it together', () => {
     const dir = root();
     const paths = writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Werk/Grote klanten', [
       { raw: Buffer.from('X'), headers: headers() },
     ]);
-    expect(paths[0].split('/')[0]).toBe('2026-07-31_1232_label_WerkGrote klanten');
+    expect(paths[0].split('/')[0]).toBe('2026-07-31_1232_label_Werk - Grote klanten');
   });
 
   it('suffixes the folder when that label was dropped in the same minute', () => {

@@ -38,16 +38,22 @@ export const MAX_PAGES = Math.ceil(MAX_THREADS / PAGE_SIZE);
 /**
  * Reads the label name out of a navigation link
  *
+ * A nested label is one name with a slash in it, and Gmail writes it out in full. Stopping
+ * at the first slash named the parent, so a dragged subfolder fetched the folder above it.
+ * Only a trailing /p<number>, Gmail's page suffix, comes off.
+ *
  * @param href
  * @returns the label, or null when the href is not a label link
  */
 export function labelFromHref(href: string): string | null {
-  const m = /#label\/([^/?#]+)/.exec(href || '');
+  const m = /#label\/([^?#]+)/.exec(href || '');
   if (!m) return null;
+  const path = m[1].replace(/\/p\d+$/, '');
+  if (!path) return null;
   try {
-    return decodeURIComponent(m[1].replace(/\+/g, ' ')) || null;
+    return decodeURIComponent(path.replace(/\+/g, ' ')) || null;
   } catch {
-    return m[1] || null;
+    return path;
   }
 }
 

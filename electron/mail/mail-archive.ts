@@ -191,13 +191,21 @@ export function writeThread(root: string, dropIso: string, messages: SavedMessag
 /**
  * The folder name a dragged label lands in
  *
+ * A nested label is a path and a folder name cannot hold one, so its parts are spelled out
+ * side by side; dropping the separator glued the parent and the subfolder into one word.
+ *
  * @param dropIso when the drop happened
  * @param label
  * @returns the folder name
  */
 export function labelFolderName(dropIso: string, label: string): string {
   const { date, time } = stamp(dropIso);
-  return `${date}_${time}_label_${safeName(label, 'label')}`;
+  const path = (label || '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' - ');
+  return `${date}_${time}_label_${safeName(path, 'label')}`;
 }
 
 /**
