@@ -13,6 +13,14 @@ import { labelKind, type LabelKind } from '../label-kind';
 import { filterLabels } from '../label-search';
 import { dropFailures } from '../drop-outcome';
 import { existingCount, existingNotices, type ExistingNotice } from '../existing-labels';
+import {
+  mailboxRows,
+  pickedChips,
+  firstPickable,
+  localPart,
+  type MailboxRow,
+  type PickedChip,
+} from '../mailbox-rail';
 
 
 //===========================
@@ -46,6 +54,7 @@ type Phase =
 export default function MailDropModalPage() {
   const [items, setItems] = useState<MailDropItem[]>([]);
   const [accounts, setAccounts] = useState<AccountLabels[] | null>(null);
+  const [active, setActive] = useState('');
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
@@ -58,7 +67,10 @@ export default function MailDropModalPage() {
       setAccounts(null);
       void bridge
         .getLabels()
-        .then(({ accounts: a }) => setAccounts(a))
+        .then(({ accounts: a }) => {
+          setAccounts(a);
+          setActive(firstPickable(a));
+        })
         .catch(() => setAccounts([]));
     };
 
@@ -118,6 +130,9 @@ export default function MailDropModalPage() {
   const savedCount = items.reduce((s, i) => s + i.saved, 0);
   const failures = dropFailures(items);
   const notices = existingNotices(existing.accounts, accounts ?? []);
+  const rows = mailboxRows(accounts ?? [], picked, existing.accounts, search);
+  const chips = pickedChips(picked, accounts ?? []);
+  const openMailbox = accounts?.find((a) => a.email === active) ?? accounts?.[0] ?? null;
 
   const copy = async (mode: MailDropCopyMode = 'check') => {
     const bridge = window.desktop;
@@ -167,7 +182,14 @@ export default function MailDropModalPage() {
         onClick={phase.kind === 'copying' ? undefined : close}
       >
         <div
-          className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
+          // Picking gets a panel of its own height, so the rail and the labels each keep a
+          // scroll region instead of one page that grows with the longest mailbox. A report
+          // is as tall as it is.
+          className={`flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900 ${
+            phase.kind === 'picking' && failures.length === 0 && accounts?.length !== 0
+              ? 'h-full max-h-[680px]'
+              : 'max-h-full'
+          }`}
           onClick={(e) => e.stopPropagation()}
         >
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-black/10 px-5 py-3.5 dark:border-white/10">
@@ -203,45 +225,52 @@ export default function MailDropModalPage() {
             </div>
           )}
 
-          <div className="flex-1 overflow-y-auto px-5 py-4">
-            {phase.kind === 'done' ? (
+          {phase.kind === 'picking' && failures.length === 0 && notices.length > 0 && (
+            <div className="shrink-0 border-b border-black/5 px-5 pt-3 dark:border-white/10">
+              <ExistingWarning notices={notices} scanned={existing.scanned} />
+            </div>
+          )}
+
+          {phase.kind === 'done' ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
               <CopyReport result={phase.result} />
-            ) : phase.kind === 'confirm' ? (
+            </div>
+          ) : phase.kind === 'confirm' ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
               <DuplicateWarning
                 duplicates={phase.duplicates}
                 newCount={phase.newCount}
                 labelName={labelName}
               />
-            ) : failures.length > 0 ? (
+            </div>
+          ) : failures.length > 0 ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
               <DropFailure reasons={failures} />
-            ) : accounts === null ? (
-              <p className="text-sm text-neutral-500">Labels ophalen…</p>
-            ) : accounts.length === 0 ? (
-              <p className="text-sm text-neutral-500">Geen ander gekoppeld account.</p>
-            ) : (
-              <>
-                {notices.length > 0 && (
-                  <ExistingWarning notices={notices} scanned={existing.scanned} />
-                )}
-                <div
-                  className="grid gap-x-5 gap-y-2"
-                  style={{ gridTemplateColumns: `repeat(${accounts.length}, minmax(0, 1fr))` }}
-                >
-                  {accounts.map((acc) => (
-                    <AccountColumn
-                      key={acc.email}
-                      account={acc}
-                      search={search}
-                      picked={picked[acc.email] ?? []}
-                      disabled={phase.kind === 'copying'}
-                      countExisting={(labelId) => existingCount(existing.accounts, acc.email, labelId)}
-                      onToggle={(labelId) => toggle(acc.email, labelId)}
-                    />
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
+            </div>
+          ) : accounts === null ? (
+            <div className="flex min-h-0 flex-1">
+              <RailPlaceholder />
+              <p className="flex-1 px-5 py-4 text-sm text-neutral-500">Labels ophalen…</p>
+            </div>
+          ) : accounts.length === 0 ? (
+            <p className="flex-1 px-5 py-4 text-sm text-neutral-500">Geen ander gekoppeld account.</p>
+          ) : (
+            <div className="flex min-h-0 flex-1">
+              <MailboxRail rows={rows} active={openMailbox?.email ?? ''} onSelect={setActive} />
+              {openMailbox && (
+                <LabelPane
+                  account={openMailbox}
+                  search={search}
+                  picked={picked[openMailbox.email] ?? []}
+                  disabled={phase.kind === 'copying'}
+                  countExisting={(labelId) =>
+                    existingCount(existing.accounts, openMailbox.email, labelId)
+                  }
+                  onToggle={(labelId) => toggle(openMailbox.email, labelId)}
+                />
+              )}
+            </div>
+          )}
 
           <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-black/10 px-5 py-3 dark:border-white/10">
             <Status
@@ -249,11 +278,12 @@ export default function MailDropModalPage() {
               pickedCount={pickedCount}
               savedCount={savedCount}
               failures={failures}
+              chips={chips}
             />
             {phase.kind === 'done' || failures.length > 0 ? (
               <button
                 onClick={close}
-                className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                className="shrink-0 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
               >
                 Sluiten
               </button>
@@ -274,7 +304,7 @@ export default function MailDropModalPage() {
                 {phase.newCount > 0 && (
                   <button
                     onClick={() => void copy('new')}
-                    className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
+                    className="shrink-0 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
                   >
                     {phase.newCount === 1
                       ? 'Alleen de nieuwe kopiëren'
@@ -286,7 +316,7 @@ export default function MailDropModalPage() {
               <button
                 onClick={() => void copy()}
                 disabled={pickedCount === 0 || savedCount === 0 || phase.kind === 'copying'}
-                className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
               >
                 {phase.kind === 'copying' ? 'Bezig…' : 'Kopieer'}
               </button>
@@ -304,7 +334,96 @@ export default function MailDropModalPage() {
 //===========================
 
 /**
- * One account's labels to tick, narrowed by what is in the search box
+ * The mailboxes to file in, one row each
+ *
+ * A row carries what the columns used to say by being on screen: how much is ticked there,
+ * whether the mail is already in it, whether it can be read, and how many labels a running
+ * search leaves standing. Without that the rail would be a list of addresses to guess from.
+ *
+ * @param rows
+ * @param active the mailbox the pane is showing
+ * @param onSelect
+ */
+function MailboxRail({
+  rows,
+  active,
+  onSelect,
+}: {
+  rows: MailboxRow[];
+  active: string;
+  onSelect: (email: string) => void;
+}) {
+  return (
+    <nav
+      aria-label="Postvakken"
+      className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-black/10 p-2 dark:border-white/10"
+    >
+      {rows.map((row) => {
+        const on = row.email === active;
+        const empty = row.matchCount === 0;
+        return (
+          <button
+            key={row.email}
+            type="button"
+            onClick={() => onSelect(row.email)}
+            title={row.error ? `${row.email} — ${row.error}` : row.email}
+            aria-current={on}
+            className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition ${
+              on
+                ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
+                : `${
+                    empty
+                      ? 'text-neutral-400 dark:text-neutral-600'
+                      : 'text-neutral-700 dark:text-neutral-300'
+                  } hover:bg-black/[0.04] dark:hover:bg-white/5`
+            }`}
+          >
+            <span className="truncate">{row.email}</span>
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {row.error && (
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full bg-red-500"
+                  style={{ flexShrink: 0 }}
+                />
+              )}
+              {row.hasExisting && (
+                <span
+                  aria-hidden="true"
+                  className="h-1.5 w-1.5 rounded-full bg-amber-500"
+                  style={{ flexShrink: 0 }}
+                />
+              )}
+              {row.matchCount !== null && (
+                <span className="text-[11px] tabular-nums text-neutral-400">{row.matchCount}</span>
+              )}
+              {row.pickedCount > 0 && (
+                <span className="rounded bg-blue-600 px-1.5 text-[11px] font-medium tabular-nums text-white">
+                  {row.pickedCount}
+                </span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** The rail's own shape while the label lists are still on their way, so the panel does not
+ * jump sideways once they land. */
+function RailPlaceholder() {
+  return (
+    <div className="flex w-60 shrink-0 flex-col gap-0.5 border-r border-black/10 p-2 dark:border-white/10">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="mx-2 my-2 h-3 animate-pulse rounded bg-black/[0.06] dark:bg-white/10" />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One mailbox's labels to tick, narrowed by what is in the search box
  *
  * @param account
  * @param search
@@ -313,7 +432,7 @@ export default function MailDropModalPage() {
  * @param countExisting how much of the drag a label already holds
  * @param onToggle
  */
-function AccountColumn({
+function LabelPane({
   account,
   search,
   picked,
@@ -330,21 +449,23 @@ function AccountColumn({
 }) {
   const shown = filterLabels(account.labels, search, picked);
   return (
-    <div className="flex min-w-0 flex-col">
-      <div
-        className="mb-2 truncate border-b border-black/5 pb-1.5 text-xs font-semibold text-neutral-900 dark:border-white/10 dark:text-neutral-100"
-        title={account.email}
-      >
-        {account.email}
+    <div className="flex min-w-0 flex-1 flex-col">
+      <div className="shrink-0 border-b border-black/5 px-4 py-2 dark:border-white/10">
+        <p
+          className="truncate text-[13px] font-semibold text-neutral-900 dark:text-neutral-100"
+          title={account.email}
+        >
+          {account.email}
+        </p>
       </div>
       {account.error ? (
-        <span className="text-xs text-red-600 dark:text-red-500">{account.error}</span>
+        <span className="px-4 py-3 text-xs text-red-600 dark:text-red-500">{account.error}</span>
       ) : account.labels.length === 0 ? (
-        <span className="text-xs text-neutral-400">Geen labels</span>
+        <span className="px-4 py-3 text-xs text-neutral-400">Geen labels</span>
       ) : shown.length === 0 ? (
-        <span className="text-xs text-neutral-400">Geen label gevonden</span>
+        <span className="px-4 py-3 text-xs text-neutral-400">Geen label gevonden</span>
       ) : (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {shown.map((label) => {
             const on = picked.includes(label.id);
             const already = countExisting(label.id);
@@ -383,7 +504,10 @@ function AccountColumn({
 }
 
 /**
- * The box that narrows every account's label column
+ * The box that narrows the labels of every mailbox at once
+ *
+ * One box rather than one per mailbox: the rail counts the matches per mailbox, so a search
+ * says where the label you mean lives instead of only filtering what is already open.
  *
  * @param value
  * @param onChange
@@ -446,11 +570,13 @@ function Status({
   pickedCount,
   savedCount,
   failures,
+  chips,
 }: {
   phase: Phase;
   pickedCount: number;
   savedCount: number;
   failures: string[];
+  chips: PickedChip[];
 }) {
   if (phase.kind === 'copying') {
     const doing = phase.phase === 'check' ? 'Controleren' : 'Kopiëren';
@@ -485,14 +611,27 @@ function Status({
   if (savedCount === 0) {
     return <span className="text-xs text-neutral-500">Niets opgeslagen om te kopiëren</span>;
   }
+  if (pickedCount === 0) {
+    return <span className="text-xs text-neutral-500">Kies waar de mail naartoe moet</span>;
+  }
+  // A chip per mailbox rather than one total: with a rail there is always a mailbox out of
+  // sight, and "naar 3 labels" does not say which ones are in it.
   return (
-    <span className="text-xs text-neutral-500">
-      {pickedCount === 0
-        ? 'Kies waar de mail naartoe moet'
-        : `${savedCount} ${savedCount === 1 ? 'bericht' : 'berichten'} naar ${pickedCount} ${
-            pickedCount === 1 ? 'label' : 'labels'
-          }`}
-    </span>
+    <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto text-xs text-neutral-500">
+      <span className="shrink-0">
+        {savedCount} {savedCount === 1 ? 'bericht' : 'berichten'} naar
+      </span>
+      {chips.map((chip) => (
+        <span
+          key={chip.email}
+          title={chip.email}
+          className="shrink-0 whitespace-nowrap rounded bg-black/[0.05] px-1.5 py-0.5 text-[11px] text-neutral-700 dark:bg-white/10 dark:text-neutral-300"
+        >
+          <span className="font-medium">{localPart(chip.email)}</span>: {chip.label}
+          {chip.extra > 0 && ` +${chip.extra}`}
+        </span>
+      ))}
+    </div>
   );
 }
 
