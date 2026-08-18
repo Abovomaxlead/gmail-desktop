@@ -5,6 +5,7 @@ import {
   omUrl,
   parseOriginalLinks,
   parsePermMsgIds,
+  permMsgIdsToFetch,
   permMsgIdFromLink,
 } from '../electron/mail/mail-fetch';
 
@@ -64,6 +65,26 @@ describe('parsePermMsgIds', () => {
   });
   it('returns an empty list when there are none', () => {
     expect(parsePermMsgIds('<html></html>')).toEqual([]);
+  });
+});
+
+// Measured in production: a drag on an older message of an eight-message thread, whose id
+// the collapsed thread page never mentions. Without asking for it by name the fetch came
+// back without it and the newest message left instead.
+describe('permMsgIdsToFetch', () => {
+  const html = `permmsgid=msg-f:111 ... permmsgid=msg-f:222`;
+
+  it('puts the wanted id first when the page does not mention it', () => {
+    expect(permMsgIdsToFetch(html, 'msg-f:333')).toEqual(['msg-f:333', 'msg-f:111', 'msg-f:222']);
+  });
+  it('does not repeat an id the page already mentions', () => {
+    expect(permMsgIdsToFetch(html, 'msg-f:222')).toEqual(['msg-f:111', 'msg-f:222']);
+  });
+  it('is what the page mentions when the drag named no message', () => {
+    expect(permMsgIdsToFetch(html)).toEqual(['msg-f:111', 'msg-f:222']);
+  });
+  it('is the wanted id alone when the page mentions none', () => {
+    expect(permMsgIdsToFetch('<html></html>', 'msg-f:333')).toEqual(['msg-f:333']);
   });
 });
 

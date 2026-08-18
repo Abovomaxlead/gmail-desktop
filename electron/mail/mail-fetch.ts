@@ -91,6 +91,25 @@ export function parsePermMsgIds(html: string): string[] {
   return out;
 }
 
+// A collapsed conversation does not even reference every message it holds, so the page a
+// drag needs can be missing from the ids parsed out of it. The drag knows which message it
+// grabbed, and this page takes that id by name: measured in production on an eight-message
+// thread, where the grabbed message was absent from the thread page and the drag silently
+// saved the newest one instead.
+
+/**
+ * Which message pages to fetch beside the thread's own page
+ *
+ * @param html the thread's show-original page
+ * @param wanted the perm id the drag named, if it named one
+ * @returns the ids to fetch, the wanted one first so it is tried before the rest
+ */
+export function permMsgIdsToFetch(html: string, wanted?: string): string[] {
+  const found = parsePermMsgIds(html);
+  if (!wanted || found.includes(wanted)) return found;
+  return [wanted, ...found];
+}
+
 /**
  * Which message a download link belongs to
  *
@@ -134,18 +153,20 @@ async function get(ses: Session, url: string): Promise<{ body: Buffer; status: n
  *
  * @param ses
  * @param p
+ * @param wanted the perm id a drag named, fetched by name even when the page omits it
  * @returns one entry per message, each carrying raw or error, plus the page it came from
  */
 export async function fetchThreadEmls(
   ses: Session,
   p: DropPayload,
+  wanted?: string,
 ): Promise<{ messages: FetchedMessage[]; page: OmPage }> {
   const url = omUrl(p);
   const res = await get(ses, url);
   const page = res.body.toString('utf8');
   const om: OmPage = { url, status: res.status, html: page };
   const links = parseOriginalLinks(page, p.authuser);
-  for (const permMsgId of parsePermMsgIds(page)) {
+  for (const permMsgId of permMsgIdsToFetch(page, wanted)) {
     if (links.some((l) => l.includes(encodeURIComponent(permMsgId)) || l.includes(permMsgId))) continue;
     try {
       const sub = (await get(ses, omUrl({ ...p, permMsgId }))).body.toString('utf8');

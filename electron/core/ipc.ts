@@ -109,6 +109,10 @@ export interface MailDropItem {
   threadId: string;
   subject: string;
   message?: MessageRef;
+  /** Set when the page could not read which message this row is, while another row of the
+   * same conversation could. Saving that conversation's newest message for it would hand
+   * over a mail nobody ticked, so the row is refused instead. */
+  messageUnknown?: boolean;
 }
 
 export interface MailDropPayload {

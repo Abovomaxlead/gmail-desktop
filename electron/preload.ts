@@ -448,10 +448,16 @@ function installDropzone(
         selectedRows(document),
       );
       const items = itemsForDrag(rows, threadSubjects(document));
+      // The items rather than the rows, so a row whose message could not be read says so
+      // here as well: without the mark the log showed a bare thread id and read like a row
+      // that stands for a whole conversation.
       log(
-        `[drag] ${rows.length} rij(en) vanaf thread=${threadId}: ` +
-          rows
-            .map((r) => `${r.threadId}${r.message?.permId ? `|${r.message.permId}` : ''}`)
+        `[drag] ${items.length} rij(en) vanaf thread=${threadId}: ` +
+          items
+            .map(
+              (i) =>
+                `${i.threadId}${i.message?.permId ? `|${i.message.permId}` : ''}${i.messageUnknown ? '|?' : ''}`,
+            )
             .join(' '),
       );
       saving = true;

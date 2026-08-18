@@ -163,6 +163,7 @@ async function saveOneThread(
   authuser: string,
   ik: string,
   message: MessageRef | null = null,
+  messageUnknown = false,
 ): Promise<{ count: number; error?: string; saved: SavedRef[] }> {
   const failed = (error: string) => {
     try {
@@ -171,6 +172,15 @@ async function saveOneThread(
     }
     return { count: 0, error, saved: [] };
   };
+
+  // Before the fetch, since there is nothing to choose from once it lands: the newest
+  // message stands in for a whole conversation, never for a row that named one and was not
+  // read. Saying so beats saving the wrong mail, and "2 van 3 opgeslagen" is what the strip
+  // then shows.
+  if (messageUnknown) {
+    notifyLog(`[maildrop] ${threadId}: rij geweigerd, het bericht was niet te lezen`);
+    return failed('Kon niet zien welk bericht deze rij is');
+  }
 
   const viaApi = await threadMessagesViaApi(account, threadId);
 
@@ -184,7 +194,11 @@ async function saveOneThread(
   } else {
     let result;
     try {
-      result = await fetchThreadEmls(session.fromPartition('persist:google'), { threadId, authuser, ik });
+      result = await fetchThreadEmls(
+        session.fromPartition('persist:google'),
+        { threadId, authuser, ik },
+        message?.permId,
+      );
     } catch (e) {
       return failed(`Ophalen mislukt (${(e as Error).message})`);
     }
@@ -230,14 +244,24 @@ async function saveOneThread(
   if (all.length === 0) return failed(fetched[0]?.error ?? 'Geen bericht opgehaald');
 
   const dragged = draggedMessage(all, message);
+  // The newest message stands in for a conversation, never for a named message that was not
+  // found: measured in production twice on one thread, where the page route reached eight
+  // messages but not the one grabbed, and the mail that left was the newest instead. Saying
+  // so beats handing over a mail nobody pointed at.
+  if (message && !dragged) {
+    notifyLog(
+      `[maildrop] ${threadId}: gesleept bericht niet in de conversatie gevonden (${all.length} opgehaald)`,
+    );
+    return failed('Het gesleepte bericht zat niet in de opgehaalde conversatie');
+  }
   const chosen = dragged ?? newestMessage(all);
   const ok = chosen ? [chosen] : [];
-  if (message && !dragged) {
-    notifyLog(`[maildrop] ${threadId}: gesleept bericht niet in de conversatie gevonden`);
-  }
   if (all.length > 1) {
+    // Which message, not just which rule: two rows of one conversation that both end up on
+    // the newest message save the same mail twice, and the old line could not say that.
+    const which = chosen?.permMsgId ?? chosen?.id ?? chosen?.headers.messageId ?? 'onbekend';
     notifyLog(
-      `[maildrop] ${threadId}: ${all.length} berichten, alleen ${dragged ? 'het gesleepte' : 'het laatste'} bewaard`,
+      `[maildrop] ${threadId}: ${all.length} berichten, alleen ${dragged ? 'het gesleepte' : 'het laatste'} bewaard (${which})`,
     );
   }
 
@@ -646,6 +670,7 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
       payload.authuser,
       payload.ik,
       item.message ?? null,
+      item.messageUnknown ?? false,
     );
     saved.push(r.count);
     if (r.error) lastError = r.error;

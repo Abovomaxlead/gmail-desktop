@@ -287,6 +287,41 @@ describe('threadSubjects / itemsForDrag', () => {
       { threadId: 'a', subject: NO_SUBJECT, message: { permId: 'msg-f:1' } },
     ]);
   });
+
+  // Measured in Gmail: three ticked rows of one conversation, of which the middle one's
+  // data-thread-id came back without the message behind the pipe. That row fell through to
+  // the conversation's newest message -- a mail nobody ticked, and one that another row of
+  // the same drag had already saved.
+  it('marks the row whose message went missing beside rows of its own conversation', () => {
+    expect(
+      itemsForDrag(
+        [
+          { threadId: 'a', message: { permId: 'msg-f:1' } },
+          { threadId: 'a' },
+          { threadId: 'a', message: { permId: 'msg-f:2' } },
+        ],
+        {},
+      ),
+    ).toEqual([
+      { threadId: 'a', subject: NO_SUBJECT, message: { permId: 'msg-f:1' } },
+      { threadId: 'a', subject: NO_SUBJECT, messageUnknown: true },
+      { threadId: 'a', subject: NO_SUBJECT, message: { permId: 'msg-f:2' } },
+    ]);
+  });
+  it('leaves the rows alone when no row of that conversation names a message', () => {
+    expect(itemsForDrag([{ threadId: 'a' }, { threadId: 'b' }], {})).toEqual([
+      { threadId: 'a', subject: NO_SUBJECT },
+      { threadId: 'b', subject: NO_SUBJECT },
+    ]);
+  });
+  it('does not mark a conversation row because another conversation is one message', () => {
+    expect(
+      itemsForDrag([{ threadId: 'a' }, { threadId: 'b', message: { permId: 'msg-f:1' } }], {}),
+    ).toEqual([
+      { threadId: 'a', subject: NO_SUBJECT },
+      { threadId: 'b', subject: NO_SUBJECT, message: { permId: 'msg-f:1' } },
+    ]);
+  });
 });
 
 describe('authuserFromPath', () => {

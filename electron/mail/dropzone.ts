@@ -225,6 +225,15 @@ export function threadSubjects(doc: DocLike): Record<string, string> {
   return out;
 }
 
+// A row that names no message while a sibling row of the same conversation names one is a
+// read that failed, not a conversation: with conversation view off every row of the list is
+// one message, so the two cannot stand in one drag together. Measured in Gmail on three
+// ticked rows of one conversation, where the middle row's data-thread-id came back without
+// the message behind the pipe. Left unmarked it reached main as a whole conversation and
+// saved that conversation's newest message -- a mail nobody ticked, and one another row of
+// the same drag had already saved, which is how three ticked rows became two mails and a
+// duplicate.
+
 /**
  * Pairs every dragged row with the subject to show
  *
@@ -233,16 +242,18 @@ export function threadSubjects(doc: DocLike): Record<string, string> {
  *
  * @param rows
  * @param subjects
- * @returns one item per row, in drag order
+ * @returns one item per row, in drag order, the unreadable ones marked
  */
 export function itemsForDrag(
   rows: DragRow[],
   subjects: Record<string, string>,
-): Array<{ threadId: string; subject: string; message?: MessageRef }> {
+): Array<{ threadId: string; subject: string; message?: MessageRef; messageUnknown?: true }> {
+  const named = new Set(rows.filter((row) => row.message).map((row) => row.threadId));
   return rows.map((row) => ({
     threadId: row.threadId,
     subject: subjects[row.threadId] || NO_SUBJECT,
     ...(row.message ? { message: row.message } : {}),
+    ...(!row.message && named.has(row.threadId) ? { messageUnknown: true as const } : {}),
   }));
 }
 
