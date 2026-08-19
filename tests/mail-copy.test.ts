@@ -10,6 +10,9 @@ import {
   newMessageCount,
   copyableLabelIds,
   countExisting,
+  duplicateChecks,
+  scanAnswer,
+  threadGroups,
 } from '../electron/mail/mail-copy';
 
 describe('normalizeTargets', () => {
@@ -215,5 +218,128 @@ describe('countExisting', () => {
 
   it('reports nothing when nothing was found', () => {
     expect(countExisting([])).toEqual([]);
+  });
+});
+
+// The picker asks per mailbox which labels hold each dragged message; the check at Kopieer
+// asks whether one label holds it. The first answer contains the second, and asking Gmail
+// twice is what made pressing Kopieer wait on a scan that was already done.
+describe('duplicateChecks', () => {
+  const files = [
+    { messageId: '<a@x>', subject: 'Offerte' },
+    { messageId: '<b@x>', subject: 'Factuur' },
+  ];
+
+  it('asks per mailbox, per label, per message', () => {
+    const checks = duplicateChecks(
+      [{ email: 'a@x.nl', labelIds: ['L1', 'L2'] }],
+      files,
+    );
+    expect(checks).toHaveLength(4);
+    expect(checks.map((c) => `${c.labelId} ${c.messageId}`)).toEqual([
+      'L1 <a@x>',
+      'L1 <b@x>',
+      'L2 <a@x>',
+      'L2 <b@x>',
+    ]);
+  });
+
+  it('carries the subject, which is what the warning shows', () => {
+    expect(duplicateChecks([{ email: 'a@x.nl', labelIds: ['L1'] }], files)[0]).toEqual({
+      email: 'a@x.nl',
+      labelId: 'L1',
+      messageId: '<a@x>',
+      subject: 'Offerte',
+    });
+  });
+
+  it('skips a message without a Message-ID, since nothing can be matched on it', () => {
+    expect(
+      duplicateChecks([{ email: 'a@x.nl', labelIds: ['L1'] }], [{ messageId: '  ', subject: 'X' }]),
+    ).toEqual([]);
+  });
+
+  it('keeps the mailboxes in the order they were chosen', () => {
+    const checks = duplicateChecks(
+      [
+        { email: 'b@x.nl', labelIds: ['L1'] },
+        { email: 'a@x.nl', labelIds: ['L1'] },
+      ],
+      [files[0]],
+    );
+    expect(checks.map((c) => c.email)).toEqual(['b@x.nl', 'a@x.nl']);
+  });
+});
+
+describe('scanAnswer', () => {
+  const check = { email: 'a@x.nl', labelId: 'L1', messageId: '<a@x>', subject: 'Offerte' };
+  const scan = new Map([['a@x.nl', new Map([['<a@x>', ['INBOX', 'L1']]])]]);
+
+  it('says yes when the scan saw the message under that label', () => {
+    expect(scanAnswer(scan, check)).toBe(true);
+  });
+
+  it('says no when the scan saw the message but not under that label', () => {
+    expect(scanAnswer(scan, { ...check, labelId: 'L2' })).toBe(false);
+  });
+
+  // Nowhere in the mailbox is an answer; not looked up is not. Reading the second as the
+  // first would copy a mail the scan never checked.
+  it('says no for a message the scan found nowhere in that mailbox', () => {
+    const empty = new Map([['a@x.nl', new Map([['<a@x>', [] as string[]]])]]);
+    expect(scanAnswer(empty, check)).toBe(false);
+  });
+
+  it('knows nothing about a mailbox that was not scanned', () => {
+    expect(scanAnswer(scan, { ...check, email: 'b@x.nl' })).toBeNull();
+  });
+
+  it('knows nothing about a message that was not scanned', () => {
+    expect(scanAnswer(scan, { ...check, messageId: '<c@x>' })).toBeNull();
+  });
+
+  it('knows nothing without a scan at all', () => {
+    expect(scanAnswer(null, check)).toBeNull();
+    expect(scanAnswer(undefined, check)).toBeNull();
+  });
+});
+
+// Two mails of one conversation cannot be inserted at the same moment: the first one's
+// answer names the thread the second has to join, and without it the reader gets loose mails.
+// Two different conversations have nothing to wait for.
+describe('threadGroups', () => {
+  const ref = (file: string, threadId: string) => ({ file, threadId });
+
+  it('puts the messages of one conversation in one group, in the order of the drag', () => {
+    const groups = threadGroups([ref('01.eml', 't1'), ref('02.eml', 't1')]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].map((g) => g.ref.file)).toEqual(['01.eml', '02.eml']);
+  });
+
+  it('gives every conversation its own group, so they can go up alongside each other', () => {
+    const groups = threadGroups([ref('01.eml', 't1'), ref('02.eml', 't2'), ref('03.eml', 't3')]);
+    expect(groups).toHaveLength(3);
+  });
+
+  it('keeps the file its place in the drag, which is the order the log is written in', () => {
+    const groups = threadGroups([ref('01.eml', 't1'), ref('02.eml', 't2'), ref('03.eml', 't1')]);
+    expect(groups[0].map((g) => g.index)).toEqual([0, 2]);
+    expect(groups[1].map((g) => g.index)).toEqual([1]);
+  });
+
+  it('groups the conversations in the order they first appear', () => {
+    const groups = threadGroups([ref('01.eml', 't2'), ref('02.eml', 't1')]);
+    expect(groups.map((g) => g[0].ref.threadId)).toEqual(['t2', 't1']);
+  });
+
+  // A mail saved from the page route can arrive without a thread id, and grouping those
+  // together would make them queue behind each other for no reason
+  it('treats a file without a thread id as a conversation of its own', () => {
+    const groups = threadGroups([ref('01.eml', ''), ref('02.eml', '')]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('has no groups for nothing saved', () => {
+    expect(threadGroups([])).toEqual([]);
   });
 });

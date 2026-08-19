@@ -7,6 +7,8 @@
 // DELETE to stay reversible; and duplicates match on `rfc822msgid:`, the only stable id.
 
 import { randomBytes } from 'node:crypto';
+import { mapLimit } from '../core/concurrency';
+import { withRetry } from './retry';
 
 
 //===========================
@@ -57,6 +59,8 @@ export class GmailHttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** Gmail's own Retry-After, which the retry policy prefers over its own backoff */
+    readonly retryAfter: string | null = null,
   ) {
     super(message);
   }
@@ -85,6 +89,17 @@ export const MESSAGE_META_HEADERS = ['From', 'Subject'];
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
+
+// How many messages of one conversation are read at once. This nests inside the caller's own
+// limit -- four dragged mails times three messages is twelve requests in flight -- and the
+// product is what has to stay under Gmail's 250 quota units per second per user: a
+// messages.get costs 5, so fifty a second is the ceiling.
+export const MESSAGE_FETCH_LIMIT = 3;
+
+// How many messages one Message-ID may turn up in a mailbox. More than one means the mail
+// both arrived and was copied in; beyond a handful it is the same mail over and over and the
+// labels stop telling us anything new.
+export const SEARCH_MATCH_LIMIT = 10;
 
 /**
  * The headers every call in this file carries
@@ -258,27 +273,28 @@ export async function listLabelThreadIds(
  * Reads every message of a thread
  *
  * The network is a dependency so a test can check the list keeps its shape: dropping an
- * unreadable message is what once made a short copy look like a complete one.
+ * unreadable message is what once made a short copy look like a complete one. The order is
+ * mapLimit's, which is the order of the ids and not the order the answers arrive in.
  *
  * @param ids
  * @param read
+ * @param limit how many messages to read at once
  * @returns {Promise<ThreadMessage[]>} one entry per id, in the thread's own order, and a
  *   message that could not be read stays in as an error
  */
 export async function collectThreadMessages(
   ids: string[],
   read: (id: string) => Promise<Buffer | null>,
+  limit = MESSAGE_FETCH_LIMIT,
 ): Promise<ThreadMessage[]> {
-  const out: ThreadMessage[] = [];
-  for (const id of ids) {
+  return await mapLimit(ids, limit, async (id) => {
     try {
       const raw = await read(id);
-      out.push(raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' });
+      return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
     } catch (e) {
-      out.push({ id, error: `Ophalen mislukt (${(e as Error).message})` });
+      return { id, error: `Ophalen mislukt (${(e as Error).message})` };
     }
-  }
-  return out;
+  });
 }
 
 export async function fetchThreadMessages(
@@ -484,8 +500,8 @@ export async function messageExistsInLabel(
  * @param messageId the RFC822 Message-ID
  * @returns the URL
  */
-export function searchAnywhereUrl(messageId: string): string {
-  const q = new URLSearchParams({ q: messageIdQuery(messageId), maxResults: '1' });
+export function searchAnywhereUrl(messageId: string, maxResults = SEARCH_MATCH_LIMIT): string {
+  const q = new URLSearchParams({ q: messageIdQuery(messageId), maxResults: String(maxResults) });
   return `${MESSAGES_URL}?${q.toString()}`;
 }
 
@@ -500,15 +516,20 @@ export function messageLabelsUrl(messageId: string): string {
 }
 
 /**
- * Reads the message a search turned up
+ * Reads the messages a search turned up
  *
  * @param json
- * @returns {string|null} null when the search found nothing
+ * @returns the ids, empty when the search found nothing
  */
-export function parseFirstMessageId(json: unknown): string | null {
+export function parseMessageIds(json: unknown): string[] {
   const raw = (json as { messages?: unknown })?.messages;
-  if (!Array.isArray(raw)) return null;
-  return stringFrom((raw[0] as { id?: unknown })?.id);
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const m of raw) {
+    const id = stringFrom((m as { id?: unknown })?.id);
+    if (id && !out.includes(id)) out.push(id);
+  }
+  return out;
 }
 
 /**
@@ -526,6 +547,11 @@ export function parseMessageLabelIds(json: unknown): string[] {
 /**
  * Which labels of a mailbox already hold this message
  *
+ * Every match, not the first one: a mailbox can hold one Message-ID as two messages -- one
+ * that arrived and one that was copied in -- and then the labels of the first say nothing
+ * about the second. Asking whether a given label holds the mail has to come out the same
+ * either way, and only the union does that.
+ *
  * @param accessToken
  * @param messageId the RFC822 Message-ID
  * @returns {Promise<string[]>} empty when the mailbox does not have it at all
@@ -535,9 +561,16 @@ export async function labelsHoldingMessage(
   messageId: string,
 ): Promise<string[]> {
   if (!(messageId ?? '').trim()) return [];
-  const found = parseFirstMessageId(await requestJson(searchAnywhereUrl(messageId), accessToken));
-  if (!found) return [];
-  return parseMessageLabelIds(await requestJson(messageLabelsUrl(found), accessToken));
+  const found = parseMessageIds(await requestJson(searchAnywhereUrl(messageId), accessToken));
+  if (found.length === 0) return [];
+  const perMatch = await mapLimit(found, MESSAGE_FETCH_LIMIT, async (id) =>
+    parseMessageLabelIds(await requestJson(messageLabelsUrl(id), accessToken)),
+  );
+  const out: string[] = [];
+  for (const labelIds of perMatch) {
+    for (const labelId of labelIds) if (!out.includes(labelId)) out.push(labelId);
+  }
+  return out;
 }
 
 
@@ -747,8 +780,15 @@ export async function insertMessage(
 // Helper functions
 //===========================
 
+/** A request that never got an answer, apart from one that got a bad one: only the second
+ * kind is safe to send again after an insert. */
+class GmailTimeoutError extends Error {}
+
 /**
  * The one request every call in this file goes through
+ *
+ * Refused requests are sent again on the statuses that mean "not now" — see retry.ts for
+ * why an insert is treated differently from a read.
  *
  * @param url
  * @param accessToken
@@ -762,6 +802,31 @@ async function requestJson(
   accessToken: string,
   init?: { method: string; contentType: string; body: Buffer },
 ): Promise<unknown> {
+  return await withRetry(
+    () => attemptJson(url, accessToken, init),
+    (e) => ({
+      method: init ? 'POST' : 'GET',
+      status: e instanceof GmailHttpError ? e.status : null,
+      timedOut: e instanceof GmailTimeoutError,
+      retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
+    }),
+  );
+}
+
+/**
+ * One attempt at a request
+ *
+ * @param url
+ * @param accessToken
+ * @param init a body turns the call into a POST of that content type
+ * @returns {Promise<unknown>} the parsed answer
+ * @private
+ */
+async function attemptJson(
+  url: string,
+  accessToken: string,
+  init?: { method: string; contentType: string; body: Buffer },
+): Promise<unknown> {
   const { net } = require('electron') as typeof import('electron');
   return await new Promise((resolve, reject) => {
     const req = net.request({ url, method: init?.method ?? 'GET' });
@@ -771,7 +836,7 @@ async function requestJson(
 
     const timer = setTimeout(() => {
       req.abort();
-      reject(new Error('geen antwoord van Google (time-out)'));
+      reject(new GmailTimeoutError('geen antwoord van Google (time-out)'));
     }, init ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     const settle = <T>(fn: (v: T) => void) => (v: T) => {
       clearTimeout(timer);
@@ -784,16 +849,25 @@ async function requestJson(
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
+        // The status before the body: a rate limit sometimes arrives as an HTML page from
+        // Google's front end, and reading that as "unreadable" would hide the one answer
+        // that is worth waiting out.
+        const after = headerValue(res.headers, 'retry-after');
         let json: unknown;
         try {
           json = JSON.parse(text);
         } catch {
-          fail(new Error(`onleesbaar antwoord (HTTP ${res.statusCode})`));
+          const unreadable = `onleesbaar antwoord (HTTP ${res.statusCode})`;
+          fail(
+            res.statusCode >= 400
+              ? new GmailHttpError(unreadable, res.statusCode, after)
+              : new Error(unreadable),
+          );
           return;
         }
         if (res.statusCode >= 400) {
           const msg = (json as { error?: { message?: string } })?.error?.message;
-          fail(new GmailHttpError(msg ?? `HTTP ${res.statusCode}`, res.statusCode));
+          fail(new GmailHttpError(msg ?? `HTTP ${res.statusCode}`, res.statusCode, after));
           return;
         }
         ok(json);
@@ -805,6 +879,13 @@ async function requestJson(
     req.end();
   });
 }
+
+// Electron hands a header back as a string or as a list of them, depending on the header
+const headerValue = (headers: Record<string, string | string[]>, name: string): string | null => {
+  const v = headers?.[name] ?? headers?.[name.toLowerCase()];
+  const first = Array.isArray(v) ? v[0] : v;
+  return typeof first === 'string' && first ? first : null;
+};
 
 // Gmail answers with numbers as strings in some places and as numbers in others
 const numberFrom = (v: unknown): number | null => {

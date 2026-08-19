@@ -164,6 +164,7 @@ app.whenReady().then(() => {
     applyTitleBarOverlay();
     toasts?.refresh();
   });
+
   screen.on('display-metrics-changed', () => toasts?.reposition());
   createWindow();
 

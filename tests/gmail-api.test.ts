@@ -24,7 +24,7 @@ import {
   parseHasMessage,
   searchAnywhereUrl,
   messageLabelsUrl,
-  parseFirstMessageId,
+  parseMessageIds,
   parseMessageLabelIds,
   labelsHoldingMessage,
   WATCH_URL,
@@ -40,6 +40,7 @@ import {
   parseMessageMeta,
   labelGetUrl,
   parseUnreadThreads,
+  SEARCH_MATCH_LIMIT,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -264,7 +265,7 @@ describe('searchAnywhereUrl', () => {
     expect(url.pathname).toBe('/gmail/v1/users/me/messages');
     expect(url.searchParams.get('q')).toBe('rfc822msgid:a@b.nl');
     expect(url.searchParams.get('labelIds')).toBeNull();
-    expect(url.searchParams.get('maxResults')).toBe('1');
+    expect(url.searchParams.get('maxResults')).toBe(String(SEARCH_MATCH_LIMIT));
   });
 
   it('leaves spam and trash out, the way the per-label search does', () => {
@@ -285,15 +286,24 @@ describe('messageLabelsUrl', () => {
   });
 });
 
-describe('parseFirstMessageId', () => {
-  it('names the message Gmail found', () => {
-    expect(parseFirstMessageId({ messages: [{ id: 'm1' }, { id: 'm2' }] })).toBe('m1');
+// Every match rather than the first: one Message-ID can sit in a mailbox twice, once as the
+// mail that arrived and once as the copy that was inserted, and only one of the two carries
+// the label the picker is asking about.
+describe('parseMessageIds', () => {
+  it('names every message Gmail found, in the order it named them', () => {
+    expect(parseMessageIds({ messages: [{ id: 'm1' }, { id: 'm2' }] })).toEqual(['m1', 'm2']);
   });
 
-  it('is null when the search found nothing', () => {
-    expect(parseFirstMessageId({ messages: [] })).toBeNull();
-    expect(parseFirstMessageId({ resultSizeEstimate: 0 })).toBeNull();
-    expect(parseFirstMessageId(null)).toBeNull();
+  it('is empty when the search found nothing', () => {
+    expect(parseMessageIds({ messages: [] })).toEqual([]);
+    expect(parseMessageIds({ resultSizeEstimate: 0 })).toEqual([]);
+    expect(parseMessageIds(null)).toEqual([]);
+  });
+
+  it('skips an entry without a usable id and does not repeat one', () => {
+    expect(parseMessageIds({ messages: [{ id: 'm1' }, { id: '' }, {}, { id: 'm1' }] })).toEqual([
+      'm1',
+    ]);
   });
 });
 
@@ -591,6 +601,35 @@ describe('collectThreadMessages', () => {
 
   it('is empty only when the thread is', async () => {
     expect(await collectThreadMessages([], async () => raw('x'))).toEqual([]);
+  });
+
+  it('reads several messages at once, up to the limit it is given', async () => {
+    let running = 0;
+    let peak = 0;
+    await collectThreadMessages(
+      ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'],
+      async (id) => {
+        running += 1;
+        peak = Math.max(peak, running);
+        await new Promise((r) => setTimeout(r, 1));
+        running -= 1;
+        return raw(id);
+      },
+      3,
+    );
+    expect(peak).toBe(3);
+  });
+
+  it('keeps the thread order even when the later messages answer first', async () => {
+    const out = await collectThreadMessages(
+      ['slow', 'fast'],
+      async (id) => {
+        await new Promise((r) => setTimeout(r, id === 'slow' ? 20 : 1));
+        return raw(id);
+      },
+      2,
+    );
+    expect(out.map((m) => m.id)).toEqual(['slow', 'fast']);
   });
 });
 

@@ -92,9 +92,9 @@ describe('name building', () => {
 });
 
 describe('writeThread', () => {
-  it('writes every message into one folder and returns relative paths', () => {
+  it('writes every message into one folder and returns relative paths', async () => {
     const dir = root();
-    const paths = writeThread(dir, '2026-07-31T12:32:10.412Z', [
+    const paths = await writeThread(dir, '2026-07-31T12:32:10.412Z', [
       { raw: Buffer.from('EEN'), headers: headers() },
       { raw: Buffer.from('TWEE'), headers: headers({ subject: 'RE: Offerte week 31' }) },
     ]);
@@ -106,34 +106,52 @@ describe('writeThread', () => {
     expect(readFileSync(join(dir, paths[1]), 'utf8')).toBe('TWEE');
   });
 
-  it('uses a folder even for a single message', () => {
+  it('uses a folder even for a single message', async () => {
     const dir = root();
-    writeThread(dir, '2026-07-31T12:32:10.412Z', [{ raw: Buffer.from('X'), headers: headers() }]);
+    await writeThread(dir, '2026-07-31T12:32:10.412Z', [{ raw: Buffer.from('X'), headers: headers() }]);
     expect(readdirSync(dir)).toEqual(['2026-07-31_1232_Jan de Vries_Offerte week 31']);
   });
 
-  it('suffixes the folder when the name is already taken', () => {
+  it('suffixes the folder when the name is already taken', async () => {
     const dir = root();
     mkdirSync(join(dir, '2026-07-31_1232_Jan de Vries_Offerte week 31'));
-    const paths = writeThread(dir, '2026-07-31T12:32:10.412Z', [
+    const paths = await writeThread(dir, '2026-07-31T12:32:10.412Z', [
       { raw: Buffer.from('X'), headers: headers() },
     ]);
     expect(paths[0].startsWith('2026-07-31_1232_Jan de Vries_Offerte week 31-2/')).toBe(true);
   });
 
-  it('creates the root folder when it does not exist yet', () => {
+  it('creates the root folder when it does not exist yet', async () => {
     const dir = join(root(), 'nog', 'niet', 'bestaand');
-    const paths = writeThread(dir, '2026-07-31T12:32:10.412Z', [
+    const paths = await writeThread(dir, '2026-07-31T12:32:10.412Z', [
       { raw: Buffer.from('X'), headers: headers() },
     ]);
     expect(readFileSync(join(dir, paths[0]), 'utf8')).toBe('X');
   });
+
+  // Dragged mail is written side by side now, and two rows of the same sender with the same
+  // subject in the same minute want the same folder name. Looking whether the name is free
+  // and then taking it let both have it, and one conversation overwrote the other.
+  it('gives every conversation its own folder when they are written at the same moment', async () => {
+    const dir = root();
+    const ts = '2026-07-31T12:32:10.412Z';
+    const written = await Promise.all([
+      writeThread(dir, ts, [{ raw: Buffer.from('EEN'), headers: headers() }]),
+      writeThread(dir, ts, [{ raw: Buffer.from('TWEE'), headers: headers() }]),
+      writeThread(dir, ts, [{ raw: Buffer.from('DRIE'), headers: headers() }]),
+    ]);
+    const folders = written.map((paths) => paths[0].split('/')[0]);
+    expect(new Set(folders).size).toBe(3);
+    expect(new Set(written.map((paths) => readFileSync(join(dir, paths[0]), 'utf8')))).toEqual(
+      new Set(['EEN', 'TWEE', 'DRIE']),
+    );
+  });
 });
 
 describe('writeLabel', () => {
-  it('puts every message from the label in one folder, numbered across threads', () => {
+  it('puts every message from the label in one folder, numbered across threads', async () => {
     const dir = root();
-    const paths = writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Klanten', [
+    const paths = await writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Klanten', [
       { raw: Buffer.from('EEN'), headers: headers() },
       { raw: Buffer.from('TWEE'), headers: headers({ subject: 'Factuur', from: 'Piet <p@x.nl>' }) },
       { raw: Buffer.from('DRIE'), headers: headers({ subject: 'Vraag' }) },
@@ -148,26 +166,26 @@ describe('writeLabel', () => {
 
   // A nested label is a path, and a folder name cannot hold one. Dropping the slash glued
   // the two names into one word, so the parent and the subfolder stay readable apart.
-  it('spells out a nested label instead of gluing it together', () => {
+  it('spells out a nested label instead of gluing it together', async () => {
     const dir = root();
-    const paths = writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Werk/Grote klanten', [
+    const paths = await writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Werk/Grote klanten', [
       { raw: Buffer.from('X'), headers: headers() },
     ]);
     expect(paths[0].split('/')[0]).toBe('2026-07-31_1232_label_Werk - Grote klanten');
   });
 
-  it('suffixes the folder when that label was dropped in the same minute', () => {
+  it('suffixes the folder when that label was dropped in the same minute', async () => {
     const dir = root();
     mkdirSync(join(dir, '2026-07-31_1232_label_Klanten'), { recursive: true });
-    const paths = writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Klanten', [
+    const paths = await writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Klanten', [
       { raw: Buffer.from('X'), headers: headers() },
     ]);
     expect(paths[0].split('/')[0]).toBe('2026-07-31_1232_label_Klanten-2');
   });
 
-  it('writes nothing for an empty list', () => {
+  it('writes nothing for an empty list', async () => {
     const dir = root();
-    expect(writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Klanten', [])).toEqual([]);
+    expect(await writeLabel(dir, '2026-07-31T12:32:10.412Z', 'Klanten', [])).toEqual([]);
     expect(readdirSync(dir)).toEqual([]);
   });
 });

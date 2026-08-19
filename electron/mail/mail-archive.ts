@@ -9,8 +9,10 @@
 // can contain a newline and Windows rejects a name ending in a dot or a space. Timestamps
 // are split in UTC, the log's own zone, so folder and log line match.
 
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { mapLimit } from '../core/concurrency';
 import type { EmlHeaders } from './eml';
 import type { MessageRef } from './dropzone';
 
@@ -53,6 +55,10 @@ export interface LogRecord {
 //===========================
 
 const MAX_NAME = 60;
+
+// The drop folder is usually a redirected network share, which four writes at a time keeps
+// busy without queueing behind itself; more makes it slower, not faster.
+const WRITE_LIMIT = 4;
 
 
 //===========================
@@ -174,18 +180,16 @@ export function messageFileName(index: number, h: EmlHeaders, fallbackIso: strin
  * @param root the drop folder
  * @param dropIso when the drop happened
  * @param messages
- * @returns the paths written, relative to root
+ * @returns {Promise<string[]>} the paths written, relative to root
  */
-export function writeThread(root: string, dropIso: string, messages: SavedMessage[]): string[] {
+export async function writeThread(
+  root: string,
+  dropIso: string,
+  messages: SavedMessage[],
+): Promise<string[]> {
   if (messages.length === 0) return [];
-  mkdirSync(root, { recursive: true });
-  const folder = uniqueDir(root, threadFolderName(dropIso, messages[0].headers));
-  mkdirSync(join(root, folder), { recursive: true });
-  return messages.map((m, i) => {
-    const file = messageFileName(i, m.headers, dropIso);
-    writeFileSync(join(root, folder, file), m.raw);
-    return `${folder}/${file}`;
-  });
+  const folder = await claimDir(root, threadFolderName(dropIso, messages[0].headers));
+  return await writeAll(root, folder, dropIso, messages);
 }
 
 /**
@@ -215,23 +219,17 @@ export function labelFolderName(dropIso: string, label: string): string {
  * @param dropIso when the drop happened
  * @param label
  * @param messages
- * @returns the paths written, relative to root
+ * @returns {Promise<string[]>} the paths written, relative to root
  */
-export function writeLabel(
+export async function writeLabel(
   root: string,
   dropIso: string,
   label: string,
   messages: SavedMessage[],
-): string[] {
+): Promise<string[]> {
   if (messages.length === 0) return [];
-  mkdirSync(root, { recursive: true });
-  const folder = uniqueDir(root, labelFolderName(dropIso, label));
-  mkdirSync(join(root, folder), { recursive: true });
-  return messages.map((m, i) => {
-    const file = messageFileName(i, m.headers, dropIso);
-    writeFileSync(join(root, folder, file), m.raw);
-    return `${folder}/${file}`;
-  });
+  const folder = await claimDir(root, labelFolderName(dropIso, label));
+  return await writeAll(root, folder, dropIso, messages);
 }
 
 /**
@@ -284,17 +282,52 @@ function stamp(iso: string): { date: string; time: string } {
 }
 
 /**
- * A folder name that does not collide with one already there
+ * Takes a folder name nobody else has, by creating it
+ *
+ * Creating it is the claim. Looking whether the name is free and then creating it leaves a
+ * gap, and two mails dropped side by side with the same sender, subject and second fall into
+ * it: both read "free", both take the name, and two conversations end up in one folder.
  *
  * @param root
  * @param name the wanted name
- * @returns the name, suffixed with a number when it was taken
+ * @returns {Promise<string>} the name, suffixed with a number when it was taken
  * @private
  */
-function uniqueDir(root: string, name: string): string {
-  if (!existsSync(join(root, name))) return name;
-  for (let n = 2; n < 1000; n++) {
-    if (!existsSync(join(root, `${name}-${n}`))) return `${name}-${n}`;
+async function claimDir(root: string, name: string): Promise<string> {
+  await mkdir(root, { recursive: true });
+  for (let n = 1; n < 1000; n++) {
+    const candidate = n === 1 ? name : `${name}-${n}`;
+    try {
+      await mkdir(join(root, candidate));
+      return candidate;
+    } catch (e) {
+      if ((e as { code?: string }).code !== 'EEXIST') throw e;
+    }
   }
-  return `${name}-${Date.now()}`;
+  const last = `${name}-${Date.now()}`;
+  await mkdir(join(root, last), { recursive: true });
+  return last;
+}
+
+/**
+ * Writes the messages of one drop into a folder that is already there
+ *
+ * @param root
+ * @param folder
+ * @param dropIso used for a message without a usable Date
+ * @param messages
+ * @returns {Promise<string[]>} the paths, relative to root, in the order of the messages
+ * @private
+ */
+async function writeAll(
+  root: string,
+  folder: string,
+  dropIso: string,
+  messages: SavedMessage[],
+): Promise<string[]> {
+  return await mapLimit(messages, WRITE_LIMIT, async (m, i) => {
+    const file = messageFileName(i, m.headers, dropIso);
+    await writeFile(join(root, folder, file), m.raw);
+    return `${folder}/${file}`;
+  });
 }

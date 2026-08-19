@@ -13,7 +13,8 @@
 // reason a thread gets dragged. Fetching them all is how the newest is known to be newest.
 
 import { app, session } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { IPC } from '../core/ipc';
 import type {
@@ -38,6 +39,8 @@ import {
 import { mapLimit } from '../core/concurrency';
 import { OverlayView } from '../windows/overlay-view';
 import { forceRefresh } from '../auth/oauth-flow';
+import type { OAuthConfig } from '../auth/google-oauth';
+import type { OAuthStore } from '../auth/oauth-store';
 import { oauthConfig } from '../auth/oauth-config';
 import { copyTargetEmails, isAllowedAccount } from '../auth/account-domain';
 import {
@@ -67,15 +70,19 @@ import {
   copyTotal,
   copyableLabelIds,
   countExisting,
+  duplicateChecks,
   duplicateIndex,
   groupDuplicates,
   labelsStillNeeded,
   newMessageCount,
   normalizeTargets,
+  scanAnswer,
+  threadGroups,
   type CopyMode,
   type DuplicateHit,
   type ExistingInMailbox,
   type ExistingResult,
+  type MailboxScan,
 } from './mail-copy';
 import {
   LABEL_SCRAPE_JS,
@@ -126,6 +133,12 @@ let lastDropSaved: SavedRef[] = [];
 let lastDropSource = '';
 
 let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
+
+/** What the picker's own scan found, kept for the check at Kopieer, which asks a narrower
+ * question about the same mail. Stamped with the drag it belongs to, so the next drag
+ * ignores it rather than answering for the wrong mail. */
+let lastExisting: { serial: number; byEmail: Map<string, MailboxScan> } | null = null;
+
 let dropSerial = 0;
 
 
@@ -267,7 +280,7 @@ async function saveOneThread(
 
   let files: string[];
   try {
-    files = writeThread(root, ts, ok);
+    files = await writeThread(root, ts, ok);
   } catch {
     return failed(`Kan niet schrijven naar ${root}`);
   }
@@ -316,38 +329,41 @@ async function findDuplicates(
   saved: SavedRef[],
   onProgress: (done: number, total: number, email: string) => void,
 ): Promise<DuplicateHit[]> {
-  const tokens = new Map<string, string>();
-  for (const t of targets) {
-    const got = await mailboxToken(t.email);
-    if (got.ok) tokens.set(t.email, got.token);
-  }
+  const checks = duplicateChecks(targets, saved);
 
-  const checks: Array<{ email: string; labelId: string; ref: SavedRef }> = [];
-  for (const t of targets) {
-    if (!tokens.has(t.email)) continue;
-    for (const labelId of t.labelIds) {
-      for (const ref of saved) if (ref.messageId.trim()) checks.push({ email: t.email, labelId, ref });
-    }
-  }
+  // The scan behind the picker asked the wider question — which labels hold this message —
+  // so most of these are already answered. What it did not cover, because the mailbox
+  // refused or the drag was too big to scan, is still asked here.
+  const scan = lastExisting?.serial === dropSerial ? lastExisting.byEmail : null;
+  const answers = checks.map((check) => scanAnswer(scan, check));
+  const open = checks.filter((_, i) => answers[i] === null);
 
-  let done = 0;
-  const hits = await mapLimit(checks, DUPLICATE_CHECK_LIMIT, async (c) => {
-    let exists = false;
-    try {
-      exists = await messageExistsInLabel(tokens.get(c.email)!, c.ref.messageId, c.labelId);
-    } catch {
+  let done = checks.length - open.length;
+  if (open.length > 0) {
+    const tokens = new Map<string, string>();
+    for (const email of new Set(open.map((c) => c.email))) {
+      const got = await mailboxToken(email);
+      if (got.ok) tokens.set(email, got.token);
     }
-    onProgress((done += 1), checks.length, c.email);
-    return exists
-      ? {
-          email: c.email,
-          labelId: c.labelId,
-          messageId: c.ref.messageId,
-          subject: c.ref.subject,
+
+    const asked = await mapLimit(open, DUPLICATE_CHECK_LIMIT, async (check) => {
+      const token = tokens.get(check.email);
+      let exists = false;
+      if (token) {
+        try {
+          exists = await messageExistsInLabel(token, check.messageId, check.labelId);
+        } catch {
         }
-      : null;
-  });
-  return hits.filter((h) => h !== null);
+      }
+      onProgress((done += 1), checks.length, check.email);
+      return exists;
+    });
+
+    let at = 0;
+    for (const [i, answer] of answers.entries()) if (answer === null) answers[i] = asked[at++];
+  }
+
+  return checks.filter((_, i) => answers[i] === true);
 }
 
 function scanKey(targets: MailDropCopyTarget[]): string {
@@ -422,7 +438,9 @@ interface CollectedThread {
   error?: string;
 }
 
-const THREAD_FETCH_LIMIT = 5;
+// Four rather than five, because the messages inside a conversation are now fetched
+// alongside each other too and it is the product of the two that meets Gmail's quota
+const THREAD_FETCH_LIMIT = 4;
 
 async function collectLabelViaApi(
   account: string,
@@ -534,7 +552,7 @@ async function saveLabel(
   const flat = collected.flatMap((c) => c.messages);
   let files: string[] = [];
   try {
-    files = writeLabel(root, ts, label, flat);
+    files = await writeLabel(root, ts, label, flat);
   } catch {
     const error = `Kan niet schrijven naar ${root}`;
     return {
@@ -613,6 +631,10 @@ async function saveLabel(
   return { items, saved, rows: collected.map((c) => c.messages.length) };
 }
 
+// How many dragged conversations are fetched at once. Times MESSAGE_FETCH_LIMIT for the
+// messages inside each of them, so the whole drag stays around twelve requests in flight.
+const DRAG_THREAD_LIMIT = 4;
+
 export async function handleMailDrop(acctKey: string, payload: MailDropPayload): Promise<void> {
   const ts = new Date().toISOString();
   const account = profiles.find((p) => keyOf(p) === acctKey)?.email ?? '';
@@ -656,11 +678,12 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
     return;
   }
 
-  const done: MailDropPreviewItem[] = [];
-  const saved: number[] = [];
-  let lastError: string | undefined;
-  for (const item of items) {
-    const r = await saveOneThread(
+  // Side by side rather than one after the other: ten dragged mails were ten conversations
+  // waiting on each other, which is minutes on a normal mailbox. mapLimit answers in the
+  // order the rows were dragged, so the preview strip, the numbering and log.jsonl read the
+  // same as when this was a loop.
+  const results = await mapLimit(items, DRAG_THREAD_LIMIT, (item) =>
+    saveOneThread(
       ts,
       account,
       root,
@@ -669,7 +692,14 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
       payload.ik,
       item.message ?? null,
       item.messageUnknown ?? false,
-    );
+    ),
+  );
+
+  const done: MailDropPreviewItem[] = [];
+  const saved: number[] = [];
+  let lastError: string | undefined;
+  for (const [i, item] of items.entries()) {
+    const r = results[i];
     saved.push(r.count);
     if (r.error) lastError = r.error;
     lastDropSaved.push(...r.saved);
@@ -751,6 +781,9 @@ const EXISTING_SCAN_LIMIT = 10;
 
 const EXISTING_SCAN_CONCURRENCY = 4;
 
+// Per mailbox, so times EXISTING_SCAN_CONCURRENCY for what is in flight while the picker opens
+const EXISTING_MESSAGE_CONCURRENCY = 2;
+
 /** Where the last drag's mail already sits, asked the moment the picker opens.
  *
  * The warning before the choice rather than after it: the check at Kopieer only looks at
@@ -768,32 +801,204 @@ export async function existingForCopyTargets(): Promise<ExistingResult> {
   const scans = await mapLimit(targetable, EXISTING_SCAN_CONCURRENCY, async (email) => {
     const got = await mailboxToken(email);
 
-    if (!got.ok) return { email, labelIds: [] as string[] };
+    if (!got.ok) return { email, found: null };
     try {
-      const perMessage = await mapLimit(files, 2, (ref) =>
-        labelsHoldingMessage(got.token, ref.messageId),
-      );
-      return { email, labelIds: perMessage.flatMap(copyableLabelIds) };
+      const found = await mapLimit(files, EXISTING_MESSAGE_CONCURRENCY, async (ref) => ({
+        messageId: ref.messageId,
+        labelIds: await labelsHoldingMessage(got.token, ref.messageId),
+      }));
+      return { email, found };
     } catch (e) {
 
       console.warn(`[maildrop] kon ${email} niet controleren op dubbelen:`, e);
-      return { email, labelIds: [], error: 'Kon niet controleren' };
+      return { email, found: null, error: 'Kon niet controleren' };
     }
   });
 
+  // Kept before it is folded into counts: the check at Kopieer needs to know which message
+  // sits under which label, and the counts no longer say.
+  const byEmail = new Map<string, MailboxScan>();
   const hits: Array<{ email: string; labelId: string }> = [];
   const failed: ExistingInMailbox[] = [];
   for (const scan of scans) {
     if (scan.error) failed.push({ email: scan.email, labels: [], error: scan.error });
-    else for (const labelId of scan.labelIds) hits.push({ email: scan.email, labelId });
+    if (!scan.found) continue;
+    byEmail.set(scan.email, new Map(scan.found.map((m) => [m.messageId, m.labelIds])));
+    for (const message of scan.found) {
+      for (const labelId of copyableLabelIds(message.labelIds)) {
+        hits.push({ email: scan.email, labelId });
+      }
+    }
   }
+  lastExisting = { serial: dropSerial, byEmail };
   return { accounts: [...countExisting(hits), ...failed], scanned: files.length };
+}
+
+// How many mails go into one mailbox at once. An insert costs 25 of the 250 quota units a
+// user gets per second, so ten a second is the ceiling; four in flight stays under it and
+// fills a normal uplink, which is the real limit on a mail with attachments.
+const COPY_LIMIT = 4;
+
+/** What copying one file to one mailbox came to. Kept per file rather than appended as it
+ * happens, so log.jsonl reads in the order of the drag and not in the order the uploads
+ * finished. */
+interface CopyOutcome {
+  copied?: true;
+  skipped?: true;
+  error?: string;
+  record?: LogRecord;
+}
+
+/**
+ * Copies the saved files into one mailbox
+ *
+ * @param arg
+ * @returns {Promise<CopyOutcome[]>} one entry per file, in the order of the drag
+ * @private
+ */
+async function copyToMailbox(arg: {
+  cfg: OAuthConfig;
+  tokens: OAuthStore;
+  ts: string;
+  target: MailDropCopyTarget;
+  token: string;
+  files: SavedRef[];
+  index: Set<string>;
+  onDone: () => void;
+}): Promise<CopyOutcome[]> {
+  const { cfg, tokens, ts, target, files, index, onDone } = arg;
+  const outcomes = new Array<CopyOutcome>(files.length);
+  let token = arg.token;
+
+  // One refresh per mailbox however many uploads ran into the 401 together: each of them
+  // asking for a fresh token would trade the expired one in four times over, and the later
+  // answers would invalidate the token the earlier uploads just got.
+  let refreshing: Promise<string | null> | null = null;
+  const freshToken = async (used: string): Promise<string | null> => {
+    if (token !== used) return token;
+    refreshing ??= (async () => {
+      const fresh = await forceRefresh(cfg, tokens, target.email);
+      if (fresh) {
+        token = fresh;
+        clearRefreshFailure(target.email);
+      } else {
+        markRefreshFailed(target.email);
+      }
+      return fresh;
+    })().finally(() => {
+      refreshing = null;
+    });
+    return await refreshing;
+  };
+
+  await mapLimit(threadGroups(files), COPY_LIMIT, async (group) => {
+    let landedIn: string | undefined;
+    for (const { ref, index: at } of group) {
+      const { outcome, threadId } = await copyOneFile({
+        ts,
+        target,
+        ref,
+        index,
+        landedIn,
+        token: () => token,
+        freshToken,
+      });
+      if (!landedIn && threadId) landedIn = threadId;
+      outcomes[at] = outcome;
+      onDone();
+    }
+  });
+  return outcomes;
+}
+
+/**
+ * Copies one saved file into one mailbox
+ *
+ * @param arg
+ * @returns {Promise<{outcome: CopyOutcome, threadId?: string}>} the thread it landed in, for
+ *   the rest of its conversation to be filed under
+ * @private
+ */
+async function copyOneFile(arg: {
+  ts: string;
+  target: MailDropCopyTarget;
+  ref: SavedRef;
+  index: Set<string>;
+  landedIn?: string;
+  token: () => string;
+  freshToken: (used: string) => Promise<string | null>;
+}): Promise<{ outcome: CopyOutcome; threadId?: string }> {
+  const { ts, target, ref, index, landedIn } = arg;
+  const { file, messageId } = ref;
+
+  const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
+  if (labelIds.length === 0) return { outcome: { skipped: true } };
+
+  let raw: Buffer;
+  try {
+    raw = await readFile(file);
+  } catch {
+    const error = `Kan ${file} niet lezen`;
+    return { outcome: { error, record: { ts, account: target.email, threadId: '', file, error } } };
+  }
+
+  try {
+    const used = arg.token();
+    const insert = (t: string, thread?: string) => insertMessage(t, raw, labelIds, thread);
+    let inserted: { id: string | null; threadId: string | null };
+    try {
+      inserted = await insert(used, landedIn);
+    } catch (e) {
+      if (e instanceof GmailHttpError && e.status === 400 && landedIn) {
+        console.warn(`[maildrop] ${file} paste niet in thread ${landedIn}, los ingevoegd`);
+        inserted = await insert(used);
+      } else {
+        if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
+        const fresh = await arg.freshToken(used);
+        if (!fresh) throw new Error('Verbinding verlopen');
+        inserted = await insert(fresh, landedIn);
+      }
+    }
+    return {
+      outcome: {
+        copied: true,
+        record: {
+          ts,
+          account: target.email,
+          threadId: inserted.threadId ?? inserted.id ?? '',
+          file,
+          bytes: raw.length,
+          copy: { to: target.email, labels: labelIds, ok: true },
+        },
+      },
+      threadId: inserted.threadId ?? undefined,
+    };
+  } catch (e) {
+    const error = (e as Error).message;
+    return {
+      outcome: {
+        error,
+        record: {
+          ts,
+          account: target.email,
+          threadId: '',
+          file,
+          error,
+          copy: { to: target.email, labels: labelIds, ok: false, error },
+        },
+      },
+    };
+  }
 }
 
 /** Copies whatever the last drag saved into the chosen labels, in the chosen mailboxes.
  *
  * Runs in three modes. 'check' scans for messages already there and reports them rather than
- * copying; 'all' skips the scan; the default copies what the scan said was new. */
+ * copying; 'all' skips the scan; the default copies what the scan said was new.
+ *
+ * The mails of one mailbox go up alongside each other, the mailboxes themselves one after
+ * the other: the progress bar names the mailbox it is working on, and that only stays true
+ * with one at a time. */
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
@@ -871,79 +1076,33 @@ export async function copyToMailboxes(arg: {
       });
       continue;
     }
-    let token = got.token;
+    const outcomes = await copyToMailbox({
+      cfg,
+      tokens: oauthTokens,
+      ts,
+      target,
+      token: got.token,
+      files,
+      index,
+      onDone: () => {
+        done += 1;
+        progress('copy', target.email);
+      },
+    });
 
+    // In the order of the drag rather than the order the uploads finished, so log.jsonl and
+    // the error the strip shows read the same as when this ran one mail at a time.
     let ok = 0;
     let over = 0;
     let lastError: string | undefined;
-
-    const threadOfCopy = new Map<string, string>();
-    for (const { file, messageId, threadId: sourceThreadId } of files) {
-      const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
-      if (labelIds.length === 0) {
-        over += 1;
-        done += 1;
-        progress('copy', target.email);
-        continue;
-      }
-      let raw: Buffer;
-      try {
-        raw = readFileSync(file);
-      } catch {
-        lastError = `Kan ${file} niet lezen`;
-        records.push({ ts, account: target.email, threadId: '', file, error: lastError });
-        done += 1;
-        progress('copy', target.email);
-        continue;
-      }
-
-      const groupKey = sourceThreadId || file;
-      const landedIn = threadOfCopy.get(groupKey);
-      try {
-        let inserted: { id: string | null; threadId: string | null };
-        const insert = (t: string, thread?: string) => insertMessage(t, raw, labelIds, thread);
-        try {
-          inserted = await insert(token, landedIn);
-        } catch (e) {
-          if (e instanceof GmailHttpError && e.status === 400 && landedIn) {
-            console.warn(`[maildrop] ${file} paste niet in thread ${landedIn}, los ingevoegd`);
-            inserted = await insert(token);
-          } else {
-            if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
-            const fresh = await forceRefresh(cfg, oauthTokens, target.email);
-            if (!fresh) {
-              markRefreshFailed(target.email);
-              throw new Error('Verbinding verlopen');
-            }
-            token = fresh;
-            clearRefreshFailure(target.email);
-            inserted = await insert(token, landedIn);
-          }
-        }
-        if (!landedIn && inserted.threadId) threadOfCopy.set(groupKey, inserted.threadId);
-        ok += 1;
-        records.push({
-          ts,
-          account: target.email,
-          threadId: inserted.threadId ?? inserted.id ?? '',
-          file,
-          bytes: raw.length,
-          copy: { to: target.email, labels: labelIds, ok: true },
-        });
-      } catch (e) {
-        lastError = (e as Error).message;
-        records.push({
-          ts,
-          account: target.email,
-          threadId: '',
-          file,
-          error: lastError,
-          copy: { to: target.email, labels: labelIds, ok: false, error: lastError },
-        });
-      }
-      done += 1;
-      progress('copy', target.email);
+    for (const outcome of outcomes) {
+      if (!outcome) continue;
+      if (outcome.copied) ok += 1;
+      if (outcome.skipped) over += 1;
+      if (outcome.error) lastError = outcome.error;
+      if (outcome.record) records.push(outcome.record);
     }
+
     copied += ok;
     skipped += over;
     accounts.push({
