@@ -10,6 +10,7 @@ import { clipboard } from 'electron';
 import {
   coverage,
   history,
+  messageIndex,
   pushManager,
   oauthTokens,
   prefs,
@@ -45,6 +46,7 @@ import { notifyLog } from '../notify/notify-log';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
 import { nativeLabels } from '../menus/native-labels';
 import { displayName } from '../mail/mail-archive';
+import { remember } from '../mail/message-index';
 import { extractPlainText } from '../mail/eml';
 import { findVerificationCode, subjectSuggestsCode } from '../gmail/verification-code';
 import {
@@ -126,6 +128,25 @@ async function handleVerificationCode(
 }
 
 
+/**
+ * Notes the mail that just arrived, so the picker knows this mailbox holds it
+ *
+ * The headers were fetched for the notification anyway; the Message-ID rides along on that
+ * same call, which is what makes knowing this free.
+ *
+ * @param email the mailbox it arrived in
+ * @param arrivals what the sync turned up
+ */
+function rememberArrivals(email: string, arrivals: MessageMeta[]): void {
+  const withId = arrivals.filter((m) => m.messageId);
+  if (withId.length === 0) return;
+  if (!messageIndex) return;
+  const now = Date.now();
+  const index = messageIndex.load();
+  for (const meta of withId) remember(index, meta.messageId, email, ['INBOX'], now);
+  messageIndex.save(now);
+}
+
 export function syncRunnerFor(email: string): { run(): Promise<void> } | null {
   const existing = syncRunners.get(email);
   if (existing) return existing;
@@ -152,6 +173,7 @@ export function syncRunnerFor(email: string): { run(): Promise<void> } | null {
 
       if (RELAY_PUSH_ENABLED) for (const meta of outcome.notify) notifyNewMail(email, meta);
       for (const meta of outcome.notify) void handleVerificationCode(email, meta, withToken);
+      rememberArrivals(email, outcome.notify);
     },
     onError: (e) => console.warn(`[sync] sync mislukte voor ${email}:`, e),
   });

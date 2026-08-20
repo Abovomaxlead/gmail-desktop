@@ -41,6 +41,13 @@ import {
   labelGetUrl,
   parseUnreadThreads,
   SEARCH_MATCH_LIMIT,
+  batchedMessageIdQuery,
+  messageIdChunks,
+  BATCH_QUERY_LIMIT,
+  searchManyUrl,
+  parseMessageIdAndLabels,
+  scanFromBatch,
+  MESSAGE_META_HEADERS,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -465,11 +472,14 @@ describe('parseHistoryPage', () => {
 });
 
 describe('message metadata', () => {
-  it('asks for only the two headers a notification shows', () => {
+  // Named headers rather than the whole message: this call is made for every new inbox mail,
+  // and the two a notification shows plus the one the duplicate index is keyed on are all of
+  // it. A third header on a call already being made is what makes that index free.
+  it('asks for the named headers and never for the whole message', () => {
     const url = new URL(messageMetaUrl('m1'));
     expect(url.pathname).toBe('/gmail/v1/users/me/messages/m1');
     expect(url.searchParams.get('format')).toBe('metadata');
-    expect(url.searchParams.getAll('metadataHeaders')).toEqual(['From', 'Subject']);
+    expect(url.searchParams.getAll('metadataHeaders')).toEqual(['From', 'Subject', 'Message-ID']);
   });
 
   it('escapes the id instead of building a broken url', () => {
@@ -495,6 +505,7 @@ describe('message metadata', () => {
       from: 'Jan <jan@x.nl>',
       subject: 'Offerte',
       internalDate: 1780000000000,
+      messageId: '',
     });
   });
 
@@ -687,5 +698,166 @@ describe('apiHeaders', () => {
 
   it('always names the header, so a call can never go out unauthenticated', () => {
     expect(Object.keys(apiHeaders(''))).toContain('Authorization');
+  });
+});
+
+
+describe('batchedMessageIdQuery', () => {
+  it('asks for several Message-IDs at once', () => {
+    expect(batchedMessageIdQuery(['<a@x>', '<b@x>'])).toBe(
+      'rfc822msgid:a@x OR rfc822msgid:b@x',
+    );
+  });
+
+  it('strips the angle brackets Gmail does not want, as the single query does', () => {
+    expect(batchedMessageIdQuery(['<a@x>'])).toBe('rfc822msgid:a@x');
+  });
+
+  it('leaves out what is not a Message-ID rather than asking a broken question', () => {
+    expect(batchedMessageIdQuery(['<a@x>', '   ', ''])).toBe('rfc822msgid:a@x');
+  });
+});
+
+describe('messageIdChunks', () => {
+  // Gmail stops answering an OR query somewhere around sixteen terms, and answers it with
+  // nothing rather than with an error, so the chunk stays well below that
+  it('never makes a chunk Gmail would silently drop', () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `<${i}@x>`);
+    const chunks = messageIdChunks(ids);
+    expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(BATCH_QUERY_LIMIT);
+    expect(BATCH_QUERY_LIMIT).toBeLessThan(16);
+  });
+
+  it('keeps every id exactly once, in order', () => {
+    const ids = Array.from({ length: 25 }, (_, i) => `<${i}@x>`);
+    expect(messageIdChunks(ids).flat()).toEqual(ids);
+  });
+
+  it('has no chunks for nothing to ask', () => {
+    expect(messageIdChunks([])).toEqual([]);
+  });
+});
+
+describe('searchManyUrl', () => {
+  it('asks after the whole chunk plus the canary in one search', () => {
+    const url = searchManyUrl(['<a@x>', '<b@x>'], '<canary@x>');
+    const q = new URL(url).searchParams.get('q');
+    expect(q).toBe('rfc822msgid:a@x OR rfc822msgid:b@x OR rfc822msgid:canary@x');
+  });
+
+  // Every asked id may turn up more than once, and the canary takes a slot of its own
+  it('leaves room for every mail the chunk could match', () => {
+    const url = searchManyUrl(['<a@x>', '<b@x>'], '<canary@x>');
+    expect(Number(new URL(url).searchParams.get('maxResults'))).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('parseMessageIdAndLabels', () => {
+  const json = (headers: Array<[string, string]>, labelIds: string[]) => ({
+    id: 'm1',
+    labelIds,
+    payload: { headers: headers.map(([name, value]) => ({ name, value })) },
+  });
+
+  it('reads the Message-ID and the labels out of one metadata answer', () => {
+    expect(parseMessageIdAndLabels(json([['Message-ID', '<a@x>']], ['INBOX', 'L1']))).toEqual({
+      messageId: '<a@x>',
+      labelIds: ['INBOX', 'L1'],
+    });
+  });
+
+  // Gmail is inconsistent about the case of this header name
+  it('finds the header whatever case it arrives in', () => {
+    expect(parseMessageIdAndLabels(json([['Message-Id', '<a@x>']], []))?.messageId).toBe('<a@x>');
+  });
+
+  it('is null without a Message-ID, since there is nothing to match on', () => {
+    expect(parseMessageIdAndLabels(json([['Subject', 'hoi']], ['INBOX']))).toBeNull();
+  });
+
+  it('is null for junk', () => {
+    expect(parseMessageIdAndLabels(null)).toBeNull();
+  });
+});
+
+describe('scanFromBatch', () => {
+  const hit = (messageId: string, labelIds: string[]) => ({ messageId, labelIds });
+  const canary = '<canary@x>';
+
+  it('trusts the answer once the canary came back with it', () => {
+    const out = scanFromBatch(['<a@x>', '<b@x>'], [hit(canary, ['INBOX']), hit('<a@x>', ['L1'])], canary);
+    expect(out.trusted).toBe(true);
+    expect(out.found).toEqual([
+      { messageId: '<a@x>', labelIds: ['L1'] },
+      { messageId: '<b@x>', labelIds: [] },
+    ]);
+  });
+
+  // The whole reason the canary is in the query: Gmail answers a query it did not understand
+  // with nothing, which reads exactly like "this mailbox has none of them"
+  it('refuses to read an answer the canary is missing from', () => {
+    const out = scanFromBatch(['<a@x>', '<b@x>'], [], canary);
+    expect(out.trusted).toBe(false);
+    expect(out.found).toEqual([]);
+  });
+
+  it('does not let a hit stand in for the canary', () => {
+    const out = scanFromBatch(['<a@x>'], [hit('<a@x>', ['L1'])], canary);
+    expect(out.trusted).toBe(false);
+  });
+
+  // Headers arrive with and without the brackets, and both name the same mail
+  it('matches a Message-ID whether or not it wears its brackets', () => {
+    const out = scanFromBatch(['<a@x>'], [hit('canary@x', []), hit('a@x', ['L1'])], canary);
+    expect(out.trusted).toBe(true);
+    expect(out.found).toEqual([{ messageId: '<a@x>', labelIds: ['L1'] }]);
+  });
+
+  it('unions the labels when a mailbox holds the same mail twice', () => {
+    const out = scanFromBatch(
+      ['<a@x>'],
+      [hit(canary, []), hit('<a@x>', ['L1']), hit('<a@x>', ['L2', 'L1'])],
+      canary,
+    );
+    expect(out.found).toEqual([{ messageId: '<a@x>', labelIds: ['L1', 'L2'] }]);
+  });
+
+  // Without a canary there is nothing to prove the query with, so nothing may be believed
+  it('trusts nothing when there is no canary to ask about', () => {
+    expect(scanFromBatch(['<a@x>'], [hit('<a@x>', ['L1'])], '').trusted).toBe(false);
+  });
+});
+
+describe('parseMessageMeta, the Message-ID it now also carries', () => {
+  // The sync already fetches headers for every new inbox mail, so this one rides along free
+  // and is what the duplicate index is keyed on
+  it('reads the Message-ID off the same answer', () => {
+    const meta = parseMessageMeta({
+      id: 'm1',
+      threadId: 't1',
+      internalDate: '1700000000000',
+      payload: {
+        headers: [
+          { name: 'From', value: 'a@x.nl' },
+          { name: 'Subject', value: 'hoi' },
+          { name: 'Message-ID', value: '<a@x>' },
+        ],
+      },
+    });
+    expect(meta?.messageId).toBe('<a@x>');
+  });
+
+  it('is an empty Message-ID when the header did not come along', () => {
+    const meta = parseMessageMeta({
+      id: 'm1',
+      threadId: 't1',
+      internalDate: '1700000000000',
+      payload: { headers: [{ name: 'From', value: 'a@x.nl' }] },
+    });
+    expect(meta?.messageId).toBe('');
+  });
+
+  it('asks Gmail for the header, or it would never arrive', () => {
+    expect(MESSAGE_META_HEADERS).toContain('Message-ID');
   });
 });

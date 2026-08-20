@@ -7,6 +7,7 @@ import type { HistoryPage, MessageMeta } from '../electron/gmail/gmail-api';
 const meta = (id: string, internalDate: number): MessageMeta => ({
   id,
   threadId: `t-${id}`,
+  messageId: `<${id}@x>`,
   from: 'Jan <jan@x.nl>',
   subject: `Onderwerp ${id}`,
   internalDate,

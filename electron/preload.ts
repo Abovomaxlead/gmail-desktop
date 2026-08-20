@@ -15,12 +15,17 @@ import {
   type NotifyState,
   type MailDropPayload,
   type MailDropResult,
+  type MailDropSaveProgress,
+  type MailDropLock,
 } from './core/ipc';
 import { labelFromDragTarget } from './mail/label-drop';
 import {
   DROPZONE_ID,
   DROPZONE_CSS,
   DROPZONE_LABEL,
+  DROPLOCK_ID,
+  DROPLOCK_CSS,
+  PULLING_TEXT,
   DRAG_CHROME_Z,
   threadIdFromDragTarget,
   messageRefFromDragTarget,
@@ -34,6 +39,7 @@ import {
   authuserFromPath,
   ikFromPage,
   resultText,
+  savingText,
   type DragNode,
   type MessageRef,
 } from './mail/dropzone';
@@ -302,18 +308,29 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
 function installDropzone(
   send: (p: MailDropPayload) => void,
   log: (message: string) => void,
-): (r: MailDropResult) => void {
+): {
+  showResult: (r: MailDropResult) => void;
+  showProgress: (p: MailDropSaveProgress) => void;
+  setLock: (l: MailDropLock) => void;
+} {
   const style = document.createElement('style');
-  style.textContent = DROPZONE_CSS;
+  style.textContent = DROPZONE_CSS + DROPLOCK_CSS;
   const zone = document.createElement('div');
   zone.id = DROPZONE_ID;
   zone.textContent = DROPZONE_LABEL;
   zone.setAttribute('data-state', 'idle');
 
+  // The veil that makes a pull exclusive. Always in the page and shown by its data-state, so
+  // Gmail rebuilding its own DOM cannot take it away at the moment it is needed.
+  const lock = document.createElement('div');
+  lock.id = DROPLOCK_ID;
+  lock.setAttribute('data-state', 'off');
+
   const host = document.body ?? document.documentElement;
   const attach = () => {
     if (!host.contains(style)) host.appendChild(style);
     if (!host.contains(zone)) host.appendChild(zone);
+    if (!host.contains(lock)) host.appendChild(lock);
   };
   attach();
   new MutationObserver(attach).observe(host, { childList: true });
@@ -321,11 +338,16 @@ function installDropzone(
 
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
   let saving = false;
+  let locked = false;
+  /** Whether this page is the one that started the pull, and so the one a result is coming to.
+   * The other accounts' pages are locked by the same pull and get none. */
+  let mine = false;
   const setState = (s: string) => zone.setAttribute('data-state', s);
   const reset = () => {
     saving = false;
-    zone.textContent = DROPZONE_LABEL;
-    setState('idle');
+    // A page that is still locked says so again rather than inviting another drag.
+    zone.textContent = locked ? PULLING_TEXT : DROPZONE_LABEL;
+    setState(locked ? 'armed' : 'idle');
   };
 
   let pressThreadId: string | null = null;
@@ -373,7 +395,9 @@ function installDropzone(
   document.addEventListener(
     'mousedown',
     (e) => {
-      if (e.button !== 0) return;
+      // No gesture may begin while mail is being pulled. The veil already stops the mouse
+      // reaching Gmail; this stops one that started before the veil went up.
+      if (locked || e.button !== 0) return;
       const target = e.target as unknown as DragNode | null;
       pressThreadId = threadIdFromDragTarget(target);
       pressMessage = pressThreadId ? messageRefFromDragTarget(target) : null;
@@ -399,7 +423,7 @@ function installDropzone(
   document.addEventListener(
     'mousemove',
     (e) => {
-      if ((!pressThreadId && !pressLabel) || !pressAt) return;
+      if (locked || (!pressThreadId && !pressLabel) || !pressAt) return;
       const at = { x: e.clientX, y: e.clientY };
       if (!dragging && !movedEnough(pressAt, at)) return;
       dragging = true;
@@ -415,6 +439,7 @@ function installDropzone(
   document.addEventListener(
     'mouseup',
     (e) => {
+      if (locked) return;
       const threadId = pressThreadId;
       const message = pressMessage;
       const label = pressLabel;
@@ -427,6 +452,7 @@ function installDropzone(
       }
       if (label) {
         saving = true;
+        mine = true;
         zone.textContent = `Mail uit "${label}" ophalen…`;
         setState('armed');
         send({
@@ -461,6 +487,7 @@ function installDropzone(
             .join(' '),
       );
       saving = true;
+      mine = true;
       zone.textContent = items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…';
       setState('armed');
       send({
@@ -474,11 +501,50 @@ function installDropzone(
     true,
   );
 
-  return (r: MailDropResult) => {
-    zone.textContent = resultText(r);
-    setState(r.ok ? 'done' : 'failed');
-    if (clearTimer) clearTimeout(clearTimer);
-    clearTimer = setTimeout(reset, 2000);
+  return {
+    showResult: (r: MailDropResult) => {
+      mine = false;
+      zone.textContent = resultText(r);
+      setState(r.ok ? 'done' : 'failed');
+      if (clearTimer) clearTimeout(clearTimer);
+      clearTimer = setTimeout(reset, 2000);
+    },
+
+    showProgress: (p: MailDropSaveProgress) => {
+      if (clearTimer) clearTimeout(clearTimer);
+      zone.textContent = savingText(p.done, p.total);
+      setState('armed');
+    },
+
+    setLock: (l: MailDropLock) => {
+      locked = l.locked;
+      lock.setAttribute('data-state', l.locked ? 'on' : 'off');
+      if (l.locked) {
+        saving = true;
+        // A gesture that was half-made when the lock arrived is dropped here, or its press
+        // state would still be waiting and Gmail's drag card would keep the z-index the
+        // gesture lifted it to.
+        endGesture();
+        // The page that dragged already says what it is doing, and its own line is the better
+        // one to keep until the first count arrives.
+        if (!mine) {
+          zone.textContent = PULLING_TEXT;
+          setState('armed');
+        }
+        return;
+      }
+      // The pull's own result reaches the page that dragged just before this does, and that is
+      // the line to leave standing. So the strip is only touched for the two cases the result
+      // does not cover: a lock that lifted itself, and a page that had no result coming.
+      if (l.note) {
+        zone.textContent = l.note;
+        setState('failed');
+        if (clearTimer) clearTimeout(clearTimer);
+        clearTimer = setTimeout(reset, 4000);
+        return;
+      }
+      if (!mine) reset();
+    },
   };
 }
 
@@ -560,11 +626,17 @@ if (typeof document !== 'undefined') {
         if (answered) return;
         answered = true;
         if (!allowed) return;
-        const showResult = installDropzone(
+        // Only a view that may drag to save listens for any of this, so a mailbox outside the
+        // work domain is never veiled by a pull it could not have started.
+        const drop = installDropzone(
           (p) => ipcRenderer.send(IPC.MAIL_DROP, p),
           (message) => ipcRenderer.send(IPC.VIEW_LOG, message),
         );
-        ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e2: unknown, r: MailDropResult) => showResult(r));
+        ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e2: unknown, r: MailDropResult) => drop.showResult(r));
+        ipcRenderer.on(IPC.MAIL_DROP_SAVE_PROGRESS, (_e2: unknown, p: MailDropSaveProgress) =>
+          drop.showProgress(p),
+        );
+        ipcRenderer.on(IPC.MAIL_DROP_LOCK, (_e2: unknown, l: MailDropLock) => drop.setLock(l));
       });
 
       let asks = 0;

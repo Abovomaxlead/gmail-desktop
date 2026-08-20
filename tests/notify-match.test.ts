@@ -7,6 +7,7 @@ import type { MessageMeta } from '../electron/gmail/gmail-api';
 const meta = (over: Partial<MessageMeta> = {}): MessageMeta => ({
   id: 'm1',
   threadId: 't1',
+  messageId: '<m1@x>',
   from: 'Anna Bos <anna@example.com>',
   subject: 'Offerte week 33',
   internalDate: 1000,

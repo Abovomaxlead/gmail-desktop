@@ -83,6 +83,35 @@ export const NOTHING_SAVED = 'Niets opgeslagen';
 
 export const DRAG_THRESHOLD = 15;
 
+export const DROPLOCK_ID = 'gmd-droplock';
+
+/** Just under the strip, so the veil covers Gmail and the line that says why stays legible
+ * on top of it. */
+export const DROPLOCK_Z = DROPZONE_Z - 1;
+
+// The one layer in this file that does swallow clicks: while mail is being pulled the page
+// underneath must not answer a second drag, and a strip that only says so does not stop one.
+// Apart, so the strip's own stylesheet keeps its promise of never taking a click.
+export const DROPLOCK_CSS = `
+#${DROPLOCK_ID} {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  display: none; cursor: progress;
+  background: rgba(255, 255, 255, 0.45);
+  z-index: ${DROPLOCK_Z}; pointer-events: auto;
+}
+#${DROPLOCK_ID}[data-state="on"] { display: block; }
+`;
+
+/** While the label is being listed there is nothing to count yet. */
+export const SEARCHING_TEXT = 'Mail zoeken…';
+
+/** What the other accounts' views say, since they are locked by a pull they did not start. */
+export const PULLING_TEXT = 'Er wordt mail opgehaald…';
+
+export const BUSY_TEXT = 'Er wordt al mail opgehaald';
+
+export const SLOW_TEXT = 'Ophalen duurde te lang';
+
 const MESSAGE_ID_ATTR = 'data-legacy-message-id';
 const MESSAGE_PERM_ATTR = 'data-message-id';
 
@@ -319,6 +348,22 @@ export function dropOutcome(
   const total = saved.length;
   if (count === 0) return { ok: false, count: 0, total, error: error ?? NOTHING_SAVED };
   return { ok: true, count, total };
+}
+
+/**
+ * What the strip says while mail is being pulled
+ *
+ * Conversations, not mails: both pull paths loop over conversations, and how many mails a
+ * label holds is not known until every one of them has been fetched. A total of nothing means
+ * the label is still being listed, which is the one moment there is nothing to count.
+ *
+ * @param done conversations pulled so far
+ * @param total conversations this pull will fetch, or 0 while that is not known yet
+ * @returns the line for the strip
+ */
+export function savingText(done: number, total: number): string {
+  if (total <= 0) return SEARCHING_TEXT;
+  return `${done} van ${total} opgehaald`;
 }
 
 /**

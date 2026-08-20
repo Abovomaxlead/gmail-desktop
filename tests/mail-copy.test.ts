@@ -3,6 +3,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeTargets,
+  checkLogLine,
+  copyLogLine,
   copyTotal,
   groupDuplicates,
   duplicateIndex,
@@ -13,6 +15,11 @@ import {
   duplicateChecks,
   scanAnswer,
   threadGroups,
+  assembleCopy,
+  perMailboxLimit,
+  runThreadGroup,
+  existingSoFar,
+
 } from '../electron/mail/mail-copy';
 
 describe('normalizeTargets', () => {
@@ -341,5 +348,305 @@ describe('threadGroups', () => {
 
   it('has no groups for nothing saved', () => {
     expect(threadGroups([])).toEqual([]);
+  });
+});
+
+
+describe('existingSoFar', () => {
+  const found = (messageId: string, labelIds: string[]) => ({ messageId, labelIds });
+
+  it('counts the labels a mailbox already holds the drag under', () => {
+    const { result } = existingSoFar(
+      [{ email: 'a@x.nl', found: [found('<1>', ['INBOX']), found('<2>', ['INBOX', 'L1'])] }],
+      2,
+    );
+    expect(result.accounts).toEqual([
+      { email: 'a@x.nl', labels: [{ labelId: 'INBOX', count: 2 }, { labelId: 'L1', count: 1 }] },
+    ]);
+    expect(result.scanned).toBe(2);
+  });
+
+  // The whole point of the progressive scan: a mailbox that has not answered yet is absent
+  // from the result rather than reported as holding nothing
+  it('reports only the mailboxes that have answered', () => {
+    const { result } = existingSoFar([{ email: 'a@x.nl', found: [found('<1>', ['INBOX'])] }], 3);
+    expect(result.accounts.map((a) => a.email)).toEqual(['a@x.nl']);
+  });
+
+  it('passes on a mailbox that refused, without labels', () => {
+    const { result } = existingSoFar(
+      [{ email: 'a@x.nl', found: null, error: 'Kon niet controleren' }],
+      1,
+    );
+    expect(result.accounts).toEqual([
+      { email: 'a@x.nl', labels: [], error: 'Kon niet controleren' },
+    ]);
+  });
+
+  it('leaves a mailbox that holds nothing out of the warning', () => {
+    const { result } = existingSoFar([{ email: 'a@x.nl', found: [found('<1>', [])] }], 1);
+    expect(result.accounts).toEqual([]);
+  });
+
+  it('keeps the per-message labels the check at Kopieer reuses', () => {
+    const { byEmail } = existingSoFar(
+      [{ email: 'a@x.nl', found: [found('<1>', ['INBOX']), found('<2>', [])] }],
+      2,
+    );
+    expect(byEmail.get('a@x.nl')?.get('<1>')).toEqual(['INBOX']);
+    expect(byEmail.get('a@x.nl')?.get('<2>')).toEqual([]);
+  });
+
+  it('holds no scan for a mailbox that could not be asked', () => {
+    const { byEmail } = existingSoFar([{ email: 'a@x.nl', found: null, error: 'weg' }], 1);
+    expect(byEmail.has('a@x.nl')).toBe(false);
+  });
+
+  it('carries the drag it belongs to, so a late answer can be recognised', () => {
+    const { result } = existingSoFar([], 0, 7);
+    expect(result.serial).toBe(7);
+  });
+});
+
+describe('existingSoFar, how far it has got', () => {
+  it('counts a mailbox that answered, whether or not it held anything', () => {
+    const { result } = existingSoFar(
+      [
+        { email: 'a@x.nl', found: [{ messageId: '<1>', labelIds: ['INBOX'] }] },
+        { email: 'b@x.nl', found: [{ messageId: '<1>', labelIds: [] }] },
+      ],
+      1,
+    );
+    expect(result.answered).toBe(2);
+  });
+
+  it('counts a mailbox that refused, since it will not answer again', () => {
+    const { result } = existingSoFar([{ email: 'a@x.nl', found: null, error: 'weg' }], 1);
+    expect(result.answered).toBe(1);
+  });
+});
+
+describe('existingSoFar, an answer that came from the index', () => {
+  const found = (messageId: string, labelIds: string[]) => ({ messageId, labelIds });
+
+  // What the app remembers is good enough to warn with, and not good enough to decide a copy
+  // on: the check at Kopieer reads byEmail, so what came out of the index stays out of it
+  it('warns from a remembered answer but keeps it out of what Kopieer reuses', () => {
+    const { result, byEmail } = existingSoFar(
+      [{ email: 'a@x.nl', found: [found('<1>', ['L1'])], provisional: true }],
+      1,
+    );
+    expect(result.accounts).toEqual([{ email: 'a@x.nl', labels: [{ labelId: 'L1', count: 1 }] }]);
+    expect(byEmail.has('a@x.nl')).toBe(false);
+  });
+
+  it('lets a real answer be reused as before', () => {
+    const { byEmail } = existingSoFar([{ email: 'a@x.nl', found: [found('<1>', ['L1'])] }], 1);
+    expect(byEmail.get('a@x.nl')?.get('<1>')).toEqual(['L1']);
+  });
+});
+
+describe('assembleCopy', () => {
+  const rec = (account: string, file: string) => ({ ts: 't', account, file });
+  const one = (email: string, copied: number, skipped: number, files: string[], error?: string) => ({
+    account: { email, copied, skipped, total: copied + skipped, error },
+    records: files.map((f) => rec(email, f)),
+  });
+
+  // The mailboxes now upload alongside each other, so the order they finish in is not the order
+  // they were picked in. This is what keeps log.jsonl reading the same as when they ran in a row.
+  it('writes the log in the order the mailboxes were picked, not the order they finished', () => {
+    const out = assembleCopy([
+      one('a@x.nl', 2, 0, ['01.eml', '02.eml']),
+      one('b@x.nl', 1, 0, ['01.eml']),
+    ]);
+    expect(out.records.map((r) => `${r.account}/${r.file}`)).toEqual([
+      'a@x.nl/01.eml',
+      'a@x.nl/02.eml',
+      'b@x.nl/01.eml',
+    ]);
+  });
+
+  it('reports the mailboxes in the order they were picked', () => {
+    const out = assembleCopy([one('b@x.nl', 1, 0, ['01.eml']), one('a@x.nl', 1, 0, ['01.eml'])]);
+    expect(out.accounts.map((a) => a.email)).toEqual(['b@x.nl', 'a@x.nl']);
+  });
+
+  it('adds up what was copied and what was skipped', () => {
+    const out = assembleCopy([one('a@x.nl', 2, 1, ['01.eml']), one('b@x.nl', 3, 2, ['02.eml'])]);
+    expect({ copied: out.copied, skipped: out.skipped }).toEqual({ copied: 5, skipped: 3 });
+  });
+
+  it('keeps a mailbox that could not be reached in the report, with its error', () => {
+    const out = assembleCopy([one('a@x.nl', 0, 0, [], 'Verbinding verlopen')]);
+    expect(out.accounts[0].error).toBe('Verbinding verlopen');
+    expect(out.copied).toBe(0);
+  });
+
+  it('has nothing to assemble for nothing copied', () => {
+    expect(assembleCopy([])).toEqual({ records: [], accounts: [], copied: 0, skipped: 0 });
+  });
+});
+
+describe('runThreadGroup', () => {
+  const recorder = (thread: string | null = 't-new') => {
+    const calls: Array<{ item: string; landedIn?: string; at: number }> = [];
+    let live = 0;
+    let peak = 0;
+    const insert = async (item: string, landedIn?: string) => {
+      live += 1;
+      peak = Math.max(peak, live);
+      calls.push({ item, landedIn, at: calls.length });
+      await Promise.resolve();
+      live -= 1;
+      return { threadId: thread ?? undefined };
+    };
+    return { calls, insert, peak: () => peak };
+  };
+
+  it('sends nothing for an empty group', async () => {
+    const r = recorder();
+    await runThreadGroup([], r.insert, 4);
+    expect(r.calls).toEqual([]);
+  });
+
+  it('sends a single mail once, with no thread to attach it to', async () => {
+    const r = recorder();
+    await runThreadGroup(['a'], r.insert, 4);
+    expect(r.calls).toEqual([{ item: 'a', landedIn: undefined, at: 0 }]);
+  });
+
+  // The first insert is what creates the thread the rest belong to, so it goes alone; the rest
+  // all attach to the same thread and have no reason to wait for each other
+  it('sends the first alone and then the rest alongside each other', async () => {
+    const r = recorder('t-1');
+    await runThreadGroup(['a', 'b', 'c'], r.insert, 4);
+    expect(r.calls[0].item).toBe('a');
+    expect(r.calls.slice(1).map((c) => c.landedIn)).toEqual(['t-1', 't-1']);
+    expect(r.peak()).toBeGreaterThan(1);
+  });
+
+  it('never has more than the limit of the rest in flight', async () => {
+    const r = recorder('t-1');
+    await runThreadGroup(['a', 'b', 'c', 'd', 'e'], r.insert, 2);
+    expect(r.peak()).toBeLessThanOrEqual(2);
+  });
+
+  // Without a thread from the first insert there is nothing to attach to, and firing the rest
+  // off together would scatter one conversation over as many threads. Then it stays a row, and
+  // whichever insert does come back with a thread carries the ones after it.
+  it('keeps going in a row when the first mail landed nowhere', async () => {
+    const calls: Array<{ item: string; landedIn?: string }> = [];
+    let live = 0;
+    let peak = 0;
+    const insert = async (item: string, landedIn?: string) => {
+      live += 1;
+      peak = Math.max(peak, live);
+      calls.push({ item, landedIn });
+      await Promise.resolve();
+      live -= 1;
+      return { threadId: item === 'a' ? undefined : 't-2' };
+    };
+    await runThreadGroup(['a', 'b', 'c'], insert, 4);
+    expect(peak).toBe(1);
+    expect(calls.map((c) => c.landedIn)).toEqual([undefined, undefined, 't-2']);
+  });
+
+  it('gives every mail of the group to the inserter exactly once', async () => {
+    const r = recorder('t-1');
+    await runThreadGroup(['a', 'b', 'c', 'd'], r.insert, 3);
+    expect(r.calls.map((c) => c.item).sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
+});
+
+describe('perMailboxLimit', () => {
+  // The bug this fixes: bounding each half separately meant one mailbox got the same narrow
+  // limit as one of three, leaving its own quota unused
+  it('gives a single mailbox everything it can use', () => {
+    expect(perMailboxLimit(1, 12, 8)).toBe(8);
+  });
+
+  it('divides the uploads in flight over the mailboxes being worked', () => {
+    expect(perMailboxLimit(3, 12, 8)).toBe(4);
+    expect(perMailboxLimit(2, 12, 8)).toBe(6);
+  });
+
+  // A mailbox's own ceiling is ten inserts a second whatever this says, so opening it wider
+  // than that only costs memory
+  it('never opens one mailbox wider than that mailbox can use', () => {
+    expect(perMailboxLimit(1, 100, 8)).toBe(8);
+  });
+
+  it('keeps every mailbox at at least one upload', () => {
+    expect(perMailboxLimit(20, 12, 8)).toBe(1);
+  });
+
+  it('treats no mailboxes as one, rather than dividing by nothing', () => {
+    expect(perMailboxLimit(0, 12, 8)).toBe(8);
+  });
+});
+
+describe('copyLogLine', () => {
+  const base = {
+    email: 'support@abovomaxlead.nl',
+    delegated: true,
+    tokenMs: 812,
+    inserts: [400, 600, 1900],
+    copied: 3,
+    skipped: 0,
+    failed: 0,
+  };
+
+  // The whole question this logging exists for: is a delegated target slower than an own one,
+  // and in which phase. So the kind and the token are on the line, not just the total.
+  it('names the kind of mailbox and what its token cost', () => {
+    const line = copyLogLine(base);
+    expect(line).toContain('support@abovomaxlead.nl');
+    expect(line).toContain('gedelegeerd');
+    expect(line).toContain('token 812ms');
+  });
+
+  it('calls an own account what it is', () => {
+    expect(copyLogLine({ ...base, delegated: false })).toContain('eigen');
+  });
+
+  // A mean would hide the one upload that took nine seconds, which is the thing worth seeing
+  it('reports the middle and the worst insert, not an average', () => {
+    const line = copyLogLine(base);
+    expect(line).toContain('mediaan 600ms');
+    expect(line).toContain('traagste 1.9s');
+  });
+
+  it('reports the total the inserts took', () => {
+    expect(copyLogLine(base)).toContain('3 inserts in 2.9s');
+  });
+
+  it('reports what came of them', () => {
+    const line = copyLogLine({ ...base, copied: 8, skipped: 2, failed: 1 });
+    expect(line).toContain('8 gekopieerd');
+    expect(line).toContain('2 overgeslagen');
+    expect(line).toContain('1 mislukt');
+  });
+
+  it('says so plainly when nothing was inserted at all', () => {
+    const line = copyLogLine({ ...base, inserts: [], copied: 0, skipped: 3 });
+    expect(line).toContain('0 inserts');
+    expect(line).not.toContain('mediaan');
+  });
+});
+
+describe('checkLogLine', () => {
+  // The reused scan is the difference between nought requests and hundreds, so the line has to
+  // say how much of the check was answered for free
+  it('separates what was reused from what had to be asked again', () => {
+    const line = checkLogLine({ checks: 30, reused: 28, asked: 2, ms: 1450 });
+    expect(line).toContain('30 vragen');
+    expect(line).toContain('28 uit de scan');
+    expect(line).toContain('2 opnieuw gevraagd');
+    expect(line).toContain('1.5s');
+  });
+
+  it('says when the whole check cost nothing', () => {
+    expect(checkLogLine({ checks: 30, reused: 30, asked: 0, ms: 3 })).toContain('0 opnieuw gevraagd');
   });
 });

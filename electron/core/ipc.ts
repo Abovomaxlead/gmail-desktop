@@ -76,12 +76,15 @@ export const IPC = {
   NOTIFY_ALLOWED: 'notify:allowed',
   MAIL_DROP_ALLOWED: 'maildrop:allowed',
   MAIL_DROP_RESULT: 'mail:drop-result',
+  MAIL_DROP_SAVE_PROGRESS: 'maildrop:save-progress',
+  MAIL_DROP_LOCK: 'maildrop:lock',
   MAIL_DROP_PREVIEW: 'maildrop:preview',
   MAIL_DROP_PREVIEW_CLOSE: 'maildrop:preview-close',
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get',
   MAIL_DROP_COPY: 'maildrop:copy',
   MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress',
   MAIL_DROP_EXISTING_GET: 'maildrop:existing-get',
+  MAIL_DROP_EXISTING: 'maildrop:existing',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
@@ -139,11 +142,33 @@ export type {
   ExistingResult as MailDropExisting,
 } from '../mail/mail-copy';
 
+/** The saved-mail folder as the settings page needs it: the path, and whether that path hands
+ * the mail to something else -- a share or a sync folder. */
+export interface MailDropFolderStatus {
+  folder: string;
+  remote: boolean;
+}
+
 export interface MailDropResult {
   ok: boolean;
   count: number;
   total: number;
   error?: string;
+}
+
+/** How far a pull has got, counted in conversations because that is what both pull paths
+ * loop over. */
+export interface MailDropSaveProgress {
+  done: number;
+  /** 0 while the label is still being listed, when the total is not known yet */
+  total: number;
+}
+
+/** Whether every Gmail view is locked because mail is being pulled. `note` is set only when
+ * the lock lifted by itself, which means the pull outlasted its hold rather than finished. */
+export interface MailDropLock {
+  locked: boolean;
+  note?: string;
 }
 
 export interface DownloadRecord {

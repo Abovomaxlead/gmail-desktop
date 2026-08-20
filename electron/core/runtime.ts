@@ -21,6 +21,7 @@ import type { DelegatedStore } from '../delegation/delegated-store';
 import type { PrefsStore } from './prefs-store';
 import type { OAuthStore } from '../auth/oauth-store';
 import type { HistoryStore } from '../gmail/history-store';
+import type { MessageIndexStore } from '../mail/message-index';
 import type { DownloadHistoryStore } from '../system/download-history';
 import type { AccountCacheStore, CachedAccount } from '../accounts/account-cache';
 import type { OverlayView } from '../windows/overlay-view';
@@ -63,6 +64,10 @@ export let removed: RemovedStore | null = null;
 export let delegated: DelegatedStore | null = null;
 export let oauthTokens: OAuthStore | null = null;
 export let history: HistoryStore | null = null;
+
+/** Shared on purpose: the store keeps the whole index in memory and writes all of it, so a
+ * second instance would overwrite what the first remembered. */
+export let messageIndex: MessageIndexStore | null = null;
 export let downloadHistory: DownloadHistoryStore | null = null;
 export let accountCache: AccountCacheStore | null = null;
 export let toasts: ToastController | null = null;
@@ -113,6 +118,9 @@ export function setOauthTokens(v: OAuthStore | null): void {
 }
 export function setHistory(v: HistoryStore | null): void {
   history = v;
+}
+export function setMessageIndex(v: MessageIndexStore | null): void {
+  messageIndex = v;
 }
 export function setDownloadHistory(v: DownloadHistoryStore | null): void {
   downloadHistory = v;

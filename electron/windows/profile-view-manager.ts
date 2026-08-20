@@ -13,6 +13,8 @@ import {
   type NotifyState,
   type MailDropPayload,
   type MailDropResult,
+  type MailDropSaveProgress,
+  type MailDropLock,
 } from '../core/ipc';
 import { attachExternalLinkHandling } from '../system/external-links';
 import { mailSearchHash } from '../gmail/google-urls';
@@ -618,6 +620,43 @@ export class ProfileViewManager {
     const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
     if (!wc || wc.isDestroyed()) return;
     wc.send(IPC.MAIL_DROP_RESULT, result);
+  }
+
+  /**
+   * Tells every Gmail view that mail is being pulled, or that it no longer is
+   *
+   * Every view and not the one that was dragged from: the pull is one module-level job, so a
+   * lock that covered a single view left switching accounts as a way to start a second one.
+   *
+   * @param lock
+   */
+  sendDropLock(lock: MailDropLock): void {
+    this.sendToMailViews(IPC.MAIL_DROP_LOCK, lock);
+  }
+
+  /**
+   * Tells every Gmail view how far the pull has got
+   *
+   * @param progress conversations pulled and conversations to pull
+   */
+  sendDropProgress(progress: MailDropSaveProgress): void {
+    this.sendToMailViews(IPC.MAIL_DROP_SAVE_PROGRESS, progress);
+  }
+
+  /**
+   * Sends to the mail surface of every account, skipping the other surfaces
+   *
+   * @param channel
+   * @param arg
+   * @private
+   */
+  private sendToMailViews(channel: string, arg: unknown): void {
+    for (const [vk, v] of this.views) {
+      // The key is `${accountKey}:${surface}` and an account key may hold colons of its own,
+      // so the surface is read off the end rather than by splitting the whole key.
+      if (vk.slice(vk.lastIndexOf(':') + 1) !== 'mail') continue;
+      if (!v.webContents.isDestroyed()) v.webContents.send(channel, arg);
+    }
   }
 
   /**

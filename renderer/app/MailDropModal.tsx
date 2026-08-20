@@ -45,11 +45,13 @@ export interface MailDropCopyResult {
   newCount?: number;
 }
 
+/** How far the copy has got, over all the chosen mailboxes at once. No mailbox is named:
+ * both the check and the copy run several of them alongside each other, so singling one out
+ * would say something untrue. */
 export interface MailDropCopyProgress {
   phase: 'check' | 'copy';
   done: number;
   total: number;
-  email: string;
 }
 
 export interface MailDropExistingLabel {
@@ -66,4 +68,6 @@ export interface MailDropExistingInMailbox {
 export interface MailDropExisting {
   accounts: MailDropExistingInMailbox[];
   scanned: number;
+  serial: number;
+  answered: number;
 }

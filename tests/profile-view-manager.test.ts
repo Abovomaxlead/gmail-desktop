@@ -207,3 +207,46 @@ describe('who may offer drag-to-save', () => {
     expect(sent()).toEqual([{ channel: 'maildrop:allowed', args: [true] }]);
   });
 });
+
+// A pull locks every Gmail view, not the one that was dragged from: the drop handler is one
+// module-level pull, so switching accounts mid-pull was the way to start a second one. The
+// broadcast is what makes the lock true everywhere, and it has to stay off the other
+// surfaces -- a veil over Calendar would be a bug nobody could explain.
+describe('the pull lock reaches every Gmail view', () => {
+  const second: AccountRef = { kind: 'authuser', index: 1 };
+  const sentOn = (win: ReturnType<typeof fakeWin>, channel: string) =>
+    win.contentView.addChildView.mock.calls
+      .map((c: unknown[]) => c[0] as { webContents: { sent: Array<{ channel: string; args: unknown[] }> } })
+      .map((v) => v.webContents.sent.filter((s) => s.channel === channel).length);
+
+  it('locks the mail view of every account and leaves the other surfaces alone', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.ensureView(owned, 'mail', true);
+    m.ensureView(second, 'mail', true);
+    m.ensureView(owned, 'calendar', true);
+
+    m.sendDropLock({ locked: true });
+
+    // In the order the views were built: mail, mail, calendar.
+    expect(sentOn(win, 'maildrop:lock')).toEqual([1, 1, 0]);
+  });
+
+  it('sends the count to every Gmail view as well, so each says why it is locked', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.ensureView(owned, 'mail', true);
+    m.ensureView(second, 'mail', true);
+    m.ensureView(owned, 'calendar', true);
+
+    m.sendDropProgress({ done: 3, total: 10 });
+
+    expect(sentOn(win, 'maildrop:save-progress')).toEqual([1, 1, 0]);
+    const first = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { sent: Array<{ channel: string; args: unknown[] }> };
+    };
+    expect(first.webContents.sent.find((s) => s.channel === 'maildrop:save-progress')?.args).toEqual([
+      { done: 3, total: 10 },
+    ]);
+  });
+});

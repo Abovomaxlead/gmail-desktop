@@ -6,7 +6,8 @@ import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import { Switch } from './Switch';
-import { BUTTON, HINT, VALUE } from './tokens';
+import { BUTTON, HINT, VALUE, WARN_HINT } from './tokens';
+import type { MailDropFolderStatus } from '../../../electron/core/ipc';
 
 
 //===========================
@@ -22,13 +23,13 @@ const PDF = String.fromCharCode(0x202c);
 //===========================
 
 export function DownloadsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | null }) {
-  const [mailDropFolder, setMailDropFolder] = useState('');
+  const [drop, setDrop] = useState<MailDropFolderStatus>({ folder: '', remote: false });
   useEffect(() => {
     let alive = true;
     window.desktop
       ?.getMailDropFolder()
-      .then((f) => {
-        if (alive) setMailDropFolder(f);
+      .then((s) => {
+        if (alive) setDrop(s);
       })
       .catch(() => {});
     return () => {
@@ -80,10 +81,10 @@ export function DownloadsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nu
 
       <SettingsGroup title={S.mailDropGroup}>
         <SettingRow label={S.mailDropFolder} description={S.mailDropHint}>
-          <Path value={mailDropFolder} />
+          <Path value={drop.folder} />
           <button
             type="button"
-            onClick={() => void window.desktop?.pickMailDropFolder().then(setMailDropFolder)}
+            onClick={() => void window.desktop?.pickMailDropFolder().then(setDrop)}
             className={BUTTON}
           >
             {S.mailDropChoose}
@@ -92,6 +93,7 @@ export function DownloadsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nu
             {S.mailDropOpen}
           </button>
         </SettingRow>
+        {drop.remote && <p className={`mt-1 ${WARN_HINT}`}>{S.mailDropRemote}</p>}
       </SettingsGroup>
     </Section>
   );

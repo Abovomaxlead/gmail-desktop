@@ -8,6 +8,11 @@ import {
   authuserFromPath,
   ikFromPage,
   resultText,
+  savingText,
+  SEARCHING_TEXT,
+  DROPLOCK_ID,
+  DROPLOCK_CSS,
+  DROPLOCK_Z,
   dropOutcome,
   NOTHING_SAVED,
   DROPZONE_ID,
@@ -479,5 +484,53 @@ describe('stacking', () => {
 
   it('stays at the top of what a page can stack', () => {
     expect(DRAG_CHROME_Z).toBe(2147483647);
+  });
+});
+
+describe('savingText', () => {
+  it('says it is still looking while the total is unknown', () => {
+    expect(savingText(0, 0)).toBe(SEARCHING_TEXT);
+  });
+  it('counts the conversations pulled so far', () => {
+    expect(savingText(0, 10)).toBe('0 van 10 opgehaald');
+    expect(savingText(7, 10)).toBe('7 van 10 opgehaald');
+    expect(savingText(10, 10)).toBe('10 van 10 opgehaald');
+  });
+  it('counts a single conversation as well', () => {
+    expect(savingText(1, 1)).toBe('1 van 1 opgehaald');
+  });
+});
+
+describe('the lock layer', () => {
+  it('stays out of the way until a pull turns it on', () => {
+    expect(DROPLOCK_CSS).toContain('display: none');
+    expect(DROPLOCK_CSS).toContain('[data-state="on"] { display: block');
+  });
+
+  it('does swallow clicks, which is the whole point of it', () => {
+    expect(DROPLOCK_CSS).toContain('pointer-events: auto');
+  });
+
+  it('covers the page rather than a strip of it', () => {
+    for (const side of ['top: 0', 'left: 0', 'right: 0', 'bottom: 0']) {
+      expect(DROPLOCK_CSS).toContain(side);
+    }
+  });
+
+  it('sits under the strip that says why the page is locked', () => {
+    expect(DROPLOCK_Z).toBeLessThan(DROPZONE_Z);
+    expect(DROPLOCK_CSS).toContain(`z-index: ${DROPLOCK_Z};`);
+  });
+
+  it('scopes every rule to the lock id, so Gmail keeps its own styling', () => {
+    const selectors = DROPLOCK_CSS.split('}')
+      .map((b) => b.split('{')[0].trim())
+      .filter(Boolean);
+    expect(selectors.length).toBeGreaterThan(0);
+    for (const s of selectors) expect(s).toContain(`#${DROPLOCK_ID}`);
+  });
+
+  it('keeps the two layers on ids of their own', () => {
+    expect(DROPLOCK_ID).not.toBe(DROPZONE_ID);
   });
 });

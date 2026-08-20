@@ -53,6 +53,7 @@ export interface UiStrings {
   mailDropHint: string;
   mailDropChoose: string;
   mailDropOpen: string;
+  mailDropRemote: string;
   theme: string;
   themeDescription: string;
   themeSystem: string;
@@ -389,6 +390,8 @@ export const STRINGS_NORMAL: UiStrings = {
     'Mail you drag into the strip at the top of Gmail is saved here as .eml, with a log.jsonl next to it',
   mailDropChoose: 'Choose…',
   mailDropOpen: 'Open',
+  mailDropRemote:
+    'This folder is on a network share or a sync folder, so the saved mail leaves this PC — and records appended to log.jsonl can be lost there. A folder on the machine itself keeps both.',
   theme: 'Theme',
   themeDescription: 'Follow Windows, or keep the app light or dark whatever Windows does.',
   themeSystem: 'System',
@@ -688,6 +691,8 @@ export const STRINGS_RENE: UiStrings = {
   mailDropHint: 'Sleep een mailtje naar de balk boven Gmail. Dan komt hij hier te staan.',
   mailDropChoose: 'Kies map',
   mailDropOpen: 'Laat zien',
+  mailDropRemote:
+    'Deze map staat niet op deze computer, maar op de server. De mail gaat dan weer weg van de pc, en het lijstje ernaast kan stukjes kwijtraken. Kies liever een map op de computer zelf.',
   theme: 'Kleur',
   themeDescription: 'Licht of donker. Of laat de computer het kiezen.',
   themeSystem: 'De computer kiest',
@@ -977,6 +982,8 @@ export const STRINGS_NL: UiStrings = {
     'Mail die je naar de strook boven Gmail sleept, komt hier als .eml te staan, met een log.jsonl ernaast',
   mailDropChoose: 'Kiezen…',
   mailDropOpen: 'Openen',
+  mailDropRemote:
+    'Deze map staat op een netwerkshare of in een syncmap: de bewaarde mail verlaat deze pc, en regels die aan log.jsonl worden toegevoegd kunnen daar verdwijnen. Een map op de machine zelf houdt beide.',
   theme: 'Thema',
   themeDescription: 'Volg Windows, of houd de app licht of donker wat Windows ook doet.',
   themeSystem: 'Systeem',

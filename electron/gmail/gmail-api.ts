@@ -9,6 +9,18 @@
 import { randomBytes } from 'node:crypto';
 import { mapLimit } from '../core/concurrency';
 import { withRetry } from './retry';
+import { notifyLog } from '../notify/notify-log';
+import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
+import {
+  BATCH_LIMIT,
+  BATCH_URL,
+  RAW_BATCH_LIMIT,
+  batchBody,
+  batchPath,
+  boundaryFrom,
+  parseBatchBody,
+  batchLooksBroken,
+} from './batch';
 
 
 //===========================
@@ -53,6 +65,8 @@ export interface MessageMeta {
   from: string;
   subject: string;
   internalDate: number;
+  /** The RFC822 Message-ID, empty when Gmail did not hand the header over */
+  messageId: string;
 }
 
 export class GmailHttpError extends Error {
@@ -85,21 +99,37 @@ export const STOP_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/stop';
 export const PROFILE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
 export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/history';
 
-export const MESSAGE_META_HEADERS = ['From', 'Subject'];
+// Message-ID rides along on a call the sync already makes for every new inbox mail, which is
+// what fills the duplicate index without costing a request.
+export const MESSAGE_META_HEADERS = ['From', 'Subject', 'Message-ID'];
+
+// A batch is many answers in one, so it is allowed longer than a single read but nowhere near
+// an upload: a group that has not answered in a minute is not going to.
+const BATCH_TIMEOUT_MS = 60_000;
+
+// Batches in flight. Each one is already fifty calls, so a handful saturates any uplink.
+const BATCH_IN_FLIGHT = 3;
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const UPLOAD_TIMEOUT_MS = 120_000;
 
-// How many messages of one conversation are read at once. This nests inside the caller's own
-// limit -- four dragged mails times three messages is twelve requests in flight -- and the
-// product is what has to stay under Gmail's 250 quota units per second per user: a
-// messages.get costs 5, so fifty a second is the ceiling.
-export const MESSAGE_FETCH_LIMIT = 3;
+// How many messages of one conversation are read at once. This used to be the thing keeping
+// the app inside Gmail's quota, which it could not do: how many requests a second a given
+// number in flight comes to depends on the round trip and nothing else. quota.ts meters the
+// rate now, so this is only about how much is in flight at once, and it is set high enough
+// that the budget is what holds a drag back rather than this.
+export const MESSAGE_FETCH_LIMIT = 8;
 
 // How many messages one Message-ID may turn up in a mailbox. More than one means the mail
 // both arrived and was copied in; beyond a handful it is the same mail over and over and the
 // labels stop telling us anything new.
 export const SEARCH_MATCH_LIMIT = 10;
+
+// How many Message-IDs go into one `OR` query. Gmail stops answering such a query somewhere
+// around sixteen terms and answers with nothing rather than with an error, which is
+// indistinguishable from "this mailbox does not have them" -- so this stays well below the
+// cliff, and a canary term proves the query was understood before an empty answer is believed.
+export const BATCH_QUERY_LIMIT = 10;
 
 /**
  * The headers every call in this file carries
@@ -302,9 +332,28 @@ export async function fetchThreadMessages(
   threadId: string,
 ): Promise<ThreadMessage[]> {
   const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
-  return collectThreadMessages(ids, async (id) =>
-    parseMessageRaw(await requestJson(messageRawUrl(id), accessToken)),
-  );
+  const oneByOne = () =>
+    collectThreadMessages(ids, async (id) =>
+      parseMessageRaw(await requestJson(messageRawUrl(id), accessToken)),
+    );
+
+  // The sources of a conversation are the bulk of a drag: one batch instead of one request per
+  // message is where the waiting goes. Small groups, because a part here is a whole mail.
+  let answers: Array<unknown | null>;
+  try {
+    answers = await requestBatch(ids.map(messageRawUrl), accessToken, RAW_BATCH_LIMIT);
+  } catch (e) {
+    notifyLog(`[gmail] batch mislukt, bericht voor bericht: ${(e as Error).message}`);
+    return await oneByOne();
+  }
+  if (batchLooksBroken(answers)) {
+    notifyLog('[gmail] batch gaf niets bruikbaars, bericht voor bericht');
+    return await oneByOne();
+  }
+  return ids.map((id, i) => {
+    const raw = parseMessageRaw(answers[i]);
+    return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
+  });
 }
 
 /**
@@ -386,6 +435,7 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
     from: header('from'),
     subject: header('subject'),
     internalDate,
+    messageId: header('message-id'),
   };
 }
 
@@ -458,6 +508,78 @@ export function messageIdQuery(messageId: string): string {
   return `rfc822msgid:${(messageId ?? '').trim().replace(/^<+|>+$/g, '')}`;
 }
 
+/**
+ * The query that asks after several Message-IDs at once
+ *
+ * @param messageIds the RFC822 Message-IDs
+ * @returns the query, empty when none of them was usable
+ */
+export function batchedMessageIdQuery(messageIds: string[]): string {
+  return messageIds
+    .map((id) => (id ?? '').trim().replace(/^<+|>+$/g, ''))
+    .filter((id) => id.length > 0)
+    .map((id) => `rfc822msgid:${id}`)
+    .join(' OR ');
+}
+
+/**
+ * Splits Message-IDs into chunks one query can carry
+ *
+ * @param messageIds
+ * @param size
+ * @returns the chunks, in the order the ids came in
+ */
+export function messageIdChunks(messageIds: string[], size = BATCH_QUERY_LIMIT): string[][] {
+  const out: string[][] = [];
+  for (let at = 0; at < messageIds.length; at += size) {
+    out.push(messageIds.slice(at, at + size));
+  }
+  return out;
+}
+
+/**
+ * The one search that asks a mailbox about a whole chunk of Message-IDs
+ *
+ * @param messageIds the chunk
+ * @param canary a Message-ID the mailbox is known to hold, which proves the query parsed
+ * @returns the URL
+ */
+export function searchManyUrl(messageIds: string[], canary: string): string {
+  const q = batchedMessageIdQuery([...messageIds, canary]);
+  // Every asked id can match more than once, and the canary needs a slot of its own
+  const maxResults = Math.min(500, (messageIds.length + 1) * SEARCH_MATCH_LIMIT);
+  return `${MESSAGES_URL}?${new URLSearchParams({ q, maxResults: String(maxResults) })}`;
+}
+
+/** The metadata call that answers both halves of the duplicate question at once: which mail
+ * this is, and what it is filed under. */
+export function messageIdAndLabelsUrl(messageId: string): string {
+  const q = new URLSearchParams({ format: 'metadata' });
+  q.append('metadataHeaders', 'Message-ID');
+  return `${MESSAGES_URL}/${encodeURIComponent(messageId)}?${q.toString()}`;
+}
+
+/**
+ * Reads which mail a search hit is, and what holds it
+ *
+ * @param json one message in metadata form
+ * @returns {null} when there is no Message-ID, since then it cannot be matched to what was
+ *   asked and counting it would be guessing
+ */
+export function parseMessageIdAndLabels(
+  json: unknown,
+): { messageId: string; labelIds: string[] } | null {
+  const headers = (json as { payload?: { headers?: unknown } })?.payload?.headers;
+  const list = Array.isArray(headers) ? (headers as Array<{ name?: unknown; value?: unknown }>) : [];
+  for (const h of list) {
+    if (typeof h?.name === 'string' && h.name.toLowerCase() === 'message-id') {
+      const messageId = stringFrom(h.value) ?? '';
+      if (messageId) return { messageId, labelIds: parseMessageLabelIds(json) };
+    }
+  }
+  return null;
+}
+
 export function searchInLabelUrl(messageId: string, labelId: string): string {
   const q = new URLSearchParams({
     q: messageIdQuery(messageId),
@@ -474,6 +596,11 @@ export function parseHasMessage(json: unknown): boolean {
 
 /**
  * Whether a label already holds this message
+ *
+ * Nothing calls this since the check at Kopieer started asking labelsHoldingMany the wider
+ * question a mailbox at a time. Kept while the batched query has not been proven against real
+ * Gmail: this is the path that worked, one request per label per message, and it is what to come
+ * back to if that turns out not to hold.
  *
  * @param accessToken
  * @param messageId the RFC822 Message-ID
@@ -556,6 +683,106 @@ export function parseMessageLabelIds(json: unknown): string[] {
  * @param messageId the RFC822 Message-ID
  * @returns {Promise<string[]>} empty when the mailbox does not have it at all
  */
+/**
+ * A Message-ID this mailbox is certainly findable by, to prove a batched query parsed
+ *
+ * Taken from the inbox on purpose: a default Gmail search leaves spam and trash out, so a
+ * canary from either would be missing for a reason that has nothing to do with the query.
+ *
+ * @param accessToken
+ * @returns the Message-ID, or an empty string when the mailbox has no inbox mail to point at,
+ *   in which case there is nothing to prove a batched query with
+ */
+export async function mailboxCanary(accessToken: string): Promise<string> {
+  const [newest] = await fetchRecentInboxIds(accessToken, 1);
+  if (!newest) return '';
+  const meta = parseMessageIdAndLabels(
+    await requestJson(messageIdAndLabelsUrl(newest), accessToken),
+  );
+  return meta?.messageId ?? '';
+}
+
+/**
+ * Reads the answer to a query that asked after several Message-IDs at once
+ *
+ * Gmail answers a query it did not parse the way we meant with an empty result, and empty is
+ * also the common real answer, so the two cannot be told apart. The query therefore carries
+ * one Message-ID the mailbox is known to hold: if that one does not come back, the answer says
+ * nothing about the others and the caller has to ask one at a time.
+ *
+ * @param asked the Message-IDs the query was about, brackets or not
+ * @param hits what came back, each already resolved to its own Message-ID
+ * @param canary a Message-ID this mailbox is known to hold
+ * @returns whether the answer may be believed, and per asked id the labels holding it
+ */
+export function scanFromBatch(
+  asked: string[],
+  hits: Array<{ messageId: string; labelIds: string[] }>,
+  canary: string,
+): { trusted: boolean; found: Array<{ messageId: string; labelIds: string[] }> } {
+  const bare = (id: string) => (id ?? '').trim().replace(/^<+|>+$/g, '');
+  const byId = new Map<string, string[]>();
+  for (const h of hits) {
+    const key = bare(h.messageId);
+    const known = byId.get(key) ?? [];
+    for (const labelId of h.labelIds) if (!known.includes(labelId)) known.push(labelId);
+    byId.set(key, known);
+  }
+
+  const proof = bare(canary);
+  if (!proof || !byId.has(proof)) return { trusted: false, found: [] };
+
+  return {
+    trusted: true,
+    found: asked.map((id) => ({ messageId: id, labelIds: byId.get(bare(id)) ?? [] })),
+  };
+}
+
+/**
+ * Which labels hold each of these messages, asked a chunk at a time
+ *
+ * One search per chunk instead of one per message, which is where the requests go on a drag of
+ * a hundred. An answer is only read when the canary proves the query was understood; a chunk
+ * that cannot be proved falls back to asking after its messages one by one, which is what this
+ * function replaces and always gives the same answer.
+ *
+ * @param accessToken
+ * @param messageIds the RFC822 Message-IDs
+ * @param canary from mailboxCanary, empty when the mailbox could not supply one
+ * @returns one entry per asked id, in order, with the labels holding it
+ */
+export async function labelsHoldingMany(
+  accessToken: string,
+  messageIds: string[],
+  canary: string,
+): Promise<Array<{ messageId: string; labelIds: string[] }>> {
+  const perChunk = await mapLimit(
+    messageIdChunks(messageIds),
+    MESSAGE_FETCH_LIMIT,
+    async (chunk) => {
+      if (canary) {
+        const hits = parseMessageIds(await requestJson(searchManyUrl(chunk, canary), accessToken));
+        const resolved = await batchedOrOneByOne(
+          hits.map(messageIdAndLabelsUrl),
+          accessToken,
+          BATCH_LIMIT,
+        ).then((answers) => answers.map(parseMessageIdAndLabels));
+        const batch = scanFromBatch(
+          chunk,
+          resolved.filter((r): r is { messageId: string; labelIds: string[] } => r !== null),
+          canary,
+        );
+        if (batch.trusted) return batch.found;
+      }
+      return await mapLimit(chunk, MESSAGE_FETCH_LIMIT, async (messageId) => ({
+        messageId,
+        labelIds: await labelsHoldingMessage(accessToken, messageId),
+      }));
+    },
+  );
+  return perChunk.flat();
+}
+
 export async function labelsHoldingMessage(
   accessToken: string,
   messageId: string,
@@ -563,9 +790,9 @@ export async function labelsHoldingMessage(
   if (!(messageId ?? '').trim()) return [];
   const found = parseMessageIds(await requestJson(searchAnywhereUrl(messageId), accessToken));
   if (found.length === 0) return [];
-  const perMatch = await mapLimit(found, MESSAGE_FETCH_LIMIT, async (id) =>
-    parseMessageLabelIds(await requestJson(messageLabelsUrl(id), accessToken)),
-  );
+  const perMatch = (
+    await batchedOrOneByOne(found.map(messageLabelsUrl), accessToken)
+  ).map(parseMessageLabelIds);
   const out: string[] = [];
   for (const labelIds of perMatch) {
     for (const labelId of labelIds) if (!out.includes(labelId)) out.push(labelId);
@@ -780,6 +1007,33 @@ export async function insertMessage(
 // Helper functions
 //===========================
 
+/** The quota is per user, so the budget is too. A refreshed token starts a fresh window,
+ * which at worst lets one window through twice; the map is trimmed because a long session
+ * refreshes many times. */
+const budgets = new Map<string, QuotaBudget>();
+
+const MAX_BUDGETS = 16;
+
+function budgetFor(accessToken: string): QuotaBudget {
+  const known = budgets.get(accessToken);
+  if (known) return known;
+  const made = createQuotaBudget(
+    {
+      now: () => Date.now(),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    },
+    // Through the log the app keeps, not console.warn: a ceiling that moved is the one signal
+    // that this project has been put on the tighter price list, and a line nobody can find
+    // afterwards is no signal at all.
+    notifyLog,
+  );
+  budgets.set(accessToken, made);
+  for (const key of [...budgets.keys()].slice(0, Math.max(0, budgets.size - MAX_BUDGETS))) {
+    budgets.delete(key);
+  }
+  return made;
+}
+
 /** A request that never got an answer, apart from one that got a bad one: only the second
  * kind is safe to send again after an insert. */
 class GmailTimeoutError extends Error {}
@@ -802,8 +1056,23 @@ async function requestJson(
   accessToken: string,
   init?: { method: string; contentType: string; body: Buffer },
 ): Promise<unknown> {
+  const call = callForUrl(url);
   return await withRetry(
-    () => attemptJson(url, accessToken, init),
+    async () => {
+      const budget = budgetFor(accessToken);
+      // Per attempt rather than per request: a retry after a 429 is another request as far as
+      // Gmail is concerned, and going straight back out is what earned the 429.
+      await budget.take(call);
+      try {
+        return await attemptJson(url, accessToken, init);
+      } catch (e) {
+        // A refusal while the budget still believed there was room means the budget is reading
+        // the wrong price list -- which is exactly what happens when Google moves this project
+        // to the table it published in May 2026, and nobody is told when that is.
+        if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+        throw e;
+      }
+    },
     (e) => ({
       method: init ? 'POST' : 'GET',
       status: e instanceof GmailHttpError ? e.status : null,
@@ -822,6 +1091,162 @@ async function requestJson(
  * @returns {Promise<unknown>} the parsed answer
  * @private
  */
+/**
+ * Sends a set of reads as one request and hands back the answers
+ *
+ * The quota is booked per inner call, because that is how Gmail counts a batch. So this saves
+ * round trips and not units, which is the whole point: the drag was never short of budget.
+ *
+ * @param urls the calls to make, full URLs or paths
+ * @param accessToken
+ * @param limit how many go in one request
+ * @returns per input url, in order, the parsed answer, or null for a call that failed on its
+ *   own — the caller decides what to do about that one rather than losing the whole group
+ */
+export async function requestBatch(
+  urls: string[],
+  accessToken: string,
+  limit = BATCH_LIMIT,
+): Promise<Array<unknown | null>> {
+  const out = new Array<unknown | null>(urls.length).fill(null);
+  const groups: Array<{ at: number; urls: string[] }> = [];
+  for (let at = 0; at < urls.length; at += limit) {
+    groups.push({ at, urls: urls.slice(at, at + limit) });
+  }
+
+  await mapLimit(groups, BATCH_IN_FLIGHT, async (group) => {
+    const boundary = `gmd_batch_${randomBytes(12).toString('hex')}`;
+    const body = Buffer.from(batchBody(group.urls.map(batchPath), boundary), 'utf8');
+    const answer = await withRetry(
+      async () => {
+        const budget = budgetFor(accessToken);
+        for (const url of group.urls) await budget.take(callForUrl(url));
+        try {
+          return await attemptMultipart(BATCH_URL, accessToken, boundary, body);
+        } catch (e) {
+          if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+          throw e;
+        }
+      },
+      (e) => ({
+        method: 'GET',
+        status: e instanceof GmailHttpError ? e.status : null,
+        timedOut: e instanceof GmailTimeoutError,
+        retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
+      }),
+    );
+
+    for (const part of parseBatchBody(answer.body, boundaryFrom(answer.contentType))) {
+      const at = Number(part.id);
+      if (Number.isInteger(at) && at >= 0 && at < group.urls.length) {
+        out[group.at + at] = part.json;
+      }
+    }
+  });
+  return out;
+}
+
+/**
+ * Reads a set of URLs in one batch, or one by one when the batch cannot be trusted
+ *
+ * @param urls
+ * @param accessToken
+ * @param limit how many go in one batch
+ * @returns per url, in order, the parsed answer or null
+ */
+export async function batchedOrOneByOne(
+  urls: string[],
+  accessToken: string,
+  limit = BATCH_LIMIT,
+): Promise<Array<unknown | null>> {
+  const oneByOne = () =>
+    mapLimit(urls, MESSAGE_FETCH_LIMIT, async (url) => {
+      try {
+        return await requestJson(url, accessToken);
+      } catch {
+        return null;
+      }
+    });
+
+  let answers: Array<unknown | null>;
+  try {
+    answers = await requestBatch(urls, accessToken, limit);
+  } catch (e) {
+    notifyLog(`[gmail] batch mislukt, één voor één: ${(e as Error).message}`);
+    return await oneByOne();
+  }
+  if (batchLooksBroken(answers)) {
+    notifyLog('[gmail] batch gaf niets bruikbaars, één voor één');
+    return await oneByOne();
+  }
+  return answers;
+}
+
+/**
+ * One attempt at a multipart request, answered raw
+ *
+ * Apart from attemptJson because a batch answer is not JSON: it has to come back as text with
+ * its content type, since the boundary to split it on is in that header.
+ *
+ * @param url
+ * @param accessToken
+ * @param boundary
+ * @param body
+ * @returns the body and the content type it came with
+ * @private
+ */
+async function attemptMultipart(
+  url: string,
+  accessToken: string,
+  boundary: string,
+  body: Buffer,
+): Promise<{ body: string; contentType: string }> {
+  const { net } = require('electron') as typeof import('electron');
+  return await new Promise((resolve, reject) => {
+    const req = net.request({ url, method: 'POST' });
+    for (const [name, value] of Object.entries(
+      apiHeaders(accessToken, `multipart/mixed; boundary=${boundary}`),
+    )) {
+      req.setHeader(name, value);
+    }
+
+    const timer = setTimeout(() => {
+      req.abort();
+      reject(new GmailTimeoutError('geen antwoord van Google (time-out)'));
+    }, BATCH_TIMEOUT_MS);
+    const settle = <T>(fn: (v: T) => void) => (v: T) => {
+      clearTimeout(timer);
+      fn(v);
+    };
+    const ok = settle(resolve);
+    const fail = settle(reject);
+    req.on('response', (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        // A batch refused as a whole answers with a status of its own, and the parts never
+        // arrive. That is the one case the caller cannot recover from part by part.
+        if (res.statusCode >= 400) {
+          fail(
+            new GmailHttpError(
+              `batch geweigerd (HTTP ${res.statusCode})`,
+              res.statusCode,
+              headerValue(res.headers, 'retry-after'),
+            ),
+          );
+          return;
+        }
+        ok({ body: text, contentType: headerValue(res.headers, 'content-type') ?? '' });
+      });
+      res.on('error', fail);
+    });
+    req.on('error', fail);
+    req.write(body);
+    req.end();
+  });
+}
+
 async function attemptJson(
   url: string,
   accessToken: string,

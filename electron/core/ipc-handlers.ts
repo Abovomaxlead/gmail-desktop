@@ -39,6 +39,7 @@ import {
   existingForCopyTargets,
   labelsForCopyTargets,
   mailDropFolder,
+  mailDropStatus,
 } from '../mail/mail-drop-controller';
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
@@ -299,17 +300,23 @@ export function registerIpc(): void {
     startMailSync();
     return { ok: true };
   });
-  ipcMain.handle(IPC.MAIL_DROP_FOLDER_GET, () => mailDropFolder());
+  ipcMain.handle(IPC.MAIL_DROP_FOLDER_GET, () => mailDropStatus());
   ipcMain.handle(IPC.MAIL_DROP_FOLDER_PICK, async () => {
-    const current = mailDropFolder();
+    const current = mailDropStatus();
     if (!mainWindow || mainWindow.isDestroyed()) return current;
     const res = await dialog.showOpenDialog(mainWindow, {
-      defaultPath: current,
+      defaultPath: current.folder,
       properties: ['openDirectory', 'createDirectory'],
     });
     if (res.canceled || res.filePaths.length === 0) return current;
     prefs?.setMailDropFolder(res.filePaths[0]);
-    return res.filePaths[0];
+    const picked = mailDropStatus();
+    // In the log as well as on the page: the page says it while it is open, and this is the
+    // record of when the mail started leaving the machine again.
+    if (picked.remote) {
+      notifyLog(`[maildrop] gekozen map staat op een netwerk- of synclocatie: ${picked.folder}`);
+    }
+    return picked;
   });
   ipcMain.on(IPC.MAIL_DROP_FOLDER_OPEN, () => {
     const dir = mailDropFolder();

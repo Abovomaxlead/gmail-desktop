@@ -5,7 +5,7 @@
 // default there instead of being caught here. The renderer holds the real types.
 
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC } from './core/ipc';
+import { IPC, type MailDropFolderStatus } from './core/ipc';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from './auth/oauth-health';
@@ -123,8 +123,18 @@ contextBridge.exposeInMainWorld('desktop', {
   getMailDropPreview: (): Promise<{ items: unknown[] }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
   getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
-  getMailDropExisting: (): Promise<{ accounts: unknown[]; scanned: number }> =>
+  getMailDropExisting: (): Promise<{
+    accounts: unknown[];
+    scanned: number;
+    serial: number;
+    answered: number;
+  }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_EXISTING_GET),
+  onMailDropExisting: (
+    cb: (arg: { accounts: unknown[]; scanned: number; serial: number; answered: number }) => void,
+  ): void => {
+    ipcRenderer.on(IPC.MAIL_DROP_EXISTING, (_e, arg) => cb(arg));
+  },
   copyMailDrop: (
     targets: Array<{ email: string; labelIds: string[] }>,
     mode?: 'check' | 'new' | 'all',
@@ -145,8 +155,10 @@ contextBridge.exposeInMainWorld('desktop', {
   onOAuthStatus: (cb: (arg: OAuthStatusReport) => void): void => {
     ipcRenderer.on(IPC.OAUTH_STATUS_CHANGED, (_e, arg) => cb(arg));
   },
-  getMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_GET),
-  pickMailDropFolder: (): Promise<string> => ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_PICK),
+  getMailDropFolder: (): Promise<MailDropFolderStatus> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_GET),
+  pickMailDropFolder: (): Promise<MailDropFolderStatus> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_FOLDER_PICK),
   openMailDropFolder: (): void => ipcRenderer.send(IPC.MAIL_DROP_FOLDER_OPEN),
   onDefaultMailStatus: (cb: (isDefault: boolean) => void): void => {
     ipcRenderer.on(IPC.MAIL_DEFAULT_STATUS, (_e, v) => cb(Boolean(v)));

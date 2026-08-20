@@ -12,7 +12,12 @@ import type {
 import { labelKind, type LabelKind } from '../label-kind';
 import { filterLabels } from '../label-search';
 import { dropFailures } from '../drop-outcome';
-import { existingCount, existingNotices, type ExistingNotice } from '../existing-labels';
+import {
+  existingCount,
+  existingNotices,
+  newerExisting,
+  type ExistingNotice,
+} from '../existing-labels';
 import {
   mailboxRows,
   pickedChips,
@@ -37,12 +42,18 @@ interface AccountLabels {
   error?: string;
 }
 
-/** Before the scan has answered, and after one that could not run. */
-const NOTHING_FOUND_YET: MailDropExisting = { accounts: [], scanned: 0 };
+/** Before the scan has answered, and after one that could not run. The serial is below every
+ * drag, so the first real answer always wins. */
+const NOTHING_FOUND_YET: MailDropExisting = {
+  accounts: [],
+  scanned: 0,
+  serial: -1,
+  answered: 0,
+};
 
 type Phase =
   | { kind: 'picking' }
-  | { kind: 'copying'; phase: 'check' | 'copy'; done: number; total: number; email: string }
+  | { kind: 'copying'; phase: 'check' | 'copy'; done: number; total: number }
   | { kind: 'confirm'; duplicates: MailDropCopyDuplicate[]; newCount: number }
   | { kind: 'done'; result: MailDropCopyResult };
 
@@ -63,47 +74,53 @@ export default function MailDropModalPage() {
   useEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
+    // Which mailboxes can be copied to depends on which one was dragged from, so this has to be
+    // asked again for every drop and never carried over. The counter keeps the answer of a
+    // request that was overtaken from replacing a newer one.
+    let labelRun = 0;
     const loadLabels = () => {
+      const mine = (labelRun += 1);
       setAccounts(null);
       void bridge
         .getLabels()
         .then(({ accounts: a }) => {
+          if (mine !== labelRun) return;
           setAccounts(a);
           setActive(firstPickable(a));
         })
-        .catch(() => setAccounts([]));
+        .catch(() => {
+          if (mine === labelRun) setAccounts([]);
+        });
     };
 
-    let run = 0;
+    // The scan runs from the drop, so what it has already found is asked for once here; the
+    // mailboxes still being looked up arrive on their own.
     const loadExisting = () => {
-      const mine = (run += 1);
       setExisting(NOTHING_FOUND_YET);
       void bridge
         .getMailDropExisting()
-        .then((e) => {
-          if (mine === run) setExisting(e);
-        })
+        .then((e) => setExisting((cur) => newerExisting(cur, e)))
         .catch(() => {
-          if (mine === run) setExisting(NOTHING_FOUND_YET);
         });
     };
     void bridge.getMailDropPreview().then(({ items: i }) => {
       if (i.length > 0) setItems(i);
     });
-    let seenPreview = false;
+    // Every drop, not every drop but the first. This used to skip the reload for the first
+    // preview after mounting, on the assumption that the mount belonged to that same drop --
+    // and any remount in between broke it, leaving the previous drag's mailboxes on screen with
+    // the mailbox just dragged from still offered as a target and the one dragged to gone.
     bridge.onMailDropPreview(({ items: i }) => {
       setItems(i);
       setPicked({});
       setSearch('');
       setPhase({ kind: 'picking' });
-      if (seenPreview) {
-        loadLabels();
-        loadExisting();
-      }
-      seenPreview = true;
+      loadLabels();
+      loadExisting();
     });
     loadLabels();
     loadExisting();
+    bridge.onMailDropExisting((e) => setExisting((cur) => newerExisting(cur, e)));
     bridge.onMailDropCopyProgress((p: MailDropCopyProgress) =>
       setPhase((cur) => (cur.kind === 'copying' ? { kind: 'copying', ...p } : cur)),
     );
@@ -142,7 +159,6 @@ export default function MailDropModalPage() {
       phase: mode === 'all' ? 'copy' : 'check',
       done: 0,
       total: 0,
-      email: targets[0].email,
     });
     try {
       const result = await bridge.copyMailDrop(targets, mode);
@@ -581,9 +597,7 @@ function Status({
   if (phase.kind === 'copying') {
     const doing = phase.phase === 'check' ? 'Controleren' : 'Kopiëren';
     const text =
-      phase.total > 0
-        ? `${doing}: ${phase.done} van ${phase.total} — ${phase.email}`
-        : `${doing} bij ${phase.email}…`;
+      phase.total > 0 ? `${doing}: ${phase.done} van ${phase.total}` : `${doing}…`;
     return <span className="text-xs text-neutral-500">{text}</span>;
   }
   if (phase.kind === 'confirm') {

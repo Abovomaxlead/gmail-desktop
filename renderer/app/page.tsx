@@ -18,6 +18,7 @@ import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 import type { OAuthStatusReport } from '../lib/oauth-status';
 import type { ComposeAccountAsk } from '../lib/compose-account';
+import type { MailDropFolderStatus } from '../../electron/core/ipc';
 import type { ToastAction, ToastState } from '../lib/toast';
 
 // The page that carries the bar and the settings panel: all state and all IPC live
@@ -224,6 +225,7 @@ interface DesktopBridge {
   getMailDropPreview(): Promise<{ items: MailDropItem[] }>;
   getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
   getMailDropExisting(): Promise<MailDropExisting>;
+  onMailDropExisting(cb: (arg: MailDropExisting) => void): void;
   copyMailDrop(
     targets: { email: string; labelIds: string[] }[],
     mode?: MailDropCopyMode,
@@ -235,8 +237,8 @@ interface DesktopBridge {
   getOAuthStatus(): Promise<OAuthStatusReport>;
   onOAuthStatus(cb: (arg: OAuthStatusReport) => void): void;
   importOAuthConfig(): Promise<{ ok: boolean; invalid?: boolean }>;
-  getMailDropFolder(): Promise<string>;
-  pickMailDropFolder(): Promise<string>;
+  getMailDropFolder(): Promise<MailDropFolderStatus>;
+  pickMailDropFolder(): Promise<MailDropFolderStatus>;
   openMailDropFolder(): void;
   onDefaultMailStatus(cb: (isDefault: boolean) => void): void;
   getChangelog(): Promise<ChangelogVersion[]>;

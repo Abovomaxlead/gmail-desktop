@@ -32,10 +32,42 @@ export interface ExistingNotice {
   error?: string;
 }
 
+/** One answer from the scan. `serial` names the drag it belongs to and `answered` how many
+ * mailboxes have replied, since the scan reports per mailbox and several of these arrive for
+ * one drag. A mailbox holding none of the drag adds no entry to `accounts`, so the count is
+ * the only thing that says which of two answers knows more. */
+export interface ExistingAnswer {
+  accounts: ExistingInMailbox[];
+  scanned: number;
+  serial: number;
+  answered: number;
+}
+
 
 //===========================
 // Exported functions
 //===========================
+
+/**
+ * Which of two answers the picker should draw
+ *
+ * The reply to the picker's own question and the pushes that follow it do not share a queue,
+ * so an answer can arrive after one that already knew more.
+ *
+ * @param current what it is drawing now
+ * @param incoming what just arrived
+ * @returns the answer of the newest drag, and within one drag the one that has heard from
+ *   the most mailboxes, so a warning never disappears again once it has been shown
+ */
+export function newerExisting(
+  current: ExistingAnswer,
+  incoming: ExistingAnswer,
+): ExistingAnswer {
+  if (incoming.serial !== current.serial) {
+    return incoming.serial > current.serial ? incoming : current;
+  }
+  return incoming.answered >= current.answered ? incoming : current;
+}
 
 /**
  * The lines the warning banner shows, one per mailbox

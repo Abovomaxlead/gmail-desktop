@@ -23,6 +23,7 @@ import {
   currentLocale,
   mainWindow,
   prefs,
+  messageIndex,
   pushManager,
   setIsQuitting,
   setPendingMailto,
@@ -188,4 +189,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   setIsQuitting(true);
   pushManager?.stop();
+  // The index writes on a short delay to stay off the main thread, so quitting straight after a
+  // drag would otherwise throw away what that drag just learned.
+  void messageIndex?.flush(Date.now());
 });

@@ -39,6 +39,7 @@ import {
   setDetectionStarted,
   setDownloadHistory,
   setHistory,
+  setMessageIndex,
   setMainWindow,
   setManager,
   setOauthTokens,
@@ -82,6 +83,7 @@ import { DelegatedStore } from '../delegation/delegated-store';
 import { OAuthStore } from '../auth/oauth-store';
 import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
+import { MessageIndexStore } from '../mail/message-index';
 import { DownloadHistoryStore } from '../system/download-history';
 import { shouldHideOnClose } from '../menus/tray-controller';
 import type { KeyInput } from '../menus/shortcuts';
@@ -165,6 +167,7 @@ export function createWindow(): void {
 
   if (dropped.length > 0) console.warn('[oauth] unlinked, outside the allowed domain:', dropped);
   setHistory(new HistoryStore(join(app.getPath('userData'), 'gmail-history.json')));
+  setMessageIndex(new MessageIndexStore(join(app.getPath('userData'), 'message-index.json')));
   setRemoved(new RemovedStore(join(app.getPath('userData'), 'removed.json')));
   setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
   setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
