@@ -3,6 +3,100 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [0.3.1-beta.13] — 2026-08-20
+
+### Gewijzigd
+- **Gesleepte mail komt op deze computer te staan, niet meer op de server.** De standaardmap
+  was de map Documenten, en die is op een domeinprofiel omgeleid naar
+  `\\ABOVOMEDIA.local\Files\Redirection\...`. Daardoor ging elke bewaarde mail meteen weer het
+  netwerk op, en de share verloor bovendien hele regels uit `log.jsonl` terwijl het bestand
+  wel groeide: gemeten 65 KB nullen in een bestand van 578 KB, met complete records ertussen
+  weg. De map is nu `%LOCALAPPDATA%\Gmail Desktop\Mail` op Windows en
+  `~/Library/Application Support/Gmail Desktop/Mail` op de Mac, waar iCloud niet bij komt.
+  **Wat er al bewaard is blijft staan waar het staat** — er wordt niets verplaatst of
+  weggegooid, en wie zelf een map had gekozen houdt die. Kiest iemand een map op een share of
+  in een syncmap, dan zegt de instelling dat er nu bij.
+- **Er wordt één sleep tegelijk opgehaald, en je ziet hoe ver hij is.** De strook boven Gmail
+  telt de gesprekken terwijl ze binnenkomen (`12 van 40 opgehaald`) in plaats van alleen
+  "bezig met opslaan". Zolang dat loopt ligt er een sluier over Gmail — in elk gekoppeld
+  postvak, niet alleen in het postvak waaruit gesleept is — en een tweede sleep wordt
+  geweigerd met een melding.
+- **Kopiëren naar meerdere postvakken gaat naast elkaar in plaats van na elkaar.** De limiet
+  die een kopie afknijpt is die van Gmail zelf en die geldt per postvak, dus drie postvakken
+  naast elkaar hebben drie keer die ruimte. De voortgangsbalk noemt daarom geen postvak meer:
+  er lopen er meerdere, en één noemen zou niet waar zijn.
+
+### Opgelost
+- **Een tweede sleep tijdens het ophalen gooide de eerste weg.** Het ophalen begint met het
+  leegmaken van de lijst opgeslagen mail en het opschuiven van de sleepteller, nog voordat er
+  één bestand geschreven is. Kwam er in dat gaatje een nieuwe sleep binnen — makkelijk, want
+  er was niets dat het tegenhield en van postvak wisselen mocht ook — dan won die, en het
+  resultaat van de eerste sleep was er niet meer. Nu houdt één sleep het slot vast tot hij
+  klaar is; laat hij het na vijf minuten niet los, dan neemt de volgende het over, zodat een
+  verzoek dat nooit antwoordt het slepen niet blokkeert.
+- **Een sleep vraagt hetzelfde gesprek niet meer één keer per regel op.** Tien regels uit één
+  gesprek waren tien keer datzelfde gesprek ophalen en tien keer helemaal uitlezen. Een
+  gemeten sleep vroeg Gmail 742 keer iets waar 79 antwoorden genoeg waren.
+- **De dubbelencheck kijkt naar de hele sleep in plaats van naar de eerste tien mailtjes.**
+  Dat plafond van tien zat er omdat elke vraag een eigen verzoek was; ze gaan nu gebundeld
+  naar Gmail, en wat de app zelf ergens heeft neergezet weet hij daarna zonder te vragen.
+
+### Changed
+- **Dragged mail is kept on this machine instead of on the server.** The default folder was
+  Documents, which a domain profile redirects to a share, so saved mail went straight back
+  onto the network — and that share silently lost whole records from `log.jsonl` while the
+  file kept growing. It is now `%LOCALAPPDATA%\Gmail Desktop\Mail` on Windows and
+  `~/Library/Application Support/Gmail Desktop/Mail` on a Mac, which iCloud does not sync.
+  **Nothing already saved is moved or deleted**, and a folder you picked yourself is kept. A
+  folder on a share or in a sync folder now says so in settings.
+- **One drag is pulled at a time, and you can see how far it is.** The strip above Gmail
+  counts the conversations as they arrive (`12 van 40 opgehaald`) rather than saying only that
+  it is busy. While it runs Gmail sits under a veil — in every linked mailbox, not only the
+  one dragged from — and a second drag is refused with a message.
+- **Copying into several mailboxes runs them side by side.** The limit that binds a copy is
+  Gmail's own and it counts per mailbox, so three mailboxes at once have three times that
+  room. The progress bar no longer names a mailbox, because more than one is running.
+
+### Fixed
+- **A second drag during a pull threw the first one away.** A pull empties the list of saved
+  mail and moves the drag counter on before it has written a single file, so a drop landing in
+  that gap won and the first drag's results were gone. One pull now holds a lock until it is
+  done, and a hold that outlasts five minutes may be taken over, so a request that never
+  answers cannot take dragging out of the app.
+- **A drag no longer asks Gmail for the same conversation once per row.** Ten rows from one
+  conversation were ten fetches and ten full parses of the same thread: 742 requests where 79
+  answers were enough.
+- **The duplicate check covers the whole drag instead of its first ten mails.** That cap
+  existed because every question was its own request; they are batched now, and what the app
+  itself filed somewhere it remembers without asking.
+
+### Voor ontwikkelaars
+- **Nieuw: `electron/gmail/quota.ts`, `electron/gmail/batch.ts`, `electron/mail/message-index.ts`,
+  `electron/mail/drop-lock.ts`, `electron/mail/mail-folder.ts`.** De concurrency-constanten waren
+  gokwerk met een opmerking over quota-eenheden ernaast; `quota.ts` rekent nu met Google's eigen
+  prijslijst en verdeelt de momenten gelijkmatig, in de volgorde waarin ze gevraagd zijn. Een
+  venster dat een hele seconde in één keer uitdeelt levert precies de 429 op waarvan de backoff
+  meer kost dan de gelijktijdigheid oplevert — gemeten: 2,2x langzamer bij 32 tegelijk.
+- **Batchen levert round trips op en geen eenheden.** Een batch van n telt als n verzoeken voor
+  de quota, dus het scheelt wachttijd en geen budget; dat was ook de bedoeling, want de gemeten
+  sleep gebruikte een derde van zijn toegestane quota. `messages.insert` kan er niet in: media
+  uploads worden in een batch geweigerd. Valt een multipart-antwoord verkeerd uit, dan gaat de
+  aanroep terug over het oude pad, met `batch mislukt` of `batch gaf niets bruikbaars` in het log.
+- **Uploadruimte wordt in bytes uitgedeeld, niet in mailtjes.** Een vast aantal moest laag genoeg
+  zijn voor die ene mail van 11,4 MB en kneep daarmee de negenennegentig van 53 KB af — gemeten
+  28% van wat Gmail toestond, puur door die instelling. `COPY_BYTES_IN_FLIGHT` is 64 MB, met een
+  plafond op het aantal, en de piek in geheugengebruik wordt daarmee begrensd door het budget in
+  plaats van door acht keer de grootste mail.
+- **Het slot draagt een token.** Een sleep die antwoordt nadat zijn eigen slot verlopen is mag
+  niet het slot vrijgeven van de sleep die hem opvolgde. `DROP_LOCK_MS` is vijf minuten; de
+  sluier gaat daarna zelf weg met `Ophalen duurde te lang` in de strook.
+- **Nog niet tegen een echte mailbox gedraaid.** De hele keten hierboven — het pacen, het
+  batchen, het parallel kopiëren, het slot, de nieuwe map — is met tests gebouwd en niet met een
+  postvak. 1627 tests groen, `tsc --noEmit` schoon op beide projecten. Daarom een beta, en de
+  eerste draai is er een om het log bij te houden: `batch mislukt`, `batch gaf niets bruikbaars`,
+  `[quota] Gmail weigerde binnen het budget` en `tweede sleep geweigerd` zijn alle vier signalen
+  dat een van deze stukken niet doet wat de tests zeggen.
+
 ## [0.3.1-beta.12] — 2026-08-18
 
 ### Opgelost
