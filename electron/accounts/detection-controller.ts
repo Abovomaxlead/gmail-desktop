@@ -22,7 +22,6 @@ import {
   oauthTokens,
   prefs,
   profiles,
-  removed,
   setCachedAccounts,
   syncRunners,
   unread,
@@ -34,6 +33,7 @@ import { startMailSync } from '../push/mail-sync-controller';
 import { maybeStartDelegatedApiScan } from '../delegation/delegated-controller';
 import { connectAccount } from '../auth/oauth-flow';
 import { isAllowedAccount } from '../auth/account-domain';
+import { revokeRefreshToken } from '../auth/token-revoke';
 import { oauthConfig } from '../auth/oauth-config';
 import { stopWatch } from '../gmail/gmail-api';
 import { colorForIndex } from './palette';
@@ -126,19 +126,7 @@ function probe(index: number): void {
 export function onIdentity(index: number, identity: { email: string; name: string; avatarUrl: string }): void {
   if (profiles.some((p) => authIdx(p) === index)) return;
 
-  const email = identity?.email;
   const isVisibleAdd = visibleProbe === index;
-
-  if (isVisibleAdd && email && removed!.has(email)) removed!.remove(email);
-
-  if (!isVisibleAdd && email && removed!.has(email)) {
-    clearProbeTimer();
-    probingIndex = null;
-    manager?.discardView(keyOfIndex(index), 'mail');
-    if (manager?.activeKey() == null && profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
-    probe(index + 1);
-    return;
-  }
 
   const decision = planNext([...seenEmails], index, identity);
   clearProbeTimer();
@@ -235,14 +223,17 @@ async function addAccountAfterConsent(
 }
 
 export function removeAccount(email: string): void {
-  removed!.add(email);
   accountCache?.remove(email);
-  const stopToken = oauthTokens?.get(email)?.accessToken;
-  if (stopToken) void stopWatch(stopToken).catch(() => undefined);
+  const doomed = oauthTokens?.get(email);
+  if (doomed?.accessToken) void stopWatch(doomed.accessToken).catch(() => undefined);
   history?.remove(email);
   coverage.forget(email);
   syncRunners.delete(email);
   oauthTokens?.remove(email);
+  // Deleting our copy leaves the grant standing at Google, so a refresh token that leaked
+  // before the unlink would keep working. Told separately, and never waited on: unlinking is
+  // a local act and must finish with the network down.
+  if (doomed?.refreshToken) void reportRevoke(email, doomed.refreshToken);
   const profile = profiles.find((p) => p.email === email);
   if (!profile) {
     pushProfiles();
@@ -263,4 +254,23 @@ export function removeAccount(email: string): void {
     if (next) showAccount(next.ref, 'mail');
     else pushActive();
   }
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Revokes an unlinked account's grant and records what Google said
+ *
+ * @param email
+ * @param refreshToken
+ * @private
+ */
+async function reportRevoke(email: string, refreshToken: string): Promise<void> {
+  const outcome = await revokeRefreshToken(refreshToken);
+  if (outcome.ok) return;
+  if (outcome.alreadyGone) return;
+  console.warn(`[oauth] could not revoke the grant for ${email}: ${outcome.error}`);
 }

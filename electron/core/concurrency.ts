@@ -108,17 +108,23 @@ export function memoise<T>(
  * @param items
  * @param limit maximum number of calls in flight at once
  * @param fn receives each item and its index
+ * @param shouldWait checked before each item is claimed, not after -- a worker told to wait
+ *   here has not taken a slot of anything fn might reserve (an upload budget, a batch), so it
+ *   costs the caller nothing to leave it waiting. Resolving 'stop' ends that worker for good;
+ *   the items it never got to are left out of `out` rather than filled in.
  * @returns results in input order
  */
 export async function mapLimit<T, R>(
   items: T[],
   limit: number,
   fn: (item: T, index: number) => Promise<R>,
+  shouldWait?: () => Promise<'continue' | 'stop'>,
 ): Promise<R[]> {
   const out = new Array<R>(items.length);
   let next = 0;
   const worker = async () => {
     for (;;) {
+      if (shouldWait && (await shouldWait()) === 'stop') return;
       const i = next++;
       if (i >= items.length) return;
       out[i] = await fn(items[i], i);

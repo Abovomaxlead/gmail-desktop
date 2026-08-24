@@ -52,7 +52,8 @@ import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menu
 import { setExternalOpener } from './system/external-links';
 import { extractMailtoFromArgv } from './mail/mailto';
 import { startMailDropCleanup } from './mail/mail-drop-cleanup';
-import { mailDropFolder } from './mail/mail-drop-controller';
+import { mailDropFolder, resumeOrphanedCopyRuns } from './mail/mail-drop-controller';
+import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 
 
@@ -175,6 +176,12 @@ app.whenReady().then(() => {
   startNotifyTimer();
   // After createWindow, which is what builds the prefs store the folder is read from.
   startMailDropCleanup(() => mailDropFolder());
+  // Best-effort, and silent when there is nothing to do: a run whose journal already recorded
+  // what to do with its markers is finished without asking; one that crashed before deciding
+  // is left for the mail-drop window to ask about the next time it opens. If the oauth store
+  // is not ready yet this early, its mailboxes simply fail to open and are picked up again on
+  // the next start -- this never blocks startup on it.
+  void resumeOrphanedCopyRuns().catch((e) => notifyLog(`[maildrop] hervatten mislukt: ${e}`));
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
   applyTraySetting();
   app.on('activate', () => {

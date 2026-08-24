@@ -3,8 +3,7 @@
 // Apart from google-tokens.json because this is progress, not a secret: deleting it costs
 // one re-calibration, where getting stuck costs every notification.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../core/json-store';
 
 export class HistoryStore {
   constructor(private readonly filePath: string) {}
@@ -16,19 +15,13 @@ export class HistoryStore {
    * @private
    */
   private all(): Record<string, string> {
-    if (!existsSync(this.filePath)) return {};
-    try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-      return raw as Record<string, string>;
-    } catch {
-      return {};
-    }
+    const raw = readJsonFile(this.filePath);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    return raw as Record<string, string>;
   }
 
   private write(map: Record<string, string>): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(map, null, 2), 'utf8');
+    writeJsonFile(this.filePath, map);
   }
 
   /**

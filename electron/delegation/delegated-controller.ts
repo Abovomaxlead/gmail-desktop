@@ -19,7 +19,6 @@ import {
   manager,
   oauthTokens,
   profiles,
-  removed,
 } from '../core/runtime';
 import { delegatedMailboxesUrl, oauthConfig } from '../auth/oauth-config';
 import { requestersInOrder } from '../auth/mailbox-token';
@@ -57,7 +56,6 @@ export function loadDelegatedProfiles(): void {
   const fresh: Profile[] = [];
   for (const d of delegated.list()) {
     const email = d.email.toLowerCase();
-    if (removed?.has(email)) continue;
     if (profiles.some((p) => p.email.toLowerCase() === email)) continue;
     const profile = delegatedProfileFor({ ...d, email });
     profiles.push(profile);
@@ -156,15 +154,11 @@ export async function refreshDelegatedFromApi(opts: { asked?: boolean } = {}): P
       continue;
     }
     const known = new Set(profiles.map((p) => p.email.toLowerCase()));
-    const fresh = res.mailboxes.filter(
-      (email) => !known.has(email) && (opts.asked === true || !removed?.has(email)),
-    );
+    const fresh = res.mailboxes.filter((email) => !known.has(email));
     if (fresh.length === 0) {
       if (opts.asked) console.log('[delegated] nothing to add: no delegations beyond what is here');
       return;
     }
-
-    if (opts.asked) for (const email of fresh) removed?.remove(email);
 
     for (const email of fresh) delegated.upsert({ email, mailUrl: null, calendarUrl: null });
     loadDelegatedProfiles();

@@ -48,6 +48,24 @@ import {
   parseMessageIdAndLabels,
   scanFromBatch,
   MESSAGE_META_HEADERS,
+  MARKER_LABEL_PREFIX,
+  BATCH_MODIFY_LIMIT,
+  markerLabelName,
+  isMarkerLabelName,
+  labelCreateBody,
+  parseCreatedLabel,
+  createHiddenLabel,
+  findLabelByExactName,
+  looksLikeOwnMarker,
+  resolveConflictedMarker,
+  fetchLabel,
+  deleteLabel,
+  messagesUnderLabelUrl,
+  parseMessageListPage,
+  fetchMessageListPage,
+  messagesBatchModifyUrl,
+  batchModifyBody,
+  batchModifyMessages,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -114,6 +132,220 @@ describe('parseLabels', () => {
   it('sorts case- and accent-insensitively', () => {
     const out = parseLabels({ labels: [label('L1', 'Zaken'), label('L2', 'école'), label('L3', 'Ander')] });
     expect(out.map((l) => l.name)).toEqual(['Ander', 'école', 'Zaken']);
+  });
+
+  it('hides a marker label from a run, so it can never be offered to a later copy', () => {
+    const out = parseLabels({
+      labels: [label('M1', markerLabelName('run-1')), label('L1', 'Klanten')],
+    });
+    expect(out.map((l) => l.id)).toEqual(['L1']);
+  });
+
+  // The narrower of the two filters the review weighed: matched on the marker's own name,
+  // never on labelListVisibility. A label a user hid for their own bookkeeping is not this
+  // app's business, and stays exactly as offerable as it always was.
+  it('does not hide an ordinary label a user made hidden, only this app\'s own marker', () => {
+    const out = parseLabels({
+      labels: [
+        { id: 'H1', name: 'Persoonlijk archief', type: 'user', labelListVisibility: 'labelHide' },
+        label('L1', 'Klanten'),
+      ],
+    });
+    expect(out.map((l) => l.id).sort()).toEqual(['H1', 'L1']);
+  });
+});
+
+describe('marker labels', () => {
+  it('names a marker deterministically from the run id', () => {
+    expect(markerLabelName('run-1')).toBe(`${MARKER_LABEL_PREFIX}run-1`);
+  });
+
+  it('recognises its own marker names and nothing else', () => {
+    expect(isMarkerLabelName(markerLabelName('run-1'))).toBe(true);
+    expect(isMarkerLabelName('Klanten')).toBe(false);
+    expect(isMarkerLabelName('_gmd-copy')).toBe(false); // the prefix alone is not a run's marker
+  });
+
+  it('creates a marker hidden from every Gmail client', () => {
+    expect(JSON.parse(labelCreateBody('_gmd-copy-run-1'))).toEqual({
+      name: '_gmd-copy-run-1',
+      labelListVisibility: 'labelHide',
+      messageListVisibility: 'hide',
+    });
+  });
+
+  it('reads the label a create call answered with', () => {
+    expect(parseCreatedLabel({ id: 'L9', name: '_gmd-copy-run-1' })).toEqual({
+      id: 'L9',
+      name: '_gmd-copy-run-1',
+    });
+  });
+
+  it('answers null for a create response missing an id or a name', () => {
+    expect(parseCreatedLabel({ name: '_gmd-copy-run-1' })).toBeNull();
+    expect(parseCreatedLabel({ id: 'L9' })).toBeNull();
+    expect(parseCreatedLabel(null)).toBeNull();
+  });
+
+  it('exists and takes a token and a name', () => {
+    expect(typeof createHiddenLabel).toBe('function');
+    expect(createHiddenLabel.length).toBe(2);
+  });
+
+  it('deletes by the label-get URL, and exists with a token and an id', () => {
+    expect(labelGetUrl('L9')).toBe('https://gmail.googleapis.com/gmail/v1/users/me/labels/L9');
+    expect(typeof deleteLabel).toBe('function');
+    expect(deleteLabel.length).toBe(2);
+  });
+
+  it('exists and takes a token and a name', () => {
+    expect(typeof fetchLabel).toBe('function');
+    expect(fetchLabel.length).toBe(2);
+  });
+});
+
+describe('findLabelByExactName', () => {
+  const own = (name: string) => ({
+    id: 'L9',
+    name,
+    type: 'user',
+    labelListVisibility: 'labelHide',
+  });
+
+  it('finds the exact name', () => {
+    expect(findLabelByExactName([own('_gmd-copy-run-1')], '_gmd-copy-run-1')).toEqual(
+      own('_gmd-copy-run-1'),
+    );
+  });
+
+  it('does not fall back to a case-insensitive match, unlike findLabelId', () => {
+    expect(findLabelByExactName([own('_GMD-COPY-RUN-1')], '_gmd-copy-run-1')).toBeNull();
+  });
+
+  it('answers null when nothing matches', () => {
+    expect(findLabelByExactName([own('_gmd-copy-run-2')], '_gmd-copy-run-1')).toBeNull();
+  });
+});
+
+describe('looksLikeOwnMarker', () => {
+  const own = (over: Partial<ReturnType<typeof label> & { labelListVisibility: string }> = {}) => ({
+    id: 'L9',
+    name: '_gmd-copy-run-1',
+    type: 'user',
+    labelListVisibility: 'labelHide',
+    ...over,
+  });
+
+  it('accepts a label that looks exactly like one this app would have made', () => {
+    expect(looksLikeOwnMarker(own())).toBe(true);
+  });
+
+  it('refuses a system label, even with the right name and visibility', () => {
+    expect(looksLikeOwnMarker(own({ type: 'system' }))).toBe(false);
+  });
+
+  it('refuses a label that is not hidden from Gmail\'s own clients', () => {
+    expect(looksLikeOwnMarker(own({ labelListVisibility: 'labelShow' }))).toBe(false);
+    expect(looksLikeOwnMarker(own({ labelListVisibility: '' }))).toBe(false);
+  });
+
+  it('refuses a label that does not carry this app\'s own marker prefix', () => {
+    expect(looksLikeOwnMarker(own({ name: 'Klanten' }))).toBe(false);
+  });
+});
+
+describe('resolveConflictedMarker', () => {
+  const ownMarker = {
+    id: 'L9',
+    name: '_gmd-copy-run-1',
+    type: 'user',
+    labelListVisibility: 'labelHide',
+  };
+
+  it('trusts a recovered label that looks exactly like this app\'s own marker', () => {
+    expect(resolveConflictedMarker('_gmd-copy-run-1', ownMarker)).toEqual({ ok: true, id: 'L9' });
+  });
+
+  it('refuses when nothing was found under that name at all', () => {
+    const result = resolveConflictedMarker('_gmd-copy-run-1', null);
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses a label that is not hidden, without ever returning its id', () => {
+    const result = resolveConflictedMarker('_gmd-copy-run-1', {
+      ...ownMarker,
+      labelListVisibility: 'labelShow',
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: "label '_gmd-copy-run-1' bestaat al, maar is niet van deze app",
+    });
+  });
+
+  it('refuses a label that is not a user label, without ever returning its id', () => {
+    const result = resolveConflictedMarker('_gmd-copy-run-1', { ...ownMarker, type: 'system' });
+    expect(result.ok).toBe(false);
+  });
+
+  it('refuses a label without the marker prefix, without ever returning its id', () => {
+    const result = resolveConflictedMarker('_gmd-copy-run-1', { ...ownMarker, name: 'Klanten' });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('messages under a label', () => {
+  it('asks for a page of a label, by id', () => {
+    expect(messagesUnderLabelUrl('L9')).toBe(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=L9&maxResults=500',
+    );
+  });
+
+  it('carries a page token when given one', () => {
+    expect(messagesUnderLabelUrl('L9', 'tok')).toContain('pageToken=tok');
+  });
+
+  it('reads the ids and the next page token off a listing', () => {
+    expect(parseMessageListPage({ messages: [{ id: 'm1' }, { id: 'm2' }], nextPageToken: 'tok' })).toEqual({
+      ids: ['m1', 'm2'],
+      nextPageToken: 'tok',
+    });
+  });
+
+  it('leaves the page token out once there is no next page', () => {
+    expect(parseMessageListPage({ messages: [{ id: 'm1' }] })).toEqual({ ids: ['m1'] });
+  });
+
+  it('reads an empty listing as no ids at all', () => {
+    expect(parseMessageListPage({})).toEqual({ ids: [] });
+  });
+
+  it('exists and takes a token, a label id and an optional page token', () => {
+    expect(typeof fetchMessageListPage).toBe('function');
+    expect(fetchMessageListPage.length).toBe(3);
+  });
+});
+
+describe('batchModify', () => {
+  it('is the messages collection\'s own batchModify path', () => {
+    expect(messagesBatchModifyUrl()).toBe(
+      'https://gmail.googleapis.com/gmail/v1/users/me/messages/batchModify',
+    );
+  });
+
+  it('carries the ids and the label change in one body', () => {
+    expect(JSON.parse(batchModifyBody(['m1', 'm2'], { addLabelIds: ['TRASH'] }))).toEqual({
+      ids: ['m1', 'm2'],
+      addLabelIds: ['TRASH'],
+    });
+  });
+
+  it('is at most BATCH_MODIFY_LIMIT ids per call, per Gmail\'s own ceiling', () => {
+    expect(BATCH_MODIFY_LIMIT).toBe(1000);
+  });
+
+  it('exists and takes a token, ids and an action', () => {
+    expect(typeof batchModifyMessages).toBe('function');
+    expect(batchModifyMessages.length).toBe(3);
   });
 });
 

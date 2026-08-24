@@ -13,14 +13,20 @@
 // reason a thread gets dragged. Fetching them all is how the newest is known to be newest.
 
 import { app, session } from 'electron';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { IPC } from '../core/ipc';
 import type {
   MailDropCopyAccountResult,
+  MailDropCopyControlAction,
+  MailDropCopyControlResult,
+  MailDropCopyProgress,
   MailDropCopyResult,
+  MailDropCopyStoppedResult,
   MailDropCopyTarget,
+  MailDropCopyWarnedResult,
   MailDropFolderStatus,
   MailDropPayload,
   MailDropPreviewItem,
@@ -80,10 +86,12 @@ import {
   duplicateIndex,
   existingSoFar,
   groupDuplicates,
+  insertLabelIds,
   labelsStillNeeded,
   newMessageCount,
   normalizeTargets,
   scanAnswer,
+  tallyOutcomes,
   threadGroups,
   type CopyMode,
   type DuplicateHit,
@@ -106,15 +114,35 @@ import { emptyIndex, indexedScan, remember } from './message-index';
 import { BUSY_TEXT, NO_SUBJECT, SLOW_TEXT, dropOutcome, type MessageRef } from './dropzone';
 import { DROP_LOCK_MS, createDropLock } from './drop-lock';
 import { defaultMailFolder, looksRemoteFolder } from './mail-folder';
+import { createCopyRunControl, type CopyRunControl } from './copy-control';
 import {
+  attemptWrite,
+  finishCopyJournal,
+  findOrphanedRuns,
+  readCopyJournal,
+  recordCopyJournalDecision,
+  recordCopyJournalEntry,
+  startCopyJournal,
+  withWarnings,
+  type CopyJournalRead,
+} from './copy-journal';
+import { sweepRunMarkers as runSweep } from './copy-marker-run-sweep';
+import type { CopyRunId, CopyStopMode, MarkerLabel, RollbackOutcome } from './copy-run-types';
+import {
+  GmailCancelledError,
   GmailHttpError,
+  batchModifyMessages,
+  createHiddenLabel,
+  deleteLabel,
   fetchLabelId,
   fetchLabels,
+  fetchMessageListPage,
   fetchThreadMessages,
   fetchThreadRaw,
   insertMessage,
   labelsHoldingMany,
   mailboxCanary,
+  markerLabelName,
   listLabelThreadIds,
   type AccountLabels,
   type ThreadMessage,
@@ -146,7 +174,11 @@ let lastDropSaved: SavedRef[] = [];
 
 let lastDropSource = '';
 
-let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
+/** `scanned` is kept alongside `hits` for exactly one reason: proving, per mailbox and per
+ * message, that this run's own scan found zero copies there before it inserted anything --
+ * see absenceKey and where it is read in copyToMailboxes. */
+let lastScan: { key: string; hits: DuplicateHit[]; scanned: Map<string, MailboxScan> } | null =
+  null;
 
 /** What the picker's own scan found, kept for the check at Kopieer, which asks a narrower
  * question about the same mail. Stamped with the drag it belongs to, so the next drag
@@ -157,6 +189,12 @@ let dropSerial = 0;
 
 /** One pull at a time, and this is what says which one. */
 const dropLock = createDropLock();
+
+/** The copy in flight right now, if any -- so a pause or stop asked for over IPC can reach
+ * the loop that is actually running. `total` is carried here too, not recomputed, since a
+ * paused progress line needs the same number the running one showed. */
+let activeRun: { runId: CopyRunId; control: CopyRunControl; root: string; total: number } | null =
+  null;
 
 
 //===========================
@@ -423,13 +461,25 @@ function savedRefs(
   }));
 }
 
+/**
+ * Which of a drag's messages are already in the chosen mailboxes and labels
+ *
+ * @param targets
+ * @param saved
+ * @param onProgress
+ * @param tally filled in for the log: how much of the check the picker's scan had already
+ *   answered
+ * @returns the hits, and everything this pass actually learned live from Gmail per mailbox --
+ *   `scanned`, which copyToMailboxes reads to prove absence per mail per mailbox for a
+ *   cancel's reconciliation pass. A missing key there means "not looked up", an empty list
+ *   means "looked up, found nothing" (MailboxScan's own contract); only the second is proof.
+ */
 async function findDuplicates(
   targets: MailDropCopyTarget[],
   saved: SavedRef[],
   onProgress: (done: number, total: number) => void,
-  /** Filled in for the log: how much of the check the picker's scan had already answered */
   tally?: { checks: number; reused: number; asked: number },
-): Promise<DuplicateHit[]> {
+): Promise<{ hits: DuplicateHit[]; scanned: Map<string, MailboxScan> }> {
   const checks = duplicateChecks(targets, saved);
 
   // The scan behind the picker asked the wider question — which labels hold this message —
@@ -438,6 +488,7 @@ async function findDuplicates(
   const scan = lastExisting?.serial === dropSerial ? lastExisting.byEmail : null;
   const answers = checks.map((check) => scanAnswer(scan, check));
   const open = checks.filter((_, i) => answers[i] === null);
+  const scanned = new Map<string, MailboxScan>(scan ?? undefined);
 
   let done = checks.length - open.length;
   if (tally) {
@@ -470,19 +521,34 @@ async function findDuplicates(
       done += open.filter((c) => c.email === email).length;
       onProgress(done, checks.length);
     });
+    for (const [email, m] of fresh) scanned.set(email, m);
 
     // A mailbox that could not be asked answers false, which is what the per-check version did
     // when its request threw: better to copy a mail twice than to skip one that is not there.
+    // That fallback only decides whether to insert -- it must never be read as proof of
+    // absence, which is exactly why `scanned` only ever holds what `fresh` actually answered.
     for (const [i, answer] of answers.entries()) {
       if (answer === null) answers[i] = scanAnswer(fresh, checks[i]) ?? false;
     }
   }
 
-  return checks.filter((_, i) => answers[i] === true);
+  return { hits: checks.filter((_, i) => answers[i] === true), scanned };
 }
 
 function scanKey(targets: MailDropCopyTarget[]): string {
   return `${dropSerial}|${JSON.stringify(targets)}`;
+}
+
+/**
+ * The lookup key for what one mailbox's scan proved about one message
+ *
+ * @param email
+ * @param messageId the RFC822 Message-ID
+ * @returns the two joined by NUL, which no address or Message-ID can contain
+ * @private
+ */
+function absenceKey(email: string, messageId: string): string {
+  return `${email}\0${messageId}`;
 }
 
 function openDropPreview(items: MailDropPreviewItem[]): void {
@@ -1145,6 +1211,20 @@ async function copyToMailbox(arg: {
   groupLimit: number;
   /** Room to upload, by size, shared with the other mailboxes of this copy */
   budget: UploadBudget;
+  /** Identifies the journal a successful insert here is recorded in */
+  runId: CopyRunId;
+  journalRoot: string;
+  /** Checked before each new conversation starts; copyOneFile checks it again per file */
+  wait: () => Promise<'continue' | 'stop'>;
+  /** Aborted the moment the run is told to stop, to sever whatever is already on the wire */
+  signal: AbortSignal;
+  /** Whether this run's own scan found this mailbox holding zero copies of a given
+   * Message-ID before anything was inserted -- keyed by absenceKey. Empty in 'all' mode. */
+  provedAbsent: Set<string>;
+  /** This mailbox's own marker label for this run, created before the first file went out to
+   * it. Folded into every insert's own labelIds -- see copyOneFile -- never applied after the
+   * fact, so a severed insert can never land without it. */
+  markerLabelId: string;
   /** The milliseconds one upload took, for the log */
   onInsert?: (ms: number) => void;
   onDone: () => void;
@@ -1174,29 +1254,40 @@ async function copyToMailbox(arg: {
     return await refreshing;
   };
 
-  await mapLimit(threadGroups(files), arg.groupLimit, async (group) =>
-    runThreadGroup(
-      group,
-      async ({ ref, index: at }: { ref: SavedRef; index: number }, landedIn?: string) => {
-        const { outcome, threadId, uploadMs } = await copyOneFile({
-          ts,
-          target,
-          ref,
-          index,
-          landedIn,
-          token: () => token,
-          freshToken,
-          budget: arg.budget,
-        });
-        // Only the upload itself. Timing the whole call would fold the wait for room into the
-        // figure the diagnosis rests on, and make a copy look slower per mail the wider it runs.
-        if (uploadMs !== undefined) arg.onInsert?.(uploadMs);
-        outcomes[at] = outcome;
-        onDone();
-        return { threadId: threadId ?? undefined };
-      },
-      arg.groupLimit,
-    ),
+  await mapLimit(
+    threadGroups(files),
+    arg.groupLimit,
+    async (group) =>
+      runThreadGroup(
+        group,
+        async ({ ref, index: at }: { ref: SavedRef; index: number }, landedIn?: string) => {
+          const { outcome, threadId, uploadMs } = await copyOneFile({
+            ts,
+            target,
+            ref,
+            index,
+            landedIn,
+            token: () => token,
+            freshToken,
+            budget: arg.budget,
+            runId: arg.runId,
+            journalRoot: arg.journalRoot,
+            wait: arg.wait,
+            signal: arg.signal,
+            provedAbsent: arg.provedAbsent,
+            markerLabelId: arg.markerLabelId,
+          });
+          // Only the upload itself. Timing the whole call would fold the wait for room into
+          // the figure the diagnosis rests on, and make a copy look slower per mail the wider
+          // it runs.
+          if (uploadMs !== undefined) arg.onInsert?.(uploadMs);
+          outcomes[at] = outcome;
+          onDone();
+          return { threadId: threadId ?? undefined };
+        },
+        arg.groupLimit,
+      ),
+    arg.wait,
   );
   return outcomes;
 }
@@ -1218,12 +1309,24 @@ async function copyOneFile(arg: {
   token: () => string;
   freshToken: (used: string) => Promise<string | null>;
   budget: UploadBudget;
+  runId: CopyRunId;
+  journalRoot: string;
+  wait: () => Promise<'continue' | 'stop'>;
+  signal: AbortSignal;
+  provedAbsent: Set<string>;
+  markerLabelId: string;
 }): Promise<{ outcome: CopyOutcome; threadId?: string; uploadMs?: number }> {
   const { ts, target, ref, index, landedIn } = arg;
   const { file, messageId } = ref;
 
   const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
   if (labelIds.length === 0) return { outcome: { skipped: true } };
+
+  // Checked before the budget is ever asked for room: a file paused here has reserved
+  // nothing, so it costs the mailboxes still running nothing either. Checking after
+  // budget.run had already claimed had started would hold that room hostage for as long as
+  // the pause lasts.
+  if ((await arg.wait()) === 'stop') return { outcome: {} };
 
   // Asked before the file is read, so the room is reserved before the memory is taken rather
   // than after. A file whose size cannot be read reserves nothing and takes its chances.
@@ -1245,7 +1348,14 @@ async function copyOneFile(arg: {
 
     try {
       const used = arg.token();
-      const insert = (t: string, thread?: string) => insertMessage(t, raw, labelIds, thread);
+      // The marker rides the same multipart POST as the real labels -- never a follow-up
+      // modify call to add it afterwards, which would reopen exactly the window a cancel-safe
+      // copy exists to close. It never reaches the journal or the outcome record below: both
+      // stay exactly what the user asked for (`labelIds`), and the marker is tracked only by
+      // the run's own journal header (see MarkerLabel).
+      const withMarker = insertLabelIds(labelIds, arg.markerLabelId);
+      const insert = (t: string, thread?: string) =>
+        insertMessage(t, raw, withMarker, thread, arg.signal);
       let inserted: { id: string | null; threadId: string | null };
       try {
         inserted = await insert(used, landedIn);
@@ -1263,6 +1373,26 @@ async function copyOneFile(arg: {
       // The one thing about a duplicate this app can know for certain: it put it there. Free,
       // exact, and it is the mail the next drag is most likely to ask about.
       if (messageIndex) remember(messageIndex.load(), messageId, target.email, labelIds, Date.now());
+      // Gmail's own id, not the Message-ID header above: this is the only key a later
+      // rollback may trash by, since a header can also match mail that was already there.
+      if (inserted.id) {
+        // Deliberate, not an oversight: the insert already landed and is reported as copied
+        // regardless of what happens to this line. What is lost when it fails is narrow and
+        // already accounted for -- this one message cannot be offered for rollback later --
+        // not a reason to fail an insert that really happened. Logged rather than only
+        // warned to the console, since a share dropping this write is worth being able to
+        // see later, not only while someone happens to be watching devtools.
+        const journalError = recordCopyJournalEntry(arg.journalRoot, {
+          runId: arg.runId,
+          email: target.email,
+          gmailId: inserted.id,
+          threadId: inserted.threadId ?? undefined,
+          labelIds,
+        });
+        if (journalError) {
+          notifyLog(`[maildrop] kon een regel niet aan de rollback-journal toevoegen: ${journalError}`);
+        }
+      }
       return {
         outcome: {
           copied: true,
@@ -1279,6 +1409,15 @@ async function copyOneFile(arg: {
         uploadMs: Date.now() - from,
       };
     } catch (e) {
+      if (e instanceof GmailCancelledError) {
+        // Deliberate, not a failure: this upload was severed because the run was told to
+        // stop, not because Gmail refused it. Reported as neither copied nor an error --
+        // exactly the shape a gate-refused file already answers with, below. Nothing needs
+        // recording here any more: if this insert landed before the socket was cut, it landed
+        // with the marker already on it (insertLabelIds above), so the run's own end-of-run
+        // sweep finds it by label membership. There is no ambiguous state left to reconcile.
+        return { outcome: {}, uploadMs: Date.now() - from };
+      }
       const error = (e as Error).message;
       // Timed as well: an upload that was refused still spent its time on the wire, and leaving
       // it out would flatter the figure.
@@ -1300,6 +1439,126 @@ async function copyOneFile(arg: {
   });
 }
 
+/**
+ * Sweeps every mailbox's own marker for one run, wiring the real Gmail calls into
+ * copy-marker-run-sweep.ts's own sweepRunMarkers
+ *
+ * The strip-vs-trash logic and the "acts on the listing, not on any local record" property it
+ * gives a rollback both live there instead of here, purely so they can be unit tested: this
+ * file pulls in Electron's `app` at module load (core/paths.ts), so nothing importing it can
+ * ever run under a test.
+ *
+ * @param runId
+ * @param markers this run's own marker per mailbox, from its journal header
+ * @param mode 'strip' for a clean finish or a stop-keep, 'trash' for a stop-rollback
+ * @param onProgress called once per mailbox as it settles, so a rollback dialog can show this
+ *   running
+ * @returns what became of each mailbox, and whether every one of them converged cleanly
+ * @private
+ */
+async function sweepRunMarkers(
+  runId: CopyRunId,
+  markers: MarkerLabel[],
+  mode: 'strip' | 'trash',
+  onProgress?: (done: number, total: number) => void,
+): Promise<RollbackOutcome> {
+  return runSweep(
+    runId,
+    markers,
+    mode,
+    { token: mailboxToken, list: fetchMessageListPage, modify: batchModifyMessages, deleteLabel },
+    onProgress,
+  );
+}
+
+/**
+ * The warning line for a mailbox whose sweep did not converge
+ *
+ * Framed as resumable, not as doubtful: unlike the old Message-ID reconciliation this
+ * replaces, there is no ambiguity left to report here -- only a sweep that has not finished
+ * yet, which the next start's resumed sweep will pick up on its own.
+ *
+ * @param m
+ * @param verb the Dutch verb for what did not finish -- 'opruimen' or 'ongedaan maken'
+ * @returns the line, for `warnings`
+ */
+function sweepWarning(m: RollbackOutcome['mailboxes'][number], verb: string): string {
+  const why = m.refused === 'permission'
+    ? 'geen rechten'
+    : m.refused === 'auth'
+      ? 'kon niet worden geopend'
+      : m.reason ?? 'nog niet bevestigd';
+  return `${m.email}: ${verb} niet afgerond (${why}), wordt bij de volgende start opnieuw geprobeerd`;
+}
+
+/**
+ * Whether every mailbox in a sweep has reached a terminal state
+ *
+ * Not the same question as `complete`: a mailbox that refused outright is terminal -- retrying
+ * will not fix a permission problem -- while one that merely has not converged yet is not, and
+ * must be left open for the next resumed sweep rather than closed as if it were done. Only
+ * when every mailbox is one or the other does this run's journal get its closing line.
+ *
+ * @param outcome
+ * @returns true once nothing here would change by sweeping again right now
+ */
+function settled(outcome: RollbackOutcome): boolean {
+  return outcome.mailboxes.every((m) => m.converged || m.refused);
+}
+
+/**
+ * Pauses, resumes or stops the copy in flight
+ *
+ * @param action what the paused dialog asked for
+ * @returns whether the gate took the action, since there is not always a copy running to
+ *   take it
+ */
+export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyControlResult {
+  if (!activeRun) return { ok: false, error: 'Er wordt niet gekopieerd' };
+  const { control } = activeRun;
+  switch (action) {
+    case 'pause':
+      control.pause();
+      sendPausedProgress();
+      return { ok: true };
+    case 'resume':
+      control.resume();
+      return { ok: true };
+    case 'stop-keep':
+      control.stop('keep');
+      return { ok: true };
+    case 'stop-rollback':
+      control.stop('rollback');
+      return { ok: true };
+    default:
+      return { ok: false, error: 'Onbekende actie' };
+  }
+}
+
+/**
+ * Tells the modal how far a paused copy had got, per mailbox
+ *
+ * Read off the journal rather than off a running tally: every insert that landed is already
+ * on disk the moment it answers (appendCopyJournalEntry), so counting those lines is the
+ * same count a rollback would work from, and needs nothing kept in memory just for this.
+ *
+ * @private
+ */
+function sendPausedProgress(): void {
+  if (!activeRun) return;
+  const { runId, root, total } = activeRun;
+  const entries = readCopyJournal(root, runId)?.entries ?? [];
+  const byMailbox = new Map<string, number>();
+  for (const e of entries) byMailbox.set(e.email, (byMailbox.get(e.email) ?? 0) + 1);
+  dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
+    phase: 'copy',
+    done: entries.length,
+    total,
+    paused: true,
+    byMailbox: [...byMailbox.entries()].map(([email, copied]) => ({ email, copied })),
+  } satisfies MailDropCopyProgress);
+}
+
 /** Copies whatever the last drag saved into the chosen labels, in the chosen mailboxes.
  *
  * Runs in three modes. 'check' scans for messages already there and reports them rather than
@@ -1307,11 +1566,16 @@ async function copyOneFile(arg: {
  *
  * The mails of one mailbox go up alongside each other, the mailboxes themselves one after
  * the other: the progress bar names the mailbox it is working on, and that only stays true
- * with one at a time. */
+ * with one at a time.
+ *
+ * A copy that is paused and then stopped ends in one of three ways: 'completed' when it was
+ * never stopped at all, 'kept' when the user chose to leave what had already landed, or a
+ * rollback outcome when they chose to undo it -- see copyOneFile and the tail of this
+ * function for where each of those is decided. */
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
-}): Promise<MailDropCopyResult> {
+}): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
   const requested = normalizeTargets(arg?.targets ?? []);
   const targets = requested.filter((t) => isAllowedAccount(t.email));
@@ -1347,13 +1611,16 @@ export async function copyToMailboxes(arg: {
     dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, { phase, done, total: of });
 
   let index = new Set<string>();
+  // Empty in 'all' mode on purpose: that mode skips the scan below, so there is nothing to
+  // prove absence from. See absenceKey.
+  const provedAbsent = new Set<string>();
   if (mode !== 'all') {
     const key = scanKey(targets);
     const tally = { checks: 0, reused: 0, asked: 0 };
     const checkFrom = Date.now();
     const reusedWholeScan = lastScan?.key === key;
-    const hits = reusedWholeScan
-      ? lastScan!.hits
+    const { hits, scanned } = reusedWholeScan
+      ? lastScan!
       : await findDuplicates(
           targets,
           files,
@@ -1370,9 +1637,19 @@ export async function copyToMailboxes(arg: {
           : checkLogLine({ ...tally, ms: Date.now() - checkFrom })
       }`,
     );
-    lastScan = { key, hits };
+    lastScan = { key, hits, scanned };
     done = 0;
     index = duplicateIndex(hits);
+    // A mail this mailbox's own scan found holding nothing under it is proof it was absent
+    // before this run touched it. Decided once, here, rather than re-derived from `mode`
+    // anywhere downstream.
+    for (const [email, mailboxScan] of scanned) {
+      for (const file of files) {
+        if (!file.messageId.trim()) continue;
+        const labelIds = mailboxScan.get(file.messageId);
+        if (labelIds && labelIds.length === 0) provedAbsent.add(absenceKey(email, file.messageId));
+      }
+    }
     if (mode === 'check' && hits.length > 0) {
       return {
         ok: false,
@@ -1387,6 +1664,44 @@ export async function copyToMailboxes(arg: {
     }
   }
 
+  // Minted here rather than reusing dropSerial: dropSerial names the drag, and a 'check' pass
+  // followed by an 'all' pass against the same drag are two runs, each with its own inserts
+  // to answer for if either one is stopped partway through.
+  const runId: CopyRunId = randomUUID();
+
+  // One hidden marker label per mailbox, created before a single file goes out to it. Its id
+  // is folded into every insert this run makes to that mailbox (copyOneFile) -- never applied
+  // by a follow-up call -- which is what later lets a sweep find everything this run created
+  // by label membership, with nothing to infer. A mailbox whose marker cannot be created is
+  // not written to at all: there is nothing safe to insert into it without one, so it is
+  // reported exactly like a mailbox whose token could not be had.
+  const markerName = markerLabelName(runId);
+  type MarkerAttempt = { email: string; markerLabelId: string } | { email: string; error: string };
+  const markerAttempts = await mapLimit(targets, MAILBOX_LIMIT, async (target): Promise<MarkerAttempt> => {
+    const got = await mailboxToken(target.email);
+    if (!got.ok) return { email: target.email, error: got.error };
+    try {
+      const created = await createHiddenLabel(got.token, markerName);
+      return { email: target.email, markerLabelId: created.id };
+    } catch (e) {
+      return { email: target.email, error: (e as Error).message };
+    }
+  });
+  const markers: MarkerLabel[] = [];
+  const markerLabelByEmail = new Map<string, string>();
+  for (const a of markerAttempts) {
+    if ('markerLabelId' in a) {
+      markers.push({ email: a.email, markerLabelId: a.markerLabelId });
+      markerLabelByEmail.set(a.email, a.markerLabelId);
+    } else {
+      notifyLog(`[maildrop] copy ${a.email}: kon geen intern label aanmaken — ${a.error}`);
+      accounts.push({ email: a.email, copied: 0, skipped: 0, total: files.length, error: a.error });
+      done += files.length;
+      progress('copy');
+    }
+  }
+  const readyTargets = targets.filter((t) => markerLabelByEmail.has(t.email));
+
   // Alongside each other, because the quota that limits a copy is per user and every target is
   // a different user: three mailboxes have three times ten inserts a second between them where
   // one after the other had ten. What is left after that is the uplink, since there is no
@@ -1395,7 +1710,7 @@ export async function copyToMailboxes(arg: {
   // reaches that mailbox's own ceiling of ten inserts a second, where a fixed split left it on
   // the same narrow limit as one of three.
   const groupLimit = perMailboxLimit(
-    Math.min(targets.length, MAILBOX_LIMIT),
+    Math.min(readyTargets.length, MAILBOX_LIMIT),
     COPY_IN_FLIGHT,
     PER_MAILBOX_MAX,
   );
@@ -1403,109 +1718,368 @@ export async function copyToMailboxes(arg: {
   // many mailboxes are being written to.
   const budget = createUploadBudget(COPY_BYTES_IN_FLIGHT, COPY_IN_FLIGHT);
   const copyFrom = Date.now();
-  const perTarget = await mapLimit(targets, MAILBOX_LIMIT, async (target) => {
-    const tokenFrom = Date.now();
-    const got = await mailboxToken(target.email);
-    const tokenMs = Date.now() - tokenFrom;
-    // Every attempted upload, so the line can show the spread. Held per mailbox rather than
-    // logged per mail: notifyLog appends synchronously, and a label drag is hundreds of mails.
-    const inserts: number[] = [];
-    if (!got.ok) {
-      notifyLog(
-        `[maildrop] copy ${target.email} (${
-          isDelegatedMailbox(target.email) ? 'gedelegeerd' : 'eigen'
-        }): geen token na ${tokenMs}ms — ${got.error}`,
-      );
-      if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
-      done += files.length;
-      progress('copy');
-      return {
-        account: {
-          email: target.email,
-          copied: 0,
-          skipped: 0,
-          total: files.length,
-          error: got.error,
-        },
-        records: [] as LogRecord[],
-      };
-    }
-    const outcomes = await copyToMailbox({
-      cfg,
-      tokens,
-      ts,
-      target,
-      token: got.token,
-      files,
-      index,
-      groupLimit,
-      budget,
-      onInsert: (ms) => inserts.push(ms),
-      onDone: () => {
-        done += 1;
-        progress('copy');
-      },
-    });
 
-    // In the order of the drag rather than the order the uploads finished, so log.jsonl and
-    // the error the strip shows read the same as when this ran one mail at a time.
-    let ok = 0;
-    let over = 0;
-    let lastError: string | undefined;
-    const mine: LogRecord[] = [];
-    for (const outcome of outcomes) {
-      if (!outcome) continue;
-      if (outcome.copied) ok += 1;
-      if (outcome.skipped) over += 1;
-      if (outcome.error) lastError = outcome.error;
-      if (outcome.record) mine.push(outcome.record);
-    }
-    notifyLog(
-      `[maildrop] ${copyLogLine({
-        email: target.email,
-        delegated: isDelegatedMailbox(target.email),
-        tokenMs,
-        inserts,
-        copied: ok,
-        skipped: over,
-        failed: files.length - ok - over,
-      })}`,
+  const control = createCopyRunControl();
+  activeRun = { runId, control, root, total };
+  startCopyJournal(root, runId, readyTargets.map((t) => t.email), Date.now(), markers);
+
+  const runCopy = async (): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> => {
+    const perTarget = await mapLimit(
+      readyTargets,
+      MAILBOX_LIMIT,
+      async (target) => {
+        const tokenFrom = Date.now();
+        const got = await mailboxToken(target.email);
+        const tokenMs = Date.now() - tokenFrom;
+        // Every attempted upload, so the line can show the spread. Held per mailbox rather
+        // than logged per mail: notifyLog appends synchronously, and a label drag is
+        // hundreds of mails.
+        const inserts: number[] = [];
+        if (!got.ok) {
+          notifyLog(
+            `[maildrop] copy ${target.email} (${
+              isDelegatedMailbox(target.email) ? 'gedelegeerd' : 'eigen'
+            }): geen token na ${tokenMs}ms — ${got.error}`,
+          );
+          if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
+          done += files.length;
+          progress('copy');
+          return {
+            account: {
+              email: target.email,
+              copied: 0,
+              skipped: 0,
+              total: files.length,
+              error: got.error,
+            },
+            records: [] as LogRecord[],
+          };
+        }
+        const outcomes = await copyToMailbox({
+          cfg,
+          tokens,
+          ts,
+          target,
+          token: got.token,
+          files,
+          index,
+          groupLimit,
+          budget,
+          runId,
+          journalRoot: root,
+          wait: control.wait,
+          signal: control.signal(),
+          provedAbsent,
+          markerLabelId: markerLabelByEmail.get(target.email)!,
+          onInsert: (ms) => inserts.push(ms),
+          onDone: () => {
+            done += 1;
+            progress('copy');
+          },
+        });
+
+        // In the order of the drag rather than the order the uploads finished, so log.jsonl
+        // and the error the strip shows read the same as when this ran one mail at a time.
+        const mine: LogRecord[] = [];
+        for (const outcome of outcomes) {
+          if (outcome?.record) mine.push(outcome.record);
+        }
+        // Counted, not derived by subtraction: a file the gate refused and one a cancel
+        // severed mid-flight are `stopped`, never `failed` -- see tallyOutcomes.
+        const { copied: ok, skipped: over, failed, stopped, lastError } = tallyOutcomes(outcomes);
+        notifyLog(
+          `[maildrop] ${copyLogLine({
+            email: target.email,
+            delegated: isDelegatedMailbox(target.email),
+            tokenMs,
+            inserts,
+            copied: ok,
+            skipped: over,
+            failed,
+            stopped,
+          })}`,
+        );
+        return {
+          account: {
+            email: target.email,
+            copied: ok,
+            skipped: over,
+            total: files.length,
+            error: failed > 0 ? (lastError ?? 'Niet alles gekopieerd') : undefined,
+          },
+          records: mine,
+        };
+      },
+      control.wait,
     );
+
+    // In the order the mailboxes were picked rather than the order they finished: mapLimit
+    // answers in input order, and assembleCopy keeps it that way, so log.jsonl and the report
+    // read the same as they did when the mailboxes ran one at a time.
+    const assembled = assembleCopy(perTarget);
+    records.push(...assembled.records);
+    accounts.push(...assembled.accounts);
+    copied += assembled.copied;
+    skipped += assembled.skipped;
+
+    notifyLog(
+      `[maildrop] copy klaar: ${copied} gekopieerd, ${skipped} overgeslagen van ${total} ` +
+        `naar ${targets.length} postvak(ken) in ${((Date.now() - copyFrom) / 1000).toFixed(1)}s`,
+    );
+
+    // Written for a stopped run too: this is real mail that really landed, and the log must
+    // say so whether or not the run was allowed to run to its own end. A failure here is not
+    // swallowed any more -- this share has dropped an appended write before, and the run
+    // must say so rather than quietly proceed as if nothing happened.
+    const warnings: string[] = [];
+    const logError = attemptWrite(() => appendLog(root, records));
+    if (logError) {
+      const message = `logboek niet bijgeschreven: ${logError}`;
+      warnings.push(message);
+      notifyLog(`[maildrop] ${message}`);
+    }
+
+    const stopMode = control.stopMode();
+    if (!stopMode) {
+      // Recorded before the sweep is even attempted: a normal, never-stopped finish still
+      // resolves to 'keep' (strip the marker), and writing that down first is what lets a
+      // crash mid-sweep resume silently instead of asking the keep-or-rollback question a
+      // run that was never even paused has no business being asked.
+      const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, 'keep'));
+      if (decisionError) {
+        notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
+      }
+      const swept = await sweepRunMarkers(runId, markers, 'strip');
+      for (const m of swept.mailboxes) {
+        if (!m.converged) warnings.push(sweepWarning(m, 'opruimen'));
+      }
+      if (settled(swept)) {
+        // Left to fail rather than only warned: an unclosed journal is precisely how this
+        // app recognises a run that died halfway, so a dropped write here would make a fully
+        // successful copy indistinguishable from a crash -- and the next start would offer
+        // to undo mail that never needed undoing. The copy itself still succeeded, so this
+        // is reported as success regardless, with the failure carried in `warnings` instead
+        // of lost the way it was before.
+        const closeError = attemptWrite(() => finishCopyJournal(root, runId, 'completed'));
+        if (closeError) {
+          const message = `afronding niet vastgelegd: ${closeError}`;
+          warnings.push(message);
+          notifyLog(`[maildrop] ${message}`);
+        }
+      } else {
+        // Deliberately left without a closing line: this is what makes resumeOrphanedCopyRuns
+        // pick it up and finish the sweep at the next start, using the decision above rather
+        // than asking again.
+        notifyLog(`[maildrop] opruimen van run ${runId} nog niet compleet, wordt hervat`);
+      }
+      return withWarnings(
+        {
+          ok: copied > 0 || skipped > 0,
+          copied,
+          skipped,
+          total,
+          accounts,
+        } satisfies MailDropCopyResult,
+        warnings,
+      );
+    }
+
+    const byMailbox = accounts.map((a) => ({ email: a.email, copied: a.copied }));
+    const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, stopMode));
+    if (decisionError) notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
+
+    if (stopMode === 'keep') {
+      // 'keep' means the user asked to keep the mail, not this app's own bookkeeping -- the
+      // marker is stripped exactly as it would be on a normal finish.
+      const swept = await sweepRunMarkers(runId, markers, 'strip');
+      for (const m of swept.mailboxes) {
+        if (!m.converged) warnings.push(sweepWarning(m, 'opruimen'));
+      }
+      if (!settled(swept)) {
+        notifyLog(`[maildrop] opruimen van run ${runId} nog niet compleet, wordt hervat`);
+        return {
+          stopped: true,
+          mode: 'keep',
+          copied,
+          byMailbox,
+          ...(warnings.length > 0 ? { warnings } : {}),
+        } satisfies MailDropCopyStoppedResult;
+      }
+      // Non-negotiable: this is the one write that tells a run the user chose to keep apart
+      // from a crash. Left to surface rather than swallowed, so a share that drops the write
+      // is reported as an error rather than trusted as a clean stop.
+      const closeError = attemptWrite(() => finishCopyJournal(root, runId, 'kept'));
+      if (closeError) {
+        return {
+          stopped: true,
+          mode: 'keep',
+          copied,
+          byMailbox,
+          error: `Gestopt, maar niet afgerond: ${closeError}`,
+          ...(warnings.length > 0 ? { warnings } : {}),
+        } satisfies MailDropCopyStoppedResult;
+      }
+      return {
+        stopped: true,
+        mode: 'keep',
+        copied,
+        byMailbox,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      } satisfies MailDropCopyStoppedResult;
+    }
+
+    // stopMode === 'rollback': every message this run created, landed or merely severed mid-
+    // flight, carries this mailbox's marker -- see copyOneFile. So undoing the run is exactly
+    // the sweep that finds it: list the marker, trash whatever comes back, repeat until the
+    // listing is empty. There is nothing left to reconcile by Message-ID; membership under
+    // the marker already answers "is this ours" with certainty a search never could.
+    const rollback = await sweepRunMarkers(runId, markers, 'trash', (rDone, rTotal) =>
+      dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
+        phase: 'rollback',
+        done: rDone,
+        total: rTotal,
+      } satisfies MailDropCopyProgress),
+    );
+    if (settled(rollback)) {
+      const remainder = rollback.mailboxes
+        .filter((m) => !m.converged || m.refused)
+        .map((m) => ({ email: m.email, reason: m.reason ?? m.refused ?? 'niet geconvergeerd' }));
+      finishCopyJournal(
+        root,
+        runId,
+        rollback.complete ? 'rolled-back' : 'rolled-back-partial',
+        remainder,
+      );
+    } else {
+      notifyLog(`[maildrop] ongedaan maken van run ${runId} nog niet compleet, wordt hervat`);
+    }
     return {
-      account: {
-        email: target.email,
-        copied: ok,
-        skipped: over,
-        total: files.length,
-        error: ok + over < files.length ? (lastError ?? 'Niet alles gekopieerd') : undefined,
-      },
-      records: mine,
-    };
-  });
-
-  // In the order the mailboxes were picked rather than the order they finished: mapLimit
-  // answers in input order, and assembleCopy keeps it that way, so log.jsonl and the report
-  // read the same as they did when the mailboxes ran one at a time.
-  const assembled = assembleCopy(perTarget);
-  records.push(...assembled.records);
-  accounts.push(...assembled.accounts);
-  copied += assembled.copied;
-  skipped += assembled.skipped;
-
-  notifyLog(
-    `[maildrop] copy klaar: ${copied} gekopieerd, ${skipped} overgeslagen van ${total} ` +
-      `naar ${targets.length} postvak(ken) in ${((Date.now() - copyFrom) / 1000).toFixed(1)}s`,
-  );
+      stopped: true,
+      mode: 'rollback',
+      copied,
+      byMailbox,
+      rollback,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    } satisfies MailDropCopyStoppedResult;
+  };
 
   try {
-    appendLog(root, records);
-  } catch {
+    return await runCopy();
+  } finally {
+    if (activeRun?.runId === runId) activeRun = null;
   }
+}
+
+
+//===========================
+// Orphaned runs
+//===========================
+
+/** A run that crashed before ever deciding what to do with its markers, waiting for the
+ * mail-drop window to ask the same keep-or-rollback question a live run's stop dialog already
+ * asks. A run whose journal already recorded a decision needs none of this -- it is finished
+ * silently by resumeOrphanedCopyRuns instead. */
+let pendingOrphans: CopyJournalRead[] = [];
+
+/**
+ * Finishes one orphaned run's sweep, closing its journal once every mailbox has settled
+ *
+ * @param root the drop folder
+ * @param journal
+ * @param mode already decided, either by the run itself before it died or by the user just now
+ * @private
+ */
+async function finishOrphanRun(
+  root: string,
+  journal: CopyJournalRead,
+  mode: CopyStopMode,
+): Promise<void> {
+  if (journal.markers.length === 0) return; // nothing this app can sweep by label
+  const outcome = await sweepRunMarkers(
+    journal.runId,
+    journal.markers,
+    mode === 'keep' ? 'strip' : 'trash',
+  );
+  if (!settled(outcome)) {
+    notifyLog(
+      `[maildrop] hervatte opruiming van run ${journal.runId} nog niet compleet, wordt bij de volgende start opnieuw geprobeerd`,
+    );
+    return;
+  }
+  const remainder =
+    mode === 'rollback'
+      ? outcome.mailboxes
+          .filter((m) => !m.converged || m.refused)
+          .map((m) => ({ email: m.email, reason: m.reason ?? m.refused ?? 'niet geconvergeerd' }))
+      : undefined;
+  finishCopyJournal(
+    root,
+    journal.runId,
+    mode === 'keep' ? 'kept' : outcome.complete ? 'rolled-back' : 'rolled-back-partial',
+    remainder,
+  );
+}
+
+/**
+ * Resumes every copy run this app never heard the end of
+ *
+ * Meant to be called once, at app start. sweepMarker is idempotent -- listing an
+ * already-empty label costs one call and changes nothing -- so resuming a run that had
+ * already half-finished only repeats whatever is still needed, never doubles it. A run whose
+ * journal never recorded a decision at all is left pending rather than guessed at: that is
+ * the one case this app must still ask the user about.
+ */
+export async function resumeOrphanedCopyRuns(): Promise<void> {
+  const root = mailDropFolder();
+  const orphans = findOrphanedRuns(root);
+  const stillPending: CopyJournalRead[] = [];
+  for (const journal of orphans) {
+    if (journal.decidedMode) await finishOrphanRun(root, journal, journal.decidedMode);
+    else stillPending.push(journal);
+  }
+  pendingOrphans = stillPending;
+}
+
+/**
+ * The next orphaned run the user has to make a keep-or-rollback decision about, if any
+ *
+ * Asked by the mail-drop window when it opens, the same moment it already asks for an
+ * existing-mail scan -- nothing else in this app surfaces on its own.
+ *
+ * @returns the run and how far it got per mailbox, or null when nothing is waiting
+ */
+export function pendingOrphanDecision(): {
+  runId: CopyRunId;
+  byMailbox: { email: string; inserted: number }[];
+} | null {
+  const journal = pendingOrphans[0];
+  if (!journal) return null;
+  const byMailbox = new Map<string, number>();
+  for (const e of journal.entries) byMailbox.set(e.email, (byMailbox.get(e.email) ?? 0) + 1);
   return {
-    ok: copied > 0 || skipped > 0,
-    copied,
-    skipped,
-    total,
-    accounts,
-  } satisfies MailDropCopyResult;
+    runId: journal.runId,
+    byMailbox: journal.markers.map((m) => ({ email: m.email, inserted: byMailbox.get(m.email) ?? 0 })),
+  };
+}
+
+/**
+ * Answers a pending orphan decision, sweeping that run's markers with the chosen mode
+ *
+ * @param runId must be the one pendingOrphanDecision last returned
+ * @param mode
+ * @returns whether the decision was taken -- false when this run is no longer pending, which a
+ *   second click or a stale window can both cause harmlessly
+ */
+export async function decideOrphanRun(
+  runId: CopyRunId,
+  mode: CopyStopMode,
+): Promise<{ ok: boolean }> {
+  const at = pendingOrphans.findIndex((j) => j.runId === runId);
+  if (at === -1) return { ok: false };
+  const [journal] = pendingOrphans.splice(at, 1);
+  const root = mailDropFolder();
+  const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, mode));
+  if (decisionError) notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
+  await finishOrphanRun(root, journal, mode);
+  return { ok: true };
 }

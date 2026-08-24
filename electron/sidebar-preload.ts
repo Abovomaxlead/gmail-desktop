@@ -142,6 +142,15 @@ contextBridge.exposeInMainWorld('desktop', {
   onMailDropCopyProgress: (cb: (arg: unknown) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
   },
+  controlMailDropCopy: (
+    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback',
+  ): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_COPY_CONTROL, { action }),
+  getPendingOrphan: (): Promise<{
+    runId: string;
+    byMailbox: { email: string; inserted: number }[];
+  } | null> => ipcRenderer.invoke(IPC.MAIL_DROP_ORPHAN_GET),
+  decideOrphanRun: (runId: string, mode: 'keep' | 'rollback'): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_ORPHAN_DECIDE, { runId, mode }),
   onReconnectList: (cb: (arg: { accounts: ReconnectAccount[] }) => void): void => {
     ipcRenderer.on(IPC.OAUTH_RECONNECT_LIST, (_e, arg) => cb(arg));
   },

@@ -80,7 +80,13 @@ export interface ExistingResult {
 }
 
 /** What one mailbox of a copy came to, for the log. `inserts` holds the milliseconds of every
- * upload that was attempted, so the line can show the spread rather than an average. */
+ * upload that was attempted, so the line can show the spread rather than an average.
+ *
+ * `failed` and `stopped` are two different things and must stay that way: `failed` is Gmail
+ * or the app refusing an upload, `stopped` is the gate or a cancel never letting one finish
+ * for reasons that have nothing to do with whether it would have worked. Folding the second
+ * into the first is exactly what made a cancelled run's log line unreadable from one where
+ * Gmail had genuinely refused dozens of uploads. */
 export interface MailboxCopyLog {
   email: string;
   delegated: boolean;
@@ -89,6 +95,28 @@ export interface MailboxCopyLog {
   copied: number;
   skipped: number;
   failed: number;
+  /** Never started, or cut before it finished, because the gate was told to stop -- covers
+   * both a file the gate refused before it began and one a cancel severed mid-flight */
+  stopped: number;
+}
+
+/** One file's outcome, as far as tallying needs to know -- matches mail-drop-controller.ts's
+ * own CopyOutcome without importing it, so this file stays free of that module's types. */
+export interface CopyOutcomeTally {
+  copied?: true;
+  skipped?: true;
+  error?: string;
+}
+
+/** What a mailbox's files came to, counted rather than inferred */
+export interface CopyTally {
+  copied: number;
+  skipped: number;
+  failed: number;
+  /** See MailboxCopyLog.stopped -- the same category, counted the same way */
+  stopped: number;
+  /** The last genuinely failed file's own message */
+  lastError: string | undefined;
 }
 
 /** What one mailbox answered. `found` is null when the mailbox could not be asked at all,
@@ -229,6 +257,24 @@ export function labelsStillNeeded(
 }
 
 /**
+ * The labels one insert actually carries: the real ones, plus this run's own marker
+ *
+ * Folded together here because both must ride the very same insertMessage call. A follow-up
+ * modify to add the marker after the insert answers would reopen the exact window a
+ * cancel-safe copy exists to close: a socket cut between the two calls would leave a message
+ * in the mailbox with no marker on it at all. Kept separate from `labelIds` itself -- the
+ * caller's journal entry and outcome record must go on using the array without the marker,
+ * since that is what the user actually asked for.
+ *
+ * @param labelIds the labels the user chose
+ * @param markerLabelId this mailbox's own marker for the run
+ * @returns the labelIds to pass to insertMessage
+ */
+export function insertLabelIds(labelIds: string[], markerLabelId: string): string[] {
+  return [...labelIds, markerLabelId];
+}
+
+/**
  * How many copies the drag would actually create
  *
  * @param index
@@ -303,11 +349,48 @@ export function copyLogLine(m: MailboxCopyLog): string {
     `${m.copied} gekopieerd`,
     `${m.skipped} overgeslagen`,
     `${m.failed} mislukt`,
+    `${m.stopped} afgebroken`,
   ].join(', ');
   return (
     `copy ${m.email} (${kind}): token ${duration(m.tokenMs)}, ` +
     `${m.inserts.length} inserts in ${duration(total)}${spread}, ${counts}`
   );
+}
+
+/**
+ * Counts what a mailbox's files actually came to, one outcome at a time
+ *
+ * Never derived by subtraction. A file the gate refused before it started leaves no outcome
+ * at all; a cancel that severed one mid-flight leaves an outcome with neither `copied`,
+ * `skipped` nor `error` set (mail-drop-controller.ts's copyOneFile, deliberately -- it is
+ * not a failure). Both are `stopped`, and only a real `error` is ever `failed`, so the two
+ * can never be read as one number pretending to be the other.
+ *
+ * @param outcomes one per file, in the order of the drag; a missing entry is a file whose
+ *   own thread group or mailbox never started at all
+ * @returns the tally
+ */
+export function tallyOutcomes(outcomes: Array<CopyOutcomeTally | undefined>): CopyTally {
+  let copied = 0;
+  let skipped = 0;
+  let failed = 0;
+  let stopped = 0;
+  let lastError: string | undefined;
+  for (const outcome of outcomes) {
+    if (!outcome) {
+      stopped += 1;
+    } else if (outcome.copied) {
+      copied += 1;
+    } else if (outcome.skipped) {
+      skipped += 1;
+    } else if (outcome.error) {
+      failed += 1;
+      lastError = outcome.error;
+    } else {
+      stopped += 1;
+    }
+  }
+  return { copied, skipped, failed, stopped, lastError };
 }
 
 /**

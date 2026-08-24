@@ -7,8 +7,7 @@
 //
 // Quiet-hours times are "HH:MM", dndUntil is epoch ms, an empty folder string means the OS
 // default, and hardwareAcceleration is read before app "ready" so it needs a restart.
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readJsonFile, writeJsonFile } from './json-store';
 import type { LanguagePref } from './locale';
 
 
@@ -264,9 +263,8 @@ export class PrefsStore {
    * @returns a complete Prefs, never a partial one
    */
   getAll(): Prefs {
-    if (!existsSync(this.filePath)) return structuredClone(DEFAULT_PREFS);
     try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf8'));
+      const raw = readJsonFile(this.filePath) as Record<string, any>;
       if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return structuredClone(DEFAULT_PREFS);
       return {
         window: { ...DEFAULT_PREFS.window, ...(raw.window ?? {}) },
@@ -354,8 +352,7 @@ export class PrefsStore {
    * @private
    */
   private write(prefs: Prefs): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(prefs, null, 2), 'utf8');
+    writeJsonFile(this.filePath, prefs);
   }
 
   setWindow(w: WindowPrefs): void {

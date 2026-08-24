@@ -12,7 +12,7 @@
 // Types
 //===========================
 
-export type RetryMethod = 'GET' | 'POST';
+export type RetryMethod = 'GET' | 'POST' | 'POST_IDEMPOTENT';
 
 export interface RetryAttempt {
   method: RetryMethod;
@@ -21,6 +21,11 @@ export interface RetryAttempt {
   /** The HTTP status, or null when nothing came back */
   status: number | null;
   timedOut?: boolean;
+  /** Severed on purpose -- a running copy was told to stop, not a request that merely ran
+   * out of time. Never retried, for any method: repeating a request nobody wants any more
+   * would defeat the reason it was cut in the first place. Kept apart from `timedOut` since
+   * a GET is otherwise allowed one retry after a timeout, and a cancelled one must not be. */
+  cancelled?: boolean;
   retryAfter?: string | null;
 }
 
@@ -79,8 +84,18 @@ export function retryWaitMs(
 ): number | null {
   if (a.attempt >= MAX_ATTEMPTS) return null;
 
+  // Checked before the per-method branching below, and for every method: a cancelled
+  // request is refused the same way an ambiguous POST already is, but a plain GET's own
+  // one-retry-after-a-timeout allowance must not apply to it too. The user asked this
+  // specific request to stop; sending it again is not a retry, it is going behind their back.
+  if (a.cancelled) return null;
+
   // An insert is the one call that is not free to repeat: without a status there is no
   // proof Gmail refused it, and a mail copied twice is worse than one reported as failed.
+  // 'POST_IDEMPOTENT' exists so a write that cannot be duplicated by repeating it -- trash,
+  // say, where trashing an already-trashed message is a no-op -- can opt back into the
+  // ordinary GET-like policy below. Nothing here widens this 'POST' branch itself; a call
+  // site has to name 'POST_IDEMPOTENT' on purpose to get anything but this refusal.
   if (a.method === 'POST') {
     if (a.timedOut || a.status === null) return null;
     if (!RETRIABLE_INSERT_STATUS.has(a.status)) return null;

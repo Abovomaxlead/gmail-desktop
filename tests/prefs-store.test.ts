@@ -48,10 +48,20 @@ describe('PrefsStore', () => {
     expect(new PrefsStore(file).getAccount('a@b.com').badgeCount).toBe(false);
   });
 
-  it('tolerates a corrupt file by returning defaults', () => {
+  // A corrupt file used to mean defaults, which is how an update cost people their
+  // settings. It now means the backup, and only a corrupt backup as well means defaults.
+  it('tolerates a corrupt file by reading the backup beside it', () => {
     const store = new PrefsStore(file);
     store.setTheme('dark');
     require('node:fs').writeFileSync(file, '{not json', 'utf8');
+    expect(new PrefsStore(file).getAll().theme).toBe('dark');
+  });
+
+  it('returns defaults when the file and its backup are both corrupt', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    require('node:fs').writeFileSync(file, '{not json', 'utf8');
+    require('node:fs').writeFileSync(`${file}.bak`, '{not json either', 'utf8');
     expect(new PrefsStore(file).getAll()).toEqual(DEFAULT_PREFS);
   });
 
@@ -166,6 +176,33 @@ describe('PrefsStore mailDrop', () => {
   it('ignores a non-string folder in a hand-edited file', () => {
     require('node:fs').writeFileSync(file, JSON.stringify({ mailDrop: { folder: 42 } }), 'utf8');
     expect(new PrefsStore(file).getAll().mailDrop.folder).toBe('');
+  });
+});
+
+describe('PrefsStore survives a write the app was killed in the middle of', () => {
+  it('reads the settings back when prefs.json was truncated', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    store.setLanguage('nl');
+    // what an update leaves behind when the installer kills the app inside a write
+    writeFileSync(file, '{"theme": "da', 'utf8');
+    const reread = new PrefsStore(file).getAll();
+    expect(reread.theme).toBe('dark');
+    expect(reread.language).toBe('nl');
+  });
+
+  it('reads the settings back when prefs.json was truncated to nothing', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    writeFileSync(file, '', 'utf8');
+    expect(new PrefsStore(file).getAll().theme).toBe('dark');
+  });
+
+  it('does not resurrect an old setting the user has since changed', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    store.setTheme('light');
+    expect(new PrefsStore(file).getAll().theme).toBe('light');
   });
 });
 

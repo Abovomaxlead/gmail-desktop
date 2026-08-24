@@ -123,32 +123,15 @@ export async function accessTokenFor(
   }
 }
 
-export type { StoredToken };
-
-
-//===========================
-// Helper functions
-//===========================
-
 /**
- * The allowed domains as they are read out in the refusal
- *
- * @returns '@one.nl' or '@one.nl of @two.nl'
- * @private
- */
-function domainList(): string {
-  return ALLOWED_EMAIL_DOMAINS.map((d) => `@${d}`).join(' of ');
-}
-
-/**
- * Posts a urlencoded body and reads the JSON back
+ * Posts a urlencoded body and reads the JSON back. Exported so other flows in this
+ * folder (e.g. revoking a grant) reuse it instead of a second HTTP helper.
  *
  * @param url
  * @param body
  * @returns the parsed response
- * @private
  */
-async function postForm(url: string, body: string): Promise<Record<string, unknown>> {
+export async function postForm(url: string, body: string): Promise<Record<string, unknown>> {
   const { net } = require('electron') as typeof import('electron');
   return await new Promise((resolve, reject) => {
     const req = net.request({ url, method: 'POST' });
@@ -158,6 +141,11 @@ async function postForm(url: string, body: string): Promise<Record<string, unkno
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
+        // A 2xx with no body (e.g. Google's revoke endpoint) is a success, not unparsable.
+        if (res.statusCode >= 200 && res.statusCode < 300 && !text.trim()) {
+          resolve({});
+          return;
+        }
         let json: Record<string, unknown>;
         try {
           json = JSON.parse(text) as Record<string, unknown>;
@@ -177,6 +165,23 @@ async function postForm(url: string, body: string): Promise<Record<string, unkno
     req.write(body);
     req.end();
   });
+}
+
+export type { StoredToken };
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * The allowed domains as they are read out in the refusal
+ *
+ * @returns '@one.nl' or '@one.nl of @two.nl'
+ * @private
+ */
+function domainList(): string {
+  return ALLOWED_EMAIL_DOMAINS.map((d) => `@${d}`).join(' of ');
 }
 
 /**

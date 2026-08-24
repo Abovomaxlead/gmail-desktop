@@ -31,6 +31,11 @@ jobs:
         env:
           GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
 
+      # The same gate the release runs: a test install that cannot link accounts, or that
+      # names a different OAuth client, is not testing what people will run.
+      - name: Check the bundled OAuth config
+        run: npm run check:oauth
+
       - name: Build installer (no publish)
         # electron-builder auto-publishes in CI when a publish config exists;
         # --publish never forces a build-only run (no GH_TOKEN, no release).

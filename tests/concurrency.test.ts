@@ -55,6 +55,73 @@ describe('mapLimit', () => {
   it('never runs fewer than one worker', async () => {
     expect(await mapLimit([1, 2], 0, async (n) => n * 2)).toEqual([2, 4]);
   });
+
+  // The gate a paused or stopped copy run checks before starting the next file
+  describe('with a gate', () => {
+    it('runs normally when the gate always says continue', async () => {
+      const out = await mapLimit([1, 2, 3], 2, async (n) => n * 2, async () => 'continue');
+      expect(out).toEqual([2, 4, 6]);
+    });
+
+    it('never calls fn again once the gate says stop', async () => {
+      let calls = 0;
+      const out = await mapLimit(
+        [0, 1, 2, 3, 4],
+        1,
+        async (n) => {
+          calls += 1;
+          return n * 10;
+        },
+        async () => (calls >= 2 ? 'stop' : 'continue'),
+      );
+      expect(calls).toBe(2);
+      expect(out).toEqual([0, 10, undefined, undefined, undefined]);
+    });
+
+    // The whole point of checking before the slot is taken: a worker stuck at the gate must
+    // not be the thing standing between the other workers and the rest of the list.
+    it('does not let a worker blocked at the gate hold the others back', async () => {
+      const blockedGate = defer<'continue' | 'stop'>();
+      let firstCallBlocked = false;
+      const shouldWait = (): Promise<'continue' | 'stop'> => {
+        if (!firstCallBlocked) {
+          firstCallBlocked = true;
+          return blockedGate.promise;
+        }
+        return Promise.resolve('continue');
+      };
+      const started: number[] = [];
+      const run = mapLimit(
+        [10, 20],
+        2,
+        async (n) => {
+          started.push(n);
+          return n;
+        },
+        shouldWait,
+      );
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+      // Both items are already through, worked entirely by the worker that was not blocked.
+      expect(started).toEqual([10, 20]);
+      blockedGate.resolve('continue');
+      expect(await run).toEqual([10, 20]);
+    });
+
+    it('checks the gate itself before doing anything else, so an already-stopped run starts no work at all', async () => {
+      const calls: number[] = [];
+      const out = await mapLimit(
+        [1, 2, 3],
+        3,
+        async (n) => {
+          calls.push(n);
+          return n;
+        },
+        async () => 'stop',
+      );
+      expect(calls).toEqual([]);
+      expect(out).toEqual([undefined, undefined, undefined]);
+    });
+  });
 });
 
 describe('memoise', () => {

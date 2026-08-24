@@ -5,9 +5,10 @@
 // carries whatever Gmail's page passed the Notification constructor, so it is checked.
 
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { IPC, type MailDropCopyTarget } from './ipc';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { IPC, type MailDropCopyControlAction, type MailDropCopyTarget } from './ipc';
+import type { CopyStopMode } from '../mail/copy-run-types';
+import { writeFileAtomic } from './json-store';
 import { OAUTH_CONFIG_PATH } from './paths';
 import {
   activeTab,
@@ -34,12 +35,15 @@ import { addAccount, redetect, removeAccount } from '../accounts/detection-contr
 import { refreshDelegatedFromApi } from '../delegation/delegated-controller';
 import {
   closeDropPreview,
+  controlCopyRun,
   copyToMailboxes,
+  decideOrphanRun,
   dropPreviewItems,
   existingForCopyTargets,
   labelsForCopyTargets,
   mailDropFolder,
   mailDropStatus,
+  pendingOrphanDecision,
 } from '../mail/mail-drop-controller';
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
@@ -256,6 +260,13 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_COPY, (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) =>
     copyToMailboxes(arg),
   );
+  ipcMain.handle(IPC.MAIL_DROP_COPY_CONTROL, (_e, arg: { action: MailDropCopyControlAction }) =>
+    controlCopyRun(arg?.action),
+  );
+  ipcMain.handle(IPC.MAIL_DROP_ORPHAN_GET, () => pendingOrphanDecision());
+  ipcMain.handle(IPC.MAIL_DROP_ORPHAN_DECIDE, (_e, arg: { runId: string; mode: CopyStopMode }) =>
+    decideOrphanRun(arg?.runId, arg?.mode),
+  );
   ipcMain.handle(IPC.ACTIVE_GET, () => activeTab());
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
   ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({
@@ -277,8 +288,7 @@ export function registerIpc(): void {
     }
     if (!checked.ok) return { ok: false, invalid: true };
     try {
-      mkdirSync(dirname(OAUTH_CONFIG_PATH), { recursive: true });
-      writeFileSync(OAUTH_CONFIG_PATH, checked.text, 'utf8');
+      writeFileAtomic(OAUTH_CONFIG_PATH, checked.text);
     } catch (e) {
       console.warn('[oauth] could not write the config:', e);
       return { ok: false, invalid: true };

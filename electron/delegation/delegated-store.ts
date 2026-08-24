@@ -4,8 +4,7 @@
 // mergeScan carries the health check: it never removes an entry a scan missed, and reports
 // healthOk false when a scan returns fewer entries than are held, which reads as breakage.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../core/json-store';
 
 
 //===========================
@@ -56,18 +55,12 @@ export class DelegatedStore {
    * @returns the stored mailboxes
    */
   list(): StoredDelegate[] {
-    if (!existsSync(this.filePath)) return [];
-    try {
-      const raw = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      return Array.isArray(raw) ? raw : [];
-    } catch {
-      return [];
-    }
+    const raw = readJsonFile(this.filePath);
+    return Array.isArray(raw) ? raw : [];
   }
 
   private write(items: StoredDelegate[]): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(items, null, 2), 'utf8');
+    writeJsonFile(this.filePath, items);
   }
 
   /**

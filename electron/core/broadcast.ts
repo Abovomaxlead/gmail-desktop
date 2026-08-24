@@ -18,7 +18,6 @@ import {
   mainWindow,
   prefs,
   profiles,
-  removed,
   seedOrder,
   unread,
 } from './runtime';
@@ -149,7 +148,6 @@ function decorate(list: Profile[]): TabRow[] {
   });
   const seeds: TabRow[] = seedable(cachedAccounts, {
     confirmed: profiles.map((p) => p.email),
-    removed: removed?.list() ?? [],
   }).map((c) => {
     const ap = prefs?.getAccount(c.email) ?? {};
     return {

@@ -16,7 +16,6 @@ import { UnreadStore } from '../unread/unread-store';
 import { PushCoverage } from '../push/push-coverage';
 import type { ProfileViewManager, Profile, Surface } from '../windows/profile-view-manager';
 import type { ColorStore } from '../accounts/color-store';
-import type { RemovedStore } from '../accounts/removed-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
 import type { PrefsStore } from './prefs-store';
 import type { OAuthStore } from '../auth/oauth-store';
@@ -60,7 +59,6 @@ export let mainWindow: BrowserWindow | null = null;
 export let manager: ProfileViewManager | null = null;
 export let prefs: PrefsStore | null = null;
 export let colors: ColorStore | null = null;
-export let removed: RemovedStore | null = null;
 export let delegated: DelegatedStore | null = null;
 export let oauthTokens: OAuthStore | null = null;
 export let history: HistoryStore | null = null;
@@ -106,9 +104,6 @@ export function setPrefs(v: PrefsStore | null): void {
 }
 export function setColors(v: ColorStore | null): void {
   colors = v;
-}
-export function setRemoved(v: RemovedStore | null): void {
-  removed = v;
 }
 export function setDelegated(v: DelegatedStore | null): void {
   delegated = v;

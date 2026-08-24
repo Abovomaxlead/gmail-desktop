@@ -59,18 +59,26 @@ const FLOOR = 25;
  * cost the rest of the session, because the ceiling only ever went down. */
 const RECOVER_AFTER_MS = 60_000;
 
-/** Gmail's price list, for the calls this app makes. */
+/** Gmail's price list, for the calls this app makes.
+ *
+ * 'messages.trash' was 5 here until this line: Google's own published table prices it at 20,
+ * so every trash call this app ever made was under-booked by a factor of four. Found and
+ * fixed alongside the marker sweep below, which is what needed the rest of this table to be
+ * trustworthy enough to add two calls to. */
 export const QUOTA_COST: Record<string, number> = {
   'messages.get': 5,
   'messages.list': 5,
   'messages.insert': 25,
   'messages.send': 100,
   'messages.modify': 5,
-  'messages.trash': 5,
+  'messages.trash': 20,
+  'messages.batchModify': 50,
   'threads.get': 10,
   'threads.list': 10,
   'history.list': 2,
   'labels.list': 1,
+  'labels.create': 5,
+  'labels.delete': 5,
   'users.getProfile': 1,
   watch: 100,
 };
@@ -99,22 +107,32 @@ export function quotaCost(call: string): number {
  * The names are Gmail's own, since that is what the published price list is written in.
  *
  * @param url the request URL
+ * @param method defaults to the plain `init ? 'POST' : 'GET'` every existing call site already
+ *   reads as, so a call that never named a method keeps pricing exactly as it did before this
+ *   parameter existed. A label create and a label list share one path with nothing else to
+ *   tell them apart, which is why this is needed at all.
  * @returns the method name, and an empty string for a URL that is none of these, which prices as
  *   the dearest call rather than as free
  */
-export function callForUrl(url: string): string {
+export function callForUrl(url: string, method = 'GET'): string {
   const path = url.split('?')[0];
   if (path.includes('/upload/gmail/')) return 'messages.insert';
   if (path.endsWith('/watch') || path.endsWith('/stop')) return 'watch';
   if (path.endsWith('/profile')) return 'users.getProfile';
   if (path.endsWith('/history')) return 'history.list';
-  if (path.endsWith('/labels')) return 'labels.list';
+  if (path.endsWith('/labels')) return method === 'POST' ? 'labels.create' : 'labels.list';
+  if (/\/labels\/[^/]+$/.test(path)) return method === 'DELETE' ? 'labels.delete' : 'labels.get';
 
   for (const kind of ['messages', 'threads'] as const) {
     const at = path.lastIndexOf(`/${kind}`);
     if (at === -1) continue;
     const rest = path.slice(at + kind.length + 2);
     if (rest === '') return `${kind}.list`;
+    // A bulk verb sits directly under the collection, with no message id in front of it -- the
+    // same shape as a bare id with no verb after it. Checked first, or 'batchModify' reads as
+    // an id with nothing after it and falls into the plain .get branch below, silently pricing
+    // a bulk call at a fifth of what it actually costs.
+    if (rest === 'batchModify' || rest === 'batchDelete') return `${kind}.${rest}`;
     // A verb after the id is a change to the message, which Gmail prices apart from reading it
     const verb = rest.split('/')[1];
     return verb ? `${kind.slice(0, -1)}s.${verb}` : `${kind}.get`;

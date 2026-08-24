@@ -2,8 +2,7 @@
 // so an unreadable or hand-edited file degrades to "no colour set" instead of
 // failing.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../core/json-store';
 
 export class ColorStore {
   constructor(private readonly filePath: string) {}
@@ -15,15 +14,10 @@ export class ColorStore {
    * @private
    */
   private read(): Record<string, string> {
-    if (!existsSync(this.filePath)) return {};
-    try {
-      const parsed = JSON.parse(readFileSync(this.filePath, 'utf8'));
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-        ? (parsed as Record<string, string>)
-        : {};
-    } catch {
-      return {};
-    }
+    const parsed = readJsonFile(this.filePath);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, string>)
+      : {};
   }
 
   get(email: string): string | undefined {
@@ -31,8 +25,6 @@ export class ColorStore {
   }
 
   set(email: string, color: string): void {
-    const next = { ...this.read(), [email]: color };
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(next, null, 2), 'utf8');
+    writeJsonFile(this.filePath, { ...this.read(), [email]: color });
   }
 }

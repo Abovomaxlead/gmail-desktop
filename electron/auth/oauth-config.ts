@@ -6,6 +6,7 @@
 // imported from inside the running app.
 
 import { readFileSync } from 'node:fs';
+import { backupPath } from '../core/json-store';
 import { OAUTH_CONFIG_PATH } from '../core/paths';
 import { chooseRelayUrl } from '../delegation/relay-url';
 import { readBundledOAuthConfig } from './oauth-bundled';
@@ -19,7 +20,11 @@ import { parsePushConfig, type PushConfig } from '../push/push-config';
 //===========================
 
 export function oauthConfigText(): string | null {
-  return chooseOAuthConfigText(readIfPresent(OAUTH_CONFIG_PATH), readBundledOAuthConfig());
+  return chooseOAuthConfigText(
+    readIfPresent(OAUTH_CONFIG_PATH),
+    readIfPresent(backupPath(OAUTH_CONFIG_PATH)),
+    readBundledOAuthConfig(),
+  );
 }
 
 export function oauthConfig(): OAuthConfig | null {

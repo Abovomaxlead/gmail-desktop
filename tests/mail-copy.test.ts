@@ -9,6 +9,7 @@ import {
   groupDuplicates,
   duplicateIndex,
   labelsStillNeeded,
+  insertLabelIds,
   newMessageCount,
   copyableLabelIds,
   countExisting,
@@ -19,6 +20,7 @@ import {
   perMailboxLimit,
   runThreadGroup,
   existingSoFar,
+  tallyOutcomes,
 
 } from '../electron/mail/mail-copy';
 
@@ -145,6 +147,24 @@ describe('labelsStillNeeded', () => {
       'L1',
       'L2',
     ]);
+  });
+});
+
+describe('insertLabelIds', () => {
+  // What makes this the whole fix: the marker rides inside the very array insertMessage is
+  // given, never a follow-up call added after the fact.
+  it('folds the marker into the same array the insert itself carries', () => {
+    expect(insertLabelIds(['INBOX', 'L1'], 'MARKER_1')).toEqual(['INBOX', 'L1', 'MARKER_1']);
+  });
+
+  it('does not mutate the labels the journal will go on to record', () => {
+    const labelIds = ['INBOX'];
+    insertLabelIds(labelIds, 'MARKER_1');
+    expect(labelIds).toEqual(['INBOX']);
+  });
+
+  it('still carries the marker when there are no real labels at all', () => {
+    expect(insertLabelIds([], 'MARKER_1')).toEqual(['MARKER_1']);
   });
 });
 
@@ -595,6 +615,7 @@ describe('copyLogLine', () => {
     copied: 3,
     skipped: 0,
     failed: 0,
+    stopped: 0,
   };
 
   // The whole question this logging exists for: is a delegated target slower than an own one,
@@ -632,6 +653,62 @@ describe('copyLogLine', () => {
     const line = copyLogLine({ ...base, inserts: [], copied: 0, skipped: 3 });
     expect(line).toContain('0 inserts');
     expect(line).not.toContain('mediaan');
+  });
+
+  // The defect this guards: a cancelled run must read as cancelled, not as Gmail having
+  // refused dozens of uploads it was never even asked to make.
+  it('reports a mailbox that was entirely cancelled as afgebroken, not mislukt', () => {
+    const line = copyLogLine({ ...base, copied: 0, skipped: 0, failed: 0, stopped: 17 });
+    expect(line).toContain('0 mislukt');
+    expect(line).toContain('17 afgebroken');
+  });
+
+  it('keeps a real failure and a cancellation apart rather than merging them', () => {
+    const line = copyLogLine({ ...base, copied: 5, skipped: 0, failed: 2, stopped: 10 });
+    expect(line).toContain('5 gekopieerd');
+    expect(line).toContain('2 mislukt');
+    expect(line).toContain('10 afgebroken');
+  });
+});
+
+describe('tallyOutcomes', () => {
+  it('counts a plain copy, skip and failure under their own category', () => {
+    expect(
+      tallyOutcomes([{ copied: true }, { skipped: true }, { error: 'nope' }]),
+    ).toEqual({ copied: 1, skipped: 1, failed: 1, stopped: 0, lastError: 'nope' });
+  });
+
+  // The exact defect: neither of these is a failure, whatever files.length - copied -
+  // skipped would say.
+  it('counts a gate-refused file and a severed upload as stopped, never as failed', () => {
+    expect(
+      tallyOutcomes([
+        undefined, // the gate refused it before its thread group ever started
+        {}, // severed mid-flight by a cancel -- copyOneFile's deliberate, no-error outcome
+      ]),
+    ).toEqual({ copied: 0, skipped: 0, failed: 0, stopped: 2, lastError: undefined });
+  });
+
+  it('does not let a cancellation elsewhere in the mailbox hide behind a real failure', () => {
+    expect(
+      tallyOutcomes([{ error: 'HTTP 500' }, {}, undefined, { copied: true }]),
+    ).toEqual({ copied: 1, skipped: 0, failed: 1, stopped: 2, lastError: 'HTTP 500' });
+  });
+
+  it('keeps the last failure seen when more than one file failed', () => {
+    expect(
+      tallyOutcomes([{ error: 'eerste' }, { error: 'laatste' }]).lastError,
+    ).toBe('laatste');
+  });
+
+  it('answers all zero for an empty mailbox', () => {
+    expect(tallyOutcomes([])).toEqual({
+      copied: 0,
+      skipped: 0,
+      failed: 0,
+      stopped: 0,
+      lastError: undefined,
+    });
   });
 });
 

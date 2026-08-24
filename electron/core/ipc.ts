@@ -5,6 +5,8 @@
 // whether it may notify at all, and whether it may make noise. The text is main's.
 
 import type { MessageRef } from '../mail/dropzone';
+import type { CopyResult } from '../mail/mail-copy';
+import type { CopyStopMode, RollbackOutcome } from '../mail/copy-run-types';
 
 
 //===========================
@@ -83,8 +85,11 @@ export const IPC = {
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get',
   MAIL_DROP_COPY: 'maildrop:copy',
   MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress',
+  MAIL_DROP_COPY_CONTROL: 'maildrop:copy-control',
   MAIL_DROP_EXISTING_GET: 'maildrop:existing-get',
   MAIL_DROP_EXISTING: 'maildrop:existing',
+  MAIL_DROP_ORPHAN_GET: 'maildrop:orphan-get',
+  MAIL_DROP_ORPHAN_DECIDE: 'maildrop:orphan-decide',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
@@ -141,6 +146,59 @@ export type {
   ExistingInMailbox as MailDropExistingInMailbox,
   ExistingResult as MailDropExisting,
 } from '../mail/mail-copy';
+
+/** How far a copy has got, over all the chosen mailboxes at once, or how far a rollback has
+ * got undoing one. No mailbox is named for a running copy -- several run at once, so naming
+ * one would say something untrue -- but a paused run breaks its count down per mailbox
+ * (`byMailbox`), which is exactly what the stop dialog has to show. */
+export interface MailDropCopyProgress {
+  phase: 'check' | 'copy' | 'rollback';
+  done: number;
+  total: number;
+  paused?: boolean;
+  byMailbox?: { email: string; copied: number }[];
+}
+
+/** What the paused dialog may ask the copy in flight to do. The two stop actions map onto
+ * CopyStopMode ('keep' / 'rollback') once the gate has drained. */
+export type MailDropCopyControlAction = 'pause' | 'resume' | 'stop-keep' | 'stop-rollback';
+
+export type MailDropCopyControlResult = { ok: true } | { ok: false; error: string };
+
+/** What a copy answers when it was stopped rather than run to its own end. Kept apart from
+ * MailDropCopyResult rather than folded into it: 'stopped' is neither the success nor the
+ * failure that type's `ok` flag distinguishes between. */
+export interface MailDropCopyStoppedResult {
+  stopped: true;
+  mode: CopyStopMode;
+  copied: number;
+  byMailbox: { email: string; copied: number }[];
+  /** Only set for mode 'rollback' */
+  rollback?: RollbackOutcome;
+  /** Set when the stop itself could not be completed safely -- the closing journal line
+   * failed to write -- so the caller must not read this as a clean stop. A sweep that has not
+   * converged yet is not this: it is reported inside `rollback`/`warnings` instead, since it
+   * resolves on its own at the next start rather than needing to be treated as a failure now. */
+  error?: string;
+  /** Something else did not itself succeed -- the audit log, most often -- even though the
+   * stop did. Never what decides whether this is a clean stop; `error` is what does that. */
+  warnings?: string[];
+}
+
+/** A run this app never heard the end of, waiting for the same keep-or-rollback answer a live
+ * run's stop dialog already asks -- surfaced when the mail-drop window opens, since nothing
+ * else in this app can put a question in front of the user on its own. */
+export interface MailDropPendingOrphan {
+  runId: string;
+  byMailbox: { email: string; inserted: number }[];
+}
+
+/** A copy that fully succeeded, but where writing the record of that success did not fully
+ * succeed -- the audit log, or the journal's own closing line. The mail genuinely landed, so
+ * this is reported exactly as MailDropCopyResult would be, with `warnings` added rather than
+ * turned into a failure. Losing that closing line in silence is what would make the next
+ * start's orphan scan read a fully successful run as one that crashed. */
+export type MailDropCopyWarnedResult = CopyResult & { warnings: string[] };
 
 /** The saved-mail folder as the settings page needs it: the path, and whether that path hands
  * the mail to something else -- a share or a sync folder. */

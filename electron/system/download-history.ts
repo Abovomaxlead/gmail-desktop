@@ -8,8 +8,8 @@
 // File order is the order and is never sorted by `startedAt`, because a big download that
 // began earlier can finish later.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { basename, dirname } from 'node:path';
+import { basename } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../core/json-store';
 import type { DownloadRecord } from '../core/ipc';
 
 
@@ -71,12 +71,7 @@ export class DownloadHistoryStore {
    * @returns an empty list when the file is missing or unreadable
    */
   all(): DownloadRecord[] {
-    if (!existsSync(this.filePath)) return [];
-    try {
-      return parseRecords(JSON.parse(readFileSync(this.filePath, 'utf8')));
-    } catch {
-      return [];
-    }
+    return parseRecords(readJsonFile(this.filePath));
   }
 
   /**
@@ -93,8 +88,7 @@ export class DownloadHistoryStore {
   }
 
   private write(records: readonly DownloadRecord[]): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(records, null, 2), 'utf8');
+    writeJsonFile(this.filePath, records);
   }
 }
 

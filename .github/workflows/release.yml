@@ -32,14 +32,18 @@ jobs:
       # and withdrawn — so it arrives here from a repository secret holding the whole
       # google-oauth.json, relayUrl and pushTopic included.
       #
-      # Without the secret this writes nothing usable and the build still succeeds: the app
-      # then reports that the machine is not set up and offers its import button, which is
-      # also what a fork's build does.
+      # Without the secret this writes an empty file and printf still succeeds, which used to
+      # publish a release that could not link an account. The step after it is what refuses.
       - name: Write the bundled OAuth config
         shell: bash
         run: printf '%s' "$GOOGLE_OAUTH_JSON" > assets/oauth-defaults.json
         env:
           GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
+
+      # A release that ships no config cannot link accounts, and one that ships a different
+      # OAuth client unlinks every account that is already linked. Neither may be published.
+      - name: Check the bundled OAuth config
+        run: npm run check:oauth
 
       - name: Build and publish release
         run: npm run release

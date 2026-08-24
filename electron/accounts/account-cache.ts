@@ -3,8 +3,8 @@
 // Drawing material only: no session index is stored, because the digit in /mail/u/2/
 // belongs to Google's browser session rather than to the account.
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { readJsonFile, writeJsonFile } from '../core/json-store';
 
 
 //===========================
@@ -51,14 +51,14 @@ export function parseCachedAccounts(raw: unknown): CachedAccount[] {
  * Picks the cached accounts worth drawing before detection has run
  *
  * @param cached
- * @param opts confirmed are already live, removed the user threw away
+ * @param opts confirmed are already live
  * @returns the remainder, deduplicated, in cache order
  */
 export function seedable(
   cached: CachedAccount[],
-  opts: { confirmed: string[]; removed: string[] },
+  opts: { confirmed: string[] },
 ): CachedAccount[] {
-  const skip = new Set([...opts.confirmed, ...opts.removed].map((e) => e.trim().toLowerCase()));
+  const skip = new Set(opts.confirmed.map((e) => e.trim().toLowerCase()));
   const seen = new Set<string>();
   const out: CachedAccount[] = [];
   for (const c of cached) {
@@ -94,12 +94,7 @@ export class AccountCacheStore {
    * @returns the cached accounts
    */
   list(): CachedAccount[] {
-    if (!existsSync(this.filePath)) return [];
-    try {
-      return parseCachedAccounts(JSON.parse(readFileSync(this.filePath, 'utf8')));
-    } catch {
-      return [];
-    }
+    return parseCachedAccounts(readJsonFile(this.filePath));
   }
 
   /**
@@ -108,8 +103,7 @@ export class AccountCacheStore {
    * @param items
    */
   save(items: CachedAccount[]): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(parseCachedAccounts(items), null, 2), 'utf8');
+    writeJsonFile(this.filePath, parseCachedAccounts(items));
   }
 
   remove(email: string): void {

@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { mapLimit } from '../core/concurrency';
-import { withRetry } from './retry';
+import { withRetry, type RetryMethod } from './retry';
 import { notifyLog } from '../notify/notify-log';
 import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
 import {
@@ -34,6 +34,9 @@ export interface GmailLabel {
 
 export interface RawLabel extends GmailLabel {
   type: string;
+  /** 'labelHide' for a label hidden from Gmail's own clients, empty when the field was absent
+   * or unreadable -- never confused with 'labelShow', which is a real, different value. */
+  labelListVisibility: string;
 }
 
 export interface AccountLabels {
@@ -76,6 +79,21 @@ export class GmailHttpError extends Error {
     /** Gmail's own Retry-After, which the retry policy prefers over its own backoff */
     readonly retryAfter: string | null = null,
   ) {
+    super(message);
+  }
+}
+
+/** A request severed on purpose, by a signal this file did not fire itself. Its own class so
+ * every layer above can tell a deliberate cut apart from a timeout: retry.ts must never send
+ * it again, and the caller must never report it as an ordinary upload failure.
+ *
+ * `dispatched` says whether anything actually went out: false when the signal was already
+ * aborted before this attempt opened a request at all, true when the cut came after
+ * req.end() had already sent it. Only the second case is genuinely ambiguous about whether
+ * Gmail applied it -- the first cannot possibly have landed, and reconciliation is what
+ * reads this to skip searching for it at all. */
+export class GmailCancelledError extends Error {
+  constructor(message: string, readonly dispatched: boolean) {
     super(message);
   }
 }
@@ -131,6 +149,15 @@ export const SEARCH_MATCH_LIMIT = 10;
 // cliff, and a canary term proves the query was understood before an empty answer is believed.
 export const BATCH_QUERY_LIMIT = 10;
 
+// Every label a copy run creates to mark its own inserts starts with this, and nothing else
+// in this app names a label this way. parseLabels reads it to keep a marker out of the
+// mail-drop picker -- on the name alone, not on labelListVisibility, so a label some user
+// hid for their own bookkeeping stays exactly as visible to them as it always was.
+export const MARKER_LABEL_PREFIX = '_gmd-copy-';
+
+// Gmail's own ceiling on users.messages.batchModify: at most this many ids in one call.
+export const BATCH_MODIFY_LIMIT = 1000;
+
 /**
  * The headers every call in this file carries
  *
@@ -175,7 +202,12 @@ export function parseAllLabels(json: unknown): RawLabel[] {
     const id = typeof l?.id === 'string' ? l.id : '';
     const name = typeof l?.name === 'string' ? l.name : '';
     if (!id || !name) continue;
-    out.push({ id, name, type: typeof l?.type === 'string' ? l.type : '' });
+    out.push({
+      id,
+      name,
+      type: typeof l?.type === 'string' ? l.type : '',
+      labelListVisibility: typeof l?.labelListVisibility === 'string' ? l.labelListVisibility : '',
+    });
   }
   return out;
 }
@@ -197,7 +229,36 @@ export function findLabelId(labels: RawLabel[], name: string): string | null {
 }
 
 /**
+ * Whether a label name is one of this app's own markers
+ *
+ * @param name
+ * @returns true for a name this app itself would have minted, never for a label a user made
+ */
+export function isMarkerLabelName(name: string): boolean {
+  return name.startsWith(MARKER_LABEL_PREFIX);
+}
+
+/**
+ * The name a run's own marker label gets, deterministic in the run id
+ *
+ * Deterministic so that a create retried after an ambiguous answer -- the connection cut
+ * before the response came back, not before the label existed -- lands on the same name, and
+ * createHiddenLabel can recover the same id from Gmail's own 409 rather than minting a
+ * duplicate.
+ *
+ * @param runId
+ * @returns the name
+ */
+export function markerLabelName(runId: string): string {
+  return `${MARKER_LABEL_PREFIX}${runId}`;
+}
+
+/**
  * The labels a mail can be copied into
+ *
+ * A marker label is `type: 'user'` like any label the mailbox owner made, so it is excluded
+ * on its name rather than on labelListVisibility -- see MARKER_LABEL_PREFIX for why that
+ * narrower test is the deliberate choice, not the broader one.
  *
  * @param json
  * @returns {GmailLabel[]} the system targets in their own order, then the user's own
@@ -208,6 +269,7 @@ export function parseLabels(json: unknown): GmailLabel[] {
   for (const l of parseAllLabels(json)) {
     const isUser = l.type === 'user';
     if (!isUser && !SYSTEM_TARGETS.has(l.id)) continue;
+    if (isUser && isMarkerLabelName(l.name)) continue;
     out.push({ id: l.id, name: isUser ? l.name : SYSTEM_NAMES[l.id] ?? l.name });
   }
   const rank = (l: GmailLabel) => {
@@ -237,6 +299,166 @@ export async function fetchLabelId(accessToken: string, name: string): Promise<s
 
 export async function fetchInboxUnread(accessToken: string): Promise<number | null> {
   return parseUnreadThreads(await requestJson(labelGetUrl('INBOX'), accessToken));
+}
+
+/**
+ * The body that creates a label hidden from Gmail's own clients
+ *
+ * @param name
+ * @returns the JSON body to POST
+ */
+export function labelCreateBody(name: string): string {
+  return JSON.stringify({ name, labelListVisibility: 'labelHide', messageListVisibility: 'hide' });
+}
+
+/**
+ * Reads the label a create call answered with
+ *
+ * @param json
+ * @returns {null} without both an id and a name, which every label carries
+ */
+export function parseCreatedLabel(json: unknown): { id: string; name: string } | null {
+  const raw = json as { id?: unknown; name?: unknown };
+  const id = stringFrom(raw?.id);
+  const name = stringFrom(raw?.name);
+  return id && name ? { id, name } : null;
+}
+
+/**
+ * One label, by its exact name
+ *
+ * Exact match only, unlike findLabelId's case-insensitive fallback: a marker's name is
+ * generated by this app itself, never typed by a user, so there is nothing here to be lenient
+ * about -- and leniency is exactly the kind of slack a name collision could exploit.
+ *
+ * @param labels
+ * @param name
+ * @returns the label, or null when nothing matches exactly
+ */
+export function findLabelByExactName(labels: RawLabel[], name: string): RawLabel | null {
+  return labels.find((l) => l.name === name) ?? null;
+}
+
+/**
+ * Whether a label recovered after a 409 is safe to trust as this run's own marker
+ *
+ * A 409 only proves a label of this name exists, not that this app is the one that made it.
+ * The name alone carries a fresh random run id, which makes a genuine collision with a label
+ * someone else made close to impossible -- but "close to impossible" is not proof, and proof
+ * is what is needed before a later sweep is let loose on whatever this id points to. So every
+ * property createHiddenLabel itself would have set is checked: a real user label, hidden from
+ * every Gmail client, named with this app's own marker prefix. Anything less is treated as the
+ * conflict it actually is, not smoothed over.
+ *
+ * @param label
+ * @returns true only when every one of those holds
+ */
+export function looksLikeOwnMarker(label: RawLabel): boolean {
+  return (
+    label.type === 'user' &&
+    label.labelListVisibility === 'labelHide' &&
+    isMarkerLabelName(label.name)
+  );
+}
+
+/**
+ * What a 409 on a marker create resolves to
+ *
+ * Split out from createHiddenLabel so the validation above is checkable without the network:
+ * given whatever a name lookup found, this decides whether it may be trusted or must be
+ * refused. Throwing on the 409 itself -- the "safer"-looking alternative -- is not actually
+ * safer: a 409 here means the create reached Gmail but its own answer did not, which is a
+ * recoverable hiccup and an expected one, not a reason to make a mailbox permanently
+ * uncopyable. What must not happen instead is trusting the recovered id blindly.
+ *
+ * @param name the marker name the create was for
+ * @param recovered whatever findLabelByExactName found under that name, or null
+ * @returns the id to use, or the reason to refuse it
+ */
+export function resolveConflictedMarker(
+  name: string,
+  recovered: RawLabel | null,
+): { ok: true; id: string } | { ok: false; reason: string } {
+  if (!recovered) {
+    return { ok: false, reason: `label '${name}' kon niet worden hersteld na een conflict` };
+  }
+  if (!looksLikeOwnMarker(recovered)) {
+    return { ok: false, reason: `label '${name}' bestaat al, maar is niet van deze app` };
+  }
+  return { ok: true, id: recovered.id };
+}
+
+/**
+ * One label, by its exact name, read straight from the mailbox
+ *
+ * @param accessToken
+ * @param name
+ * @returns the label, or null when nothing matches
+ */
+export async function fetchLabel(accessToken: string, name: string): Promise<RawLabel | null> {
+  return findLabelByExactName(parseAllLabels(await requestJson(LABELS_URL, accessToken)), name);
+}
+
+/**
+ * Creates one run's marker label, hidden from every Gmail client including this app's own
+ * picker
+ *
+ * A create cut off before its answer came back is genuinely ambiguous -- it may have landed --
+ * so a retry after that must not risk a duplicate. `name` is deterministic in the run id for
+ * exactly that reason: a 409 on retry means the earlier attempt did land, and the label's id
+ * is recovered by looking its own name up rather than minting a second one. See
+ * resolveConflictedMarker for why that recovered label is checked before it is trusted, rather
+ * than being handed back as soon as a name match is found.
+ *
+ * @param accessToken
+ * @param name from markerLabelName, so a retry names the same label
+ * @returns the label's id and name
+ * @throws whatever the create failed with, or the conflict's own reason when a 409's recovery
+ *   does not check out
+ */
+export async function createHiddenLabel(
+  accessToken: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  try {
+    const json = await requestJson(LABELS_URL, accessToken, {
+      method: 'POST',
+      contentType: 'application/json',
+      body: Buffer.from(labelCreateBody(name), 'utf8'),
+    });
+    const created = parseCreatedLabel(json);
+    if (!created) throw new Error('Gmail gaf geen label terug');
+    return created;
+  } catch (e) {
+    if (!(e instanceof GmailHttpError) || e.status !== 409) throw e;
+    const resolved = resolveConflictedMarker(name, await fetchLabel(accessToken, name));
+    if (!resolved.ok) throw new Error(resolved.reason);
+    return { id: resolved.id, name };
+  }
+}
+
+/**
+ * Deletes a label, once nothing needs it any more
+ *
+ * Best-effort by every call site: a marker label left behind after its messages are already
+ * stripped or trashed costs the user nothing they can see, so this is cleanup, not correctness.
+ * A label already gone (a repeat of this same call) is treated as success rather than an error.
+ *
+ * @param accessToken
+ * @param labelId
+ * @returns {Promise<void>}
+ */
+export async function deleteLabel(accessToken: string, labelId: string): Promise<void> {
+  try {
+    await requestJson(labelGetUrl(labelId), accessToken, {
+      method: 'DELETE',
+      contentType: 'application/json',
+      body: Buffer.from('', 'utf8'),
+    });
+  } catch (e) {
+    if (e instanceof GmailHttpError && e.status === 404) return;
+    throw e;
+  }
 }
 
 
@@ -465,12 +687,28 @@ export async function archiveMessage(accessToken: string, messageId: string): Pr
   });
 }
 
+/**
+ * Puts a message in the trash
+ *
+ * Opts into 'POST_IDEMPOTENT' retries, unlike every other write in this file: trashing an
+ * already-trashed message is a no-op, so a trash that timed out is safe to send again. An
+ * insert is never given this treatment -- see retry.ts for why.
+ *
+ * @param accessToken
+ * @param messageId
+ * @returns {Promise<void>}
+ */
 export async function trashMessage(accessToken: string, messageId: string): Promise<void> {
-  await requestJson(messageTrashUrl(messageId), accessToken, {
-    method: 'POST',
-    contentType: 'application/json',
-    body: Buffer.from('{}', 'utf8'),
-  });
+  await requestJson(
+    messageTrashUrl(messageId),
+    accessToken,
+    {
+      method: 'POST',
+      contentType: 'application/json',
+      body: Buffer.from('{}', 'utf8'),
+    },
+    'POST_IDEMPOTENT',
+  );
 }
 
 /**
@@ -985,6 +1223,8 @@ export function parseInsertedThreadId(json: unknown): string | null {
  * @param raw
  * @param labelIds
  * @param threadId the thread the earlier messages of this copy landed in
+ * @param signal aborted when a running copy is told to stop, so this upload is severed
+ *   rather than left to finish -- see GmailCancelledError
  * @returns {Promise<{id: string|null, threadId: string|null}>} what Gmail filed it as
  */
 export async function insertMessage(
@@ -992,14 +1232,140 @@ export async function insertMessage(
   raw: Buffer,
   labelIds: string[],
   threadId?: string,
+  signal?: AbortSignal,
 ): Promise<{ id: string | null; threadId: string | null }> {
   const boundary = pickBoundary(raw);
-  const json = await requestJson(INSERT_URL, accessToken, {
-    method: 'POST',
-    contentType: `multipart/related; boundary=${boundary}`,
-    body: multipartBody(raw, labelIds, boundary, threadId),
-  });
+  const json = await requestJson(
+    INSERT_URL,
+    accessToken,
+    {
+      method: 'POST',
+      contentType: `multipart/related; boundary=${boundary}`,
+      body: multipartBody(raw, labelIds, boundary, threadId),
+    },
+    undefined,
+    signal,
+  );
   return { id: parseInsertedId(json), threadId: parseInsertedThreadId(json) };
+}
+
+/**
+ * Every Gmail id currently matching this RFC822 Message-ID in a mailbox
+ *
+ * What reconciling a severed insert starts from: searchAnywhereUrl and parseMessageIds,
+ * already used for the duplicate check, answered directly rather than folded into a wider
+ * question the way labelsHoldingMessage does.
+ *
+ * @param accessToken
+ * @param messageId the RFC822 Message-ID
+ * @returns the ids, empty when the mailbox holds none
+ */
+export async function searchAnywhere(accessToken: string, messageId: string): Promise<string[]> {
+  if (!(messageId ?? '').trim()) return [];
+  return parseMessageIds(await requestJson(searchAnywhereUrl(messageId), accessToken));
+}
+
+/**
+ * The labels one found message carries
+ *
+ * @param accessToken
+ * @param gmailId Gmail's own id, not the RFC822 one
+ * @returns the label ids
+ */
+export async function fetchMessageLabelIds(accessToken: string, gmailId: string): Promise<string[]> {
+  return parseMessageLabelIds(await requestJson(messageLabelsUrl(gmailId), accessToken));
+}
+
+
+//===========================
+// Marker sweep
+//===========================
+
+/**
+ * One page of every message currently under a label
+ *
+ * The same `labelIds=` filter recentInboxUrl and threadsListUrl already use, paged like
+ * threadsListUrl rather than capped like recentInboxUrl: a sweep must account for every
+ * message under the marker, not just the newest handful.
+ *
+ * @param labelId
+ * @param pageToken
+ * @returns the URL
+ */
+export function messagesUnderLabelUrl(labelId: string, pageToken?: string): string {
+  const q = new URLSearchParams({ labelIds: labelId, maxResults: '500' });
+  if (pageToken) q.set('pageToken', pageToken);
+  return `${MESSAGES_URL}?${q.toString()}`;
+}
+
+/**
+ * Reads one page of a message listing
+ *
+ * @param json
+ * @returns the ids on this page, and where to carry on from
+ */
+export function parseMessageListPage(json: unknown): { ids: string[]; nextPageToken?: string } {
+  const ids = parseThreadMessageIds(json);
+  const next = stringFrom((json as { nextPageToken?: unknown })?.nextPageToken);
+  return next ? { ids, nextPageToken: next } : { ids };
+}
+
+/**
+ * One page of whatever currently carries a label
+ *
+ * @param accessToken
+ * @param labelId
+ * @param pageToken
+ * @returns the page, for copy-marker-sweep.ts's own paging loop to drive to exhaustion
+ */
+export async function fetchMessageListPage(
+  accessToken: string,
+  labelId: string,
+  pageToken?: string,
+): Promise<{ ids: string[]; nextPageToken?: string }> {
+  return parseMessageListPage(await requestJson(messagesUnderLabelUrl(labelId, pageToken), accessToken));
+}
+
+export function messagesBatchModifyUrl(): string {
+  return `${MESSAGES_URL}/batchModify`;
+}
+
+/**
+ * The body that adds or removes labels from many messages at once
+ *
+ * @param ids at most BATCH_MODIFY_LIMIT
+ * @param action
+ * @returns the JSON body to POST
+ */
+export function batchModifyBody(
+  ids: string[],
+  action: { addLabelIds?: string[]; removeLabelIds?: string[] },
+): string {
+  return JSON.stringify({ ids, ...action });
+}
+
+/**
+ * Adds or removes labels from up to BATCH_MODIFY_LIMIT messages in one call
+ *
+ * Answers with an empty body on success -- see attemptJson's empty-body handling -- so success
+ * here is the call not throwing, not anything read out of the response.
+ *
+ * @param accessToken
+ * @param ids at most BATCH_MODIFY_LIMIT; a caller with more must chunk before calling this --
+ *   see copy-marker-sweep.ts
+ * @param action
+ * @returns {Promise<void>}
+ */
+export async function batchModifyMessages(
+  accessToken: string,
+  ids: string[],
+  action: { addLabelIds?: string[]; removeLabelIds?: string[] },
+): Promise<void> {
+  await requestJson(messagesBatchModifyUrl(), accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from(batchModifyBody(ids, action), 'utf8'),
+  });
 }
 
 
@@ -1047,6 +1413,12 @@ class GmailTimeoutError extends Error {}
  * @param url
  * @param accessToken
  * @param init a body turns the call into a POST of that content type
+ * @param retryMethod overrides the retry policy's method, for the one write that is safe to
+ *   repeat blindly. Defaults to the plain `init ? 'POST' : 'GET'` reading, so every existing
+ *   call site -- insert included -- keeps today's exact behaviour untouched.
+ * @param signal aborted to sever this request outright -- see GmailCancelledError. Every
+ *   existing call site leaves this undefined, which is never aborted, so nothing about their
+ *   behaviour changes either.
  * @returns {Promise<unknown>} the parsed answer
  * @throws {GmailHttpError} on any status from 400, carrying Gmail's own message
  * @private
@@ -1055,8 +1427,10 @@ async function requestJson(
   url: string,
   accessToken: string,
   init?: { method: string; contentType: string; body: Buffer },
+  retryMethod?: RetryMethod,
+  signal?: AbortSignal,
 ): Promise<unknown> {
-  const call = callForUrl(url);
+  const call = callForUrl(url, init?.method ?? 'GET');
   return await withRetry(
     async () => {
       const budget = budgetFor(accessToken);
@@ -1064,7 +1438,7 @@ async function requestJson(
       // Gmail is concerned, and going straight back out is what earned the 429.
       await budget.take(call);
       try {
-        return await attemptJson(url, accessToken, init);
+        return await attemptJson(url, accessToken, init, signal);
       } catch (e) {
         // A refusal while the budget still believed there was room means the budget is reading
         // the wrong price list -- which is exactly what happens when Google moves this project
@@ -1074,9 +1448,13 @@ async function requestJson(
       }
     },
     (e) => ({
-      method: init ? 'POST' : 'GET',
+      method: retryMethod ?? (init ? 'POST' : 'GET'),
       status: e instanceof GmailHttpError ? e.status : null,
       timedOut: e instanceof GmailTimeoutError,
+      // A cut request is not a timeout: retry.ts refuses both, but only this one is a
+      // deliberate choice worth telling apart from an ambiguous one when something later
+      // reads the log back.
+      cancelled: e instanceof GmailCancelledError,
       retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
     }),
   );
@@ -1251,7 +1629,14 @@ async function attemptJson(
   url: string,
   accessToken: string,
   init?: { method: string; contentType: string; body: Buffer },
+  signal?: AbortSignal,
 ): Promise<unknown> {
+  // Already told to stop before this attempt even started: nothing is opened, so this
+  // cannot possibly have landed -- dispatched: false, unlike a mid-flight cut below.
+  if (signal?.aborted) {
+    throw new GmailCancelledError('geannuleerd door de gebruiker', false);
+  }
+
   const { net } = require('electron') as typeof import('electron');
   return await new Promise((resolve, reject) => {
     const req = net.request({ url, method: init?.method ?? 'GET' });
@@ -1265,10 +1650,21 @@ async function attemptJson(
     }, init ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     const settle = <T>(fn: (v: T) => void) => (v: T) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onCancel);
       fn(v);
     };
     const ok = settle(resolve);
     const fail = settle(reject);
+    // Severs a request already on the wire. Routed through `fail` rather than a raw reject,
+    // so the timeout timer this same attempt started is cleared too -- otherwise it would
+    // still fire on an already-settled promise up to UPLOAD_TIMEOUT_MS later, for nothing.
+    const onCancel = () => {
+      req.abort();
+      // req.end() below always runs synchronously, with nothing awaited in between, so by
+      // the time this can fire the request has already gone out -- dispatched: true.
+      fail(new GmailCancelledError('geannuleerd door de gebruiker', true));
+    };
+    signal?.addEventListener('abort', onCancel);
     req.on('response', (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
@@ -1279,6 +1675,12 @@ async function attemptJson(
         // that is worth waiting out.
         const after = headerValue(res.headers, 'retry-after');
         let json: unknown;
+        // batchModify and a label delete both answer success with an empty body -- there is
+        // nothing to parse, and that is not the same thing as an unreadable answer.
+        if (res.statusCode < 400 && text.trim() === '') {
+          ok({});
+          return;
+        }
         try {
           json = JSON.parse(text);
         } catch {

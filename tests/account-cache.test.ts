@@ -69,7 +69,7 @@ describe('seedable', () => {
   const cached = [a('a@x.nl'), a('b@x.nl'), a('c@x.nl')];
 
   it('offers every stored account when detection has confirmed nothing yet', () => {
-    expect(seedable(cached, { confirmed: [], removed: [] }).map((c) => c.email)).toEqual([
+    expect(seedable(cached, { confirmed: [] }).map((c) => c.email)).toEqual([
       'a@x.nl',
       'b@x.nl',
       'c@x.nl',
@@ -77,23 +77,18 @@ describe('seedable', () => {
   });
 
   it('drops a confirmed account, so the real tab replaces the provisional one', () => {
-    const out = seedable(cached, { confirmed: ['B@X.nl'], removed: [] });
+    const out = seedable(cached, { confirmed: ['B@X.nl'] });
     expect(out.map((c) => c.email)).toEqual(['a@x.nl', 'c@x.nl']);
   });
 
-  it('drops a removed account, so it does not come back on every start', () => {
-    const out = seedable(cached, { confirmed: [], removed: ['C@x.NL'] });
-    expect(out.map((c) => c.email)).toEqual(['a@x.nl', 'b@x.nl']);
-  });
-
   it('keeps the first of a duplicated address', () => {
-    const out = seedable([a('a@x.nl'), a('A@X.nl', { name: 'tweede' })], { confirmed: [], removed: [] });
+    const out = seedable([a('a@x.nl'), a('A@X.nl', { name: 'tweede' })], { confirmed: [] });
     expect(out).toHaveLength(1);
     expect(out[0].name).toBe('Naam a@x.nl');
   });
 
   it('preserves the stored order, so the tabs do not jump as detection lands', () => {
-    const out = seedable([a('c@x.nl'), a('a@x.nl'), a('b@x.nl')], { confirmed: ['a@x.nl'], removed: [] });
+    const out = seedable([a('c@x.nl'), a('a@x.nl'), a('b@x.nl')], { confirmed: ['a@x.nl'] });
     expect(out.map((c) => c.email)).toEqual(['c@x.nl', 'b@x.nl']);
   });
 });

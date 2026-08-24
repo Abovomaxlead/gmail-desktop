@@ -44,7 +44,6 @@ import {
   setManager,
   setOauthTokens,
   setPrefs,
-  setRemoved,
   setSeedOrder,
   setSettingsPanelOpen,
   setToastWindow,
@@ -77,10 +76,9 @@ import { checkOAuthHealth } from '../auth/oauth-health-check';
 import { notificationSilent } from '../notify/notification-policy';
 import { notifyLog, openNotifyLog } from '../notify/notify-log';
 import { ColorStore } from '../accounts/color-store';
-import { RemovedStore } from '../accounts/removed-store';
 import { AccountCacheStore, rememberedOrder } from '../accounts/account-cache';
 import { DelegatedStore } from '../delegation/delegated-store';
-import { OAuthStore } from '../auth/oauth-store';
+import { OAuthStore, type ProtectResult } from '../auth/oauth-store';
 import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
 import { MessageIndexStore } from '../mail/message-index';
@@ -162,13 +160,13 @@ export function createWindow(): void {
   const tokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
 
   setOauthTokens(tokens);
+  reportTokenProtection(tokens.protect());
 
   const dropped = dropDisallowedTokens(tokens);
 
   if (dropped.length > 0) console.warn('[oauth] unlinked, outside the allowed domain:', dropped);
   setHistory(new HistoryStore(join(app.getPath('userData'), 'gmail-history.json')));
   setMessageIndex(new MessageIndexStore(join(app.getPath('userData'), 'message-index.json')));
-  setRemoved(new RemovedStore(join(app.getPath('userData'), 'removed.json')));
   setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
   setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
 
@@ -306,4 +304,25 @@ export function openSettingsPanel(): void {
   setSettingsPanelOpen(true);
   manager?.hideAll();
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Records what the token file turned out to be, and warns when it is not protected
+ *
+ * @param result what protect() found on disk
+ * @private
+ */
+function reportTokenProtection(result: ProtectResult): void {
+  if (result === 'sealed') notifyLog('[oauth] token file encrypted with the platform keystore');
+  if (result === 'unavailable') {
+    notifyLog('[oauth] no keystore on this platform, so the token file stays plain text');
+  }
+  if (result === 'unreadable') {
+    notifyLog('[oauth] the token file was sealed elsewhere; the accounts need linking again');
+  }
 }

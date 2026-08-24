@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react';
 import type {
   MailDropItem,
-  MailDropCopyProgress,
   MailDropCopyResult,
   MailDropCopyDuplicate,
   MailDropCopyMode,
@@ -51,11 +50,77 @@ const NOTHING_FOUND_YET: MailDropExisting = {
   answered: 0,
 };
 
+interface ByMailbox {
+  email: string;
+  copied: number;
+}
+
+/** The main process's copy-progress payload, widened locally for the paused and rollback
+ * states this file adds. Kept apart from ../MailDropModal's MailDropCopyProgress rather than
+ * extending it, since that mirror is shared with other pages this change does not touch. */
+interface CopyProgress {
+  phase: 'check' | 'copy' | 'rollback';
+  done: number;
+  total: number;
+  paused?: boolean;
+  byMailbox?: ByMailbox[];
+}
+
+/** Mirrors electron/mail/copy-run-types.ts's RollbackMailboxOutcome and RollbackOutcome --
+ * kept as a local copy the same way ../MailDropModal mirrors the rest of what main sends,
+ * since the renderer cannot import from electron/. */
+interface RollbackMailboxOutcome {
+  email: string;
+  /** Every message id the sweep confirmed it acted on, across every round it took. */
+  swept: string[];
+  /** False when the retry budget ran out while the marker still listed something -- not a
+   * failure, just not finished yet; the next start resumes it on its own. */
+  converged: boolean;
+  refused?: 'permission' | 'auth';
+  reason?: string;
+}
+interface RollbackOutcome {
+  mailboxes: RollbackMailboxOutcome[];
+  complete: boolean;
+}
+
+/** A run this app never heard the end of, waiting for the same keep-or-rollback answer a live
+ * run's stop dialog already asks. */
+interface PendingOrphan {
+  runId: string;
+  byMailbox: { email: string; inserted: number }[];
+}
+
+/** What a copy answers when it was stopped rather than run to its own end -- neither the
+ * success nor the failure MailDropCopyResult's `ok` flag distinguishes between. */
+interface StoppedResult {
+  stopped: true;
+  mode: 'keep' | 'rollback';
+  copied: number;
+  byMailbox: ByMailbox[];
+  rollback?: RollbackOutcome;
+  error?: string;
+  warnings?: string[];
+}
+
+/** MailDropCopyResult widened with the one field main now adds when the copy itself fully
+ * succeeded but writing the record of that (the audit log, or the journal's closing line)
+ * did not. Kept local rather than added to ../MailDropModal's mirror for the same reason as
+ * CopyProgress above. */
+type DoneResult = MailDropCopyResult & { warnings?: string[] };
+
+/** What copyMailDrop actually resolves to now. `stopped?: false` is added purely so the two
+ * halves of the union share a discriminant -- DoneResult itself carries no such flag -- which
+ * is what lets `if (result.stopped)` narrow cleanly below. */
+type CopyOrStoppedResult = (DoneResult & { stopped?: false }) | StoppedResult;
+
 type Phase =
   | { kind: 'picking' }
-  | { kind: 'copying'; phase: 'check' | 'copy'; done: number; total: number }
+  | ({ kind: 'copying' } & CopyProgress)
   | { kind: 'confirm'; duplicates: MailDropCopyDuplicate[]; newCount: number }
-  | { kind: 'done'; result: MailDropCopyResult };
+  | { kind: 'stopped'; result: StoppedResult }
+  | { kind: 'done'; result: DoneResult }
+  | { kind: 'orphan'; orphan: PendingOrphan };
 
 
 //===========================
@@ -70,6 +135,9 @@ export default function MailDropModalPage() {
   const [search, setSearch] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
   const [existing, setExisting] = useState<MailDropExisting>(NOTHING_FOUND_YET);
+  // Open the moment the X is clicked, not once the pause is confirmed -- the round trip to
+  // main must not be what decides whether the dialog appears.
+  const [stopDialogOpen, setStopDialogOpen] = useState(false);
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -120,14 +188,62 @@ export default function MailDropModalPage() {
     });
     loadLabels();
     loadExisting();
+    // Asked once, the same moment the picker itself first asks what it needs -- a run this
+    // app never heard the end of is not tied to any one drag, so there is nothing to re-ask
+    // for on a later drop the way loadLabels/loadExisting are.
+    (
+      window.desktop as unknown as { getPendingOrphan?: () => Promise<PendingOrphan | null> }
+    ).getPendingOrphan?.()
+      .then((orphan) => {
+        if (orphan) setPhase((cur) => (cur.kind === 'picking' ? { kind: 'orphan', orphan } : cur));
+      })
+      .catch(() => {});
     bridge.onMailDropExisting((e) => setExisting((cur) => newerExisting(cur, e)));
-    bridge.onMailDropCopyProgress((p: MailDropCopyProgress) =>
+    bridge.onMailDropCopyProgress((p: CopyProgress) =>
       setPhase((cur) => (cur.kind === 'copying' ? { kind: 'copying', ...p } : cur)),
     );
   }, []);
 
   const n = items.length;
   const close = () => window.desktop?.closeMailDropPreview();
+
+  // controlMailDropCopy is not yet part of DesktopBridge (../page.tsx) -- that interface is
+  // outside this change's owned files -- so it is reached through an explicit, narrow cast
+  // instead of widening `window.desktop` to `any`.
+  const controlCopy = (action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback') =>
+    (
+      window.desktop as unknown as {
+        controlMailDropCopy?: (a: typeof action) => Promise<{ ok: boolean; error?: string }>;
+      }
+    ).controlMailDropCopy?.(action);
+
+  // Pausing and opening the dialog happen in the same click, together: the user does not
+  // have to wait on a round trip to main before seeing their choices.
+  const requestStop = () => {
+    void controlCopy('pause');
+    setStopDialogOpen(true);
+  };
+  const keepCopying = () => {
+    setStopDialogOpen(false);
+    void controlCopy('resume');
+  };
+  const stopAndKeep = () => {
+    setStopDialogOpen(false);
+    void controlCopy('stop-keep');
+  };
+  const stopAndTrash = () => {
+    setStopDialogOpen(false);
+    void controlCopy('stop-rollback');
+  };
+
+  const decideOrphan = (runId: string, mode: 'keep' | 'rollback') => {
+    setPhase({ kind: 'picking' });
+    void (
+      window.desktop as unknown as {
+        decideOrphanRun?: (runId: string, mode: 'keep' | 'rollback') => Promise<{ ok: boolean }>;
+      }
+    ).decideOrphanRun?.(runId, mode);
+  };
 
   const toggle = (email: string, labelId: string) => {
     setPicked((cur) => {
@@ -161,7 +277,12 @@ export default function MailDropModalPage() {
       total: 0,
     });
     try {
-      const result = await bridge.copyMailDrop(targets, mode);
+      const result = (await bridge.copyMailDrop(targets, mode)) as CopyOrStoppedResult;
+      setStopDialogOpen(false);
+      if (result.stopped) {
+        setPhase({ kind: 'stopped', result });
+        return;
+      }
       setPhase(
         result.needsConfirm
           ? {
@@ -172,6 +293,7 @@ export default function MailDropModalPage() {
           : { kind: 'done', result },
       );
     } catch (e) {
+      setStopDialogOpen(false);
       setPhase({
         kind: 'done',
         result: {
@@ -217,9 +339,15 @@ export default function MailDropModalPage() {
                   : `Kopieer ${n} conversaties`}
             </h1>
             <button
-              onClick={close}
-              disabled={phase.kind === 'copying'}
-              aria-label="Sluiten"
+              // Copying no longer disables this: it pauses and asks instead of doing nothing.
+              // Once the dialog itself is open a second click has nowhere new to go, so it is
+              // disabled only for that one moment.
+              onClick={phase.kind === 'copying' ? requestStop : close}
+              disabled={phase.kind === 'copying' && stopDialogOpen}
+              // "Sluiten" is wrong here while copying -- this pauses and asks, it does not
+              // close anything. Named the same as the button below it, since it does exactly
+              // what that button does.
+              aria-label={phase.kind === 'copying' ? 'Annuleren' : 'Sluiten'}
               className="-mr-1.5 shrink-0 rounded-lg p-1.5 text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 disabled:opacity-40 dark:hover:bg-white/10 dark:hover:text-neutral-100"
             >
               <svg
@@ -247,7 +375,20 @@ export default function MailDropModalPage() {
             </div>
           )}
 
-          {phase.kind === 'done' ? (
+          {phase.kind === 'copying' && stopDialogOpen ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <StopConfirm
+                phase={phase}
+                onKeepCopying={keepCopying}
+                onStopAndKeep={stopAndKeep}
+                onStopAndTrash={stopAndTrash}
+              />
+            </div>
+          ) : phase.kind === 'stopped' ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <StoppedReport result={phase.result} />
+            </div>
+          ) : phase.kind === 'done' ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <CopyReport result={phase.result} />
             </div>
@@ -258,6 +399,10 @@ export default function MailDropModalPage() {
                 newCount={phase.newCount}
                 labelName={labelName}
               />
+            </div>
+          ) : phase.kind === 'orphan' ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <OrphanDecision orphan={phase.orphan} onDecide={decideOrphan} />
             </div>
           ) : failures.length > 0 ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -296,14 +441,26 @@ export default function MailDropModalPage() {
               failures={failures}
               chips={chips}
             />
-            {phase.kind === 'done' || failures.length > 0 ? (
+            {phase.kind === 'copying' ? (
+              // The X in the header does exactly this too, but nothing there told anyone a
+              // running copy could be stopped at all -- this is the labelled way in. Disabled
+              // once the dialog itself is open, for the same reason the X is: a second click
+              // has nowhere new to go.
+              <button
+                onClick={requestStop}
+                disabled={stopDialogOpen}
+                className="shrink-0 rounded-lg px-4 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-black/5 disabled:opacity-40 dark:text-neutral-300 dark:hover:bg-white/10"
+              >
+                Annuleren
+              </button>
+            ) : phase.kind === 'done' || phase.kind === 'stopped' || failures.length > 0 ? (
               <button
                 onClick={close}
                 className="shrink-0 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700"
               >
                 Sluiten
               </button>
-            ) : phase.kind === 'confirm' ? (
+            ) : phase.kind === 'orphan' ? null : phase.kind === 'confirm' ? (
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={() => setPhase({ kind: 'picking' })}
@@ -331,10 +488,13 @@ export default function MailDropModalPage() {
             ) : (
               <button
                 onClick={() => void copy()}
-                disabled={pickedCount === 0 || savedCount === 0 || phase.kind === 'copying'}
+                // 'copying' has its own branch above now, with its own button -- this one is
+                // never reached while it is, so the disabled/label pair it used to need for
+                // that no longer applies here.
+                disabled={pickedCount === 0 || savedCount === 0}
                 className="shrink-0 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
               >
-                {phase.kind === 'copying' ? 'Bezig…' : 'Kopieer'}
+                Kopieer
               </button>
             )}
           </footer>
@@ -595,10 +755,37 @@ function Status({
   chips: PickedChip[];
 }) {
   if (phase.kind === 'copying') {
-    const doing = phase.phase === 'check' ? 'Controleren' : 'Kopiëren';
+    if (phase.paused) {
+      return (
+        <span className="text-xs text-amber-700 dark:text-amber-500">
+          Gepauzeerd — {phase.done} {phase.done === 1 ? 'bericht' : 'berichten'} al gekopieerd
+        </span>
+      );
+    }
+    const doing =
+      phase.phase === 'check'
+        ? 'Controleren'
+        : phase.phase === 'rollback'
+          ? 'Ongedaan maken'
+          : 'Kopiëren';
     const text =
       phase.total > 0 ? `${doing}: ${phase.done} van ${phase.total}` : `${doing}…`;
     return <span className="text-xs text-neutral-500">{text}</span>;
+  }
+  if (phase.kind === 'stopped') {
+    const r = phase.result;
+    if (r.error) {
+      return <span className="text-xs text-red-600 dark:text-red-500">{r.error}</span>;
+    }
+    return (
+      <span className="text-xs text-neutral-500">
+        {r.mode === 'keep'
+          ? `Gestopt, ${r.copied} ${r.copied === 1 ? 'bericht blijft' : 'berichten blijven'} gekopieerd`
+          : r.rollback?.complete
+            ? 'Gestopt en ongedaan gemaakt'
+            : 'Gestopt, ongedaan maken niet overal gelukt'}
+      </span>
+    );
   }
   if (phase.kind === 'confirm') {
     const n = phase.duplicates.reduce((s, d) => s + d.count, 0);
@@ -617,6 +804,17 @@ function Status({
     return (
       <span className={`text-xs ${bad ? 'text-red-600 dark:text-red-500' : 'text-green-700 dark:text-green-500'}`}>
         {r.ok ? `${r.copied} gekopieerd${skipped}` : (r.error ?? 'Niets gekopieerd')}
+        {r.warnings && r.warnings.length > 0 && (
+          <span className="text-amber-700 dark:text-amber-500"> — {r.warnings.length === 1 ? '1 waarschuwing' : `${r.warnings.length} waarschuwingen`}</span>
+        )}
+      </span>
+    );
+  }
+
+  if (phase.kind === 'orphan') {
+    return (
+      <span className="text-xs text-amber-700 dark:text-amber-500">
+        Vorige keer afgebroken — nog een keuze nodig
       </span>
     );
   }
@@ -778,30 +976,279 @@ function DuplicateWarning({
   );
 }
 
-function CopyReport({ result }: { result: MailDropCopyResult }) {
+/**
+ * What a paused copy asks the user to decide
+ *
+ * Shows how much has already landed, and in which mailboxes, since that is exactly what
+ * makes the choice between the three actions an informed one -- along with the one fact that
+ * makes "naar de prullenbak" a safe thing to offer: it is not gone, it is recoverable from
+ * Gmail's own trash for another 30 days.
+ *
+ * @param phase the paused copying phase, for its counts
+ * @param onKeepCopying resumes exactly where the copy paused
+ * @param onStopAndKeep stops and leaves what already landed where it is
+ * @param onStopAndTrash stops and undoes what already landed
+ */
+function StopConfirm({
+  phase,
+  onKeepCopying,
+  onStopAndKeep,
+  onStopAndTrash,
+}: {
+  phase: CopyProgress;
+  onKeepCopying: () => void;
+  onStopAndKeep: () => void;
+  onStopAndTrash: () => void;
+}) {
+  const rows = phase.byMailbox ?? [];
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          Kopiëren gepauzeerd
+        </p>
+        <p className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
+          {phase.done === 0
+            ? 'Er is nog niets gekopieerd.'
+            : phase.done === 1
+              ? 'Er staat al 1 bericht in:'
+              : `Er staan al ${phase.done} berichten in:`}
+        </p>
+      </div>
+      {rows.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {rows.map((r) => (
+            <li key={r.email} className="truncate text-sm text-neutral-700 dark:text-neutral-300">
+              <span className="font-medium">{r.email}</span>:{' '}
+              {r.copied} {r.copied === 1 ? 'bericht' : 'berichten'}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={onKeepCopying}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-left text-sm font-medium text-white transition hover:bg-blue-700"
+        >
+          Kopiëren voortzetten
+        </button>
+        <button
+          onClick={onStopAndKeep}
+          className="rounded-lg px-4 py-2 text-left text-sm font-medium text-neutral-700 transition hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
+        >
+          Stoppen, wat er al staat laten staan
+        </button>
+        <button
+          onClick={onStopAndTrash}
+          className="rounded-lg px-4 py-2 text-left text-sm font-medium text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-500"
+        >
+          Stoppen en naar de prullenbak verplaatsen
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">
+        Naar de prullenbak is niet definitief: Gmail bewaart het daar nog 30 dagen.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The same keep-or-rollback choice a live stop dialog asks, for a copy this app never heard
+ * the end of -- the app was closed or crashed before the question was answered
+ *
+ * @param orphan
+ * @param onDecide
+ */
+function OrphanDecision({
+  orphan,
+  onDecide,
+}: {
+  orphan: PendingOrphan;
+  onDecide: (runId: string, mode: 'keep' | 'rollback') => void;
+}) {
+  const total = orphan.byMailbox.reduce((s, m) => s + m.inserted, 0);
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          Vorige keer afgebroken
+        </p>
+        <p className="mt-1 text-sm text-neutral-700 dark:text-neutral-300">
+          {total === 0
+            ? 'Er is toen nog niets gekopieerd.'
+            : total === 1
+              ? 'Er stond al 1 bericht in:'
+              : `Er stonden al ${total} berichten in:`}
+        </p>
+      </div>
+      {orphan.byMailbox.some((m) => m.inserted > 0) && (
+        <ul className="flex flex-col gap-0.5">
+          {orphan.byMailbox
+            .filter((m) => m.inserted > 0)
+            .map((m) => (
+              <li key={m.email} className="truncate text-sm text-neutral-700 dark:text-neutral-300">
+                <span className="font-medium">{m.email}</span>:{' '}
+                {m.inserted} {m.inserted === 1 ? 'bericht' : 'berichten'}
+              </li>
+            ))}
+        </ul>
+      )}
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={() => onDecide(orphan.runId, 'keep')}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-left text-sm font-medium text-white transition hover:bg-blue-700"
+        >
+          Laten staan
+        </button>
+        <button
+          onClick={() => onDecide(orphan.runId, 'rollback')}
+          className="rounded-lg px-4 py-2 text-left text-sm font-medium text-amber-700 transition hover:bg-amber-500/10 dark:text-amber-500"
+        >
+          Naar de prullenbak verplaatsen
+        </button>
+      </div>
+      <p className="text-xs text-neutral-500">
+        Naar de prullenbak is niet definitief: Gmail bewaart het daar nog 30 dagen. Dit wordt op
+        de achtergrond afgemaakt -- je kunt intussen verder.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * What became of a stopped run
+ *
+ * @param result
+ */
+function StoppedReport({ result }: { result: StoppedResult }) {
+  if (result.error) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          {result.mode === 'keep' ? 'Gestopt, maar niet afgerond' : 'Ongedaan maken niet gelukt'}
+        </p>
+        <p className="text-sm text-red-600 dark:text-red-500">{result.error}</p>
+        <WarningsList warnings={result.warnings} />
+      </div>
+    );
+  }
+  if (result.mode === 'keep') {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-sm text-neutral-900 dark:text-neutral-100">
+          Gestopt. {result.copied === 1 ? '1 bericht blijft' : `${result.copied} berichten blijven`}{' '}
+          gekopieerd.
+        </p>
+        <WarningsList warnings={result.warnings} />
+      </div>
+    );
+  }
+  const rollback = result.rollback;
+  // A mailbox the sweep cannot reach at all -- a delegated target with no scope for this, or a
+  // token that could not be had. Retrying will not fix either, so this is the one case that
+  // still needs the user, the same as it always has.
+  const refusedMailboxes = rollback?.mailboxes.filter((m) => m.refused) ?? [];
+  // Not refused, simply not confirmed empty yet -- the marker sweep's own retry budget ran out
+  // before Gmail's listing caught up. There is nothing ambiguous about it any more: everything
+  // this run created carries the marker, so what is left is exactly what still needs sweeping,
+  // and the next start does that on its own without being asked.
+  const pendingMailboxes =
+    rollback?.mailboxes.filter((m) => !m.converged && !m.refused) ?? [];
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-neutral-900 dark:text-neutral-100">
+        {rollback?.complete
+          ? 'Ongedaan gemaakt. Alles wat al gekopieerd was staat weer in de prullenbak.'
+          : 'Ongedaan maken is niet overal gelukt.'}
+      </p>
+      <WarningsList warnings={result.warnings} />
+      {refusedMailboxes.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {refusedMailboxes.map((m) => (
+            <li key={m.email} className="text-sm text-amber-700 dark:text-amber-500">
+              <span className="font-medium">{m.email}</span>:{' '}
+              {m.refused === 'permission'
+                ? 'geen rechten om te verwijderen, staat er nog'
+                : 'kon niet worden geopend, staat er nog'}
+            </li>
+          ))}
+        </ul>
+      )}
+      {pendingMailboxes.length > 0 && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
+          <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
+            {pendingMailboxes.length === 1
+              ? 'Opruimen in 1 postvak nog niet klaar.'
+              : `Opruimen in ${pendingMailboxes.length} postvakken nog niet klaar.`}
+          </p>
+          <ul className="mt-1 flex flex-col gap-0.5">
+            {pendingMailboxes.map((m) => (
+              <li key={m.email} className="text-xs text-amber-700 dark:text-amber-500">
+                {m.email}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-500">
+            Wordt automatisch afgemaakt zodra de app weer opstart — hier hoeft niets voor
+            gedaan te worden.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Whatever did not itself succeed alongside an otherwise successful outcome
+ *
+ * Never rendered in place of the report it sits beside -- only next to it, since none of
+ * these mean the copy or the stop itself failed. Dropping this silently is the defect it
+ * exists to close: an unclosed journal reads as a crash to the next start.
+ *
+ * @param warnings
+ */
+function WarningsList({ warnings }: { warnings?: string[] }) {
+  if (!warnings || warnings.length === 0) return null;
+  return (
+    <div className="rounded-lg border border-amber-500/40 bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
+      <ul className="flex flex-col gap-0.5">
+        {warnings.map((w, i) => (
+          <li key={i} className="text-xs text-amber-700 dark:text-amber-500">
+            {w}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function CopyReport({ result }: { result: DoneResult }) {
   if (result.error) {
     return <p className="text-sm text-red-600 dark:text-red-500">{result.error}</p>;
   }
   return (
-    <ul className="flex flex-col gap-2">
-      {result.accounts.map((a) => (
-        <li key={a.email} className="flex flex-col gap-0.5">
-          <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-            {a.email}
-          </span>
-          <span
-            className={`text-xs ${
-              a.error ? 'text-red-600 dark:text-red-500' : 'text-neutral-500'
-            }`}
-          >
-            {a.error
-              ? `${a.copied} van ${a.total} gekopieerd — ${a.error}`
-              : `${a.copied} ${a.copied === 1 ? 'bericht' : 'berichten'} gekopieerd` +
-                (a.skipped > 0 ? `, ${a.skipped} stond er al` : '')}
-          </span>
-        </li>
-      ))}
-    </ul>
+    <div className="flex flex-col gap-3">
+      <WarningsList warnings={result.warnings} />
+      <ul className="flex flex-col gap-2">
+        {result.accounts.map((a) => (
+          <li key={a.email} className="flex flex-col gap-0.5">
+            <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {a.email}
+            </span>
+            <span
+              className={`text-xs ${
+                a.error ? 'text-red-600 dark:text-red-500' : 'text-neutral-500'
+              }`}
+            >
+              {a.error
+                ? `${a.copied} van ${a.total} gekopieerd — ${a.error}`
+                : `${a.copied} ${a.copied === 1 ? 'bericht' : 'berichten'} gekopieerd` +
+                  (a.skipped > 0 ? `, ${a.skipped} stond er al` : '')}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

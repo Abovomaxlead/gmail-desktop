@@ -87,6 +87,62 @@ describe('retryWaitMs', () => {
     }
   });
 
+  it('repeats a trash that timed out, since trashing twice is a no-op', () => {
+    expect(
+      retryWaitMs(attempt({ method: 'POST_IDEMPOTENT', status: null, timedOut: true }), 0, mid),
+    ).toBe(500);
+    expect(
+      retryWaitMs(
+        attempt({ method: 'POST_IDEMPOTENT', status: null, timedOut: true, attempt: 2 }),
+        0,
+        mid,
+      ),
+    ).toBeNull();
+  });
+
+  it('does not let the idempotent opt-in widen to an insert', () => {
+    // Same situation Gmail leaves an insert in -- no status, timed out -- decided the opposite
+    // way depending only on which method the call site named.
+    const situation = { status: null, timedOut: true } as const;
+    expect(retryWaitMs(attempt({ method: 'POST_IDEMPOTENT', ...situation }), 0, mid)).toBe(500);
+    expect(retryWaitMs(attempt({ method: 'POST', ...situation }), 0, mid)).toBeNull();
+  });
+
+  it('repeats a trash on the same server statuses as any other retriable call', () => {
+    for (const status of [429, 500, 502, 503, 504]) {
+      expect(retryWaitMs(attempt({ method: 'POST_IDEMPOTENT', status }), 0, mid)).toBe(500);
+    }
+  });
+
+  it('does not repeat a trash refused on its own merits', () => {
+    for (const status of [400, 401, 403, 404]) {
+      expect(retryWaitMs(attempt({ method: 'POST_IDEMPOTENT', status }), 0, mid)).toBeNull();
+    }
+  });
+
+  // A cancel is the user asking this specific request to stop -- sending it again would be
+  // going behind their back, whatever the method and whatever status (if any) came back.
+  it('never repeats a cancelled request, for any method', () => {
+    expect(retryWaitMs(attempt({ method: 'GET', cancelled: true }), 0, mid)).toBeNull();
+    expect(retryWaitMs(attempt({ method: 'POST', cancelled: true }), 0, mid)).toBeNull();
+    expect(retryWaitMs(attempt({ method: 'POST_IDEMPOTENT', cancelled: true }), 0, mid)).toBeNull();
+  });
+
+  it('never repeats a cancelled request even when it also carries a retriable status', () => {
+    expect(retryWaitMs(attempt({ status: 429, cancelled: true }), 0, mid)).toBeNull();
+  });
+
+  // The one place a plain timeout and a cancel would otherwise answer differently: a GET
+  // gets one retry after a timeout, but not after being told to stop.
+  it('refuses the one retry a timed-out GET would otherwise get, once it was cancelled too', () => {
+    expect(retryWaitMs(attempt({ status: null, timedOut: true, cancelled: true }), 0, mid)).toBeNull();
+  });
+
+  it('still refuses a timed-out insert a retry -- unrelated to cancellation', () => {
+    // Regression guard: adding `cancelled` must not have touched this existing refusal.
+    expect(retryWaitMs(attempt({ method: 'POST', status: null, timedOut: true }), 0, mid)).toBeNull();
+  });
+
   it('honours Retry-After over its own backoff', () => {
     expect(retryWaitMs(attempt({ retryAfter: '4' }), 0, mid)).toBe(4000);
   });

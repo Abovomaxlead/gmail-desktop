@@ -48,6 +48,7 @@ export const SCOPES = [
 
 export const AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
 export const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+export const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 
 export const REDIRECT_URI = 'http://127.0.0.1:47813/oauth2callback';
 
@@ -148,6 +149,17 @@ export function refreshBody(cfg: OAuthConfig, refreshToken: string): string {
     refresh_token: refreshToken,
     grant_type: 'refresh_token',
   }).toString();
+}
+
+/**
+ * Builds the form body that revokes a grant. Revoking the refresh token kills the
+ * access tokens derived from it too.
+ *
+ * @param refreshToken
+ * @returns a urlencoded body
+ */
+export function revokeBody(refreshToken: string): string {
+  return new URLSearchParams({ token: refreshToken }).toString();
 }
 
 /**

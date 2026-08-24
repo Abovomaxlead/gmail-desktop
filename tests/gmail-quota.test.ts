@@ -49,6 +49,20 @@ describe('QUOTA_COST', () => {
     expect(QUOTA_COST['history.list']).toBe(2);
   });
 
+  // This app under-booked every trash call by a factor of four: Google's published table
+  // prices messages.trash at 20, not the 5 this table carried. A pre-existing error, found
+  // and fixed alongside the marker sweep -- not part of what the sweep itself adds.
+  it('prices a trash at Google\'s published 20, not the 5 this table used to carry', () => {
+    expect(QUOTA_COST['messages.trash']).toBe(20);
+  });
+
+  // What the marker sweep adds: one label per run, and a bulk modify to strip or trash by it.
+  it('prices the calls the marker sweep adds', () => {
+    expect(QUOTA_COST['messages.batchModify']).toBe(50);
+    expect(QUOTA_COST['labels.create']).toBe(5);
+    expect(QUOTA_COST['labels.delete']).toBe(5);
+  });
+
   it('charges the dearest price it knows for a call it does not know', () => {
     expect(quotaCost('something.new')).toBe(Math.max(...Object.values(QUOTA_COST)));
   });
@@ -217,5 +231,24 @@ describe('callForUrl', () => {
   it('tells a modify from a plain get', () => {
     expect(callForUrl(`${base}/messages/abc/modify`)).toBe('messages.modify');
     expect(callForUrl(`${base}/messages/abc/trash`)).toBe('messages.trash');
+  });
+
+  // A create is a POST to the bare collection, same path as a list -- the two must be told
+  // apart by method, or a create is silently booked at labels.list's much cheaper price.
+  it('tells a label create from a label list by method, not by path alone', () => {
+    expect(callForUrl(`${base}/labels`, 'GET')).toBe('labels.list');
+    expect(callForUrl(`${base}/labels`)).toBe('labels.list'); // no init at all: a plain read, same as today
+    expect(callForUrl(`${base}/labels`, 'POST')).toBe('labels.create');
+  });
+
+  it('reads a label delete off its own path and method', () => {
+    expect(callForUrl(`${base}/labels/L9`, 'DELETE')).toBe('labels.delete');
+  });
+
+  // rest.split('/')[1] is undefined for a bulk-verb path with no message id in front of it,
+  // which used to fall through to the plain messages.get branch and silently under-book a
+  // batchModify at a fifth of its real price.
+  it('reads batchModify as its own call, not as a plain get', () => {
+    expect(callForUrl(`${base}/messages/batchModify`)).toBe('messages.batchModify');
   });
 });
