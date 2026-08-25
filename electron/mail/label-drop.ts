@@ -20,6 +20,15 @@ export interface LabelThread {
   subject: string;
 }
 
+/** One thread of a dragged tree, with the labels of that tree it turned up under. A thread in
+ * both `Klanten` and `Klanten/Acme` is one thread with two labels, never two threads: it is
+ * saved once and inserted once, carrying both destination labels. */
+export interface TreeThread {
+  threadId: string;
+  subject: string;
+  labels: string[];
+}
+
 
 //===========================
 // Constants
@@ -90,6 +99,24 @@ export function labelFromDragTarget(el: DragNode | null): string | null {
 }
 
 /**
+ * Every label named in a list of links
+ *
+ * The navigation links a label more than once -- the row, the paged views -- so a name counts
+ * once however often it appears.
+ *
+ * @param hrefs
+ * @returns the label names, in the order first seen
+ */
+export function labelNamesFromHrefs(hrefs: string[]): string[] {
+  const out: string[] = [];
+  for (const href of hrefs) {
+    const name = labelFromHref(href);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/**
  * The URL of one page of a label's list view
  *
  * @param authuser
@@ -154,6 +181,40 @@ export function mergeThreads(
   return { added, total: acc.length };
 }
 
+/**
+ * Adds one label's scraped page to the tree collected so far
+ *
+ * The cap counts threads, not entries: a thread already collected under another label of the
+ * tree gains that label even at the cap, since it costs nothing new to save.
+ *
+ * @param acc mutated in place
+ * @param member the tree label this page was read from
+ * @param page
+ * @returns how many threads were new, and the running total
+ */
+export function mergeTreeThreads(
+  acc: TreeThread[],
+  member: string,
+  page: LabelThread[],
+): { added: number; total: number } {
+  const byId = new Map(acc.map((t) => [t.threadId, t]));
+  let added = 0;
+  for (const t of page) {
+    if (!t.threadId) continue;
+    const known = byId.get(t.threadId);
+    if (known) {
+      if (!known.labels.includes(member)) known.labels.push(member);
+      continue;
+    }
+    if (acc.length >= MAX_THREADS) continue;
+    const fresh: TreeThread = { threadId: t.threadId, subject: t.subject, labels: [member] };
+    acc.push(fresh);
+    byId.set(t.threadId, fresh);
+    added += 1;
+  }
+  return { added, total: acc.length };
+}
+
 // There is no API for listing a label, so pages of Gmail's own list view are scraped,
 // reading the same data-legacy-thread-id subject spans as a single-thread drag.
 export const LABEL_SCRAPE_JS = `(() => {
@@ -166,5 +227,16 @@ export const LABEL_SCRAPE_JS = `(() => {
     seen[id] = 1;
     out.push({ threadId: id, subject: (els[i].textContent || '').replace(/\\s+/g, ' ').trim() });
   }
+  return out;
+})()`;
+
+// Gmail's own navigation is the only list of sublabels there is without the API. Nothing is
+// expanded to read it -- clicking Gmail's chevrons is exactly what breaks on their next
+// release -- so a collapsed parent can hide children. What was found is shown in the picker
+// before anything is copied, which is where a missing subfolder has to be visible.
+export const SIDEBAR_LABEL_SCRAPE_JS = `(() => {
+  var out = [];
+  var els = document.querySelectorAll('a[href*="#label/"]');
+  for (var i = 0; i < els.length; i++) out.push(els[i].getAttribute('href') || '');
   return out;
 })()`;

@@ -7,8 +7,11 @@ import {
   labelListUrl,
   mergeThreads,
   scrapeSettled,
+  labelNamesFromHrefs,
+  mergeTreeThreads,
   MAX_THREADS,
   type LabelThread,
+  type TreeThread,
 } from '../electron/mail/label-drop';
 
 const node = (attrs: Record<string, string>, parent: any = null, descendants: any[] = []): any => ({
@@ -152,5 +155,76 @@ describe('mergeThreads', () => {
     const acc: LabelThread[] = [];
     const page = Array.from({ length: MAX_THREADS + 25 }, (_, i) => t(`id${i}`));
     expect(mergeThreads(acc, page)).toEqual({ added: MAX_THREADS, total: MAX_THREADS });
+  });
+});
+
+// Dragging a label takes its sublabels with it: the navigation is the only list of them
+// there is without the API, and one cap covers the whole tree rather than each label.
+describe('labelNamesFromHrefs', () => {
+  it('reads every label out of the navigation', () => {
+    expect(
+      labelNamesFromHrefs([
+        'https://mail.google.com/mail/u/0/#label/Klanten',
+        'https://mail.google.com/mail/u/0/#label/Klanten%2FAcme',
+        'https://mail.google.com/mail/u/0/#inbox',
+      ]),
+    ).toEqual(['Klanten', 'Klanten/Acme']);
+  });
+
+  it('names a label once however often it is linked', () => {
+    expect(labelNamesFromHrefs(['#label/Klanten', '#label/Klanten/p2'])).toEqual(['Klanten']);
+  });
+});
+
+describe('mergeTreeThreads', () => {
+  it('remembers which label a thread came from', () => {
+    const acc: TreeThread[] = [];
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    expect(acc).toEqual([{ threadId: 't1', subject: 'Een', labels: ['Klanten'] }]);
+  });
+
+  it('adds the second label to a thread that is in both', () => {
+    const acc: TreeThread[] = [];
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    const second = mergeTreeThreads(acc, 'Klanten/Acme', [{ threadId: 't1', subject: 'Een' }]);
+    expect(acc).toHaveLength(1);
+    expect(acc[0].labels).toEqual(['Klanten', 'Klanten/Acme']);
+    expect(second.added).toBe(0);
+  });
+
+  it('does not repeat a label when a page is read twice', () => {
+    const acc: TreeThread[] = [];
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    expect(acc[0].labels).toEqual(['Klanten']);
+  });
+
+  it('caps the whole tree, not each label', () => {
+    const acc: TreeThread[] = [];
+    const page = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ threadId: `t${from + i}`, subject: 's' }));
+    mergeTreeThreads(acc, 'A', page(0, MAX_THREADS));
+    const over = mergeTreeThreads(acc, 'B', page(MAX_THREADS, 5));
+    expect(over.added).toBe(0);
+    expect(over.total).toBe(MAX_THREADS);
+  });
+
+  it('still lets a thread already in the accumulator gain a label at the cap', () => {
+    const acc: TreeThread[] = [];
+    const page = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ threadId: `t${from + i}`, subject: 's' }));
+    mergeTreeThreads(acc, 'A', page(0, MAX_THREADS));
+    mergeTreeThreads(acc, 'B', [{ threadId: 't0', subject: 's' }]);
+    expect(acc[0].labels).toEqual(['A', 'B']);
+  });
+
+  it('skips entries without an id', () => {
+    const acc: TreeThread[] = [];
+    expect(
+      mergeTreeThreads(acc, 'Klanten', [
+        { threadId: '', subject: 'x' },
+        { threadId: 't1', subject: 'Een' },
+      ]).total,
+    ).toBe(1);
   });
 });
