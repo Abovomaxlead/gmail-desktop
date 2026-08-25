@@ -14,7 +14,13 @@
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CopyJournalEntry, CopyRunId, CopyStopMode, MarkerLabel } from './copy-run-types';
+import type {
+  CopyJournalEntry,
+  CopyRunId,
+  CopyStopMode,
+  CreatedLabel,
+  MarkerLabel,
+} from './copy-run-types';
 
 
 //===========================
@@ -50,6 +56,11 @@ interface CopyJournalInsertLine extends CopyJournalEntry {
   type: 'insert';
 }
 
+interface CopyJournalLabelLine extends CreatedLabel {
+  type: 'label';
+  runId: CopyRunId;
+}
+
 /** What this run resolved to do with its markers, written before the sweep that acts on it is
  * even attempted -- so a crash mid-sweep still leaves the mode on disk for the next start to
  * resume with, rather than asking the user a question this run already answered. 'keep' here
@@ -70,6 +81,7 @@ interface CopyJournalDoneLine {
 type CopyJournalLine =
   | CopyJournalHeaderLine
   | CopyJournalInsertLine
+  | CopyJournalLabelLine
   | CopyJournalDecidingLine
   | CopyJournalDoneLine;
 
@@ -80,6 +92,8 @@ export interface CopyJournalRead {
   targets: string[];
   markers: MarkerLabel[];
   entries: CopyJournalEntry[];
+  /** Every label this run created, so a rollback can take them away again */
+  created: CreatedLabel[];
   /** The mode this run resolved to act on its markers with, once decided -- null for a run
    * that crashed before ever deciding, which is the one case a resume must still ask about. */
   decidedMode: CopyStopMode | null;
@@ -139,6 +153,17 @@ export function appendCopyJournalEntry(root: string, entry: CopyJournalEntry): v
 }
 
 /**
+ * Records one label this run created, the moment the create answered
+ *
+ * @param root the drop folder
+ * @param runId
+ * @param label
+ */
+export function appendCopyJournalLabel(root: string, runId: CopyRunId, label: CreatedLabel): void {
+  writeLine(root, runId, { type: 'label', runId, ...label });
+}
+
+/**
  * Attempts a write this run's own report must not lose in silence
  *
  * The audit log and the journal's own closing line have both been dropped by a redirected
@@ -178,6 +203,28 @@ export function recordCopyJournalEntry(
   append: typeof appendCopyJournalEntry = appendCopyJournalEntry,
 ): string | null {
   return attemptWrite(() => append(root, entry));
+}
+
+/**
+ * Records a created label, tolerating a failure to do so
+ *
+ * The same choice recordCopyJournalEntry makes: the label already exists in Gmail, so a line
+ * this app cannot write locally must not undo that. What is lost is narrow -- this one label
+ * cannot be taken away again by a later rollback.
+ *
+ * @param root the drop folder
+ * @param runId
+ * @param label
+ * @param append injectable, so a test can make the write fail without touching a disk
+ * @returns null on success, or the write's own failure message, for the caller to log
+ */
+export function recordCopyJournalLabel(
+  root: string,
+  runId: CopyRunId,
+  label: CreatedLabel,
+  append: typeof appendCopyJournalLabel = appendCopyJournalLabel,
+): string | null {
+  return attemptWrite(() => append(root, runId, label));
 }
 
 /**
@@ -272,6 +319,7 @@ export function readCopyJournal(root: string, runId: CopyRunId): CopyJournalRead
 export function parseCopyJournal(raw: string): CopyJournalRead | null {
   let header: CopyJournalHeaderLine | null = null;
   const entries: CopyJournalEntry[] = [];
+  const created: CreatedLabel[] = [];
   let decidedMode: CopyStopMode | null = null;
   let done: CopyJournalDoneLine | null = null;
 
@@ -290,6 +338,11 @@ export function parseCopyJournal(raw: string): CopyJournalRead | null {
       // copy-run-types.ts defines, not this file's on-disk line format.
       const { type: _discriminator, ...entry } = parsed as CopyJournalInsertLine;
       entries.push(entry);
+    } else if (type === 'label') {
+      // Same as the insert branch: the on-disk line carries a discriminator and the run it
+      // belongs to, neither of which is part of the CreatedLabel shape read back.
+      const { type: _discriminator, runId: _runId, ...label } = parsed as CopyJournalLabelLine;
+      created.push(label);
     } else if (type === 'deciding') decidedMode = (parsed as CopyJournalDecidingLine).mode;
     else if (type === 'done') done = parsed as CopyJournalDoneLine;
   }
@@ -302,6 +355,7 @@ export function parseCopyJournal(raw: string): CopyJournalRead | null {
     // back as empty rather than undefined, so every reader can rely on the array being there.
     markers: header.markers ?? [],
     entries,
+    created,
     decidedMode,
     done,
   };

@@ -56,6 +56,15 @@ export interface MarkerLabel {
   markerLabelId: string;
 }
 
+/** One label this run created in a target mailbox, recorded the moment the create answered.
+ * Only labels the run made itself: one that was already there and got reused is never in
+ * here, which is what keeps a rollback from deleting a label the user made. */
+export interface CreatedLabel {
+  email: string;
+  labelId: string;
+  name: string;
+}
+
 /** What became of one mailbox in a marker sweep. Kept per mailbox rather than per message
  * because permission is a property of the mailbox: a delegated target the relay cannot open
  * fails for all of its messages at once, and that is what the user has to be told. */

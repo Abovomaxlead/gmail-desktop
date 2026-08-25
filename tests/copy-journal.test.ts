@@ -14,6 +14,7 @@ import {
   findOrphanedRuns,
   attemptWrite,
   recordCopyJournalEntry,
+  recordCopyJournalLabel,
   recordCopyJournalDecision,
   withWarnings,
 } from '../electron/mail/copy-journal';
@@ -253,5 +254,31 @@ describe('withWarnings', () => {
   it('folds every warning collected, not just the first', () => {
     const result = withWarnings({ ok: true }, ['een', 'twee']);
     expect(result).toEqual({ ok: true, warnings: ['een', 'twee'] });
+  });
+});
+
+describe('created labels in the journal', () => {
+  it('reads a label line back off disk', () => {
+    const raw = [
+      JSON.stringify({ type: 'header', runId: 'r1', startedAt: 1, targets: ['a@b.nl'], markers: [] }),
+      JSON.stringify({ type: 'label', runId: 'r1', email: 'a@b.nl', labelId: 'Label_1', name: 'Archief/Klanten' }),
+    ].join('\n');
+    expect(parseCopyJournal(raw)?.created).toEqual([
+      { email: 'a@b.nl', labelId: 'Label_1', name: 'Archief/Klanten' },
+    ]);
+  });
+
+  it('reads a run that created nothing back as an empty list', () => {
+    const raw = JSON.stringify({ type: 'header', runId: 'r1', startedAt: 1, targets: [], markers: [] });
+    expect(parseCopyJournal(raw)?.created).toEqual([]);
+  });
+
+  it('hands a failed write back instead of throwing it away', () => {
+    const boom = () => {
+      throw new Error('share weg');
+    };
+    expect(
+      recordCopyJournalLabel('/root', 'r1', { email: 'a@b.nl', labelId: 'L', name: 'X' }, boom),
+    ).toBe('share weg');
   });
 });
