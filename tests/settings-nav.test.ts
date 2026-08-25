@@ -12,7 +12,7 @@ import {
 const quiet = { dnd: false, updateReady: false };
 
 describe('SETTINGS_GROUPS', () => {
-  it('splits the column into a log, the preferences, and what there is to read', () => {
+  it('splits the column into a log, the preferences, and what is neither', () => {
     expect(SETTINGS_GROUPS.map((g) => [...g])).toEqual([
       ['download-history'],
       [
@@ -27,8 +27,13 @@ describe('SETTINGS_GROUPS', () => {
         'verification-codes',
         'advanced',
       ],
-      ['whats-new', 'about'],
+      ['feedback', 'whats-new', 'about'],
     ]);
+  });
+
+  it('keeps feedback out of the preferences, where nothing is remembered', () => {
+    expect(SETTINGS_GROUPS[1]).not.toContain('feedback');
+    expect(SETTINGS_GROUPS[2]).toContain('feedback');
   });
 
   it('keeps the middle group alphabetical between General and Advanced', () => {

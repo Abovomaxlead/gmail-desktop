@@ -133,6 +133,7 @@ function wireModules(): void {
     refreshNotifyAllowed: () => refreshNotifyAllowed(),
     activateAccount: (key) => activateNotification(key, 'mail'),
     setAutoStart: (v) => setAutoStart(v),
+    openFeedback: () => openSettingsPanel('feedback'),
   });
 }
 

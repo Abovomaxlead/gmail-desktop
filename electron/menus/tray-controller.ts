@@ -22,6 +22,7 @@ export interface TrayState {
   onOpen: () => void;
   onIconClick?: () => void;
   onQuit: () => void;
+  onFeedback: () => void;
   isPackaged: boolean;
   updateStatus: TrayUpdateStatus;
   onCheckUpdate: () => void;
@@ -116,6 +117,7 @@ export function trayMenuTemplate(state: TrayState): MenuItemConstructorOptions[]
     { type: 'separator' },
     { label: snoozeStatusLabel(state), submenu: snoozeSubmenu(state) },
     updateItem(state),
+    { label: state.labels.feedback, click: state.onFeedback },
     {
       label: state.labels.startAtLogin,
       type: 'checkbox',

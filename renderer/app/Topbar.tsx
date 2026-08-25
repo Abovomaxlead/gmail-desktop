@@ -67,6 +67,7 @@ export function Topbar({
   onAddAccount,
   onAddDelegated,
   onOpenSettings,
+  onOpenFeedback,
   onInstallUpdate,
   onReorder,
 }: {
@@ -77,12 +78,13 @@ export function Topbar({
   labelFor(p: Profile): string;
   settingsOpen: boolean;
   update: UpdateStatus;
-  strings: { addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
+  strings: { feedbackTooltip: string; addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   onOpen(key: string, surface: Surface): void;
   onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onAddAccount(): void;
   onAddDelegated(): void;
   onOpenSettings(): void;
+  onOpenFeedback(): void;
   onInstallUpdate(): void;
   onReorder(fromEmail: string, toEmail: string): void;
 }) {
@@ -197,6 +199,15 @@ export function Topbar({
           </button>
         ))}
         <button
+          onClick={onOpenFeedback}
+          title={strings.feedbackTooltip}
+          aria-label={strings.feedbackTooltip}
+          style={NO_DRAG}
+          className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
+        >
+          <FeedbackIcon className="h-4 w-4" />
+        </button>
+        <button
           onClick={onOpenSettings}
           title={strings.settingsTooltip}
           style={NO_DRAG}
@@ -222,6 +233,14 @@ function PlusIcon({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className={className}>
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function FeedbackIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z" />
     </svg>
   );
 }

@@ -79,6 +79,7 @@ const SAME_IN_BOTH = new Set([
   'calendarToggle',
   'navAccounts',
   'navDownloads',
+  'navFeedback',
   'navUpdates',
   'updates',
   'dhBytes',

@@ -18,6 +18,7 @@ import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 import type { OAuthStatusReport } from '../lib/oauth-status';
 import type { ComposeAccountAsk } from '../lib/compose-account';
+import type { SettingsSection } from './settings/nav';
 import type { MailDropFolderStatus } from '../../electron/core/ipc';
 import type { ToastAction, ToastState } from '../lib/toast';
 
@@ -158,10 +159,13 @@ interface DesktopBridge {
   toggleSettings(open: boolean): void;
   popupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onSettingsForceClose(cb: () => void): void;
-  onSettingsForceOpen(cb: () => void): void;
+  onSettingsForceOpen(cb: (section?: string) => void): void;
   checkForUpdate(): void;
   downloadUpdate(): void;
   installUpdate(): void;
+  /** Resolves to whether a compose window opened, which is what lets the panel decide
+   * between clearing the box and leaving the text where it is. */
+  sendFeedback(input: { text: string; includeDiagnostics: boolean }): Promise<boolean>;
   onUpdateStatus(cb: (status: UpdateStatus) => void): void;
   setAutoStart(v: boolean): void;
   setLaunchMinimized(v: boolean): void;
@@ -276,6 +280,12 @@ export default function AppShell() {
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sectionRequest, setSectionRequest] = useState<
+    { section: SettingsSection; seq: number } | undefined
+  >(undefined);
+  // The feedback message lives here and not in its section: the section unmounts on every
+  // switch and on close, and a half-written report must survive that.
+  const [feedbackDraft, setFeedbackDraft] = useState('');
   const [update, setUpdate] = useState<UpdateStatus>({ state: 'idle' });
   const [prefs, setPrefs] = useState<Prefs | null>(null);
   const S = getStrings(prefs?.locale ?? 'en', prefs?.reneMode === true);
@@ -301,7 +311,10 @@ export default function AppShell() {
     });
     bridge.onUnreadChanged(setUnread);
     bridge.onSettingsForceClose(() => setSettingsOpen(false));
-    bridge.onSettingsForceOpen(() => setSettingsOpen(true));
+    bridge.onSettingsForceOpen((section) => {
+      setSettingsOpen(true);
+      if (section) askSection(section as SettingsSection);
+    });
     bridge.onUpdateStatus(setUpdate);
     bridge.onPrefsChanged((p) => setPrefs(p as Prefs));
     bridge.onDefaultMailStatus(setIsDefaultMail);
@@ -382,9 +395,21 @@ export default function AppShell() {
     setSettingsOpen(true);
     window.desktop?.toggleSettings(true);
   }
+  // Every ask carries its own sequence number: asking for the same section twice has to move
+  // the panel twice, because the user can have navigated away in between.
+  function askSection(section: SettingsSection) {
+    setSectionRequest((prev) => ({ section, seq: (prev?.seq ?? 0) + 1 }));
+  }
+  function openFeedback() {
+    openSettings();
+    askSection('feedback');
+  }
   function closeSettings() {
     setSettingsOpen(false);
     window.desktop?.toggleSettings(false);
+    // Forget which section was asked for. The panel is unmounted while closed, so a request
+    // left standing would decide where the gear opens for the rest of the session.
+    setSectionRequest(undefined);
   }
   function reorder(fromEmail: string, toEmail: string) {
     if (fromEmail === toEmail) return;
@@ -412,6 +437,7 @@ export default function AppShell() {
         onAddAccount={addAccount}
         onAddDelegated={addDelegated}
         onOpenSettings={openSettings}
+        onOpenFeedback={openFeedback}
         onInstallUpdate={() => window.desktop?.installUpdate()}
         onReorder={reorder}
       />
@@ -419,6 +445,9 @@ export default function AppShell() {
       {settingsOpen && (
         <SettingsPanel
           profiles={profiles}
+          sectionRequest={sectionRequest}
+          feedbackDraft={feedbackDraft}
+          onFeedbackDraftChange={setFeedbackDraft}
           onClose={closeSettings}
           onRedetect={redetect}
           update={update}

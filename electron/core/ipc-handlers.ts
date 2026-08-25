@@ -47,6 +47,7 @@ import {
 } from '../mail/mail-drop-controller';
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
+import { openFeedbackCompose } from '../feedback/feedback-controller';
 import { openSurfaceForAccount, showTestNotification } from '../windows/surface-opener';
 import { applyViewBudget, syncCalendarViews } from '../windows/view-surfaces';
 import { applyMinWindowSize, applyReneZoom, applyTitleBarOverlay } from '../windows/window-chrome';
@@ -155,6 +156,16 @@ export function registerIpc(): void {
     // Switching channel is worth answering straight away: turning prereleases on with a beta
     // already published should show it now, not at the next half-hourly check.
     if (typeof next.allowPrerelease === 'boolean') checkForUpdate({ background: true });
+  });
+  ipcMain.handle(IPC.FEEDBACK_COMPOSE, (_e, input: unknown) => {
+    const { text, includeDiagnostics } = (input ?? {}) as {
+      text?: unknown;
+      includeDiagnostics?: unknown;
+    };
+    return openFeedbackCompose({
+      text: typeof text === 'string' ? text : '',
+      includeDiagnostics: includeDiagnostics === true,
+    });
   });
   ipcMain.on(IPC.SET_ADVANCED, (_e, patch: unknown) => {
     if (!prefs) return;

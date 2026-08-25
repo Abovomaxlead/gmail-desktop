@@ -41,6 +41,7 @@ export interface TrayHooks {
   refreshNotifyAllowed(): void;
   activateAccount(accountKey: string): void;
   setAutoStart(v: boolean): void;
+  openFeedback(): void;
 }
 
 
@@ -54,6 +55,7 @@ let hooks: TrayHooks = {
   refreshNotifyAllowed: () => {},
   activateAccount: () => {},
   setAutoStart: () => {},
+  openFeedback: () => {},
 };
 
 
@@ -129,6 +131,7 @@ function getTrayState(): TrayState {
     },
     isPackaged: app.isPackaged,
     updateStatus: lastUpdateStatus as unknown as TrayUpdateStatus,
+    onFeedback: () => hooks.openFeedback(),
     onCheckUpdate: checkForUpdateFromTray,
     onDownloadUpdate: downloadUpdate,
     onInstallUpdate: installUpdate,

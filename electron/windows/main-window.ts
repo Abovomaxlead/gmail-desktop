@@ -296,14 +296,21 @@ export function createWindow(): void {
   });
 }
 
-export function openSettingsPanel(): void {
+/**
+ * Brings the settings panel up, optionally on one section
+ *
+ * @param section a section name from the renderer's nav, or nothing to leave the panel where
+ *   the user last had it. Typed loosely on purpose: the list of sections belongs to the
+ *   renderer and main has no business importing it.
+ */
+export function openSettingsPanel(section?: string): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
   setSettingsPanelOpen(true);
   manager?.hideAll();
-  mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
+  mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN, { section });
 }
 
 

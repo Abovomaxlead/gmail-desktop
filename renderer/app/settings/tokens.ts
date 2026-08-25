@@ -38,7 +38,7 @@ export const WARN_HINT = 'text-xs font-normal leading-snug text-amber-600 dark:t
 
 export const BUTTON = `shrink-0 rounded-lg bg-neutral-200 px-3 py-1.5 text-[13px] font-medium text-neutral-900 transition hover:bg-neutral-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700 motion-reduce:transition-none ${FOCUS_RING}`;
 
-export const ACCENT_BUTTON = `shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-blue-500 motion-reduce:transition-none ${FOCUS_RING}`;
+export const ACCENT_BUTTON = `shrink-0 rounded-lg bg-blue-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600 motion-reduce:transition-none ${FOCUS_RING}`;
 
 export const DANGER_BUTTON = `shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-[13px] font-medium text-white transition hover:bg-red-500 motion-reduce:transition-none ${FOCUS_RING}`;
 

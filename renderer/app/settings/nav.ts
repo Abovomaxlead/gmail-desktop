@@ -20,6 +20,7 @@ export type SettingsSection =
   | 'updates'
   | 'verification-codes'
   | 'advanced'
+  | 'feedback'
   | 'whats-new'
   | 'about';
 
@@ -58,7 +59,7 @@ export const SETTINGS_GROUPS: readonly (readonly SettingsSection[])[] = [
     'verification-codes',
     'advanced',
   ],
-  ['whats-new', 'about'],
+  ['feedback', 'whats-new', 'about'],
 ];
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = SETTINGS_GROUPS.flat();

@@ -38,6 +38,7 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
     now: new Date(2026, 0, 1, 12, 0).getTime(),
     onSnooze: vi.fn(),
     onClearSnooze: vi.fn(),
+    onFeedback: vi.fn(),
     labels: L,
     ...overrides,
   };
@@ -103,9 +104,18 @@ describe('trayMenuTemplate', () => {
       'Open',
       'Snooze notifications',
       'Check for updates',
+      'Send feedback',
       'Start at login',
       'Quit',
     ]);
+  });
+
+  it('offers feedback, and clicking it takes you to the panel', () => {
+    const onFeedback = vi.fn();
+    const items = byLabel(trayMenuTemplate(state({ onFeedback })));
+    expect(items[L.feedback]).toBeTruthy();
+    items[L.feedback].click();
+    expect(onFeedback).toHaveBeenCalledTimes(1);
   });
 
   it('wires Open and Quit', () => {

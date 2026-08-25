@@ -33,8 +33,16 @@ export interface UiStrings {
   navUpdates: string;
   navVerificationCodes: string;
   navAdvanced: string;
+  navFeedback: string;
   navWhatsNew: string;
   navAbout: string;
+  feedbackIntro: string;
+  feedbackPlaceholder: string;
+  feedbackIncludeDiagnostics: string;
+  feedbackIncludeDiagnosticsDescription: string;
+  feedbackSend: string;
+  feedbackNoMailbox: string;
+  feedbackTooltip: string;
   settingsAttention: string;
   sectionEmpty: string;
 
@@ -372,8 +380,18 @@ export const STRINGS_NORMAL: UiStrings = {
   navUpdates: 'Updates',
   navVerificationCodes: 'Verification Codes',
   navAdvanced: 'Advanced',
+  navFeedback: 'Feedback',
   navWhatsNew: "What's New",
   navAbout: 'About Gmail Desktop',
+  feedbackIntro:
+    'Tell us what went wrong or what you are missing. Sending opens a mail from your own mailbox, so you see exactly what goes out before it leaves.',
+  feedbackPlaceholder: 'What happened, and what did you expect to happen?',
+  feedbackIncludeDiagnostics: 'Include version and system information',
+  feedbackIncludeDiagnosticsDescription:
+    'Adds the version, your operating system, how many mailboxes are linked, and the last lines of the update log. It is written into the mail, so you can read it before sending.',
+  feedbackSend: 'Write feedback mail',
+  feedbackNoMailbox: 'Link a mailbox first: the mail is sent from your own Gmail.',
+  feedbackTooltip: 'Send feedback',
   settingsAttention: 'needs your attention',
   sectionEmpty: 'Nothing to set here yet.',
 
@@ -683,8 +701,18 @@ export const STRINGS_RENE: UiStrings = {
   navUpdates: 'Nieuwe versie',
   navVerificationCodes: 'Codes',
   navAdvanced: 'Voor knutselaars',
+  navFeedback: 'Zeg wat je vindt',
   navWhatsNew: 'Wat is er nieuw?',
   navAbout: 'Over de app',
+  feedbackIntro:
+    'Ging er iets mis, of mis je iets? Schrijf het hier. Als je op de knop drukt maakt de app een mail vanuit je eigen postbus. Je ziet hem eerst, en jij drukt zelf op verzenden.',
+  feedbackPlaceholder: 'Wat ging er mis? En wat had je verwacht?',
+  feedbackIncludeDiagnostics: 'Stuur ook mee welke versie je hebt',
+  feedbackIncludeDiagnosticsDescription:
+    'Dan komt er onder je bericht te staan welke versie je hebt, wat voor computer, hoeveel postbussen, en wat de app het laatst deed. Het staat gewoon in de mail, dus je kunt het zelf lezen.',
+  feedbackSend: 'Maak de mail',
+  feedbackNoMailbox: 'Koppel eerst een postbus. De mail gaat vanuit je eigen Gmail.',
+  feedbackTooltip: 'Zeg wat je vindt',
   settingsAttention: 'kijk hier even',
   sectionEmpty: 'Hier is nog niks om te zetten.',
 
@@ -980,8 +1008,18 @@ export const STRINGS_NL: UiStrings = {
   navUpdates: 'Updates',
   navVerificationCodes: 'Verificatiecodes',
   navAdvanced: 'Geavanceerd',
+  navFeedback: 'Feedback',
   navWhatsNew: 'Wat is er nieuw',
   navAbout: 'Over Gmail Desktop',
+  feedbackIntro:
+    'Vertel wat er misging of wat je mist. Verzenden opent een mail vanuit je eigen postbus, dus je ziet precies wat er weggaat voordat je hem verstuurt.',
+  feedbackPlaceholder: 'Wat gebeurde er, en wat had je verwacht?',
+  feedbackIncludeDiagnostics: 'Versie- en systeeminformatie meesturen',
+  feedbackIncludeDiagnosticsDescription:
+    'Zet de versie, je besturingssysteem, het aantal gekoppelde postbussen en de laatste regels van het updatelogboek onder je bericht. Het staat in de mail zelf, dus je kunt het nalezen voor je verstuurt.',
+  feedbackSend: 'Feedbackmail opstellen',
+  feedbackNoMailbox: 'Koppel eerst een postbus: de mail wordt vanuit je eigen Gmail verstuurd.',
+  feedbackTooltip: 'Feedback geven',
   settingsAttention: 'vraagt je aandacht',
   sectionEmpty: 'Hier is nog niets in te stellen.',
 

@@ -91,6 +91,7 @@ export const IPC = {
   MAIL_DROP_ORPHAN_GET: 'maildrop:orphan-get',
   MAIL_DROP_ORPHAN_DECIDE: 'maildrop:orphan-decide',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
+  FEEDBACK_COMPOSE: 'feedback:compose',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
   COMPOSE_ACCOUNT_SIZE: 'compose:account-size',

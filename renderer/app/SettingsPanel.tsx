@@ -7,6 +7,7 @@ import { getStrings, type UiStrings } from './strings';
 import { AboutSection } from './settings/AboutSection';
 import { AccountsSection } from './settings/AccountsSection';
 import { AdvancedSection } from './settings/AdvancedSection';
+import { FeedbackSection } from './settings/FeedbackSection';
 import { AppearanceSection } from './settings/AppearanceSection';
 import { DownloadHistorySection } from './settings/DownloadHistorySection';
 import { DownloadsSection } from './settings/DownloadsSection';
@@ -36,6 +37,9 @@ import { NOTICE } from './settings/tokens';
 
 export function SettingsPanel({
   profiles,
+  sectionRequest,
+  feedbackDraft,
+  onFeedbackDraftChange,
   onClose,
   onRedetect,
   update,
@@ -50,6 +54,11 @@ export function SettingsPanel({
   onRequestDefaultMail,
 }: {
   profiles: Profile[];
+  /** A section to jump to. Carries a sequence number because asking twice for the same
+   * section has to move the panel twice -- the user can navigate away in between. */
+  sectionRequest?: { section: SettingsSection; seq: number };
+  feedbackDraft: string;
+  onFeedbackDraftChange: (text: string) => void;
   onClose: () => void;
   onRedetect: () => void;
   update: UpdateStatus;
@@ -66,7 +75,16 @@ export function SettingsPanel({
   isDefaultMail: boolean;
   onRequestDefaultMail: () => void;
 }) {
-  const [section, setSection] = useState<SettingsSection>(DEFAULT_SECTION);
+  const [section, setSection] = useState<SettingsSection>(
+    sectionRequest?.section ?? DEFAULT_SECTION,
+  );
+  // Honoured on every ask, not once on mount: the toolbar button and the tray item both work
+  // with the panel already open.
+  const asked = sectionRequest?.section;
+  useEffect(() => {
+    if (asked) setSection(asked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionRequest?.seq]);
 
   const rene = prefs?.reneMode === true;
   const S = getStrings(prefs?.locale ?? 'en', rene);
@@ -152,6 +170,15 @@ export function SettingsPanel({
                 onInstallUpdate={onInstallUpdate}
               />
             );
+          case 'feedback':
+            return (
+              <FeedbackSection
+                S={S}
+                profiles={profiles}
+                draft={feedbackDraft}
+                onDraftChange={onFeedbackDraftChange}
+              />
+            );
           case 'whats-new':
             return <WhatsNewSection S={S} uiLang={uiLang} />;
           case 'about':
@@ -197,6 +224,8 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navVerificationCodes;
     case 'advanced':
       return S.navAdvanced;
+    case 'feedback':
+      return S.navFeedback;
     case 'whats-new':
       return S.navWhatsNew;
     case 'about':

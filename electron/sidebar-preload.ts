@@ -75,9 +75,12 @@ contextBridge.exposeInMainWorld('desktop', {
   onSettingsForceClose: (cb: () => void): void => {
     ipcRenderer.on(IPC.SETTINGS_FORCE_CLOSE, () => cb());
   },
-  onSettingsForceOpen: (cb: () => void): void => {
-    ipcRenderer.on(IPC.SETTINGS_FORCE_OPEN, () => cb());
+  // The section is optional: the tray and the toolbar send you to one, a plain reopen does not.
+  onSettingsForceOpen: (cb: (section?: string) => void): void => {
+    ipcRenderer.on(IPC.SETTINGS_FORCE_OPEN, (_e, arg) => cb((arg as { section?: string })?.section));
   },
+  sendFeedback: (input: { text: string; includeDiagnostics: boolean }): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.FEEDBACK_COMPOSE, input),
   setAutoStart: (v: boolean): void => ipcRenderer.send(IPC.SET_AUTO_START, v),
   setLaunchMinimized: (v: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_MINIMIZED, v),
   setAppearance: (patch: unknown): void => ipcRenderer.send(IPC.SET_APPEARANCE, patch),
