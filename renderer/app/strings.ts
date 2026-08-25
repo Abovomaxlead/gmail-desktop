@@ -101,6 +101,9 @@ export interface UiStrings {
 
   autoCheckUpdates: string;
   autoCheckUpdatesDescription: string;
+  prereleaseUpdates: string;
+  prereleaseUpdatesDescription: string;
+  prereleaseStuckOnBeta: (version: string) => string;
   notifyUpdates: string;
   notifyUpdatesDescription: string;
 
@@ -108,6 +111,8 @@ export interface UiStrings {
   hardwareAcceleration: string;
   hardwareAccelerationDescription: string;
   restartRequired: string;
+  lowMemory: string;
+  lowMemoryDescription: string;
 
   gaOpenInApp: string;
   gaOpenInAppDescription: string;
@@ -449,6 +454,11 @@ export const STRINGS_NORMAL: UiStrings = {
 
   autoCheckUpdates: 'Check For Updates Automatically',
   autoCheckUpdatesDescription: 'Automatically check for updates periodically.',
+  prereleaseUpdates: 'Receive Pre-Release Versions',
+  prereleaseUpdatesDescription:
+    'Offer beta versions as well as finished ones. Updates never go backwards, so switching this off leaves you on the version you have.',
+  prereleaseStuckOnBeta: (version: string) =>
+    `You are on ${version}. With this off you stay here until the finished version is released.`,
   notifyUpdates: 'Notify When Updates Are Available',
   notifyUpdatesDescription: 'Receive notifications when updates are available.',
 
@@ -457,6 +467,9 @@ export const STRINGS_NORMAL: UiStrings = {
   hardwareAccelerationDescription:
     'Enabling hardware acceleration can improve performance but can also cause compatibility issues on some systems.',
   restartRequired: 'Takes effect the next time the app starts.',
+  lowMemory: 'Low-Memory Mode',
+  lowMemoryDescription:
+    "Only the mailbox you're viewing stays loaded. Switching to another one reloads it, so there's a short pause. Mailboxes without a Google link show no notifications and no unread count while they're not on screen.",
 
   gaOpenInApp: 'Open in App',
   gaOpenInAppDescription: 'Open Google Apps in app instead of external browser.',
@@ -747,6 +760,11 @@ export const STRINGS_RENE: UiStrings = {
 
   autoCheckUpdates: 'Kijk zelf of er iets nieuws is',
   autoCheckUpdatesDescription: 'De app kijkt af en toe of er een nieuwe versie is.',
+  prereleaseUpdates: 'Ook proefversies ophalen',
+  prereleaseUpdatesDescription:
+    'Je krijgt dan ook versies die nog niet helemaal klaar zijn. Je gaat nooit terug naar een oudere versie, dus als je dit uitzet blijf je op de versie die je nu hebt.',
+  prereleaseStuckOnBeta: (version: string) =>
+    `Je hebt nu ${version}. Als dit uit staat blijf je daarop tot de gewone versie er is.`,
   notifyUpdates: 'Zeg het als er iets nieuws is',
   notifyUpdatesDescription: 'Je krijgt een melding als er een nieuwe versie klaarstaat.',
 
@@ -755,6 +773,9 @@ export const STRINGS_RENE: UiStrings = {
   hardwareAccelerationDescription:
     'Dit maakt de app sneller. Ziet het scherm er raar uit? Zet het dan uit.',
   restartRequired: 'Dit werkt pas als de app opnieuw opstart.',
+  lowMemory: 'Geheugen sparen',
+  lowMemoryDescription:
+    'Alleen de postbus die je nu ziet blijft geladen. Ga je naar een andere? Dan duurt het even voor die er weer is. Bij postbussen zonder Google-koppeling mis je ondertussen meldingen en het aantal ongelezen berichten.',
 
   gaOpenInApp: 'Open in de app',
   gaOpenInAppDescription: 'Open Google-dingen in de app en niet in je browser.',
@@ -1042,6 +1063,11 @@ export const STRINGS_NL: UiStrings = {
 
   autoCheckUpdates: 'Automatisch op updates controleren',
   autoCheckUpdatesDescription: 'De app controleert periodiek automatisch op updates.',
+  prereleaseUpdates: 'Pre-releaseversies ontvangen',
+  prereleaseUpdatesDescription:
+    'Naast definitieve versies worden ook betaversies aangeboden. Een update gaat nooit terug, dus dit uitzetten laat je op je huidige versie staan.',
+  prereleaseStuckOnBeta: (version: string) =>
+    `Je gebruikt ${version}. Met deze optie uit blijf je daarop tot de definitieve versie uitkomt.`,
   notifyUpdates: 'Melden wanneer er updates zijn',
   notifyUpdatesDescription: 'Ontvang een melding wanneer er updates beschikbaar zijn.',
 
@@ -1050,6 +1076,9 @@ export const STRINGS_NL: UiStrings = {
   hardwareAccelerationDescription:
     'Hardwareversnelling kan de prestaties verbeteren, maar kan op sommige systemen ook problemen geven.',
   restartRequired: 'Werkt vanaf de volgende keer dat de app start.',
+  lowMemory: 'Geheugenbesparende modus',
+  lowMemoryDescription:
+    'Alleen de postbus die op het scherm staat, blijft geladen. Wissel je naar een andere postbus, dan wordt die opnieuw geladen en duurt het schakelen dus even. Postbussen zonder Google-koppeling geven geen meldingen en tonen geen aantal ongelezen berichten zolang ze niet in beeld zijn.',
 
   gaOpenInApp: 'In de app openen',
   gaOpenInAppDescription: 'Open Google-apps in de app in plaats van in de externe browser.',

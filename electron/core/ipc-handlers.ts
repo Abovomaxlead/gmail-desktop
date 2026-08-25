@@ -48,7 +48,7 @@ import {
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
 import { openSurfaceForAccount, showTestNotification } from '../windows/surface-opener';
-import { syncCalendarViews } from '../windows/view-surfaces';
+import { applyViewBudget, syncCalendarViews } from '../windows/view-surfaces';
 import { applyMinWindowSize, applyReneZoom, applyTitleBarOverlay } from '../windows/window-chrome';
 import { rememberWebNotifySource } from '../toast/toast-activation';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
@@ -69,6 +69,7 @@ import { popupNativeMenu } from '../menus/native-menu';
 import { nativeLabels } from '../menus/native-labels';
 import {
   applyAutoUpdateCheck,
+  applyUpdateChannel,
   checkForUpdate,
   downloadUpdate,
   installUpdate,
@@ -146,13 +147,22 @@ export function registerIpc(): void {
   });
   ipcMain.on(IPC.SET_UPDATE_PREFS, (_e, patch: unknown) => {
     if (!prefs) return;
-    prefs.setUpdates((patch ?? {}) as Parameters<PrefsStore['setUpdates']>[0]);
+    const next = (patch ?? {}) as Parameters<PrefsStore['setUpdates']>[0];
+    prefs.setUpdates(next);
+    applyUpdateChannel();
     applyAutoUpdateCheck();
     pushPrefs();
+    // Switching channel is worth answering straight away: turning prereleases on with a beta
+    // already published should show it now, not at the next half-hourly check.
+    if (typeof next.allowPrerelease === 'boolean') checkForUpdate({ background: true });
   });
   ipcMain.on(IPC.SET_ADVANCED, (_e, patch: unknown) => {
     if (!prefs) return;
-    prefs.setAdvanced((patch ?? {}) as Parameters<PrefsStore['setAdvanced']>[0]);
+    const next = (patch ?? {}) as Parameters<PrefsStore['setAdvanced']>[0];
+    prefs.setAdvanced(next);
+    // Hardware acceleration needs a restart; the memory setting does not, so it is applied
+    // here rather than left until the next launch.
+    if (next.lowMemory !== undefined) applyViewBudget();
     pushPrefs();
   });
   ipcMain.on(IPC.SET_NOTIFICATION_EXTRAS, (_e, patch: unknown) => {

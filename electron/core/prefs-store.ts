@@ -71,6 +71,9 @@ export interface PhishingPrefs {
 export interface UpdatePrefs {
   autoCheck: boolean;
   notify: boolean;
+  /** Undefined until the user picks: "never chosen" is not the same as "no", and only the
+   * absent case falls back to the rule that applied before this setting existed. */
+  allowPrerelease?: boolean;
 }
 
 export interface GoogleAppsPrefs {
@@ -92,6 +95,9 @@ export interface VerificationCodePrefs {
 
 export interface AdvancedPrefs {
   hardwareAcceleration: boolean;
+  /** Keeps only the mailbox on screen loaded, at the cost of a reload on every switch and of
+   * notifications from mailboxes the API does not cover. */
+  lowMemory: boolean;
 }
 
 export type AppearancePatch = Partial<Omit<AppearancePrefs, 'tray'>> & {
@@ -185,7 +191,7 @@ export const DEFAULT_PREFS: Prefs = {
     pinned: [],
   },
   verificationCodes: { autoCopy: false, confidence: 'high', markRead: false, deleteAfter: false },
-  advanced: { hardwareAcceleration: true },
+  advanced: { hardwareAcceleration: true, lowMemory: false },
   reneMode: false,
 };
 
@@ -322,6 +328,10 @@ export class PrefsStore {
         updates: {
           autoCheck: bool(raw.updates?.autoCheck, true),
           notify: bool(raw.updates?.notify, true),
+          allowPrerelease:
+            typeof raw.updates?.allowPrerelease === 'boolean'
+              ? raw.updates.allowPrerelease
+              : undefined,
         },
         googleApps: {
           openInApp: bool(raw.googleApps?.openInApp, true),
@@ -337,7 +347,10 @@ export class PrefsStore {
           markRead: bool(raw.verificationCodes?.markRead, false),
           deleteAfter: bool(raw.verificationCodes?.deleteAfter, false),
         },
-        advanced: { hardwareAcceleration: bool(raw.advanced?.hardwareAcceleration, true) },
+        advanced: {
+          hardwareAcceleration: bool(raw.advanced?.hardwareAcceleration, true),
+          lowMemory: bool(raw.advanced?.lowMemory, false),
+        },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
       };
     } catch {

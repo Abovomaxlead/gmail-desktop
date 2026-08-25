@@ -26,7 +26,12 @@ import {
   syncRunners,
   unread,
 } from '../core/runtime';
-import { showAccount, syncCalendarViews, warmAccount } from '../windows/view-surfaces';
+import {
+  showAccount,
+  syncCalendarViews,
+  trimViewsToVisible,
+  warmAccount,
+} from '../windows/view-surfaces';
 import { refreshNotifyAllowed, playNotificationSound } from '../notify/notify-gating';
 import { showToast } from '../toast/toast-presenter';
 import { startMailSync } from '../push/mail-sync-controller';
@@ -101,6 +106,10 @@ function settleDetection(): void {
   setCachedAccounts([]);
   pushProfiles();
   maybeStartDelegatedApiScan();
+  // Detection has to open a view per account to find it at all, so on a low-memory setup this
+  // is the first moment there is anything to give back. Without it the saving would not arrive
+  // until the user switched mailboxes by hand.
+  trimViewsToVisible();
 }
 
 function clearProbeTimer(): void {

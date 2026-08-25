@@ -13,6 +13,7 @@ import { refreshNotifyAllowed } from '../notify/notify-gating';
 import { flushPendingMailto } from '../compose/mailto-controller';
 import { wantsCalendarView } from '../notify/notification-policy';
 import { WarmupTracker } from './view-warmup';
+import { mayKeepCalendarViews, mayWarmViews, viewsToDiscard } from './view-budget';
 import type { AccountRef } from '../accounts/account-ref';
 import type { Profile, Surface } from './profile-view-manager';
 
@@ -31,6 +32,7 @@ let warmupTimer: ReturnType<typeof setInterval> | null = null;
 
 export function showAccount(ref: AccountRef, surface: Surface): void {
   manager?.show(ref, surface);
+  trimViewsToVisible();
   pushActive();
   refreshNotifyAllowed();
   flushPendingMailto();
@@ -40,6 +42,7 @@ export function showAccount(ref: AccountRef, surface: Surface): void {
  * for a view already showing, and for one already warming. */
 export function warmAccount(profile: Profile): void {
   if (!manager) return;
+  if (!mayWarmViews(lowMemory())) return;
   const key = keyOf(profile);
   if (manager.isShowing(key, 'mail')) return;
   if (!warmup.begin(key, Date.now())) return;
@@ -52,7 +55,9 @@ export function warmAccount(profile: Profile): void {
 export function syncCalendarViews(): void {
   if (!prefs || !manager) return;
   for (const profile of profiles) {
-    const enabled = wantsCalendarView(prefs.getAll(), profile.email, profile.ref);
+    const enabled =
+      mayKeepCalendarViews(lowMemory()) &&
+      wantsCalendarView(prefs.getAll(), profile.email, profile.ref);
     if (enabled) {
       manager.ensureView(profile.ref, 'calendar', false);
     } else if (!manager.isShowing(keyOf(profile), 'calendar')) {
@@ -63,9 +68,53 @@ export function syncCalendarViews(): void {
 }
 
 
+/**
+ * Brings the live views into line with the low-memory setting
+ *
+ * Called when the setting changes, so the switch acts at once: turning it on throws away
+ * everything but the mailbox on screen, turning it off warms the others back up.
+ */
+export function applyViewBudget(): void {
+  if (!manager) return;
+  if (lowMemory()) {
+    trimViewsToVisible();
+    syncCalendarViews();
+    return;
+  }
+  syncCalendarViews();
+  for (const profile of profiles) warmAccount(profile);
+}
+
+
+/**
+ * Throws away every view except the one on screen
+ *
+ * Does nothing unless the setting is on. A discarded view takes its unread count with it --
+ * discardView reports zero -- which the API puts back for the accounts it covers and cannot
+ * put back for the others. That is the trade the setting spells out.
+ */
+export function trimViewsToVisible(): void {
+  if (!manager || !lowMemory()) return;
+  // Only views belonging to a registered account may be swept. Detection and the add-account
+  // flow open views for an index that has not become a profile yet, and throwing one of those
+  // away mid-flight would abandon the probe or the consent page.
+  const registered = new Set(profiles.map((p) => keyOf(p)));
+  const live = manager.liveViewIds().filter((v) => registered.has(v.accountKey));
+  for (const view of viewsToDiscard({ live, active: manager.activeViewId() })) {
+    manager.discardView(view.accountKey, view.surface);
+  }
+}
+
+
 //===========================
 // Helper functions
 //===========================
+
+/** @returns true when the user asked for the smaller memory footprint @private */
+function lowMemory(): boolean {
+  return prefs?.getAll().advanced.lowMemory === true;
+}
+
 
 /** Stops the timer once nothing is warming, so an idle app is not waking every second. */
 function tickWarmup(): void {

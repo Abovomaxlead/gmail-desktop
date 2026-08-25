@@ -206,4 +206,55 @@ describe('PrefsStore survives a write the app was killed in the middle of', () =
   });
 });
 
+describe('PrefsStore update channel', () => {
+  // Absent is the whole point: it means nobody has chosen, which is what makes the app
+  // behave as it did before the setting existed. Collapsing it to false would silently
+  // take every beta tester off the beta channel.
+  it('leaves allowPrerelease absent until it is set', () => {
+    expect(new PrefsStore(file).getAll().updates.allowPrerelease).toBeUndefined();
+  });
+
+  it('round-trips both choices across instances', () => {
+    const store = new PrefsStore(file);
+    store.setUpdates({ allowPrerelease: true });
+    expect(new PrefsStore(file).getAll().updates.allowPrerelease).toBe(true);
+    store.setUpdates({ allowPrerelease: false });
+    expect(new PrefsStore(file).getAll().updates.allowPrerelease).toBe(false);
+  });
+
+  it('ignores a non-boolean in a hand-edited file rather than trusting it', () => {
+    writeFileSync(file, JSON.stringify({ updates: { allowPrerelease: 'yes' } }), 'utf8');
+    expect(new PrefsStore(file).getAll().updates.allowPrerelease).toBeUndefined();
+  });
+
+  it('keeps the other update prefs when the channel changes', () => {
+    const store = new PrefsStore(file);
+    store.setUpdates({ notify: false });
+    store.setUpdates({ allowPrerelease: true });
+    const u = new PrefsStore(file).getAll().updates;
+    expect(u).toEqual({ autoCheck: true, notify: false, allowPrerelease: true });
+  });
+});
+
+describe('PrefsStore advanced.lowMemory', () => {
+  it('defaults to off, so nothing changes for anyone who never asked', () => {
+    expect(new PrefsStore(file).getAll().advanced.lowMemory).toBe(false);
+  });
+
+  it('round-trips without disturbing hardware acceleration', () => {
+    const store = new PrefsStore(file);
+    store.setAdvanced({ hardwareAcceleration: false });
+    store.setAdvanced({ lowMemory: true });
+    expect(new PrefsStore(file).getAll().advanced).toEqual({
+      hardwareAcceleration: false,
+      lowMemory: true,
+    });
+  });
+
+  it('ignores a non-boolean in a hand-edited file', () => {
+    writeFileSync(file, JSON.stringify({ advanced: { lowMemory: 'yes' } }), 'utf8');
+    expect(new PrefsStore(file).getAll().advanced.lowMemory).toBe(false);
+  });
+});
+
 afterEach(() => rmSync(dir, { recursive: true, force: true }));

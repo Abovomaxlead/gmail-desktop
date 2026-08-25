@@ -112,7 +112,7 @@ export interface Prefs {
     notifyClick: DownloadClickAction;
   };
   phishing: { confirmExternalLinks: boolean; trustedHosts: string[] };
-  updates: { autoCheck: boolean; notify: boolean };
+  updates: { autoCheck: boolean; notify: boolean; allowPrerelease?: boolean };
   googleApps: {
     openInApp: boolean;
     alwaysNewWindow: boolean;
@@ -127,7 +127,7 @@ export interface Prefs {
     markRead: boolean;
     deleteAfter: boolean;
   };
-  advanced: { hardwareAcceleration: boolean };
+  advanced: { hardwareAcceleration: boolean; lowMemory?: boolean };
   reneMode: boolean;
   language: 'system' | 'en' | 'nl';
   locale: 'en' | 'nl';
@@ -178,8 +178,12 @@ interface DesktopBridge {
     notifyClick?: DownloadClickAction;
   }): void;
   setPhishing(patch: { confirmExternalLinks?: boolean; trustedHosts?: string[] }): void;
-  setUpdatePrefs(patch: { autoCheck?: boolean; notify?: boolean }): void;
-  setAdvanced(patch: { hardwareAcceleration?: boolean }): void;
+  setUpdatePrefs(patch: {
+    autoCheck?: boolean;
+    notify?: boolean;
+    allowPrerelease?: boolean;
+  }): void;
+  setAdvanced(patch: { hardwareAcceleration?: boolean; lowMemory?: boolean }): void;
   setVerificationCodes(patch: {
     autoCopy?: boolean;
     confidence?: 'medium' | 'high';

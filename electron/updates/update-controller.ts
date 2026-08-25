@@ -25,6 +25,7 @@ import {
 } from '../core/runtime';
 import { nativeLabels } from '../menus/native-labels';
 import { parseChangelog, type ChangelogVersion } from './changelog';
+import { prereleaseAllowed } from './update-channel';
 import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
@@ -121,6 +122,23 @@ export function installUpdate(): void {
   autoUpdater.quitAndInstall();
 }
 
+/**
+ * Points the updater at the stable or the prerelease releases
+ *
+ * Reads the setting each time rather than remembering it, so the switch takes effect on the
+ * next check instead of the next launch.
+ */
+export function applyUpdateChannel(): void {
+  autoUpdater.allowPrerelease = prereleaseAllowed(
+    prefs?.getAll().updates.allowPrerelease,
+    app.getVersion(),
+  );
+  // Set explicitly although false is already the default, because this is the promise that an
+  // update never walks backwards -- and autoUpdater's `channel` setter turns it on behind your
+  // back, so the intent belongs in writing next to the flag it guards.
+  autoUpdater.allowDowngrade = false;
+}
+
 export function applyAutoUpdateCheck(): void {
   const on = app.isPackaged && prefs?.getAll().updates.autoCheck !== false;
   if (on && !updateTimer) {
@@ -139,6 +157,7 @@ export function setupUpdater(): void {
   autoUpdater.logger = updateLog;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
+  applyUpdateChannel();
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
   autoUpdater.on('update-available', (info) => {
     sendUpdate({ state: 'available', version: info.version });

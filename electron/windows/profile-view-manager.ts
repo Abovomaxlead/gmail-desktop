@@ -31,6 +31,12 @@ export type { Surface };
 // Types
 //===========================
 
+/** One view, named by the account and the surface it shows. */
+export interface ViewId {
+  accountKey: string;
+  surface: Surface;
+}
+
 export interface Profile {
   ref: AccountRef;
   kind: AccountRef['kind'];
@@ -275,6 +281,52 @@ export class ProfileViewManager {
 
   isShowing(accountKey: string, surface: Surface): boolean {
     return this.activeViewKey === viewKey(accountKey, surface);
+  }
+
+  /**
+   * Whether a view is built at all, on screen or not
+   *
+   * Apart from isShowing because the low-memory sweep needs to know what exists before it
+   * decides what to throw away.
+   *
+   * @param accountKey
+   * @param surface
+   * @returns true when the view is live
+   */
+  hasView(accountKey: string, surface: Surface): boolean {
+    return this.views.has(viewKey(accountKey, surface));
+  }
+
+  /**
+   * Every view that exists, across all nine surfaces
+   *
+   * The sweep has to see all of them: an account can hold a Drive, Docs or Chat view as well
+   * as its mail one, and those cost the same renderer each. A hidden scrape view is not
+   * included -- withHiddenView never registers one here.
+   *
+   * @returns one entry per live view
+   */
+  liveViewIds(): ViewId[] {
+    return [...this.views.keys()].map((vk) => ({
+      accountKey: acctKeyOfViewKey(vk),
+      surface: vk.slice(vk.lastIndexOf(':') + 1) as Surface,
+    }));
+  }
+
+  /**
+   * The view on screen, surface included
+   *
+   * activeKey() answers with the account alone, which is not enough to decide what to keep:
+   * looking at one account's calendar must not spare that account's mail view.
+   *
+   * @returns the visible view, or null when none is
+   */
+  activeViewId(): ViewId | null {
+    if (!this.activeViewKey) return null;
+    return {
+      accountKey: acctKeyOfViewKey(this.activeViewKey),
+      surface: this.activeViewKey.slice(this.activeViewKey.lastIndexOf(':') + 1) as Surface,
+    };
   }
 
   /**
