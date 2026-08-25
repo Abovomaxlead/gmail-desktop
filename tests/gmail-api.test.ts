@@ -66,6 +66,8 @@ import {
   messagesBatchModifyUrl,
   batchModifyBody,
   batchModifyMessages,
+  visibleLabelCreateBody,
+  userLabelMap,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -1091,5 +1093,39 @@ describe('parseMessageMeta, the Message-ID it now also carries', () => {
 
   it('asks Gmail for the header, or it would never arrive', () => {
     expect(MESSAGE_META_HEADERS).toContain('Message-ID');
+  });
+});
+
+describe('visibleLabelCreateBody', () => {
+  it('asks for a label the user can actually see', () => {
+    expect(JSON.parse(visibleLabelCreateBody('Klanten/Acme'))).toEqual({
+      name: 'Klanten/Acme',
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    });
+  });
+
+  it('differs from the hidden marker body', () => {
+    expect(visibleLabelCreateBody('X')).not.toBe(labelCreateBody('X'));
+  });
+});
+
+describe('userLabelMap', () => {
+  it('keeps only the user own labels, not the system ones', () => {
+    const map = userLabelMap([
+      { id: 'Label_1', name: 'Klanten', type: 'user', labelListVisibility: '' },
+      { id: 'INBOX', name: 'INBOX', type: 'system', labelListVisibility: '' },
+    ]);
+    expect([...map]).toEqual([['Klanten', 'Label_1']]);
+  });
+
+  it('drops this app own run markers', () => {
+    const marker = {
+      id: 'Label_9',
+      name: markerLabelName('run-1'),
+      type: 'user',
+      labelListVisibility: '',
+    };
+    expect(userLabelMap([marker]).size).toBe(0);
   });
 });

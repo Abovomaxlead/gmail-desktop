@@ -312,6 +312,19 @@ export function labelCreateBody(name: string): string {
 }
 
 /**
+ * The body that creates a label the user can see
+ *
+ * The mirror image of labelCreateBody: a marker is bookkeeping and stays out of every client,
+ * while a label a copied tree lands in is the whole point of the copy and has to show up.
+ *
+ * @param name the full nested name, `Archief/Klanten/Acme`
+ * @returns the JSON body to POST
+ */
+export function visibleLabelCreateBody(name: string): string {
+  return JSON.stringify({ name, labelListVisibility: 'labelShow', messageListVisibility: 'show' });
+}
+
+/**
  * Reads the label a create call answered with
  *
  * @param json
@@ -400,6 +413,38 @@ export async function fetchLabel(accessToken: string, name: string): Promise<Raw
 }
 
 /**
+ * The user's own labels, name to id
+ *
+ * Markers are left out: they are this app's bookkeeping, and a tree must never be planned to
+ * land in one. Unlike parseLabels this keeps the nesting untouched and adds no system label,
+ * because a name is what a tree is calculated from.
+ *
+ * @param raw from parseAllLabels
+ * @returns name to id
+ */
+export function userLabelMap(raw: RawLabel[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const l of raw) {
+    if (l.type !== 'user' || isMarkerLabelName(l.name)) continue;
+    out.set(l.name, l.id);
+  }
+  return out;
+}
+
+/**
+ * Every label a mailbox has, in one request
+ *
+ * One listing per mailbox rather than one lookup per label: a tree of forty would otherwise be
+ * forty round trips to learn what forty names already are.
+ *
+ * @param accessToken
+ * @returns name to id
+ */
+export async function fetchUserLabelMap(accessToken: string): Promise<Map<string, string>> {
+  return userLabelMap(parseAllLabels(await requestJson(LABELS_URL, accessToken)));
+}
+
+/**
  * Creates one run's marker label, hidden from every Gmail client including this app's own
  * picker
  *
@@ -434,6 +479,40 @@ export async function createHiddenLabel(
     const resolved = resolveConflictedMarker(name, await fetchLabel(accessToken, name));
     if (!resolved.ok) throw new Error(resolved.reason);
     return { id: resolved.id, name };
+  }
+}
+
+/**
+ * Creates one label the user can see, or finds the one already carrying the name
+ *
+ * Unlike a marker, a real label with the wanted name is precisely what was wanted, so a 409 is
+ * resolved by using it -- there is nothing here to distrust and resolveConflictedMarker does
+ * not apply.
+ *
+ * @param accessToken
+ * @param name the full nested name, `Archief/Klanten/Acme`
+ * @returns the label's id and name
+ * @throws whatever the create failed with, or a reason of its own when a 409 cannot be
+ *   resolved either
+ */
+export async function createVisibleLabel(
+  accessToken: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  try {
+    const json = await requestJson(LABELS_URL, accessToken, {
+      method: 'POST',
+      contentType: 'application/json',
+      body: Buffer.from(visibleLabelCreateBody(name), 'utf8'),
+    });
+    const created = parseCreatedLabel(json);
+    if (!created) throw new Error('Gmail gaf geen label terug');
+    return created;
+  } catch (e) {
+    if (!(e instanceof GmailHttpError) || e.status !== 409) throw e;
+    const existing = await fetchLabel(accessToken, name);
+    if (!existing) throw new Error(`label '${name}' bestaat al, maar kon niet worden opgezocht`);
+    return { id: existing.id, name: existing.name };
   }
 }
 
