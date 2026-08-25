@@ -27,7 +27,7 @@ export interface LabelThread {
 
 export const PAGE_SIZE = 50;
 
-export const MAX_THREADS = 200;
+export const MAX_THREADS = 2000;
 export const MAX_PAGES = Math.ceil(MAX_THREADS / PAGE_SIZE);
 
 
