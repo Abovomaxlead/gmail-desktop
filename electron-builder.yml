@@ -10,7 +10,11 @@ files:
   - CHANGELOG.md
 publish:
   provider: github
-  owner: lucamanuel-art
+  # every installer bakes this owner into resources/app-update.yml, so a copy that is already
+  # installed keeps asking the owner it was built with. Everything up to 0.3.1-beta.13 asks
+  # lucamanuel-art/gmail-desktop and reaches this organisation through a single bridge release
+  # published there, so that repository has to stay alive until nobody reports an older version
+  owner: Abovomaxlead
   repo: gmail-desktop
   # a beta must not become the update everyone on the last stable version is offered:
   # GitHub keeps the newest full release as Latest and electron-updater follows that

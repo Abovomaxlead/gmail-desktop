@@ -45,6 +45,30 @@ jobs:
       - name: Check the bundled OAuth config
         run: npm run check:oauth
 
+      # electron-builder would create the release itself, and `releaseType: prerelease` in
+      # electron-builder.yml then marks every one of them as a pre-release. That is right for a
+      # beta and wrong for a stable version: a repository whose newest release is a pre-release
+      # has no /releases/latest at all, and an installation that never opted into prereleases
+      # finds nothing there. So the release is created here with the flag the tag asks for --
+      # electron-builder reuses a release it finds by tag and leaves that flag alone.
+      #
+      # Deleting first makes a re-run of a failed release idempotent: without it the leftover
+      # release keeps the assets and the flag of the run that failed.
+      - name: Create the release the tag asks for
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VER="${TAG#v}"
+          # 1.0.0-beta.1 must never become the update everyone on 1.0.0 is offered
+          case "$VER" in *-*) PRE=--prerelease ;; *) PRE= ;; esac
+          node scripts/release-notes.mjs "$VER" > release-notes.md
+          gh release delete "$TAG" -R "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+            --title "$TAG" --notes-file release-notes.md $PRE
+          rm -f release-notes.md
+
       - name: Build and publish release
         run: npm run release
         env:
