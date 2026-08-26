@@ -936,7 +936,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Behaviour must not change in this task.** `saveLabel(…, null)` lists and then fetches everything, which is exactly what it does now. That is what makes this a refactor with a test suite that should not move.
 
-- [ ] **Step 1: Extract the listing**
+- [x] **Step 1: Extract the listing**
 
 Take the `try` block at the top of `collectLabelViaApi` — from `const all = await withToken(...)` through the `for (const member of members)` loop — and make it its own function above `collectLabelViaApi`:
 
@@ -991,7 +991,7 @@ async function listLabelTree(
 }
 ```
 
-- [ ] **Step 2: Extract the fetching**
+- [x] **Step 2: Extract the fetching**
 
 The rest of `collectLabelViaApi` — the `mapLimit` over `threads` — becomes:
 
@@ -1046,9 +1046,9 @@ async function fetchThreadSlice(
 
 Then delete `collectLabelViaApi` itself — the two functions above replace it in full.
 
-- [ ] **Step 3: Let saveLabel take a slice**
+- [x] **Step 3: Let saveLabel take a slice**
 
-`saveLabel`'s signature gains one parameter after `report`:
+`saveLabel`'s signature gains **two** parameters after `report`. Two and not one: the caller has to list before it can decide whether this label needs a plan at all, so the listing already exists by the time `saveLabel` runs. Letting `saveLabel` list again for every label that turned out not to need a plan would double the `threads.list` pages of every ordinary label drag — which is the whole cheap half, done twice for nothing.
 
 ```ts
 async function saveLabel(
@@ -1059,8 +1059,13 @@ async function saveLabel(
   authuser: string,
   ik: string,
   report: SaveProgress,
-  /** One batch of a job's plan, or null for an ordinary drag, which lists and then fetches
-   * everything it listed. Null is what keeps a label that fits in one batch byte-for-byte
+  /** What listLabelTree already answered for this drag, handed in rather than asked for again.
+   * The caller has to list before it can decide whether this label needs a plan at all, and
+   * listing twice would double the threads.list pages of every ordinary label drag. Null for a
+   * job's later batch, which has no fresh listing and does not need one. */
+  listed: Awaited<ReturnType<typeof listLabelTree>>,
+  /** One batch of a job's plan, or null for an ordinary drag, which fetches everything the
+   * listing above answered. Null is what keeps a label that fits in one batch byte-for-byte
    * today's drag. */
   slice: TreeThread[] | null,
 ): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
@@ -1069,7 +1074,6 @@ async function saveLabel(
 and its `viaApi` block becomes:
 
 ```ts
-  const listed = slice ? null : await listLabelTree(account, label);
   const toFetch = slice ?? listed?.threads ?? null;
   const viaApi =
     toFetch === null
@@ -1090,11 +1094,20 @@ The `members` fallback matters: a job's later batch has no fresh listing, and th
 
 Everything below in `saveLabel` — the `if (viaApi)` branch, the scrape branch, the truncation messages — stays as it is, except that the two messages now interpolate `cap` (from Task 1, Step 4) rather than a constant.
 
-- [ ] **Step 4: Update the one call site**
+- [x] **Step 4: Update the one call site**
 
-`pullMailDrop`'s label branch calls `saveLabel(ts, account, root, payload.label, payload.authuser, payload.ik, report)`. Add `null` as the last argument. Nothing else changes in this task.
+`pullMailDrop`'s label branch calls `saveLabel(ts, account, root, payload.label, payload.authuser, payload.ik, report)`. Add two arguments: the listing, and the slice. In this task there is no caller that has a listing yet, so it lists here and passes `null` for the slice — Task 4 moves the listing up so the plan decision can read it:
 
-- [ ] **Step 5: Verify nothing moved**
+```ts
+    const listed = await listLabelTree(account, payload.label);
+    const { items: done, saved: refs, rows } = await saveLabel(
+      ts, account, root, payload.label, payload.authuser, payload.ik, report, listed, null,
+    );
+```
+
+Nothing else changes in this task, and behaviour is identical: one listing, then everything it listed is fetched.
+
+- [x] **Step 5: Verify nothing moved**
 
 Run: `npm test`
 Expected: PASS, 1902 or more. This task is a refactor; a moved test is a bug in the refactor.
@@ -1102,7 +1115,7 @@ Expected: PASS, 1902 or more. This task is a refactor; a moved test is a bug in 
 Run: `npx tsc --noEmit -p tsconfig.json`
 Expected: exit 0.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add electron/mail/mail-drop-controller.ts
@@ -1134,7 +1147,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why:** this is where the safety property is decided. A label whose listing fits in one batch writes no plan, sets no `activeJob`, and goes down exactly today's path.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 The plan-or-not decision is the part worth testing without Electron, so give it its own pure function and test it. Append to `tests/label-job.test.ts`:
 
@@ -1156,12 +1169,12 @@ describe('needsJob', () => {
 
 Add `needsJob` to the import from `../electron/mail/label-job`.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run tests/label-job.test.ts`
 Expected: FAIL — `needsJob` is not exported.
 
-- [ ] **Step 3: Add the decision to label-job.ts**
+- [x] **Step 3: Add the decision to label-job.ts**
 
 Beside `sliceIntoBatches`:
 
@@ -1182,7 +1195,7 @@ export function needsJob(threads: TreeThread[], batchSize: number): boolean {
 }
 ```
 
-- [ ] **Step 4: Plan the job in pullMailDrop**
+- [x] **Step 4: Plan the job in pullMailDrop**
 
 `pullMailDrop`'s label branch is today:
 
@@ -1295,7 +1308,7 @@ let activeJob: { job: LabelJob; root: string } | null = null;
 
 `randomUUID` is already imported in this file for `runId`.
 
-- [ ] **Step 5: Move the duplicate scan's limit onto the batch**
+- [x] **Step 5: Move the duplicate scan's limit onto the batch**
 
 `EXISTING_SCAN_LIMIT` was pointed at `SCRAPE_MAX_THREADS` in Task 1. The most a single pull can now produce is a batch, so:
 
@@ -1309,7 +1322,7 @@ let activeJob: { job: LabelJob; root: string } | null = null;
 const EXISTING_SCAN_LIMIT = Math.max(JOB_BATCH_THREADS, SCRAPE_MAX_THREADS);
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/label-job.test.ts`
 Expected: PASS.
@@ -1317,7 +1330,7 @@ Expected: PASS.
 Then: `npm test` and both tsc projects.
 Expected: PASS, exit 0. A label under 2,000 is untouched; a bigger one now pulls its first 2,000 and leaves a plan on disk that nothing yet advances.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add electron/mail/label-job.ts electron/mail/mail-drop-controller.ts tests/label-job.test.ts
@@ -1440,8 +1453,11 @@ async function advanceJob(): Promise<void> {
       dropSerial += 1;
       lastDropSaved = [];
       const report: SaveProgress = (done, total) => manager?.sendDropProgress({ done, total });
+      // No listing for a later batch: the plan already holds the conversations, and asking Gmail
+      // again would both cost a hundred pages and risk a different answer than the one the
+      // batches were cut from.
       const { items, saved, rows } = await saveLabel(
-        ts, job.account, root, job.label, '', '', report, at.threads,
+        ts, job.account, root, job.label, '', '', report, null, at.threads,
       );
       lastDropSaved = saved;
       recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
