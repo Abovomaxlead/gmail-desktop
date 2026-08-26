@@ -127,6 +127,7 @@ import {
   recordJobChoices,
   sliceIntoBatches,
   startLabelJob,
+  type JobOutcome,
   type LabelJob,
 } from './label-job';
 import {
@@ -242,6 +243,11 @@ let activeRun: { runId: CopyRunId; control: CopyRunControl; root: string; total:
 /** The job the driver is advancing, or null when this drag was not big enough to need one. One
  * at a time, always: the drop lock admits one pull and a job never overlaps its own batches. */
 let activeJob: { job: LabelJob; root: string } | null = null;
+
+/** Set when the stop the user chose was job-wide. Read once the running batch's own rollback has
+ * finished, which is the only moment the earlier batches may be swept: two sweeps trashing under
+ * two markers in one mailbox at once is a race with nothing to gain. */
+let rollbackWholeJob = false;
 
 /** Set while the driver is walking a job. The tail of copyToMailboxes starts the driver, and the
  * driver's own loop calls copyToMailboxes -- so this is what keeps that from forking a second
@@ -1887,6 +1893,38 @@ async function sweepRunMarkers(
 }
 
 /**
+ * Rolls back every batch of the running job that had already finished
+ *
+ * Newest first, so a mailbox the sweep cannot reach costs the most recent work rather than the
+ * oldest. Each batch is swept from its own journal and its own recorded marker id -- nothing is
+ * inferred, and a batch whose journal is gone is reported rather than guessed at.
+ *
+ * @param job
+ * @param root the drop folder
+ * @returns the batches it could not account for, for the message the picker shows
+ * @private
+ */
+async function rollbackFinishedBatches(job: LabelJob, root: string): Promise<string[]> {
+  const trouble: string[] = [];
+  const finished = job.batches.filter((b) => b.state === 'copied' && b.runId).reverse();
+  for (const batch of finished) {
+    const journal = readCopyJournal(root, batch.runId!);
+    if (!journal) {
+      trouble.push(`batch ${batch.index + 1}: geen journaal meer`);
+      continue;
+    }
+    const outcome = await sweepRunMarkers(journal.runId, journal.markers, 'trash', journal.created);
+    if (!settled(outcome) || !outcome.complete) trouble.push(`batch ${batch.index + 1}`);
+    finishCopyJournal(
+      root,
+      journal.runId,
+      outcome.complete ? 'rolled-back' : 'rolled-back-partial',
+    );
+  }
+  return trouble;
+}
+
+/**
  * The warning line for a mailbox whose sweep did not converge
  *
  * Framed as resumable, not as doubtful: unlike the old Message-ID reconciliation this
@@ -1942,7 +1980,14 @@ export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyC
     case 'stop-keep':
       control.stop('keep');
       return { ok: true };
-    case 'stop-rollback':
+    case 'stop-rollback-batch':
+      control.stop('rollback');
+      return { ok: true };
+    case 'stop-rollback-job':
+      // The running batch is rolled back by the run's own stop, exactly as a plain drag is. The
+      // batches already finished are a separate sweep, started once this run has drained --
+      // running both at once would have two sweeps trashing under two markers in one mailbox.
+      rollbackWholeJob = true;
       control.stop('rollback');
       return { ok: true };
     default:
@@ -2056,7 +2101,31 @@ async function walkJob(): Promise<void> {
     // duplicate scan runs again inside it, per batch, against that batch's own mail -- which is
     // what keeps "which mail lands where" the live answer it has always been.
     const result = await copyToMailboxes({ targets: job.choices.targets, mode: job.choices.mode });
-    if ('stopped' in result && result.stopped) return;
+    if ('stopped' in result && result.stopped) {
+      // Ordinarily closed by the tail of copyToMailboxes before this line is reached, which is
+      // why the guard is on activeJob rather than on the result: a stop that got there first
+      // leaves nothing here to do, and one that somehow did not still ends the job here.
+      if (activeJob) {
+        const { job: stoppedJob, root: stoppedRoot } = activeJob;
+        const trouble = rollbackWholeJob
+          ? await rollbackFinishedBatches(stoppedJob, stoppedRoot)
+          : [];
+        const outcome: JobOutcome =
+          result.mode === 'keep'
+            ? 'kept'
+            : trouble.length === 0
+              ? 'rolled-back'
+              : 'rolled-back-partial';
+        const failed = attemptWrite(() => finishLabelJob(stoppedRoot, stoppedJob.jobId, outcome));
+        if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+        if (trouble.length > 0) {
+          notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
+        }
+        rollbackWholeJob = false;
+        activeJob = null;
+      }
+      return;
+    }
   }
 
   if (activeJob && !nextBatch(activeJob.job)) {
@@ -2550,9 +2619,24 @@ export async function copyToMailboxes(arg: {
         if (failed) notifyLog(`[maildrop] kon de stand van batch ${at.index} niet vastleggen: ${failed}`);
         activeJob.job = readLabelJob(activeJob.root, activeJob.job.jobId) ?? activeJob.job;
         // A stop is the user's final word on the whole job, not just on this batch, so the driver
-        // is not started. Task 6 decides what the stop rolls back.
+        // is not started. What the stop rolls back is decided just below.
         if (!stopped) void advanceJob();
       }
+    }
+    if (activeJob && 'stopped' in result && result.stopped) {
+      const { job, root } = activeJob;
+      const trouble = rollbackWholeJob ? await rollbackFinishedBatches(job, root) : [];
+      const outcome: JobOutcome =
+        result.mode === 'keep'
+          ? 'kept'
+          : trouble.length === 0
+            ? 'rolled-back'
+            : 'rolled-back-partial';
+      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, outcome));
+      if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+      if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
+      rollbackWholeJob = false;
+      activeJob = null;
     }
     return result;
   } finally {

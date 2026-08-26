@@ -168,9 +168,16 @@ export interface MailDropCopyProgress {
   byMailbox?: { email: string; copied: number }[];
 }
 
-/** What the paused dialog may ask the copy in flight to do. The two stop actions map onto
- * CopyStopMode ('keep' / 'rollback') once the gate has drained. */
-export type MailDropCopyControlAction = 'pause' | 'resume' | 'stop-keep' | 'stop-rollback';
+/** What the paused dialog may ask the copy in flight to do. The two stop actions used to be
+ * one: inside a batched job 'stop-rollback' is ambiguous, so it names its scope. A plain drag is
+ * one batch, where the two scopes mean the same thing, and the picker offers only the batch one
+ * there. */
+export type MailDropCopyControlAction =
+  | 'pause'
+  | 'resume'
+  | 'stop-keep'
+  | 'stop-rollback-batch'
+  | 'stop-rollback-job';
 
 export type MailDropCopyControlResult = { ok: true } | { ok: false; error: string };
 

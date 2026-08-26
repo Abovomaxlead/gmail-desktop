@@ -146,7 +146,7 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
   },
   controlMailDropCopy: (
-    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback',
+    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',
   ): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_COPY_CONTROL, { action }),
   getPendingOrphan: (): Promise<{
     runId: string;
