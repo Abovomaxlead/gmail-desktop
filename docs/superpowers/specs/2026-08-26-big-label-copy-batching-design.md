@@ -156,8 +156,14 @@ journal — it *references* it, by the `runId` a batch's copy minted.
   members, and `batchSize`.
 - **choices** — written the moment batch 1's copy is accepted: the targets, their labels, and
   the resolved `CopyMode`. Batches 2..n are copied with these and nothing else.
-- **batch** — `index`, `state`, and once copied the `runId` and the counts. States:
-  `pending → pulled → copied`, plus `failed`.
+- **batch** — `index` and the slice itself, written once at plan time. One line per batch rather
+  than one line for all of them, so a ten-thousand-thread plan is not a single megabyte-long
+  line.
+- **state** — `index`, the new state, and whatever became known with it: the `runId`, the counts,
+  an error. One line per transition, folded on read so the last one for a batch is the one that
+  stands. States: `pending → pulled → copied`, plus `failed`. Kept apart from the batch line
+  because a transition is not the work: reading a slice off a state line would let a later line
+  quietly shrink a batch.
 - **done** — `outcome`, mirroring the journal's vocabulary: `completed`, `kept`,
   `rolled-back`, `rolled-back-partial`. Its absence is what a crash looks like, exactly as in
   `findOrphanedRuns`.
@@ -216,8 +222,14 @@ The resolved mode is read off what batch 1 actually did, not off what the user c
 says is already there. The job never decides a duplicate from its own file.
 
 A batch that fails outright — a mailbox that starts refusing, a token that cannot be had — does
-not advance the job. It writes `failed`, stops, and asks. An unattended job that keeps trying
-the next 2,000 into a mailbox that just locked us out is worse than one that waits.
+not advance the job. It writes `failed` and stops. An unattended job that keeps trying the next
+2,000 into a mailbox that just locked us out is worse than one that waits.
+
+Where it then asks is the resume offer, not a dialog of its own: the failed batch's own error is
+already on screen the moment it happens, and the job's plan is left **without** a closing line,
+which is exactly the state the next start offers to continue, keep or undo. One asking mechanism
+rather than two, and it is the one that also survives the app being closed on the spot — which,
+faced with a mailbox that just started refusing, is a likely thing for someone to do.
 
 ### Part 2 — Stopping: this batch, or all of them
 
@@ -301,10 +313,19 @@ Unit, in the existing vitest suite:
   refused.
 - **`gmail-api.ts`** — `reason` parsed off an error body, and absent without one.
 - **`label-job.ts`** — slicing a list into batches, including a last batch shorter than the
-  rest and a list shorter than one batch; the mode-inheritance table above, all three rows;
-  advancing through states and refusing an impossible transition; a plan round-tripped through
-  its own file; a plan with no `done` line read back as resumable; a plan whose file has one
-  corrupt line read back with the rest intact, the leniency `parseCopyJournal` already extends.
+  rest and a list shorter than one batch; the mode-inheritance table above, all three rows; the
+  batch the driver is handed next, including the two cases where there is none — every batch
+  copied, and stopped at a failed one; a plan round-tripped through its own file; a plan with no
+  `done` line read back as resumable; a plan whose file has one corrupt line read back with the
+  rest intact, the leniency `parseCopyJournal` already extends.
+
+  An earlier draft of this section asked for a state machine that **refuses an impossible
+  transition**. It does not, deliberately. The file is append-only and the last state line for a
+  batch is the one that stands, with a single-threaded driver as its only writer — so there is no
+  concurrent writer for a validator to protect against, and refusing on read would mean the
+  reader rejecting data already on disk, which loses more than it catches. Continuing a job
+  stopped on a failed batch depends on exactly that permissiveness: it writes `pending` over
+  `failed` and the failure stays legible in the line above it.
 
 What tests cannot finish: the driver's re-entry into the controller, and every number in part 1.
 Both need one run against a real mailbox. That puts this in the same company as
