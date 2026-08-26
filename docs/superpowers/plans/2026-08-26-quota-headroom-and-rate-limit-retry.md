@@ -49,7 +49,7 @@ Tasks 1, 2 and 3 are independent of each other. Task 4 is the wiring and needs b
 
 **Why this is the whole fix for the reported failure:** `messages.insert` costs 25 units. At `UNITS_PER_SECOND = 250` the cursor advances 100ms per insert, which is 10 inserts a second, which is 15,000 units a minute — exactly the per-minute limit Gmail refused the live copy on. The copy did not burst over that line, it paced onto it and drifted over after four minutes. A tenth held back is the margin.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/gmail-quota.test.ts`. The `frozen()` and `clock()` helpers already exist at the top of that file — do not redefine them. Add `SAFETY` to the existing import from `../electron/gmail/quota`.
 
@@ -109,13 +109,13 @@ describe('the safety fraction', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/gmail-quota.test.ts`
 
 Expected: FAIL. The import of `SAFETY` does not resolve, so the whole file fails to collect. That is the expected first failure — not an assertion message.
 
-- [ ] **Step 3: Add the constant**
+- [x] **Step 3: Add the constant**
 
 In `electron/gmail/quota.ts`, in the `Constants` section, directly below `UNITS_PER_SECOND`:
 
@@ -133,7 +133,7 @@ In `electron/gmail/quota.ts`, in the `Constants` section, directly below `UNITS_
 export const SAFETY = 0.9;
 ```
 
-- [ ] **Step 4: Apply it where the cursor advances**
+- [x] **Step 4: Apply it where the cursor advances**
 
 In `createQuotaBudget`'s `take()`, one line changes. Before:
 
@@ -149,7 +149,7 @@ After:
 
 Nothing else in the function changes. `mine`, the no-banking rule, and the sleep stay exactly as they are.
 
-- [ ] **Step 5: Fix the one pre-existing test that encoded the old rate**
+- [x] **Step 5: Fix the one pre-existing test that encoded the old rate**
 
 `'spreads a second of calls across the second instead of bursting them'` hard-codes the waits it expects — `[100, 200, 300, 400, 500, 600, 700, 800, 900]` — which are the slice widths the published 250 produced. The property that test is about is that calls are *spread and not bursted*; the width of a slice was never the point, and writing it out is what makes a pacing change look like a regression. Derive it:
 
@@ -165,7 +165,7 @@ Nothing else in the function changes. `mine`, the no-banking rule, and the sleep
 
 The two tests after it (`'never lets more than the allowance start inside any one second'` and the one below it) compare against `insertsPerSecond`, which is derived already — leave both alone.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/gmail-quota.test.ts`
 Expected: PASS, 31 tests.
@@ -173,7 +173,7 @@ Expected: PASS, 31 tests.
 Then: `npm test`
 Expected: PASS. Nothing outside this file reads `SAFETY` yet, so no other suite should move.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add electron/gmail/quota.ts tests/gmail-quota.test.ts
@@ -206,7 +206,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 The existing tests in `tests/gmail-api.test.ts` all exercise pure exported functions — parsers and URL builders — and none of them reach the HTTP layer. That is why the reading is a pure exported function rather than something tested through a mocked request: it matches the file's shape and the layer stays as thin as it is.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/gmail-api.test.ts`, and add `parseErrorReason` to the existing import from `../electron/gmail/gmail-api`.
 
@@ -265,12 +265,12 @@ describe('GmailHttpError', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/gmail-api.test.ts`
 Expected: FAIL — `parseErrorReason` is not exported, so the file fails to collect.
 
-- [ ] **Step 3: Add the reader**
+- [x] **Step 3: Add the reader**
 
 In `electron/gmail/gmail-api.ts`, beside the other parsers. Place it directly above `GmailHttpError` so the class and the function that feeds it read together.
 
@@ -300,7 +300,7 @@ export function parseErrorReason(json: unknown): string | null {
 }
 ```
 
-- [ ] **Step 4: Carry it on the error**
+- [x] **Step 4: Carry it on the error**
 
 `GmailHttpError` gains a fourth parameter. Before:
 
@@ -336,7 +336,7 @@ export class GmailHttpError extends Error {
 }
 ```
 
-- [ ] **Step 5: Fill it at the one site that has a body**
+- [x] **Step 5: Fill it at the one site that has a body**
 
 In `attemptJson`'s response handler, the branch that reads Gmail's own message (around line 1775). Before:
 
@@ -367,7 +367,7 @@ After:
 
 Leave the other two construction sites alone — the unreadable-answer one a few lines above, and the batch one in `attemptMultipart`. Neither has a parsed body, and both correctly default to no reason.
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/gmail-api.test.ts`
 Expected: PASS.
@@ -375,7 +375,7 @@ Expected: PASS.
 Then: `npm test` and `npx tsc --noEmit -p tsconfig.json`
 Expected: PASS. The new parameter is defaulted, so no existing construction site changes.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add electron/gmail/gmail-api.ts tests/gmail-api.test.ts
@@ -408,7 +408,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why:** `retryWaitMs` gives an insert three attempts across about two seconds — `MAX_ATTEMPTS = 3`, 500ms then 1.5s. A blown *minute* cannot be waited out in two seconds, so the policy exhausts itself inside the very window that refused it and hands the caller a failed mail. That is the `2573 van 2574`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/gmail-retry.test.ts`. The `attempt()` and `mid()` helpers already exist at the top of that file. Add `isRateLimit`, `QUOTA_ATTEMPTS` and `MAX_QUOTA_WAIT_MS` to the existing import from `../electron/gmail/retry`.
 
@@ -497,12 +497,12 @@ describe('retryWaitMs, rate limited', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/gmail-retry.test.ts`
 Expected: FAIL — `isRateLimit` is not exported, so the file fails to collect.
 
-- [ ] **Step 3: Add the constants and the predicate**
+- [x] **Step 3: Add the constants and the predicate**
 
 In `electron/gmail/retry.ts`, in the `Constants` section, below `RETRIABLE_INSERT_STATUS`:
 
@@ -558,7 +558,7 @@ export function isRateLimit(status: number | null, reason: string | null): boole
 }
 ```
 
-- [ ] **Step 4: Add the flag to the attempt**
+- [x] **Step 4: Add the flag to the attempt**
 
 In `RetryAttempt`, below `cancelled`:
 
@@ -569,7 +569,7 @@ In `RetryAttempt`, below `cancelled`:
   rateLimited?: boolean;
 ```
 
-- [ ] **Step 5: Give a rate limit its own budget and its own wait**
+- [x] **Step 5: Give a rate limit its own budget and its own wait**
 
 Two edits inside `retryWaitMs`. First, the attempt cap. Before:
 
@@ -650,7 +650,7 @@ Then extend the file's opening comment block, which today explains only the per-
 // MAX_WAIT_MS would have made the drag hang to save the copy.
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/gmail-retry.test.ts`
 Expected: PASS, including every pre-existing test in the file — none of them sets `rateLimited`, so none of them should move.
@@ -658,7 +658,7 @@ Expected: PASS, including every pre-existing test in the file — none of them s
 Then: `npm test`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add electron/gmail/retry.ts tests/gmail-retry.test.ts
@@ -691,11 +691,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **What cannot be unit tested here, stated plainly:** these four edits live inside `requestJson` and `requestBatch`, which the suite does not reach — every test in `tests/gmail-api.test.ts` exercises pure functions. The gate for this task is the type checker plus the whole suite still passing, and after that a live run. Do not invent a mocked-HTTP test to manufacture a green check for it; the honest verification is the manual one in Step 5.
 
-- [ ] **Step 1: Import the predicate**
+- [x] **Step 1: Import the predicate**
 
 `electron/gmail/retry.ts` is already imported by `gmail-api.ts`. Add `isRateLimit` to that existing import — do not add a second import statement from the same module.
 
-- [ ] **Step 2: The refusal that lowers the ceiling**
+- [x] **Step 2: The refusal that lowers the ceiling**
 
 Two places, identical in shape. In `requestJson` (around line 1525):
 
@@ -705,7 +705,7 @@ Two places, identical in shape. In `requestJson` (around line 1525):
 
 And in `requestBatch` (around line 1584), the same line. Both replace `e.status === 429`.
 
-- [ ] **Step 3: The flag on the attempt**
+- [x] **Step 3: The flag on the attempt**
 
 In `requestJson`'s failure mapper, add one property beside the others:
 
@@ -732,7 +732,7 @@ Keep the existing comment about `cancelled` where it is. Then the same addition 
       }),
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `npm test`
 Expected: PASS, 1877 or more.
@@ -748,7 +748,7 @@ Then read back the four edited spots and confirm no remaining `status === 429` c
 Run: `grep -n "status === 429" electron/gmail/gmail-api.ts`
 Expected: no matches.
 
-- [ ] **Step 5: Name the live check, do not run it**
+- [x] **Step 5: Name the live check, do not run it**
 
 This plan cannot prove itself green. Write the following into the commit body and stop — starting the app or a copy is the user's call, and the installed app holds the single-instance lock.
 
@@ -759,7 +759,7 @@ What the next real copy should show in `notify.log`:
 - A copy of a few thousand mails finishing with no `n-1 van n` — the failure this fixes.
 - No mail taking minutes for no reason: a wait of 65 seconds should only ever appear near one of the two lines above. If inserts start waiting out windows without a refusal being logged, the predicate is reading something as a rate limit that is not one.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add electron/gmail/gmail-api.ts
