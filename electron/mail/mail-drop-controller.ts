@@ -118,6 +118,7 @@ import {
 } from './label-drop';
 import {
   JOB_BATCH_THREADS,
+  findUnfinishedJobs,
   finishLabelJob,
   inheritedMode,
   jobProgress,
@@ -2673,6 +2674,12 @@ export async function copyToMailboxes(arg: {
  * silently by resumeOrphanedCopyRuns instead. */
 let pendingOrphans: CopyJournalRead[] = [];
 
+/** A job this app never heard the end of, waiting for the same continue-or-undo answer the
+ * orphan-run decision already asks for a single run. At most one is offered at a time: two
+ * half-finished jobs is not a state this app can get into, since a job holds the drop lock for
+ * every batch. */
+let pendingJob: LabelJob | null = null;
+
 /**
  * Finishes one orphaned run's sweep, closing its journal once every mailbox has settled
  *
@@ -2731,6 +2738,26 @@ export async function resumeOrphanedCopyRuns(): Promise<void> {
     else stillPending.push(journal);
   }
   pendingOrphans = stillPending;
+
+  // After the runs, and deliberately: a job's batches are runs, so a batch that already recorded
+  // its own decision is settled above before the job it belongs to is offered. A job whose batch
+  // zero never got an answer has nothing to resume with and is closed rather than offered -- its
+  // batches were never copied, so there is nothing to keep or undo either.
+  const jobs = findUnfinishedJobs(root);
+  pendingJob = null;
+  for (const job of jobs) {
+    // Two different reasons nextBatch answers null, and they must not be treated alike. Every
+    // batch copied means there is nothing left to ask about. A batch recorded as failed also
+    // stops it -- and that one is precisely the state the user still owes an answer for, so it
+    // is offered rather than closed.
+    const stuck = job.batches.some((b) => b.state === 'failed');
+    if (!job.choices || (!nextBatch(job) && !stuck)) {
+      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, 'kept'));
+      if (failed) notifyLog(`[maildrop] kon een onafgemaakte klus niet afsluiten: ${failed}`);
+      continue;
+    }
+    if (!pendingJob) pendingJob = job;
+  }
 }
 
 /**
@@ -2774,5 +2801,80 @@ export async function decideOrphanRun(
   const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, mode));
   if (decisionError) notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
   await finishOrphanRun(root, journal, mode);
+  return { ok: true };
+}
+
+/**
+ * The job the user has to make a continue-or-undo decision about, if any
+ *
+ * Asked by the mail-drop window when it opens, the same moment it already asks for the orphan
+ * decision and the existing-mail scan.
+ *
+ * @returns the job and how far it got, or null when nothing is waiting
+ */
+export function pendingJobDecision(): {
+  jobId: string;
+  label: string;
+  batch: number;
+  batches: number;
+  done: number;
+  total: number;
+  mode: 'new' | 'all';
+} | null {
+  if (!pendingJob || !pendingJob.choices) return null;
+  return {
+    jobId: pendingJob.jobId,
+    label: pendingJob.label,
+    ...jobProgress(pendingJob),
+    mode: pendingJob.choices.mode,
+  };
+}
+
+/**
+ * Answers a pending job decision
+ *
+ * 'continue' re-pulls the batch that was in flight. Its slice may be partly copied already, and
+ * the inherited 'new' mode is what makes that safe: the scan finds what landed and skips it. An
+ * 'all' job has no such protection, which is why the offer says so in those words rather than
+ * leaving the user to find out.
+ *
+ * @param jobId must be the one pendingJobDecision last returned
+ * @param choice
+ * @returns whether the decision was taken -- false when this job is no longer pending, which a
+ *   second click or a stale window can both cause harmlessly
+ */
+export async function decideJobRun(
+  jobId: string,
+  choice: 'continue' | 'keep' | 'rollback',
+): Promise<{ ok: boolean }> {
+  const job = pendingJob;
+  if (!job || job.jobId !== jobId) return { ok: false };
+  pendingJob = null;
+  const root = mailDropFolder();
+
+  if (choice === 'continue') {
+    // A batch recorded as failed is what nextBatch stops at, so continuing has to clear it back
+    // to pending first -- otherwise the driver is handed a job it will refuse to walk and the
+    // offer would do nothing at all. Written as a new state line rather than by rewriting the
+    // file: the failure stays in the record above it, which is what a later reader needs to see
+    // that this batch was retried and not merely slow.
+    const stuck = job.batches.find((b) => b.state === 'failed');
+    if (stuck) {
+      const failed = attemptWrite(() =>
+        recordJobBatchState(root, jobId, { index: stuck.index, state: 'pending' }),
+      );
+      if (failed) return { ok: false };
+    }
+    activeJob = { job: readLabelJob(root, jobId) ?? job, root };
+    void advanceJob();
+    return { ok: true };
+  }
+
+  const trouble = choice === 'rollback' ? await rollbackFinishedBatches(job, root) : [];
+  const outcome: JobOutcome =
+    choice === 'keep' ? 'kept' : trouble.length === 0 ? 'rolled-back' : 'rolled-back-partial';
+  const failed = attemptWrite(() => finishLabelJob(root, jobId, outcome));
+  if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+  if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
   return { ok: true };
 }

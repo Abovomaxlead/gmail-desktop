@@ -154,6 +154,19 @@ contextBridge.exposeInMainWorld('desktop', {
   } | null> => ipcRenderer.invoke(IPC.MAIL_DROP_ORPHAN_GET),
   decideOrphanRun: (runId: string, mode: 'keep' | 'rollback'): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_ORPHAN_DECIDE, { runId, mode }),
+  getPendingJob: (): Promise<{
+    jobId: string;
+    label: string;
+    batch: number;
+    batches: number;
+    done: number;
+    total: number;
+    mode: 'new' | 'all';
+  } | null> => ipcRenderer.invoke(IPC.MAIL_DROP_JOB_GET),
+  decideJobRun: (
+    jobId: string,
+    choice: 'continue' | 'keep' | 'rollback',
+  ): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.MAIL_DROP_JOB_DECIDE, { jobId, choice }),
   onReconnectList: (cb: (arg: { accounts: ReconnectAccount[] }) => void): void => {
     ipcRenderer.on(IPC.OAUTH_RECONNECT_LIST, (_e, arg) => cb(arg));
   },

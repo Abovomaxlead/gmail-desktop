@@ -267,3 +267,31 @@ describe('needsJob', () => {
     expect(needsJob(threads(2001), 2000)).toBe(true);
   });
 });
+
+describe('resuming', () => {
+  // What the offer has to be able to say: which label, how far, and with which duplicate policy
+  // -- because resuming an 'all' job re-copies the interrupted batch's mail and the user has to
+  // be told that in those words.
+  it('reads back everything the resume offer needs', () => {
+    written(6, 2);
+    recordJobChoices(root, 'job-1', {
+      targets: [{ email: 'support@example.com', labelIds: ['Label_1'] }],
+      mode: 'all',
+    });
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+
+    const [job] = findUnfinishedJobs(root);
+    expect(job.label).toBe('Klanten');
+    expect(job.choices?.mode).toBe('all');
+    expect(jobProgress(job)).toEqual({ batch: 2, batches: 3, done: 2, total: 6 });
+    expect(nextBatch(job)?.index).toBe(1);
+  });
+
+  // A job whose batch zero never got an answer has nothing to resume with, and the offer must
+  // not pretend otherwise.
+  it('has no choices to resume with when batch zero was never answered', () => {
+    written(6, 2);
+    expect(findUnfinishedJobs(root)[0].choices).toBeNull();
+  });
+});
