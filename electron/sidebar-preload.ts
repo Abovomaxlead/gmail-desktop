@@ -119,11 +119,11 @@ contextBridge.exposeInMainWorld('desktop', {
   setNotificationOpen: (v: 'app' | 'window'): void => ipcRenderer.send(IPC.SET_NOTIFICATION_OPEN, v),
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
   requestDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
-  onMailDropPreview: (cb: (arg: { items: unknown[] }) => void): void => {
+  onMailDropPreview: (cb: (arg: { items: unknown[]; tree?: unknown }) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
   },
   closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
-  getMailDropPreview: (): Promise<{ items: unknown[] }> =>
+  getMailDropPreview: (): Promise<{ items: unknown[]; tree?: unknown }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
   getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
   getMailDropExisting: (): Promise<{

@@ -56,6 +56,30 @@ describe('normalizeTargets', () => {
     ).toEqual([{ email: 'b@x.nl', labelIds: ['L1'] }]);
   });
 
+  // A mailbox taking a dragged tree has no ticked labels at all -- its labels are per message
+  // and some of them do not exist yet. Dropping it for being "empty" left the copy reporting
+  // that no label had been chosen.
+  it('keeps a mailbox that takes a tree, which has no ticked labels', () => {
+    expect(normalizeTargets([{ email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } }])).toEqual([
+      { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } },
+    ]);
+  });
+
+  it('carries the chosen parent through', () => {
+    expect(
+      normalizeTargets([{ email: 'a@x.nl', labelIds: [], tree: { parentLabelId: 'L9' } }])[0].tree,
+    ).toEqual({ parentLabelId: 'L9' });
+  });
+
+  it('keeps one mailbox tree when the same mailbox is named twice', () => {
+    const out = normalizeTargets([
+      { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: 'L9' } },
+      { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].tree).toEqual({ parentLabelId: 'L9' });
+  });
+
   it('skips junk instead of building a request out of it', () => {
     expect(normalizeTargets([{ email: '  ', labelIds: ['L1'] }])).toEqual([]);
     expect(normalizeTargets([{ email: 'a@x.nl', labelIds: ['', 'L1'] }])[0].labelIds).toEqual([

@@ -228,14 +228,14 @@ interface DesktopBridge {
   setReneMode(v: boolean): void;
   requestDefaultMail(): void;
   isOverlay: boolean;
-  onMailDropPreview(cb: (arg: { items: MailDropItem[] }) => void): void;
+  onMailDropPreview(cb: (arg: { items: MailDropItem[]; tree?: unknown }) => void): void;
   closeMailDropPreview(): void;
-  getMailDropPreview(): Promise<{ items: MailDropItem[] }>;
+  getMailDropPreview(): Promise<{ items: MailDropItem[]; tree?: unknown }>;
   getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
   getMailDropExisting(): Promise<MailDropExisting>;
   onMailDropExisting(cb: (arg: MailDropExisting) => void): void;
   copyMailDrop(
-    targets: { email: string; labelIds: string[] }[],
+    targets: { email: string; labelIds: string[]; tree?: { parentLabelId: string | null } }[],
     mode?: MailDropCopyMode,
   ): Promise<MailDropCopyResult>;
   onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;

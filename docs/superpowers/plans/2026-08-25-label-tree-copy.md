@@ -974,12 +974,14 @@ git commit -m "feat(maildrop): read sublabels from the navigation and collect a 
 - Consumes: Task 1's `LabelTreePlan` (type only).
 - Produces:
   - `CopyTarget` with `tree?: { parentLabelId: string | null }`
-  - `interface CopyFile { messageId: string; subject: string; sourceLabels: string[] }`
-  - `labelsForFile(target: CopyTarget, file: CopyFile, resolved: Map<string, string[]>): string[]`
-  - `duplicateChecks(targets: CopyTarget[], files: CopyFile[], resolved: Map<string, string[]>): DuplicateHit[]`
-  - `newMessageCount(index: Set<string>, targets: CopyTarget[], files: CopyFile[], resolved: Map<string, string[]>): number`
+  - `type ResolvedTreeLabels = Map<string, Map<string, string[]>>`
+  - `labelsForMessage(target: CopyTarget, messageId: string, resolved: ResolvedTreeLabels): string[]`
+  - `duplicateChecks(targets, files, resolved?: ResolvedTreeLabels): DuplicateHit[]`
+  - `newMessageCount(index, targets, messageIds, resolved?: ResolvedTreeLabels): number`
 
-`resolved` maps a mailbox address to that mailbox's label ids per file key. Task 7 builds it; here it is only read, which is what keeps this file free of the network.
+`resolved` maps a mailbox address to that mailbox's label ids per Message-ID. Task 7 builds it; here it is only read, which is what keeps this file free of the network.
+
+**Built differently from the sketch below, on purpose.** There is no `CopyFile`: `resolved` is keyed by Message-ID, so nothing in this file ever needs a file's `sourceLabels` — those are read in Task 7, where `resolved` is built. And `resolved` is an optional trailing parameter, so every flat call site keeps its present shape instead of being edited to pass an empty map. The name in the code is `labelsForMessage`; read `labelsForFile` below as that.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1193,7 +1195,7 @@ resolved.set(target.email, perFile);
 At `mail-drop-controller.ts:1322`:
 
 ```ts
-const wanted = labelsForFile(target, file, resolved);
+const wanted = labelsForMessage(target, file.messageId, resolved);
 const labelIds = labelsStillNeeded(index, target.email, wanted, messageId);
 ```
 

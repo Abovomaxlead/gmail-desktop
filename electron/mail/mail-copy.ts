@@ -612,6 +612,10 @@ export function groupDuplicates(
  */
 export function normalizeTargets(targets: CopyTarget[]): CopyTarget[] {
   const byEmail = new Map<string, string[]>();
+  // Kept apart from the labels because a tree mailbox has none: its labels are per message and
+  // some of them do not exist yet, so "no labels" cannot be what decides a mailbox was not
+  // chosen. The first mention of a mailbox is the one whose destination counts.
+  const treeByEmail = new Map<string, { parentLabelId: string | null }>();
   for (const t of targets ?? []) {
     const email = (t?.email ?? '').trim();
     if (!email) continue;
@@ -620,10 +624,14 @@ export function normalizeTargets(targets: CopyTarget[]): CopyTarget[] {
       if (id && !labels.includes(id)) labels.push(id);
     }
     byEmail.set(email, labels);
+    if (t.tree && !treeByEmail.has(email)) treeByEmail.set(email, t.tree);
   }
   return [...byEmail]
-    .filter(([, labelIds]) => labelIds.length > 0)
-    .map(([email, labelIds]) => ({ email, labelIds }));
+    .filter(([email, labelIds]) => labelIds.length > 0 || treeByEmail.has(email))
+    .map(([email, labelIds]) => {
+      const tree = treeByEmail.get(email);
+      return tree ? { email, labelIds, tree } : { email, labelIds };
+    });
 }
 
 /**

@@ -595,7 +595,7 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
     );
   setDropOverlay(overlay);
   lastDropPreview = items;
-  overlay.open({ items });
+  overlay.open({ items, tree: lastDropTree });
 }
 
 
@@ -1081,8 +1081,8 @@ async function pullMailDrop(
 
 /** What the preview window should draw. It asks once it is listening rather than being
  * pushed to, because the overlay loads after the drop that filled this. */
-export function dropPreviewItems(): { items: MailDropPreviewItem[] } {
-  return { items: lastDropPreview };
+export function dropPreviewItems(): { items: MailDropPreviewItem[]; tree: MailDropTree | null } {
+  return { items: lastDropPreview, tree: lastDropTree };
 }
 
 export function closeDropPreview(): void {
