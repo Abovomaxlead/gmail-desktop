@@ -26,6 +26,7 @@ describe('SETTINGS_GROUPS', () => {
         'updates',
         'verification-codes',
         'advanced',
+        'label-cleanup',
       ],
       ['feedback', 'whats-new', 'about'],
     ]);
@@ -36,11 +37,14 @@ describe('SETTINGS_GROUPS', () => {
     expect(SETTINGS_GROUPS[2]).toContain('feedback');
   });
 
-  it('keeps the middle group alphabetical between General and Advanced', () => {
+  // Emptying a label is the one section here that removes mail, so it sits past Advanced
+  // rather than in the alphabet between two preference switches.
+  it('keeps the middle group alphabetical between General and Advanced, with the emptying last', () => {
     const middle = [...SETTINGS_GROUPS[1]];
     expect(middle[0]).toBe('general');
-    expect(middle[middle.length - 1]).toBe('advanced');
-    const between = middle.slice(1, -1);
+    expect(middle[middle.length - 1]).toBe('label-cleanup');
+    expect(middle[middle.length - 2]).toBe('advanced');
+    const between = middle.slice(1, -2);
     expect(between).toEqual([...between].sort());
   });
 

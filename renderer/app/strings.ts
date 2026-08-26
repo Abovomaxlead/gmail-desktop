@@ -33,9 +33,18 @@ export interface UiStrings {
   navUpdates: string;
   navVerificationCodes: string;
   navAdvanced: string;
+  navLabelCleanup: string;
   navFeedback: string;
   navWhatsNew: string;
   navAbout: string;
+  labelCleanupIntro: string;
+  labelCleanupMailbox: string;
+  labelCleanupLabel: string;
+  labelCleanupCount: string;
+  labelCleanupCounting: string;
+  labelCleanupNothing: string;
+  labelCleanupCapped: string;
+  labelCleanupTrashNote: string;
   feedbackIntro: string;
   feedbackPlaceholder: string;
   feedbackIncludeDiagnostics: string;
@@ -380,9 +389,18 @@ export const STRINGS_NORMAL: UiStrings = {
   navUpdates: 'Updates',
   navVerificationCodes: 'Verification Codes',
   navAdvanced: 'Advanced',
+  navLabelCleanup: 'Clear a label',
   navFeedback: 'Feedback',
   navWhatsNew: "What's New",
   navAbout: 'About Gmail Desktop',
+  labelCleanupIntro: 'Moves every message under a label to the trash. The label itself stays.',
+  labelCleanupMailbox: 'Mailbox',
+  labelCleanupLabel: 'Label',
+  labelCleanupCount: 'Count what is in it',
+  labelCleanupCounting: 'Counting…',
+  labelCleanupNothing: 'Nothing under this label.',
+  labelCleanupCapped: 'Stopped counting at 50,000; there are more.',
+  labelCleanupTrashNote: 'The trash is not final: Gmail keeps it for another 30 days.',
   feedbackIntro:
     'Tell us what went wrong or what you are missing. Sending opens a mail from your own mailbox, so you see exactly what goes out before it leaves.',
   feedbackPlaceholder: 'What happened, and what did you expect to happen?',
@@ -701,9 +719,19 @@ export const STRINGS_RENE: UiStrings = {
   navUpdates: 'Nieuwe versie',
   navVerificationCodes: 'Codes',
   navAdvanced: 'Voor knutselaars',
+  navLabelCleanup: 'Label leeghalen',
   navFeedback: 'Zeg wat je vindt',
   navWhatsNew: 'Wat is er nieuw?',
   navAbout: 'Over de app',
+  labelCleanupIntro:
+    'Alle mail onder een label gaat naar de prullenbak. Het label zelf blijft gewoon staan.',
+  labelCleanupMailbox: 'Welke postbus?',
+  labelCleanupLabel: 'Welk label?',
+  labelCleanupCount: 'Kijk hoeveel het er zijn',
+  labelCleanupCounting: 'Even tellen…',
+  labelCleanupNothing: 'Er zit niets onder dit label.',
+  labelCleanupCapped: 'Gestopt met tellen bij 50.000. Er zijn er nog meer.',
+  labelCleanupTrashNote: 'Weg is niet weg: Gmail bewaart het nog 30 dagen in de prullenbak.',
   feedbackIntro:
     'Ging er iets mis, of mis je iets? Schrijf het hier. Als je op de knop drukt maakt de app een mail vanuit je eigen postbus. Je ziet hem eerst, en jij drukt zelf op verzenden.',
   feedbackPlaceholder: 'Wat ging er mis? En wat had je verwacht?',
@@ -1008,9 +1036,19 @@ export const STRINGS_NL: UiStrings = {
   navUpdates: 'Updates',
   navVerificationCodes: 'Verificatiecodes',
   navAdvanced: 'Geavanceerd',
+  navLabelCleanup: 'Label leegmaken',
   navFeedback: 'Feedback',
   navWhatsNew: 'Wat is er nieuw',
   navAbout: 'Over Gmail Desktop',
+  labelCleanupIntro:
+    'Verplaatst alle berichten onder een label naar de prullenbak. Het label zelf blijft bestaan.',
+  labelCleanupMailbox: 'Postvak',
+  labelCleanupLabel: 'Label',
+  labelCleanupCount: 'Tel wat erin zit',
+  labelCleanupCounting: 'Aan het tellen…',
+  labelCleanupNothing: 'Er staat niets onder dit label.',
+  labelCleanupCapped: 'Gestopt met tellen bij 50.000; er zijn er meer.',
+  labelCleanupTrashNote: 'De prullenbak is niet definitief: Gmail bewaart het daar nog 30 dagen.',
   feedbackIntro:
     'Vertel wat er misging of wat je mist. Verzenden opent een mail vanuit je eigen postbus, dus je ziet precies wat er weggaat voordat je hem verstuurt.',
   feedbackPlaceholder: 'Wat gebeurde er, en wat had je verwacht?',

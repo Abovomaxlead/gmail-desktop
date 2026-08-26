@@ -81,6 +81,7 @@ const SAME_IN_BOTH = new Set([
   'navDownloads',
   'navFeedback',
   'navUpdates',
+  'labelCleanupLabel',
   'updates',
   'dhBytes',
   'volumeLabel',
