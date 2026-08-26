@@ -90,6 +90,8 @@ export const IPC = {
   MAIL_DROP_EXISTING: 'maildrop:existing',
   MAIL_DROP_ORPHAN_GET: 'maildrop:orphan-get',
   MAIL_DROP_ORPHAN_DECIDE: 'maildrop:orphan-decide',
+  MAIL_DROP_JOB_GET: 'maildrop:job-get',
+  MAIL_DROP_JOB_DECIDE: 'maildrop:job-decide',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
   FEEDBACK_COMPOSE: 'feedback:compose',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
@@ -166,11 +168,22 @@ export interface MailDropCopyProgress {
   total: number;
   paused?: boolean;
   byMailbox?: { email: string; copied: number }[];
+  /** Present only while a batched job is running. `done` and `total` above count the batch on
+   * screen; these count the whole job, in conversations, so a bar that fills five times still
+   * reads as one piece of work. */
+  job?: { batch: number; batches: number; done: number; total: number };
 }
 
-/** What the paused dialog may ask the copy in flight to do. The two stop actions map onto
- * CopyStopMode ('keep' / 'rollback') once the gate has drained. */
-export type MailDropCopyControlAction = 'pause' | 'resume' | 'stop-keep' | 'stop-rollback';
+/** What the paused dialog may ask the copy in flight to do. The two stop actions used to be
+ * one: inside a batched job 'stop-rollback' is ambiguous, so it names its scope. A plain drag is
+ * one batch, where the two scopes mean the same thing, and the picker offers only the batch one
+ * there. */
+export type MailDropCopyControlAction =
+  | 'pause'
+  | 'resume'
+  | 'stop-keep'
+  | 'stop-rollback-batch'
+  | 'stop-rollback-job';
 
 export type MailDropCopyControlResult = { ok: true } | { ok: false; error: string };
 

@@ -48,6 +48,18 @@ export interface QuotaBudget {
  * that one is published as 6,000 a minute, which is 100 a second. */
 export const UNITS_PER_SECOND = 250;
 
+/** What the budget actually spends of the published allowance above.
+ *
+ * Pacing at the whole of it is what cost a mail. `UNITS_PER_SECOND` is exactly 15,000 a minute,
+ * which is the per-minute limit Gmail refused a copy of 2,574 mails on, so a copy at the full
+ * rate does not burst over the line -- it paces onto it and drifts over after a few minutes.
+ * A tenth held back is the margin that drift needs.
+ *
+ * Applied where the cursor advances and nowhere else: `ceiling()`, `refused()` and `recover()`
+ * keep measuring against the published figure, because a ceiling that moved is the one signal
+ * that this project has been put on the tighter price list. */
+export const SAFETY = 0.9;
+
 /** What is kept of the ceiling each time Gmail refuses a call the budget thought fitted. */
 const BACK_OFF = 0.6;
 
@@ -177,7 +189,7 @@ export function createQuotaBudget(
       // No banking: an idle spell leaves the cursor in the past, which makes the next call free
       // and the ones behind it paced. Letting idle time accumulate is how a burst is built.
       const mine = Math.max(cursor, now);
-      cursor = mine + (quotaCost(call) * 1000) / ceiling;
+      cursor = mine + (quotaCost(call) * 1000) / (ceiling * SAFETY);
       const wait = mine - now;
       if (wait > 0) await clock.sleep(wait);
     },

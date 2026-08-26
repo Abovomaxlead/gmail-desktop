@@ -103,10 +103,11 @@ import {
   type ScanOutcome,
 } from './mail-copy';
 import {
+  API_MAX_THREADS,
   LABEL_SCRAPE_JS,
   MAX_PAGES,
-  MAX_THREADS,
   PAGE_SIZE,
+  SCRAPE_MAX_THREADS,
   SIDEBAR_LABEL_SCRAPE_JS,
   labelListUrl,
   labelNamesFromHrefs,
@@ -115,6 +116,22 @@ import {
   type LabelThread,
   type TreeThread,
 } from './label-drop';
+import {
+  JOB_BATCH_THREADS,
+  findUnfinishedJobs,
+  finishLabelJob,
+  inheritedMode,
+  jobProgress,
+  needsJob,
+  nextBatch,
+  readLabelJob,
+  recordJobBatchState,
+  recordJobChoices,
+  sliceIntoBatches,
+  startLabelJob,
+  type JobOutcome,
+  type LabelJob,
+} from './label-job';
 import {
   labelTreeMembers,
   planLabelTree,
@@ -224,6 +241,20 @@ const dropLock = createDropLock();
  * paused progress line needs the same number the running one showed. */
 let activeRun: { runId: CopyRunId; control: CopyRunControl; root: string; total: number } | null =
   null;
+
+/** The job the driver is advancing, or null when this drag was not big enough to need one. One
+ * at a time, always: the drop lock admits one pull and a job never overlaps its own batches. */
+let activeJob: { job: LabelJob; root: string } | null = null;
+
+/** Set when the stop the user chose was job-wide. Read once the running batch's own rollback has
+ * finished, which is the only moment the earlier batches may be swept: two sweeps trashing under
+ * two markers in one mailbox at once is a race with nothing to gain. */
+let rollbackWholeJob = false;
+
+/** Set while the driver is walking a job. The tail of copyToMailboxes starts the driver, and the
+ * driver's own loop calls copyToMailboxes -- so this is what keeps that from forking a second
+ * walk on every batch. Read nowhere else: it is a re-entrancy guard, not state anyone reports. */
+let jobDriving = false;
 
 
 //===========================
@@ -604,11 +635,11 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function collectLabelThreads(
   authuser: string,
   label: string,
-): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean }> {
+): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number }> {
   const threads: TreeThread[] = [];
   let capped = false;
   let members: string[] = [label];
-  if (!manager) return { threads, members, capped };
+  if (!manager) return { threads, members, capped, cap: SCRAPE_MAX_THREADS };
 
   await manager.withHiddenView(labelListUrl(authuser, label, 1), async (wc) => {
     // Gmail's own navigation is the only list of sublabels there is without the API, and it
@@ -645,7 +676,7 @@ async function collectLabelThreads(
         firstOfPrevious = pageThreads[0].threadId;
 
         const { added, total } = mergeTreeThreads(threads, member, pageThreads);
-        if (total >= MAX_THREADS) {
+        if (total >= SCRAPE_MAX_THREADS) {
           capped = pageThreads.length >= PAGE_SIZE;
           break;
         }
@@ -654,7 +685,7 @@ async function collectLabelThreads(
       if (capped) break;
     }
   });
-  return { threads, members, capped };
+  return { threads, members, capped, cap: SCRAPE_MAX_THREADS };
 }
 
 interface CollectedThread {
@@ -667,43 +698,77 @@ interface CollectedThread {
 // alongside each other too and it is the product of the two that meets Gmail's quota
 const THREAD_FETCH_LIMIT = 4;
 
-async function collectLabelViaApi(
+/**
+ * Lists every conversation of a dragged label's tree, without fetching any of them
+ *
+ * The cheap half of a label drag, and the half a batched job needs on its own: one
+ * `threads.list` page is 100 ids for 10 units, so a tree of ten thousand is a hundred pages and
+ * a thousand units -- four seconds of the budget, against the minutes fetching them costs. That
+ * is what lets a plan know which conversations it is going to pull before it pulls one.
+ *
+ * @param account the mailbox the label was dragged out of
+ * @param label the dragged label, whose tree is resolved from the mailbox's own label map
+ * @returns the conversations with the tree labels each of them carries, the members in the
+ *   order the tree resolved them, and whether the cap bit -- or null when this mailbox has no
+ *   usable token or does not have the label, which is the caller's signal to scrape instead
+ * @private
+ */
+async function listLabelTree(
   account: string,
   label: string,
-  report: SaveProgress,
-): Promise<{ collected: CollectedThread[]; members: string[]; capped: boolean } | null> {
+): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number } | null> {
   if (!account) return null;
   const withToken = await withMailboxToken(account);
   if (!withToken) return null;
 
   const threads: TreeThread[] = [];
-  let members: string[];
   let capped = false;
   try {
     const all = await withToken((token) => fetchUserLabelMap(token));
-    members = labelTreeMembers([...all.keys()], label);
+    const members = labelTreeMembers([...all.keys()], label);
     if (members.length === 0) return null;
     // One listing per member, folded into one accumulator: the cap counts the tree, and a
     // conversation in two of its labels is one conversation carrying both.
     for (const member of members) {
       const labelId = all.get(member);
       if (!labelId) continue;
-      const list = await withToken((token) => listLabelThreadIds(token, labelId, MAX_THREADS));
+      const list = await withToken((token) => listLabelThreadIds(token, labelId, API_MAX_THREADS));
       const page = list.threadIds.map((threadId) => ({ threadId, subject: '' }));
-      const { total } = mergeTreeThreads(threads, member, page);
+      const { total } = mergeTreeThreads(threads, member, page, API_MAX_THREADS);
       capped = capped || list.capped;
-      if (total >= MAX_THREADS) {
+      if (total >= API_MAX_THREADS) {
         capped = true;
         break;
       }
     }
+    return { threads, members, capped, cap: API_MAX_THREADS };
   } catch {
     return null;
   }
+}
+
+/**
+ * Fetches the mail of conversations already listed
+ *
+ * @param account
+ * @param slice the conversations to fetch, which for a job is one batch of the plan and for an
+ *   ordinary drag is everything listLabelTree answered
+ * @param report moved on per conversation, in a finally, so one that could not be fetched still
+ *   advances the count -- a counter that stops on a failure reads as a pull that hung
+ * @returns one entry per conversation in `slice`, or null when the mailbox has no usable token
+ * @private
+ */
+async function fetchThreadSlice(
+  account: string,
+  slice: TreeThread[],
+  report: SaveProgress,
+): Promise<CollectedThread[] | null> {
+  const withToken = await withMailboxToken(account);
+  if (!withToken) return null;
 
   let pulled = 0;
-  report(0, threads.length);
-  const collected = await mapLimit(threads, THREAD_FETCH_LIMIT, async (thread) => {
+  report(0, slice.length);
+  return await mapLimit(slice, THREAD_FETCH_LIMIT, async (thread) => {
     const { threadId } = thread;
     try {
       const raws = await withToken((token) => fetchThreadRaw(token, threadId));
@@ -723,13 +788,10 @@ async function collectLabelViaApi(
         error: `Ophalen mislukt (${(e as Error).message})`,
       };
     } finally {
-      // In a finally, so a conversation that could not be fetched still moves the count on.
-      // A counter that stops on a failed conversation reads as a pull that hung.
       pulled += 1;
-      report(pulled, threads.length);
+      report(pulled, slice.length);
     }
   });
-  return { collected, members, capped };
 }
 
 /**
@@ -763,6 +825,15 @@ async function saveLabel(
   authuser: string,
   ik: string,
   report: SaveProgress,
+  /** What listLabelTree already answered for this drag, handed in rather than asked for again.
+   * The caller has to list before it can decide whether this label needs a plan at all, and
+   * listing twice would double the threads.list pages of every ordinary label drag. Null for a
+   * job's later batch, which has no fresh listing and does not need one. */
+  listed: Awaited<ReturnType<typeof listLabelTree>>,
+  /** One batch of a job's plan, or null for an ordinary drag, which fetches everything the
+   * listing above answered. Null is what keeps a label that fits in one batch byte-for-byte
+   * today's drag. */
+  slice: TreeThread[] | null,
 ): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
   const empty = () => {
     const error = `Geen mail gevonden in label "${label}"`;
@@ -773,10 +844,26 @@ async function saveLabel(
     return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [], rows: [] };
   };
 
-  const viaApi = await collectLabelViaApi(account, label, report);
+  const toFetch = slice ?? listed?.threads ?? null;
+  const viaApi =
+    toFetch === null
+      ? null
+      : await fetchThreadSlice(account, toFetch, report).then((collected) =>
+          collected === null
+            ? null
+            : {
+                collected,
+                members: listed?.members ?? lastDropTree?.members.map((m) => m.name) ?? [label],
+                capped: listed?.capped ?? false,
+                cap: listed?.cap ?? API_MAX_THREADS,
+              },
+        );
   let collected: CollectedThread[];
   let capped: boolean;
   let members: string[];
+  // Carried from whichever collector answered rather than read off a constant: both paths reach
+  // the same two truncation messages, and they stop at wildly different numbers.
+  let cap: number;
 
   if (viaApi) {
     notifyLog(
@@ -786,6 +873,7 @@ async function saveLabel(
     collected = viaApi.collected;
     capped = viaApi.capped;
     members = viaApi.members;
+    cap = viaApi.cap;
   } else {
     const scraped = await collectLabelThreads(authuser, label);
     notifyLog(
@@ -794,6 +882,7 @@ async function saveLabel(
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
     members = scraped.members;
+    cap = scraped.cap;
     report(0, scraped.threads.length);
 
     collected = [];
@@ -882,7 +971,7 @@ async function saveLabel(
       account,
       threadId: '',
       label,
-      error: `Afgekapt op ${MAX_THREADS} gesprekken; het label bevat er meer`,
+      error: `Afgekapt op ${cap} gesprekken; het label bevat er meer`,
     });
   }
   try {
@@ -899,7 +988,7 @@ async function saveLabel(
   if (capped) {
     items.push({
       threadId: '',
-      subject: `Afgekapt op ${MAX_THREADS} gesprekken`,
+      subject: `Afgekapt op ${cap} gesprekken`,
       saved: 0,
       error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
     });
@@ -979,6 +1068,65 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
 }
 
 /**
+ * Decides whether this label needs a plan, and writes one if it does
+ *
+ * @param root the drop folder
+ * @param account
+ * @param label
+ * @param listed what listLabelTree answered, or null when it could not list at all
+ * @returns the slice to pull now -- batch zero for a job, or null for a label that fits, which
+ *   is what makes saveLabel list and fetch everything the way it always has
+ * @private
+ */
+async function planJob(
+  root: string,
+  account: string,
+  label: string,
+  listed: Awaited<ReturnType<typeof listLabelTree>>,
+): Promise<TreeThread[] | null> {
+  activeJob = null;
+  if (!listed || !needsJob(listed.threads, JOB_BATCH_THREADS)) return null;
+
+  const batches = sliceIntoBatches(listed.threads, JOB_BATCH_THREADS);
+  const jobId = randomUUID();
+  const header = {
+    jobId,
+    startedAt: Date.now(),
+    account,
+    label,
+    members: listed.members,
+    batchSize: JOB_BATCH_THREADS,
+    total: listed.threads.length,
+  };
+  // Written before a single mail is fetched: the plan is what a crash halfway through the first
+  // batch is resumed from, and a plan written afterwards would not exist yet at the one moment
+  // it is needed.
+  try {
+    startLabelJob(root, header, batches);
+  } catch (e) {
+    // A plan that cannot be written is not a reason to refuse the drag -- it is a reason to make
+    // it an ordinary one. The label is then capped at a batch, and the truncation is reported
+    // the way every other cap already is.
+    notifyLog(`[maildrop] kon het plan voor "${label}" niet wegschrijven: ${(e as Error).message}`);
+    return batches[0];
+  }
+  // Read back rather than assembled in memory, so what the driver walks is what is on disk. A
+  // read that fails right after a successful write is not a state to invent a job for -- fall
+  // back to the same ordinary drag a failed write gets, since a job whose plan cannot be read
+  // cannot be advanced or resumed either.
+  const planned = readLabelJob(root, jobId);
+  if (!planned) {
+    notifyLog(`[maildrop] plan voor "${label}" niet terug te lezen; als gewone sleep behandeld`);
+    return batches[0];
+  }
+  activeJob = { job: planned, root };
+  notifyLog(
+    `[maildrop] label "${label}": ${listed.threads.length} gesprekken, ${batches.length} batches van ${JOB_BATCH_THREADS}`,
+  );
+  return batches[0];
+}
+
+/**
  * Saves the dragged mail and opens the picker on what it saved
  *
  * @param acctKey the view the drag came from
@@ -1019,6 +1167,12 @@ async function pullMailDrop(
 
   if (payload.label) {
     report(0, 0);
+    // Listed before anything is fetched, so the size is known while it is still cheap to know:
+    // a tree of ten thousand costs a thousand units to list and minutes to pull. A listing that
+    // fails answers null and the scrape inside saveLabel carries the drag, as it always has --
+    // which also means no job, since nothing scraped can exceed one batch.
+    const listed = await listLabelTree(account, payload.label);
+    const slice = await planJob(root, account, payload.label, listed);
     const { items: done, saved: refs, rows } = await saveLabel(
       ts,
       account,
@@ -1027,6 +1181,8 @@ async function pullMailDrop(
       payload.authuser,
       payload.ik,
       report,
+      listed,
+      slice,
     );
     lastDropSaved = refs;
     // rows rather than the display items: those carry the truncation notice too, which is
@@ -1148,11 +1304,12 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
 }
 
 // Above this the picker says nothing about duplicates at all, so it is set above the most a
-// drag can produce: a label drag stops at MAX_THREADS. It used to be ten, which meant a drag of
-// a hundred rows was reported on for none of them. What made this affordable is the batched
-// query -- ten Message-IDs per search instead of one -- and that the scan runs from the drop
-// rather than from the click, so its cost is paid while the window is still drawing.
-const EXISTING_SCAN_LIMIT = MAX_THREADS;
+// single pull can produce -- which is one batch of a job, or a scrape's own ceiling for a label
+// small enough not to be one. It used to be ten, which meant a drag of a hundred rows was
+// reported on for none of them. What made this affordable is the batched query -- ten
+// Message-IDs per search instead of one -- and that the scan runs from the drop rather than from
+// the click, so its cost is paid while the window is still drawing.
+const EXISTING_SCAN_LIMIT = Math.max(JOB_BATCH_THREADS, SCRAPE_MAX_THREADS);
 
 const EXISTING_SCAN_CONCURRENCY = 4;
 
@@ -1738,6 +1895,38 @@ async function sweepRunMarkers(
 }
 
 /**
+ * Rolls back every batch of the running job that had already finished
+ *
+ * Newest first, so a mailbox the sweep cannot reach costs the most recent work rather than the
+ * oldest. Each batch is swept from its own journal and its own recorded marker id -- nothing is
+ * inferred, and a batch whose journal is gone is reported rather than guessed at.
+ *
+ * @param job
+ * @param root the drop folder
+ * @returns the batches it could not account for, for the message the picker shows
+ * @private
+ */
+async function rollbackFinishedBatches(job: LabelJob, root: string): Promise<string[]> {
+  const trouble: string[] = [];
+  const finished = job.batches.filter((b) => b.state === 'copied' && b.runId).reverse();
+  for (const batch of finished) {
+    const journal = readCopyJournal(root, batch.runId!);
+    if (!journal) {
+      trouble.push(`batch ${batch.index + 1}: geen journaal meer`);
+      continue;
+    }
+    const outcome = await sweepRunMarkers(journal.runId, journal.markers, 'trash', journal.created);
+    if (!settled(outcome) || !outcome.complete) trouble.push(`batch ${batch.index + 1}`);
+    finishCopyJournal(
+      root,
+      journal.runId,
+      outcome.complete ? 'rolled-back' : 'rolled-back-partial',
+    );
+  }
+  return trouble;
+}
+
+/**
  * The warning line for a mailbox whose sweep did not converge
  *
  * Framed as resumable, not as doubtful: unlike the old Message-ID reconciliation this
@@ -1793,12 +1982,30 @@ export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyC
     case 'stop-keep':
       control.stop('keep');
       return { ok: true };
-    case 'stop-rollback':
+    case 'stop-rollback-batch':
+      control.stop('rollback');
+      return { ok: true };
+    case 'stop-rollback-job':
+      // The running batch is rolled back by the run's own stop, exactly as a plain drag is. The
+      // batches already finished are a separate sweep, started once this run has drained --
+      // running both at once would have two sweeps trashing under two markers in one mailbox.
+      rollbackWholeJob = true;
       control.stop('rollback');
       return { ok: true };
     default:
       return { ok: false, error: 'Onbekende actie' };
   }
+}
+
+/**
+ * The running job's own numbers, for the strip that draws above one batch's bar
+ *
+ * @returns the job's progress, or undefined when this is a plain drag -- which is what makes the
+ *   picker draw exactly the line it drew before jobs existed
+ * @private
+ */
+function jobProgressForSend(): MailDropCopyProgress['job'] {
+  return activeJob ? jobProgress(activeJob.job) : undefined;
 }
 
 /**
@@ -1822,6 +2029,7 @@ function sendPausedProgress(): void {
     total,
     paused: true,
     byMailbox: [...byMailbox.entries()].map(([email, copied]) => ({ email, copied })),
+    job: jobProgressForSend(),
   } satisfies MailDropCopyProgress);
 }
 
@@ -1838,6 +2046,121 @@ function sendPausedProgress(): void {
  * never stopped at all, 'kept' when the user chose to leave what had already landed, or a
  * rollback outcome when they chose to undo it -- see copyOneFile and the tail of this
  * function for where each of those is decided. */
+/**
+ * Pulls and copies every batch left in the running job, one at a time
+ *
+ * Not a loop over a list but a walk over the plan on disk: each turn asks it what is next, so a
+ * batch recorded as failed or a job that was closed underneath this stops it, and nothing has to
+ * be kept in memory that a crash would take with it.
+ *
+ * One batch at a time on purpose, never overlapping the next pull with this copy. The two would
+ * spend different mailboxes' quota and overlapping would nearly halve the wall clock, but
+ * `lastDropSaved`, `lastDropPreview`, `lastDropTree` and `dropSerial` are module-level and built
+ * for one drag -- which is exactly what re-entering the ordinary pull per batch relies on.
+ *
+ * @private
+ */
+async function advanceJob(): Promise<void> {
+  // One walk at a time. The loop below awaits copyToMailboxes, and the tail of that function
+  // starts the driver for the batch the user pressed Kopieer on -- so without this guard the
+  // walk forks on every batch and the two halves fight over the drop lock, one of them losing it
+  // and logging a wait nobody caused.
+  if (jobDriving) return;
+  jobDriving = true;
+  try {
+    await walkJob();
+  } finally {
+    jobDriving = false;
+  }
+}
+
+/**
+ * The walk itself, batch after batch, with advanceJob owning the guard around it
+ *
+ * @private
+ */
+async function walkJob(): Promise<void> {
+  while (activeJob) {
+    const { job, root } = activeJob;
+    const at = nextBatch(job);
+    if (!at) break;
+    if (!job.choices) break; // nothing to copy with; batch zero never got its answer
+
+    const token = dropLock.take(Date.now());
+    if (token === null) {
+      notifyLog('[maildrop] klus wacht: er wordt al mail opgehaald');
+      return;
+    }
+    manager?.sendDropLock({ locked: true });
+    try {
+      const ts = new Date().toISOString();
+      dropSerial += 1;
+      lastDropSaved = [];
+      const report: SaveProgress = (done, total) => manager?.sendDropProgress({ done, total });
+      // No listing for a later batch: the plan already holds the conversations, and asking Gmail
+      // again would both cost a hundred pages and risk a different answer than the one the
+      // batches were cut from.
+      const { items, saved } = await saveLabel(
+        ts, job.account, root, job.label, '', '', report, null, at.threads,
+      );
+      lastDropSaved = saved;
+      recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
+      activeJob.job = readLabelJob(root, job.jobId) ?? job;
+      openDropPreview(items);
+    } finally {
+      if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
+    }
+
+    // The same call the picker's own Kopieer makes, with the choices batch zero was given. The
+    // duplicate scan runs again inside it, per batch, against that batch's own mail -- which is
+    // what keeps "which mail lands where" the live answer it has always been.
+    const result = await copyToMailboxes({ targets: job.choices.targets, mode: job.choices.mode });
+    if ('stopped' in result && result.stopped) {
+      // Ordinarily closed by the tail of copyToMailboxes before this line is reached, which is
+      // why the guard is on activeJob rather than on the result: a stop that got there first
+      // leaves nothing here to do, and one that somehow did not still ends the job here.
+      if (activeJob) {
+        const { job: stoppedJob, root: stoppedRoot } = activeJob;
+        const trouble = rollbackWholeJob
+          ? await rollbackFinishedBatches(stoppedJob, stoppedRoot)
+          : [];
+        const outcome: JobOutcome =
+          result.mode === 'keep'
+            ? 'kept'
+            : trouble.length === 0
+              ? 'rolled-back'
+              : 'rolled-back-partial';
+        const failed = attemptWrite(() => finishLabelJob(stoppedRoot, stoppedJob.jobId, outcome));
+        if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+        if (trouble.length > 0) {
+          notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
+        }
+        rollbackWholeJob = false;
+        activeJob = null;
+      }
+      return;
+    }
+  }
+
+  if (activeJob && !nextBatch(activeJob.job)) {
+    const { job, root } = activeJob;
+    const stuck = job.batches.some((b) => b.state === 'failed');
+    // A job stopped by a failed batch is left open on purpose -- no closing line. The picker
+    // already shows that batch's own failure now, and the missing line is what makes the next
+    // start offer to continue, keep or undo it. Closing it here would swallow the one state the
+    // user still has to answer for, which is the whole reason a failed batch stops the walk
+    // instead of stepping over it.
+    if (!stuck) {
+      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, 'completed'));
+      if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+    }
+    notifyLog(
+      `[maildrop] klus voor "${job.label}" ${stuck ? 'gestopt op een mislukte batch, blijft open voor een keuze' : 'afgerond'}: ${job.batches.filter((b) => b.state === 'copied').length} van ${job.batches.length} batches`,
+    );
+    activeJob = null;
+  }
+}
+
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
@@ -1878,7 +2201,12 @@ export async function copyToMailboxes(arg: {
   // No mailbox in here any more: both phases run several at once, so naming one of them was
   // going to be a lie. The count is over the whole copy.
   const progress = (phase: 'check' | 'copy', of = total) =>
-    dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, { phase, done, total: of });
+    dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
+      phase,
+      done,
+      total: of,
+      job: jobProgressForSend(),
+    });
 
   let index = new Set<string>();
   // Empty in 'all' mode on purpose: that mode skips the scan below, so there is nothing to
@@ -1933,6 +2261,17 @@ export async function copyToMailboxes(arg: {
         newCount: newMessageCount(index, targets, files.map((f) => f.messageId), treeResolved),
       };
     }
+  }
+
+  // Recorded the moment the copy is accepted rather than when it finishes: these are the
+  // choices, and a crash between here and the end of batch zero must resume with them rather
+  // than ask again. Only the first batch writes them; every later one is running because of
+  // them.
+  if (activeJob && !activeJob.job.choices) {
+    const choices = { targets, mode: inheritedMode(mode === 'all' ? 'all' : mode === 'new' ? 'new' : null) };
+    const failed = attemptWrite(() => recordJobChoices(activeJob!.root, activeJob!.job.jobId, choices));
+    if (failed) notifyLog(`[maildrop] kon de keuzes van de klus niet vastleggen: ${failed}`);
+    activeJob.job = { ...activeJob.job, choices };
   }
 
   // Minted here rather than reusing dropSerial: dropSerial names the drag, and a 'check' pass
@@ -2277,7 +2616,48 @@ export async function copyToMailboxes(arg: {
   };
 
   try {
-    return await runCopy();
+    const result = await runCopy();
+    // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
+    // failed outright is recorded as failed and nextBatch then stops the job rather than trying
+    // the next two thousand into a mailbox that just refused us.
+    if (activeJob) {
+      const at = nextBatch(activeJob.job);
+      if (at) {
+        const stopped = 'stopped' in result && result.stopped;
+        const failedHard = !stopped && 'ok' in result && !result.ok;
+        const failed = attemptWrite(() =>
+          recordJobBatchState(activeJob!.root, activeJob!.job.jobId, {
+            index: at.index,
+            state: failedHard ? 'failed' : 'copied',
+            runId,
+            copied: 'copied' in result ? result.copied : undefined,
+            skipped: 'skipped' in result ? result.skipped : undefined,
+            error: failedHard ? (result as MailDropCopyResult).error : undefined,
+          }),
+        );
+        if (failed) notifyLog(`[maildrop] kon de stand van batch ${at.index} niet vastleggen: ${failed}`);
+        activeJob.job = readLabelJob(activeJob.root, activeJob.job.jobId) ?? activeJob.job;
+        // A stop is the user's final word on the whole job, not just on this batch, so the driver
+        // is not started. What the stop rolls back is decided just below.
+        if (!stopped) void advanceJob();
+      }
+    }
+    if (activeJob && 'stopped' in result && result.stopped) {
+      const { job, root } = activeJob;
+      const trouble = rollbackWholeJob ? await rollbackFinishedBatches(job, root) : [];
+      const outcome: JobOutcome =
+        result.mode === 'keep'
+          ? 'kept'
+          : trouble.length === 0
+            ? 'rolled-back'
+            : 'rolled-back-partial';
+      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, outcome));
+      if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+      if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
+      rollbackWholeJob = false;
+      activeJob = null;
+    }
+    return result;
   } finally {
     if (activeRun?.runId === runId) activeRun = null;
   }
@@ -2293,6 +2673,12 @@ export async function copyToMailboxes(arg: {
  * asks. A run whose journal already recorded a decision needs none of this -- it is finished
  * silently by resumeOrphanedCopyRuns instead. */
 let pendingOrphans: CopyJournalRead[] = [];
+
+/** A job this app never heard the end of, waiting for the same continue-or-undo answer the
+ * orphan-run decision already asks for a single run. At most one is offered at a time: two
+ * half-finished jobs is not a state this app can get into, since a job holds the drop lock for
+ * every batch. */
+let pendingJob: LabelJob | null = null;
 
 /**
  * Finishes one orphaned run's sweep, closing its journal once every mailbox has settled
@@ -2352,6 +2738,26 @@ export async function resumeOrphanedCopyRuns(): Promise<void> {
     else stillPending.push(journal);
   }
   pendingOrphans = stillPending;
+
+  // After the runs, and deliberately: a job's batches are runs, so a batch that already recorded
+  // its own decision is settled above before the job it belongs to is offered. A job whose batch
+  // zero never got an answer has nothing to resume with and is closed rather than offered -- its
+  // batches were never copied, so there is nothing to keep or undo either.
+  const jobs = findUnfinishedJobs(root);
+  pendingJob = null;
+  for (const job of jobs) {
+    // Two different reasons nextBatch answers null, and they must not be treated alike. Every
+    // batch copied means there is nothing left to ask about. A batch recorded as failed also
+    // stops it -- and that one is precisely the state the user still owes an answer for, so it
+    // is offered rather than closed.
+    const stuck = job.batches.some((b) => b.state === 'failed');
+    if (!job.choices || (!nextBatch(job) && !stuck)) {
+      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, 'kept'));
+      if (failed) notifyLog(`[maildrop] kon een onafgemaakte klus niet afsluiten: ${failed}`);
+      continue;
+    }
+    if (!pendingJob) pendingJob = job;
+  }
 }
 
 /**
@@ -2395,5 +2801,80 @@ export async function decideOrphanRun(
   const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, mode));
   if (decisionError) notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
   await finishOrphanRun(root, journal, mode);
+  return { ok: true };
+}
+
+/**
+ * The job the user has to make a continue-or-undo decision about, if any
+ *
+ * Asked by the mail-drop window when it opens, the same moment it already asks for the orphan
+ * decision and the existing-mail scan.
+ *
+ * @returns the job and how far it got, or null when nothing is waiting
+ */
+export function pendingJobDecision(): {
+  jobId: string;
+  label: string;
+  batch: number;
+  batches: number;
+  done: number;
+  total: number;
+  mode: 'new' | 'all';
+} | null {
+  if (!pendingJob || !pendingJob.choices) return null;
+  return {
+    jobId: pendingJob.jobId,
+    label: pendingJob.label,
+    ...jobProgress(pendingJob),
+    mode: pendingJob.choices.mode,
+  };
+}
+
+/**
+ * Answers a pending job decision
+ *
+ * 'continue' re-pulls the batch that was in flight. Its slice may be partly copied already, and
+ * the inherited 'new' mode is what makes that safe: the scan finds what landed and skips it. An
+ * 'all' job has no such protection, which is why the offer says so in those words rather than
+ * leaving the user to find out.
+ *
+ * @param jobId must be the one pendingJobDecision last returned
+ * @param choice
+ * @returns whether the decision was taken -- false when this job is no longer pending, which a
+ *   second click or a stale window can both cause harmlessly
+ */
+export async function decideJobRun(
+  jobId: string,
+  choice: 'continue' | 'keep' | 'rollback',
+): Promise<{ ok: boolean }> {
+  const job = pendingJob;
+  if (!job || job.jobId !== jobId) return { ok: false };
+  pendingJob = null;
+  const root = mailDropFolder();
+
+  if (choice === 'continue') {
+    // A batch recorded as failed is what nextBatch stops at, so continuing has to clear it back
+    // to pending first -- otherwise the driver is handed a job it will refuse to walk and the
+    // offer would do nothing at all. Written as a new state line rather than by rewriting the
+    // file: the failure stays in the record above it, which is what a later reader needs to see
+    // that this batch was retried and not merely slow.
+    const stuck = job.batches.find((b) => b.state === 'failed');
+    if (stuck) {
+      const failed = attemptWrite(() =>
+        recordJobBatchState(root, jobId, { index: stuck.index, state: 'pending' }),
+      );
+      if (failed) return { ok: false };
+    }
+    activeJob = { job: readLabelJob(root, jobId) ?? job, root };
+    void advanceJob();
+    return { ok: true };
+  }
+
+  const trouble = choice === 'rollback' ? await rollbackFinishedBatches(job, root) : [];
+  const outcome: JobOutcome =
+    choice === 'keep' ? 'kept' : trouble.length === 0 ? 'rolled-back' : 'rolled-back-partial';
+  const failed = attemptWrite(() => finishLabelJob(root, jobId, outcome));
+  if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+  if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
   return { ok: true };
 }

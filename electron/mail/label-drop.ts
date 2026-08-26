@@ -3,9 +3,9 @@
 // the row around it is searched too, since a press beside the name still means that label.
 //
 // No API lists a label, so pages of Gmail's own list view are scraped. Gmail re-shows the
-// last page for a too-high number, so paging stops when a page adds nothing new, and
-// MAX_THREADS caps the total — reported when it bites, since truncating silently reads as
-// "everything saved".
+// last page for a too-high number, so paging stops when a page adds nothing new, and the
+// scrape caps the total at SCRAPE_MAX_THREADS and the API path at API_MAX_THREADS — reported
+// when either bites, since truncating silently reads as "everything saved".
 
 import type { DragNode } from './dropzone';
 
@@ -36,8 +36,19 @@ export interface TreeThread {
 
 export const PAGE_SIZE = 50;
 
-export const MAX_THREADS = 2000;
-export const MAX_PAGES = Math.ceil(MAX_THREADS / PAGE_SIZE);
+/** Where paging Gmail's own list view stops being worth it. The scrape reads 50 rows a page and
+ * Gmail re-shows the last page for a page number past the end, so forty pages is the point past
+ * which more paging buys guesses rather than rows. A real ceiling, and still reported when it
+ * bites: truncating in silence reads as "everything saved". */
+export const SCRAPE_MAX_THREADS = 2000;
+
+/** A bound on the API path, not a limit anyone should meet. `threads.list` pages 100 ids for 10
+ * units, so a full one is 500 pages and 5,000 units just to plan, and copying it would take a
+ * day. It is here so a runaway page loop cannot allocate without end -- a different job from the
+ * scrape's ceiling above, which is why the two are no longer one constant. */
+export const API_MAX_THREADS = 50_000;
+
+export const MAX_PAGES = Math.ceil(SCRAPE_MAX_THREADS / PAGE_SIZE);
 
 
 //===========================
@@ -167,12 +178,15 @@ export function scrapeSettled(
  * @param acc mutated in place
  * @param member the tree label this page was read from
  * @param page
+ * @param cap defaults to the scrape's own ceiling, so a caller that never named one keeps
+ *   today's behaviour; the API path passes its own, which is a different limit entirely
  * @returns how many threads were new, and the running total
  */
 export function mergeTreeThreads(
   acc: TreeThread[],
   member: string,
   page: LabelThread[],
+  cap = SCRAPE_MAX_THREADS,
 ): { added: number; total: number } {
   const byId = new Map(acc.map((t) => [t.threadId, t]));
   let added = 0;
@@ -183,7 +197,7 @@ export function mergeTreeThreads(
       if (!known.labels.includes(member)) known.labels.push(member);
       continue;
     }
-    if (acc.length >= MAX_THREADS) continue;
+    if (acc.length >= cap) continue;
     const fresh: TreeThread = { threadId: t.threadId, subject: t.subject, labels: [member] };
     acc.push(fresh);
     byId.set(t.threadId, fresh);

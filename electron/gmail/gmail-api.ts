@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { mapLimit } from '../core/concurrency';
-import { withRetry, type RetryMethod } from './retry';
+import { isRateLimit, withRetry, type RetryMethod } from './retry';
 import { notifyLog } from '../notify/notify-log';
 import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
 import {
@@ -72,12 +72,40 @@ export interface MessageMeta {
   messageId: string;
 }
 
+/**
+ * Reads the reason Gmail gave for refusing a request
+ *
+ * Two fields, written by two different layers, and either one identifies a refusal. The Gmail
+ * API itself lists per-error `reason` strings; the quota front end in front of it answers with
+ * an `error.status` instead and no `errors` array at all. The live quota failure of 2026-08-25
+ * came back in the second shape.
+ *
+ * @param json the parsed error body, or anything at all -- a body that is not an object at
+ *   least answers null rather than throwing, since the caller has already given up on it
+ * @returns the reason, or null when the body carries neither
+ */
+export function parseErrorReason(json: unknown): string | null {
+  const error = (json as { error?: { errors?: unknown; status?: unknown } } | null)?.error;
+  if (!error) return null;
+  if (Array.isArray(error.errors)) {
+    for (const entry of error.errors) {
+      const reason = (entry as { reason?: unknown })?.reason;
+      if (typeof reason === 'string' && reason) return reason;
+    }
+  }
+  return typeof error.status === 'string' && error.status ? error.status : null;
+}
+
 export class GmailHttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
     /** Gmail's own Retry-After, which the retry policy prefers over its own backoff */
     readonly retryAfter: string | null = null,
+    /** Why Gmail says it refused -- see parseErrorReason. Defaulted because two of the three
+     * places that construct one have no body to read: an answer that would not parse, and a
+     * batch refused as a whole. Neither can name a reason, and neither should pretend to. */
+    readonly reason: string | null = null,
   ) {
     super(message);
   }
@@ -1522,7 +1550,7 @@ async function requestJson(
         // A refusal while the budget still believed there was room means the budget is reading
         // the wrong price list -- which is exactly what happens when Google moves this project
         // to the table it published in May 2026, and nobody is told when that is.
-        if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+        if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
         throw e;
       }
     },
@@ -1530,6 +1558,7 @@ async function requestJson(
       method: retryMethod ?? (init ? 'POST' : 'GET'),
       status: e instanceof GmailHttpError ? e.status : null,
       timedOut: e instanceof GmailTimeoutError,
+      rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
       // A cut request is not a timeout: retry.ts refuses both, but only this one is a
       // deliberate choice worth telling apart from an ambiguous one when something later
       // reads the log back.
@@ -1581,7 +1610,7 @@ export async function requestBatch(
         try {
           return await attemptMultipart(BATCH_URL, accessToken, boundary, body);
         } catch (e) {
-          if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+          if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
           throw e;
         }
       },
@@ -1589,6 +1618,7 @@ export async function requestBatch(
         method: 'GET',
         status: e instanceof GmailHttpError ? e.status : null,
         timedOut: e instanceof GmailTimeoutError,
+        rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
         retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
       }),
     );
@@ -1773,7 +1803,14 @@ async function attemptJson(
         }
         if (res.statusCode >= 400) {
           const msg = (json as { error?: { message?: string } })?.error?.message;
-          fail(new GmailHttpError(msg ?? `HTTP ${res.statusCode}`, res.statusCode, after));
+          fail(
+            new GmailHttpError(
+              msg ?? `HTTP ${res.statusCode}`,
+              res.statusCode,
+              after,
+              parseErrorReason(json),
+            ),
+          );
           return;
         }
         ok(json);

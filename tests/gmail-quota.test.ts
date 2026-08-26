@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   QUOTA_COST,
   UNITS_PER_SECOND,
+  SAFETY,
   quotaCost,
   callForUrl,
   createQuotaBudget,
@@ -86,8 +87,12 @@ describe('createQuotaBudget, pacing', () => {
     const budget = createQuotaBudget(c);
     for (let i = 0; i < insertsPerSecond; i += 1) await budget.take('messages.insert');
     // The first goes straight out; each one behind it waits a slice longer, and the last of the
-    // second waits almost the whole second.
-    expect(c.waits).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900]);
+    // batch waits almost the whole span. The slice is derived rather than written out: its width
+    // is whatever the pacing rate makes it, and SAFETY moved that rate without touching the
+    // property under test here, which is that the calls are spread and not bursted.
+    const slice = (QUOTA_COST['messages.insert'] * 1000) / (UNITS_PER_SECOND * SAFETY);
+    expect(c.waits).toHaveLength(insertsPerSecond - 1);
+    c.waits.forEach((wait, i) => expect(wait).toBeCloseTo(slice * (i + 1), 5));
   });
 
   // What the old window did wrong: eighteen waiters woke together, all saw room, and all booked
@@ -250,5 +255,59 @@ describe('callForUrl', () => {
   // batchModify at a fifth of its real price.
   it('reads batchModify as its own call, not as a plain get', () => {
     expect(callForUrl(`${base}/messages/batchModify`)).toBe('messages.batchModify');
+  });
+});
+
+describe('the safety fraction', () => {
+  // The live failure: an insert paced at the published 250 advances the cursor 100ms, which is
+  // 15,000 units a minute -- the exact per-minute limit Gmail refused a copy of 2,574 mails on.
+  it('paces an insert slower than the published ceiling would', async () => {
+    const c = frozen();
+    const budget = createQuotaBudget(c);
+    await budget.take('messages.insert');
+    await budget.take('messages.insert');
+    expect(c.waits[0]).toBeCloseTo((25 * 1000) / (UNITS_PER_SECOND * SAFETY), 5);
+    expect(c.waits[0]).toBeGreaterThan((25 * 1000) / UNITS_PER_SECOND);
+  });
+
+  it('holds a tenth of the published allowance back', () => {
+    expect(SAFETY).toBe(0.9);
+  });
+
+  // What the fraction is for, stated as the property that matters rather than as a constant
+  it('books less than a minute\'s published allowance across a simulated minute', async () => {
+    const c = clock();
+    const budget = createQuotaBudget(c);
+    const start = c.now();
+    let units = 0;
+    while (c.now() - start < 60_000) {
+      await budget.take('messages.insert');
+      units += QUOTA_COST['messages.insert'];
+    }
+    expect(units).toBeLessThanOrEqual(UNITS_PER_SECOND * 60);
+    expect(units).toBeGreaterThan(UNITS_PER_SECOND * 60 * 0.8);
+  });
+
+  // The property the fraction must not break: an idle spell is not credit. Letting it
+  // accumulate is how a burst is built, and a burst is what Gmail answers with 429.
+  it('still does not bank idle time', async () => {
+    const c = clock();
+    const budget = createQuotaBudget(c);
+    await budget.take('messages.insert');
+    c.tick(10_000);
+    await budget.take('messages.insert');
+    expect(c.waits).toEqual([]);
+  });
+
+  // The fraction is a pacing decision, not a new ceiling. If it leaked into either of these,
+  // the one signal that this project has been moved to the tighter price list would be wrong.
+  it('leaves the published figure as the one the ceiling reports', () => {
+    expect(createQuotaBudget(frozen()).ceiling()).toBe(UNITS_PER_SECOND);
+  });
+
+  it('leaves the published figure as the one a refusal backs off from', () => {
+    const budget = createQuotaBudget(frozen());
+    budget.refused();
+    expect(budget.ceiling()).toBe(Math.floor(UNITS_PER_SECOND * 0.6));
   });
 });

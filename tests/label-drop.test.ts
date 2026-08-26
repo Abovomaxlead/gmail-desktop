@@ -8,7 +8,10 @@ import {
   scrapeSettled,
   labelNamesFromHrefs,
   mergeTreeThreads,
-  MAX_THREADS,
+  SCRAPE_MAX_THREADS,
+  API_MAX_THREADS,
+  MAX_PAGES,
+  PAGE_SIZE,
   type LabelThread,
   type TreeThread,
 } from '../electron/mail/label-drop';
@@ -180,17 +183,17 @@ describe('mergeTreeThreads', () => {
     const acc: TreeThread[] = [];
     const page = (from: number, n: number) =>
       Array.from({ length: n }, (_, i) => ({ threadId: `t${from + i}`, subject: 's' }));
-    mergeTreeThreads(acc, 'A', page(0, MAX_THREADS));
-    const over = mergeTreeThreads(acc, 'B', page(MAX_THREADS, 5));
+    mergeTreeThreads(acc, 'A', page(0, SCRAPE_MAX_THREADS));
+    const over = mergeTreeThreads(acc, 'B', page(SCRAPE_MAX_THREADS, 5));
     expect(over.added).toBe(0);
-    expect(over.total).toBe(MAX_THREADS);
+    expect(over.total).toBe(SCRAPE_MAX_THREADS);
   });
 
   it('still lets a thread already in the accumulator gain a label at the cap', () => {
     const acc: TreeThread[] = [];
     const page = (from: number, n: number) =>
       Array.from({ length: n }, (_, i) => ({ threadId: `t${from + i}`, subject: 's' }));
-    mergeTreeThreads(acc, 'A', page(0, MAX_THREADS));
+    mergeTreeThreads(acc, 'A', page(0, SCRAPE_MAX_THREADS));
     mergeTreeThreads(acc, 'B', [{ threadId: 't0', subject: 's' }]);
     expect(acc[0].labels).toEqual(['A', 'B']);
   });
@@ -203,5 +206,23 @@ describe('mergeTreeThreads', () => {
         { threadId: 't1', subject: 'Een' },
       ]).total,
     ).toBe(1);
+  });
+});
+
+describe('the two caps', () => {
+  // The scrape reads Gmail's own list view 50 rows at a time and it re-shows the last page for
+  // a page number past the end, so there is a real point past which paging stops being worth
+  // it. That is what this number is, and MAX_PAGES derives from it.
+  it('bounds the scrape at what paging Gmail\'s list view is worth', () => {
+    expect(SCRAPE_MAX_THREADS).toBe(2000);
+    expect(MAX_PAGES).toBe(Math.ceil(SCRAPE_MAX_THREADS / PAGE_SIZE));
+  });
+
+  // Not a limit anyone should meet: threads.list pages 100 ids for 10 units, so a full one is
+  // 500 pages and 5,000 units to plan. It exists so a runaway page loop cannot allocate without
+  // end, which is a different job from the scrape's ceiling.
+  it('bounds the API path far above anything a mailbox holds', () => {
+    expect(API_MAX_THREADS).toBe(50_000);
+    expect(API_MAX_THREADS).toBeGreaterThan(SCRAPE_MAX_THREADS);
   });
 });

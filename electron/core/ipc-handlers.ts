@@ -37,12 +37,14 @@ import {
   closeDropPreview,
   controlCopyRun,
   copyToMailboxes,
+  decideJobRun,
   decideOrphanRun,
   dropPreviewItems,
   existingForCopyTargets,
   labelsForCopyTargets,
   mailDropFolder,
   mailDropStatus,
+  pendingJobDecision,
   pendingOrphanDecision,
 } from '../mail/mail-drop-controller';
 import { type CopyMode } from '../mail/mail-copy';
@@ -287,6 +289,12 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_ORPHAN_GET, () => pendingOrphanDecision());
   ipcMain.handle(IPC.MAIL_DROP_ORPHAN_DECIDE, (_e, arg: { runId: string; mode: CopyStopMode }) =>
     decideOrphanRun(arg?.runId, arg?.mode),
+  );
+  ipcMain.handle(IPC.MAIL_DROP_JOB_GET, () => pendingJobDecision());
+  ipcMain.handle(
+    IPC.MAIL_DROP_JOB_DECIDE,
+    (_e, arg: { jobId: string; choice: 'continue' | 'keep' | 'rollback' }) =>
+      decideJobRun(arg.jobId, arg.choice),
   );
   ipcMain.handle(IPC.ACTIVE_GET, () => activeTab());
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
