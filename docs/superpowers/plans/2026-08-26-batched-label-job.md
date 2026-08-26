@@ -39,7 +39,7 @@
 | 7 | `ipc.ts`, `mail-drop-controller.ts`, `maildrop/page.tsx` | 5 |
 | 8 | `label-job.ts`, `ipc.ts`, `ipc-handlers.ts`, `mail-drop-controller.ts`, `maildrop/page.tsx` | 5 |
 
-Tasks 1 and 2 are independent and can be done in parallel. Everything from 3 on is sequential, except 6, 7 and 8 which all depend only on 5 and can be done in parallel with each other.
+Tasks 1 and 2 are independent and can be done in parallel. Everything from 3 on is **sequential**, 6, 7 and 8 included: they depend only on 5 in the dependency sense, but all three edit `electron/core/ipc.ts` and `renderer/app/maildrop/page.tsx`, and 7 fills in the very prop 6 adds to `StopConfirm`. Running them at once means three writers on two files.
 
 ---
 
@@ -1364,7 +1364,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why the driver hangs off the end of the copy rather than off a timer or the pull:** the user's confirmation is the gate. Batch zero is copied because a person pressed Kopieer; everything after it is copied because that press said so. Starting the driver anywhere else would mean copying before the choices existed.
 
-- [ ] **Step 1: Remember what batch zero was copied with**
+- [x] **Step 1: Remember what batch zero was copied with**
 
 At the point in `copyToMailboxes` where the copy has been accepted and the run is about to start — immediately after the `mode === 'check' && hits.length > 0` early return, before `const runId` is minted — record the choices, once per job:
 
@@ -1383,9 +1383,21 @@ At the point in `copyToMailboxes` where the copy has been accepted and the run i
 
 Note what is passed to `inheritedMode`: `'check'` maps to `null`, not to `'new'`. `'check'` reaching this line means the scan found nothing to confirm, so the user was never asked — which is exactly the case `inheritedMode` turns into `'new'`. Writing `'new'` directly here would work today and would be wrong the moment a fourth mode exists; the mapping belongs in the one function that owns the rule.
 
-- [ ] **Step 2: Record the batch, and hand over to the driver**
+- [x] **Step 2: Record the batch, and hand over to the driver**
 
-At the very end of `copyToMailboxes`, where it returns its result, the job's batch has finished. Wrap the three return paths by capturing the result first, then:
+At the very end of `copyToMailboxes` the job's batch has finished. There is exactly one return path to widen — the function ends in `try { return await runCopy(); } finally { if (activeRun?.runId === runId) activeRun = null; }`, and every other `return` in the region belongs to `runCopy` itself or to a helper. Capture the result inside that `try`, do the bookkeeping, then return it, leaving the `finally` untouched:
+
+```ts
+  try {
+    const result = await runCopy();
+    // the block below
+    return result;
+  } finally {
+    if (activeRun?.runId === runId) activeRun = null;
+  }
+```
+
+and the block is:
 
 ```ts
   // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
@@ -1416,7 +1428,7 @@ At the very end of `copyToMailboxes`, where it returns its result, the job's bat
   return result;
 ```
 
-- [ ] **Step 3: Write the driver**
+- [x] **Step 3: Write the driver**
 
 Beside `advanceJob`'s callers:
 
@@ -1495,9 +1507,27 @@ async function advanceJob(): Promise<void> {
 }
 ```
 
-Two things about the `saveLabel` call worth stating, since they look like omissions: `authuser` and `ik` are empty because a job only ever exists on the API path — a scrape can never produce more than one batch — and those two arguments are the scrape's. And `copyToMailboxes` recursing into `advanceJob` at its own tail is what continues the walk; the `while` here covers the case where that tail did not run because the batch was recorded by this turn instead.
+`authuser` and `ik` are empty on that `saveLabel` call, which looks like an omission and is not: a job only ever exists on the API path — a scrape can never produce more than one batch — and those two arguments are the scrape's.
 
-- [ ] **Step 4: Verify**
+**The walk needs a re-entrancy guard, and it is not optional.** The loop above awaits `copyToMailboxes`, and that function's tail starts the driver. Without a guard the walk forks on every batch: the loop continues *and* the tail starts a second walk, and the two fight over the drop lock — one of them losing it and logging a wait nobody caused. So the exported entry point owns a flag and the walking is a separate function:
+
+```ts
+let jobDriving = false;
+
+async function advanceJob(): Promise<void> {
+  if (jobDriving) return;
+  jobDriving = true;
+  try {
+    await walkJob();
+  } finally {
+    jobDriving = false;
+  }
+}
+```
+
+with everything above living in `walkJob`. The tail of `copyToMailboxes` then starts the driver for the batch the user pressed Kopieer on — where the flag is false — and never for the ones the driver is already pulling itself, where it is true.
+
+- [x] **Step 4: Verify**
 
 Run: `npm test`
 Expected: PASS. No unit test reaches the driver — it is Electron-bound, `manager`-bound and network-bound. That is stated in the spec's Tests section and the live run is its gate.
@@ -1505,7 +1535,7 @@ Expected: PASS. No unit test reaches the driver — it is Electron-bound, `manag
 Run both tsc projects.
 Expected: exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/mail/mail-drop-controller.ts
