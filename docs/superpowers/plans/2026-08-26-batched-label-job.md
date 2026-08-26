@@ -58,7 +58,7 @@ Tasks 1 and 2 are independent and can be done in parallel. Everything from 3 on 
 
 **The third reader, which is the part that is easy to get wrong:** `EXISTING_SCAN_LIMIT = MAX_THREADS` (`mail-drop-controller.ts:1155`) bounds the duplicate scan that runs from the drop, and its comment states the intent — *set above the most a drag can produce*. Pointed at `API_MAX_THREADS` it would pre-scan 50,000 Message-IDs, which is 5,000 batched searches for a picker that only ever draws one batch. It must be pointed at the most a **single pull** can produce. In this task that is `SCRAPE_MAX_THREADS`; Task 4 moves it to the batch size.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `tests/label-drop.test.ts` already imports `MAX_THREADS` and uses it in the `mergeThreads` cap test. Change that import to `SCRAPE_MAX_THREADS`, change the two uses in that test, and append:
 
@@ -84,12 +84,12 @@ describe('the two caps', () => {
 
 Add `SCRAPE_MAX_THREADS`, `API_MAX_THREADS`, `MAX_PAGES` and `PAGE_SIZE` to the existing import from `../electron/mail/label-drop`, and remove `MAX_THREADS` from it.
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run tests/label-drop.test.ts`
 Expected: FAIL — the import of `SCRAPE_MAX_THREADS` does not resolve, so the file fails to collect.
 
-- [ ] **Step 3: Split the constant**
+- [x] **Step 3: Split the constant**
 
 In `electron/mail/label-drop.ts`, replace:
 
@@ -116,21 +116,26 @@ export const API_MAX_THREADS = 50_000;
 export const MAX_PAGES = Math.ceil(SCRAPE_MAX_THREADS / PAGE_SIZE);
 ```
 
-Then in the same file, `mergeThreads` and `mergeTreeThreads` each contain `if (acc.length >= MAX_THREADS) break;`. Both are the scrape's own accumulators — `mergeThreads` is only reached from `collectLabelThreads`, and `mergeTreeThreads` from both paths. Give both an explicit cap parameter rather than letting them read a module constant, so the caller's path decides:
+Then `mergeTreeThreads`, which both paths call, reads the cap from the module. Make the caller's path decide it instead:
 
 ```ts
-export function mergeThreads(
-  acc: LabelThread[],
+export function mergeTreeThreads(
+  acc: TreeThread[],
+  member: string,
   page: LabelThread[],
+  /** defaults to the scrape's own ceiling, so a caller that never named one keeps today's
+   * behaviour; the API path passes its own, which is a different limit entirely */
   cap = SCRAPE_MAX_THREADS,
 ): { added: number; total: number } {
 ```
 
-and inside, `if (acc.length >= cap) break;`. The same two changes to `mergeTreeThreads`, whose signature becomes `(acc: TreeThread[], member: string, page: LabelThread[], cap = SCRAPE_MAX_THREADS)`. Defaulting to the scrape's cap means every existing call site keeps today's behaviour with no edit.
+and inside, `if (acc.length >= cap) continue;`. Defaulting to the scrape's cap means every existing call site keeps today's behaviour with no edit.
+
+`mergeThreads` used to need the same treatment and no longer exists — task 6 of the label-tree work replaced it with `mergeTreeThreads`. If a `mergeThreads` turns up in this file, this plan is being executed against an older tree than it was written for; stop and re-read.
 
 Also update the file's opening comment, which says `MAX_THREADS caps the total`. Replace that clause with: `the scrape caps the total at SCRAPE_MAX_THREADS and the API path at API_MAX_THREADS — reported when either bites, since truncating silently reads as "everything saved"`.
 
-- [ ] **Step 4: Point each reader at the right one**
+- [x] **Step 4: Point each reader at the right one**
 
 In `electron/mail/mail-drop-controller.ts`, five places:
 
@@ -140,7 +145,7 @@ In `electron/mail/mail-drop-controller.ts`, five places:
 4. The two truncation messages at `:885` and `:902` name the number in Dutch text. Both are reached from either path, so neither constant is right on its own — pass the cap that actually bit. Add a `cap: number` to what `saveLabel` already returns from its two collectors, thread it to those two strings, and interpolate it there instead of the constant.
 5. `EXISTING_SCAN_LIMIT = MAX_THREADS` (`:1155`) becomes `SCRAPE_MAX_THREADS`, and its comment's clause `a label drag stops at MAX_THREADS` becomes `a label drag stops at SCRAPE_MAX_THREADS, and once a job exists at one batch (Task 4)`.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/label-drop.test.ts`
 Expected: PASS.
@@ -148,7 +153,7 @@ Expected: PASS.
 Then: `npm test` and `npx tsc --noEmit -p tsconfig.json`
 Expected: PASS, and exit 0. Nothing changes behaviour for a label under 2,000; a bigger one now lists further on the API path, which nothing yet slices.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add electron/mail/label-drop.ts electron/mail/mail-drop-controller.ts tests/label-drop.test.ts
@@ -200,7 +205,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Note on the drop folder's sweep:** `mail-drop-cleanup.ts` removes entries older than `KEEP_DAYS` (3), falling back to mtime for a name with no timestamp in it. A `.job.jsonl` has no timestamp in its name, so an abandoned job file is swept after three days exactly like an orphaned `.rollback.jsonl` already is. That bounds how long Task 8's resume offer survives, which is correct and needs no change.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/label-job.test.ts`:
 
@@ -461,12 +466,12 @@ describe('jobProgress', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/label-job.test.ts`
 Expected: FAIL — `electron/mail/label-job.ts` does not exist.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 Create `electron/mail/label-job.ts`:
 
@@ -766,10 +771,19 @@ export function parseLabelJob(raw: string): LabelJob | null {
     .sort((a, b) => a - b)
     .map((index) => {
       const state = states.get(index);
-      // The slice comes from the batch line and never from the state line: a state line records
-      // a transition, not the work, and reading threads off it would let a later line quietly
-      // shrink a batch.
-      return { index, threads: slices.get(index) ?? [], state: 'pending', ...state, index };
+      // Field by field rather than by spreading the state line over a default: the slice comes
+      // from the batch line and never from a state line, since a state line records a transition
+      // and not the work, and a spread would let a later line quietly shrink a batch -- or, with
+      // its own index in it, move one.
+      return {
+        index,
+        threads: slices.get(index) ?? [],
+        state: state?.state ?? 'pending',
+        runId: state?.runId,
+        copied: state?.copied,
+        skipped: state?.skipped,
+        error: state?.error,
+      };
     });
 
   return {
@@ -872,7 +886,7 @@ function writeLine(root: string, jobId: string, line: JobLine): void {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/label-job.test.ts`
 Expected: PASS.
@@ -880,7 +894,7 @@ Expected: PASS.
 Then: `npm test` and `npx tsc --noEmit -p tsconfig.json`
 Expected: PASS, exit 0. Nothing imports this module yet.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/mail/label-job.ts tests/label-job.test.ts
