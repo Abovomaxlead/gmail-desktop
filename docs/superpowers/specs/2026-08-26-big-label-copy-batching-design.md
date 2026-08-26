@@ -84,14 +84,23 @@ cursor is advanced, so the app paces at 225 units a second and leaves a tenth of
 unspent. The published number stays the thing `refused()` and `recover()` measure against, so a
 move to the new price list is still detected the way `quota.ts` already describes.
 
-Alongside it, a rolling **minute meter**: the cost and timestamp of each booked call, with
-anything older than 60 seconds dropped. `take()` refuses to book past
-`UNITS_PER_SECOND * 60 * SAFETY` — 13,500 — and instead sleeps until enough has fallen out of
-the window. The per-second cursor
-alone cannot express a per-minute limit — it prevents bursts, which is a different property —
-and the limit Gmail actually named is a per-minute one. Belt and braces: with the cursor honest
-and the safety fraction applied, the meter should rarely be what blocks. Rarely is not never,
-and the case where it does block is exactly the case that cost a mail.
+**A rolling minute meter was designed here and then cut.** It is worth recording why, because
+it looks like the obvious answer to a per-minute limit and it is not. The cursor advances by
+`cost / (ceiling * SAFETY)` and never banks idle time (`mine = Math.max(cursor, now)`), so the
+spend inside *any* 60-second window is already bounded by the paced rate times sixty — by
+construction, not by luck. And since `take()` sits inside the retry loop (`gmail-api.ts:1518`),
+there is no unbooked spend left for a meter to catch. It would be a ring buffer and a running
+sum earning nothing.
+
+There is one genuine hole, and a meter would not have closed it either. `budgetFor` keys budgets
+by access token (`gmail-api.ts:1461`), so **a token refreshed mid-copy starts a fresh budget with
+a fresh cursor** while the minute it is entering still carries the old budget's spend on Gmail's
+side. The file's own comment already admits this — "at worst lets one window through twice". A
+per-token meter is reset by that very same refresh, so it would have measured nothing. Closing it
+properly means keying budgets by user instead of by token, which reaches through `requestJson`'s
+signature into every call site: out of scope here, and named as a known limitation rather than
+quietly left out. Against a 60-minute token a 19-minute copy makes this narrow, and the safety
+fraction is what absorbs it when it does happen.
 
 ### Part 1 — A refusal is its own kind of error
 
@@ -272,10 +281,11 @@ that never needed it. It becomes:
 
 Unit, in the existing vitest suite:
 
-- **`quota.ts`** — the safety fraction leaves a tenth unspent over a simulated minute; the
-  minute meter blocks a call that the per-second cursor alone would have allowed, and releases
-  it once the window rolls; `refused()` and `recover()` still measure against the published
-  figure and not the paced one. Injected clock, as today.
+- **`quota.ts`** — a call is paced at the safety fraction and not at the published figure (an
+  insert advances the cursor by 111ms, not 100ms); the spend booked across a simulated minute
+  stays under `UNITS_PER_SECOND * 60`; idle time is still not banked, so the fraction cannot be
+  recovered by waiting; `ceiling()`, `refused()` and `recover()` still report and measure against
+  the published figure and not the paced one. Injected clock, as today.
 - **`retry.ts`** — `isRateLimit` for 429, for 403 with each of the four reasons, and false for a
   403 permission denial; a rate-limited insert retried six times and not three; a wait that
   outlasts a minute and is capped at `MAX_QUOTA_WAIT_MS`; a cancelled rate-limited attempt still
