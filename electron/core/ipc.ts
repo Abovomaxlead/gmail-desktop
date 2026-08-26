@@ -57,6 +57,8 @@ export const IPC = {
   SET_RENE_MODE: 'prefs:rene-mode',
   SET_DEFAULT_MAIL: 'mail:set-default',
   LABELS_GET: 'gmail:labels-get',
+  LABEL_PURGE_COUNT: 'label:purge-count',
+  LABEL_PURGE_RUN: 'label:purge-run',
   OAUTH_RECONNECT_GET: 'oauth:reconnect-get',
   OAUTH_RECONNECT: 'oauth:reconnect',
   OAUTH_STATUS_GET: 'oauth:status-get',

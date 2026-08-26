@@ -13,6 +13,7 @@ import { DownloadHistorySection } from './settings/DownloadHistorySection';
 import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { GoogleAppsSection } from './settings/GoogleAppsSection';
+import { LabelCleanupSection } from './settings/LabelCleanupSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { PhishingSection } from './settings/PhishingSection';
 import { EmptyNote, Section } from './settings/Section';
@@ -150,6 +151,8 @@ export function SettingsPanel({
             return <PhishingSection S={S} prefs={prefs} />;
           case 'advanced':
             return <AdvancedSection S={S} prefs={prefs} />;
+          case 'label-cleanup':
+            return <LabelCleanupSection S={S} />;
           case 'notifications':
             return (
               <NotificationsSection
@@ -224,6 +227,8 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navVerificationCodes;
     case 'advanced':
       return S.navAdvanced;
+    case 'label-cleanup':
+      return S.navLabelCleanup;
     case 'feedback':
       return S.navFeedback;
     case 'whats-new':

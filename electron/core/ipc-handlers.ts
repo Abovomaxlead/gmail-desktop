@@ -47,6 +47,7 @@ import {
   pendingJobDecision,
   pendingOrphanDecision,
 } from '../mail/mail-drop-controller';
+import { countLabelForPurge, purgeCountedLabel } from '../mail/label-purge-controller';
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
 import { openFeedbackCompose } from '../feedback/feedback-controller';
@@ -279,6 +280,12 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => dropPreviewItems());
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => closeDropPreview());
   ipcMain.handle(IPC.LABELS_GET, () => labelsForCopyTargets());
+  ipcMain.handle(IPC.LABEL_PURGE_COUNT, (_e, arg: { email: string; label: string }) =>
+    countLabelForPurge(arg.email, arg.label),
+  );
+  ipcMain.handle(IPC.LABEL_PURGE_RUN, (_e, arg: { handle: string; labels: string[] }) =>
+    purgeCountedLabel(arg.handle, arg.labels),
+  );
   ipcMain.handle(IPC.MAIL_DROP_EXISTING_GET, () => existingForCopyTargets());
   ipcMain.handle(IPC.MAIL_DROP_COPY, (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) =>
     copyToMailboxes(arg),
