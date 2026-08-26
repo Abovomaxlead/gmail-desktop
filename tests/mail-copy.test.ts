@@ -14,6 +14,7 @@ import {
   copyableLabelIds,
   countExisting,
   duplicateChecks,
+  labelsForMessage,
   scanAnswer,
   threadGroups,
   assembleCopy,
@@ -725,5 +726,56 @@ describe('checkLogLine', () => {
 
   it('says when the whole check cost nothing', () => {
     expect(checkLogLine({ checks: 30, reused: 30, asked: 0, ms: 3 })).toContain('0 opnieuw gevraagd');
+  });
+});
+
+
+describe('labelsForMessage', () => {
+  const flat = { email: 'a@x.nl', labelIds: ['L1', 'L2'] };
+  const tree = { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } };
+
+  it('uses the ticked labels for a flat drag', () => {
+    expect(labelsForMessage(flat, '<a@x>', new Map())).toEqual(['L1', 'L2']);
+  });
+
+  it('uses the resolved tree labels for a tree drag', () => {
+    const resolved = new Map([['a@x.nl', new Map([['<a@x>', ['L7']]])]]);
+    expect(labelsForMessage(tree, '<a@x>', resolved)).toEqual(['L7']);
+  });
+
+  it('gives a message whose labels all failed to be created nothing', () => {
+    expect(labelsForMessage(tree, '<a@x>', new Map())).toEqual([]);
+  });
+
+  it('keeps one mailbox out of another mailbox labels', () => {
+    const resolved = new Map([['b@x.nl', new Map([['<a@x>', ['L7']]])]]);
+    expect(labelsForMessage(tree, '<a@x>', resolved)).toEqual([]);
+  });
+});
+
+describe('duplicateChecks with a tree', () => {
+  const files = [{ messageId: '<a@x>', subject: 'Offerte' }];
+  const tree = { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } };
+
+  it('asks about the labels the tree resolved to', () => {
+    const resolved = new Map([['a@x.nl', new Map([['<a@x>', ['L7', 'L8']]])]]);
+    expect(duplicateChecks([tree], files, resolved).map((c) => c.labelId)).toEqual(['L7', 'L8']);
+  });
+
+  it('asks nothing about a label that does not exist yet', () => {
+    expect(duplicateChecks([tree], files, new Map())).toEqual([]);
+  });
+});
+
+describe('newMessageCount with a tree', () => {
+  const tree = { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } };
+  const resolved = new Map([['a@x.nl', new Map([['m1', ['L7']]])]]);
+
+  it('counts a message the resolved label does not hold yet', () => {
+    expect(newMessageCount(new Set(), [tree], ['m1'], resolved)).toBe(1);
+  });
+
+  it('does not count a message with no label to land in', () => {
+    expect(newMessageCount(new Set(), [tree], ['m2'], resolved)).toBe(0);
   });
 });

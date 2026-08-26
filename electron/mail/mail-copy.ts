@@ -14,8 +14,19 @@ import { mapLimit } from '../core/concurrency';
 
 export interface CopyTarget {
   email: string;
+  /** The labels ticked in the picker. Empty in tree mode, where the labels differ per message
+   * and come from `ResolvedTreeLabels` instead. */
   labelIds: string[];
+  /** Set when this mailbox takes the dragged label's whole tree. `parentLabelId` is the label
+   * the tree is put under, or null for the top of the list. */
+  tree?: { parentLabelId: string | null };
 }
+
+/** Per mailbox, per Message-ID, the label ids that mailbox resolved the dragged tree to.
+ * Built once a mailbox's own labels exist (mail-drop-controller.ts) and only read here, which
+ * is what keeps this file free of the network. A message that is missing has no label to land
+ * in -- its label failed to be created -- and is skipped rather than filed somewhere near. */
+export type ResolvedTreeLabels = Map<string, Map<string, string[]>>;
 
 export interface CopyDuplicate {
   email: string;
@@ -196,17 +207,51 @@ export function threadGroups<T extends { file: string; threadId: string }>(
 export function duplicateChecks(
   targets: CopyTarget[],
   files: Array<{ messageId: string; subject: string }>,
+  resolved: ResolvedTreeLabels = new Map(),
 ): DuplicateHit[] {
   const out: DuplicateHit[] = [];
   for (const target of targets) {
-    for (const labelId of target.labelIds) {
-      for (const file of files) {
-        if (!file.messageId.trim()) continue;
+    // Label outer, message inner for a flat drag: that is the order the picker's warning
+    // samples its subjects from, and it is not this change's to alter. A tree has a different
+    // label set per message, so there is no outer label to loop.
+    if (!target.tree) {
+      for (const labelId of target.labelIds) {
+        for (const file of files) {
+          if (!file.messageId.trim()) continue;
+          out.push({ email: target.email, labelId, messageId: file.messageId, subject: file.subject });
+        }
+      }
+      continue;
+    }
+    for (const file of files) {
+      if (!file.messageId.trim()) continue;
+      for (const labelId of labelsForMessage(target, file.messageId, resolved)) {
         out.push({ email: target.email, labelId, messageId: file.messageId, subject: file.subject });
       }
     }
   }
   return out;
+}
+
+/**
+ * The labels one saved message goes out with, in one mailbox
+ *
+ * The single seam between the two modes: a flat drag files every message under the same
+ * ticked labels, a tree drag files each message under whatever its own source labels became
+ * in this mailbox.
+ *
+ * @param target
+ * @param messageId the saved message's Message-ID
+ * @param resolved per mailbox what the tree resolved to; unread for a flat target
+ * @returns the label ids, empty when nothing in this mailbox can hold the message
+ */
+export function labelsForMessage(
+  target: CopyTarget,
+  messageId: string,
+  resolved: ResolvedTreeLabels,
+): string[] {
+  if (!target.tree) return target.labelIds;
+  return resolved.get(target.email)?.get(messageId) ?? [];
 }
 
 /**
@@ -280,17 +325,20 @@ export function insertLabelIds(labelIds: string[], markerLabelId: string): strin
  * @param index
  * @param targets
  * @param messageIds
+ * @param resolved per mailbox what a dragged tree resolved to; unread for a flat target
  * @returns the count, skipping what every target already holds
  */
 export function newMessageCount(
   index: Set<string>,
   targets: CopyTarget[],
   messageIds: string[],
+  resolved: ResolvedTreeLabels = new Map(),
 ): number {
   let n = 0;
   for (const t of targets) {
     for (const messageId of messageIds) {
-      if (labelsStillNeeded(index, t.email, t.labelIds, messageId).length > 0) n += 1;
+      const wanted = labelsForMessage(t, messageId, resolved);
+      if (labelsStillNeeded(index, t.email, wanted, messageId).length > 0) n += 1;
     }
   }
   return n;
