@@ -59,7 +59,7 @@ Strictly sequential. Task 1 carries almost all of the testable logic; 2 to 4 are
 
 **Why the handle exists:** it makes what goes away identical to what the user was shown, rather than to whatever is under the label at the moment they click. Mail that arrives between the count and the click is not in the store, so it stays. And `take` consumes the handle, so one count buys exactly one purge — a second click has nothing to act on and a stale settings window cannot fire an old listing.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/label-purge.test.ts`:
 
@@ -195,12 +195,12 @@ describe('the listing bound', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx vitest run tests/label-purge.test.ts`
 Expected: FAIL — `electron/mail/label-purge.ts` does not exist.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 Create `electron/mail/label-purge.ts`:
 
@@ -342,7 +342,7 @@ export function createPurgeStore(newHandle: () => string): PurgeStore {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/label-purge.test.ts`
 Expected: PASS.
@@ -350,7 +350,7 @@ Expected: PASS.
 Then: `npm test` and `npx tsc --noEmit -p tsconfig.json`
 Expected: PASS, exit 0. Nothing imports this module yet.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/mail/label-purge.ts tests/label-purge.test.ts
@@ -387,7 +387,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why this is its own file and not part of `mail-drop-controller.ts`:** that file is past 2,700 lines and owns the drag, the pull and the copy. This shares two primitives with it and no state, so putting it there would only make the larger file larger.
 
-- [ ] **Step 1: Write the module**
+- [x] **Step 1: Write the module**
 
 Create `electron/mail/label-purge-controller.ts`:
 
@@ -535,7 +535,7 @@ export async function purgeCountedLabel(handle: string, labels: string[]): Promi
 }
 ```
 
-- [ ] **Step 2: Verify**
+- [x] **Step 2: Verify**
 
 Run: `npm test`
 Expected: PASS, unchanged. This file has no unit test of its own: it is the network-facing half, and every test in this suite exercises pure functions. Do not add a mocked-HTTP test to manufacture a green check — the gate is the live run named at the end of this plan.
@@ -543,7 +543,7 @@ Expected: PASS, unchanged. This file has no unit test of its own: it is the netw
 Run: `npx tsc --noEmit -p tsconfig.json`
 Expected: exit 0. If `fetchMessageListPage`'s third parameter or `BATCH_MODIFY_LIMIT`'s name differs from the plan, the type checker is right and the plan is stale — read `electron/gmail/gmail-api.ts` and follow the code.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add electron/mail/label-purge-controller.ts
@@ -577,7 +577,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `IPC.LABEL_PURGE_COUNT = 'label:purge-count'` and `IPC.LABEL_PURGE_RUN = 'label:purge-run'`
   - `window.desktop.countLabelPurge(email, label)` and `window.desktop.runLabelPurge(handle, labels)`
 
-- [ ] **Step 1: Add the channels**
+- [x] **Step 1: Add the channels**
 
 In `electron/core/ipc.ts`, beside the other request/response channels:
 
@@ -586,7 +586,7 @@ In `electron/core/ipc.ts`, beside the other request/response channels:
   LABEL_PURGE_RUN: 'label:purge-run',
 ```
 
-- [ ] **Step 2: Add the handlers**
+- [x] **Step 2: Add the handlers**
 
 In `electron/core/ipc-handlers.ts`, following the shape of the existing `ipcMain.handle` calls, and adding both names to the existing import block:
 
@@ -601,7 +601,7 @@ In `electron/core/ipc-handlers.ts`, following the shape of the existing `ipcMain
 
 `handle` and not `on`: both answer something the renderer waits for, unlike `SET_ADVANCED` which is fire-and-forget.
 
-- [ ] **Step 3: Expose them**
+- [x] **Step 3: Expose them**
 
 In `electron/sidebar-preload.ts`, beside `setAdvanced` (around line 90):
 
@@ -629,12 +629,12 @@ In `electron/sidebar-preload.ts`, beside `setAdvanced` (around line 90):
 
 The shapes are written out rather than imported, the way every other method in this file does it: the preload is a boundary and the renderer cannot import from `electron/`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `npm test`, then both tsc projects.
 Expected: PASS, exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/core/ipc.ts electron/core/ipc-handlers.ts electron/sidebar-preload.ts
@@ -661,11 +661,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `window.desktop.countLabelPurge` and `window.desktop.runLabelPurge` from Task 3; `window.desktop.getLabels()`, which already exists (`electron/sidebar-preload.ts:128`) and answers `{ accounts: AccountLabels[] }` from `labelsForCopyTargets`. Do not add a second channel for it.
 - Produces: `SettingsSection` gains `'label-cleanup'`.
 
-- [ ] **Step 1: Add the section id**
+- [x] **Step 1: Add the section id**
 
 In `renderer/app/settings/nav.ts`, add `| 'label-cleanup'` to `SettingsSection` and put `'label-cleanup'` in `SETTINGS_GROUPS`'s second group, directly after `'advanced'`.
 
-- [ ] **Step 2: Add the strings**
+- [x] **Step 2: Add the strings**
 
 In `renderer/app/strings.ts`, add to the `UiStrings` interface and then to **both** the English and the Dutch object — the file carries a complete set per language and a missing key fails the type check:
 
@@ -711,7 +711,7 @@ Dutch values:
 
 The confirming button's text is built in the component, not a string here, because it carries the number: `` `Verplaats ${total.toLocaleString('nl-NL')} berichten naar de prullenbak` ``. That number on the control is the guard — the same thing the mail-drop stop dialog does — so it must not become a fixed string.
 
-- [ ] **Step 3: Write the section**
+- [x] **Step 3: Write the section**
 
 Create `renderer/app/settings/LabelCleanupSection.tsx`:
 
@@ -909,18 +909,18 @@ export function LabelCleanupSection({ S }: { S: UiStrings }) {
 }
 ```
 
-- [ ] **Step 4: Render it**
+- [x] **Step 4: Render it**
 
 In `renderer/app/SettingsPanel.tsx` there are two switches over the section id — one returning the component (around line 151) and one returning the section title (around line 225, where `case 'advanced': return S.navAdvanced;` sits). Add to the first `case 'label-cleanup': return <LabelCleanupSection S={S} />;` and to the second `case 'label-cleanup': return S.navLabelCleanup;`. Import the component beside the other section imports.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `npm test`, then `npx tsc --noEmit -p tsconfig.json`, then `npx tsc --noEmit -p renderer/tsconfig.json`.
 Expected: PASS and exit 0 twice. `tests/settings-nav.test.ts` asserts over the section list — if it counts sections or checks the groups, it will need the new id and that is a real change to make, not a failure to work around.
 
 Then check for a `labelsForCopyTargets` on the preload: the section calls it, and if `window.desktop` does not expose it the dropdown will simply be empty. If it is missing, expose it the same way Task 3 exposed its two, using the existing `IPC.MAIL_DROP_LABELS_GET`-style channel if one exists — read `electron/core/ipc.ts` for the channel the maildrop picker already uses.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add renderer/app/settings/LabelCleanupSection.tsx renderer/app/settings/nav.ts renderer/app/SettingsPanel.tsx renderer/app/strings.ts
