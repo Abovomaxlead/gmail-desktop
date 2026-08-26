@@ -166,6 +166,10 @@ export interface MailDropCopyProgress {
   total: number;
   paused?: boolean;
   byMailbox?: { email: string; copied: number }[];
+  /** Present only while a batched job is running. `done` and `total` above count the batch on
+   * screen; these count the whole job, in conversations, so a bar that fills five times still
+   * reads as one piece of work. */
+  job?: { batch: number; batches: number; done: number; total: number };
 }
 
 /** What the paused dialog may ask the copy in flight to do. The two stop actions used to be

@@ -120,6 +120,7 @@ import {
   JOB_BATCH_THREADS,
   finishLabelJob,
   inheritedMode,
+  jobProgress,
   needsJob,
   nextBatch,
   readLabelJob,
@@ -1996,6 +1997,17 @@ export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyC
 }
 
 /**
+ * The running job's own numbers, for the strip that draws above one batch's bar
+ *
+ * @returns the job's progress, or undefined when this is a plain drag -- which is what makes the
+ *   picker draw exactly the line it drew before jobs existed
+ * @private
+ */
+function jobProgressForSend(): MailDropCopyProgress['job'] {
+  return activeJob ? jobProgress(activeJob.job) : undefined;
+}
+
+/**
  * Tells the modal how far a paused copy had got, per mailbox
  *
  * Read off the journal rather than off a running tally: every insert that landed is already
@@ -2016,6 +2028,7 @@ function sendPausedProgress(): void {
     total,
     paused: true,
     byMailbox: [...byMailbox.entries()].map(([email, copied]) => ({ email, copied })),
+    job: jobProgressForSend(),
   } satisfies MailDropCopyProgress);
 }
 
@@ -2187,7 +2200,12 @@ export async function copyToMailboxes(arg: {
   // No mailbox in here any more: both phases run several at once, so naming one of them was
   // going to be a lie. The count is over the whole copy.
   const progress = (phase: 'check' | 'copy', of = total) =>
-    dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, { phase, done, total: of });
+    dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
+      phase,
+      done,
+      total: of,
+      job: jobProgressForSend(),
+    });
 
   let index = new Set<string>();
   // Empty in 'all' mode on purpose: that mode skips the scan below, so there is nothing to
