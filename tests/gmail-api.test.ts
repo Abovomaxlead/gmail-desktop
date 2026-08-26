@@ -68,6 +68,8 @@ import {
   batchModifyMessages,
   visibleLabelCreateBody,
   userLabelMap,
+  parseErrorReason,
+  GmailHttpError,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -1127,5 +1129,58 @@ describe('userLabelMap', () => {
       labelListVisibility: '',
     };
     expect(userLabelMap([marker]).size).toBe(0);
+  });
+});
+
+describe('parseErrorReason', () => {
+  it('reads the reason off the first error Gmail listed', () => {
+    expect(parseErrorReason({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } })).toBe(
+      'userRateLimitExceeded',
+    );
+  });
+
+  // The quota layer in front of the API writes this one instead, and it is the shape the live
+  // failure came back as: "Quota exceeded for quota metric 'Queries' ... for consumer ...".
+  it('falls back to the status the quota front end writes', () => {
+    expect(parseErrorReason({ error: { status: 'RESOURCE_EXHAUSTED' } })).toBe(
+      'RESOURCE_EXHAUSTED',
+    );
+  });
+
+  it('prefers a named reason over the status when both are there', () => {
+    expect(
+      parseErrorReason({
+        error: { status: 'PERMISSION_DENIED', errors: [{ reason: 'rateLimitExceeded' }] },
+      }),
+    ).toBe('rateLimitExceeded');
+  });
+
+  it('walks past an entry with no reason rather than stopping at it', () => {
+    expect(parseErrorReason({ error: { errors: [{}, { reason: 'quotaExceeded' }] } })).toBe(
+      'quotaExceeded',
+    );
+  });
+
+  it('says nothing for a body that carries neither', () => {
+    expect(parseErrorReason({ error: { message: 'kapot' } })).toBeNull();
+    expect(parseErrorReason({ error: {} })).toBeNull();
+    expect(parseErrorReason({})).toBeNull();
+    expect(parseErrorReason(null)).toBeNull();
+    expect(parseErrorReason('niet eens json')).toBeNull();
+  });
+});
+
+describe('GmailHttpError', () => {
+  it('carries the reason alongside the status', () => {
+    const e = new GmailHttpError('geweigerd', 403, null, 'userRateLimitExceeded');
+    expect(e.status).toBe(403);
+    expect(e.reason).toBe('userRateLimitExceeded');
+  });
+
+  // Two of the three places that construct one have no body to read a reason from -- an
+  // unreadable answer and a batch refused as a whole -- so the parameter has to default.
+  it('has no reason when none was given', () => {
+    expect(new GmailHttpError('kapot', 500).reason).toBeNull();
+    expect(new GmailHttpError('kapot', 500, '30').reason).toBeNull();
   });
 });
