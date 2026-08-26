@@ -63,7 +63,7 @@ answer.
   the existing one, never a rewrite of it. A single-batch job must be indistinguishable from no
   job at all.
 - **The marker discipline.** Every insert keeps riding out with its run's marker label folded
-  into the same POST (`copyToMailboxes`, `mail-drop-controller.ts:1670` onwards). A sweep acts
+  into the same POST (`copyToMailboxes`, `mail-drop-controller.ts:1941` onwards). A sweep acts
   only on a `markerLabelId` a journal header recorded, never on one re-derived from a name.
 - **The journal's crash-safety.** One line per insert, appended the moment the insert answers;
   a closing line is the only thing that tells a kept run from a crashed one. The job's own file
@@ -151,9 +151,9 @@ The plan is one append-only file in the drop folder, `<jobId>.job.jsonl`, writte
 closing line, each appended the moment the thing it records is true. It never duplicates the
 journal — it *references* it, by the `runId` a batch's copy minted.
 
-- **header** — `jobId`, `startedAt`, source account, the dragged label (and, once task 6 of the
-  label-tree work lands, the tree it resolved to), the full ordered thread-id list, and
-  `batchSize`.
+- **header** — `jobId`, `startedAt`, source account, the dragged label and the tree it resolved
+  to, the full ordered thread-id list as `collectLabelViaApi` merged it across the tree's
+  members, and `batchSize`.
 - **choices** — written the moment batch 1's copy is accepted: the targets, their labels, and
   the resolved `CopyMode`. Batches 2..n are copied with these and nothing else.
 - **batch** — `index`, `state`, and once copied the `runId` and the counts. States:
@@ -181,9 +181,9 @@ control flow in the controller; the per-batch steps are today's calls, re-entere
 Three things make the re-entry safe rather than lucky, and all three are properties of a job
 running strictly one batch at a time:
 
-- `dropSerial += 1` (`:902`) happens per batch, so `scanKey` changes and the duplicate scan
+- `dropSerial += 1` (`:1002`) happens per batch, so `scanKey` changes and the duplicate scan
   cache (`lastScan`) cannot carry an answer about batch *n*'s mails into batch *n+1*.
-- `runId` is minted per `copyToMailboxes` call (`:1670`), so every batch already gets its own
+- `runId` is minted per `copyToMailboxes` call (`:1941`), so every batch already gets its own
   id, its own journal and its own marker label per mailbox. Per-batch rollback needs no new
   machinery — it needs the job to remember which runIds are its own.
 - `lastDropSaved`, `lastDropPreview` and the drop lock are module-level and built for one drag.
@@ -277,6 +277,15 @@ that never needed it. It becomes:
   copying. It exists so a runaway page loop cannot allocate without end, and if it ever bites,
   it is reported like the other one.
 
+A third reader of that constant has to move with it, and it is easy to miss.
+`EXISTING_SCAN_LIMIT = MAX_THREADS` (`mail-drop-controller.ts:1155`) bounds the duplicate scan
+that runs from the drop, and its comment states the intent precisely: *set above the most a drag
+can produce*. Pointed at `API_MAX_THREADS` it would try to pre-scan 50,000 Message-IDs — 5,000
+batched searches, for a picker that only ever draws one batch. It must be pointed at **the most a
+single pull can produce**, which is `SCRAPE_MAX_THREADS` before part 2 and `batchSize` once the
+job exists. The intent in that comment then holds unchanged, which is the test of whether the
+split was done right.
+
 ## Tests
 
 Unit, in the existing vitest suite:
@@ -308,12 +317,21 @@ Part 1 stands alone and goes first. It touches `quota.ts`, `retry.ts` and `gmail
 controller, no UI, and it is what actually fixes the reported failure. It is worth shipping and
 watching on its own before anything below it is built.
 
-Part 2 waits on the label-tree work. Tasks 6, 7 and 8 of
-`docs/superpowers/plans/2026-08-25-label-tree-copy.md` are open, and task 6 rewrites collection
-at drop time in `mail-drop-controller.ts` — the exact step a plan draws its thread-id list from.
-For a tree drag that list is the merged `mergeTreeThreads` list, not one label's. Building the
-job first means building it against a collection step that is about to change shape, and then
-changing it again.
+Part 2 was blocked on the label-tree work when this spec was first written, and **is not any
+more**. Tasks 6, 7 and 8 of `docs/superpowers/plans/2026-08-25-label-tree-copy.md` landed on
+`dev` on 2026-08-26 as `e927963`, `6987f53` and `ed562a1`, so collection at drop time has already
+taken its new shape and part 2 can be planned against the code as it now stands rather than
+against a step about to be rewritten.
 
-So: part 1, then label-tree 6-8, then part 2. If part 2 is wanted sooner than that, the thing to
-say out loud is that its plan will be rewritten once task 6 lands.
+What that landing changed, and what part 2 must therefore assume: `collectLabelViaApi`
+(`mail-drop-controller.ts:670`) now calls `listLabelThreadIds` once per member of the tree
+(`:691`) and folds the answers together with `mergeTreeThreads` (`:693`), capping the total at
+`MAX_THREADS` (`:695`). The job's thread-id list is that merged list — one list, already ordered,
+already deduplicated across members — which is exactly the shape a plan wants. The batch
+boundaries fall inside it and know nothing about which member label a thread came from, and they
+do not need to: the labels a mail lands under are resolved per message by task 5's work
+(`mail-copy.ts`), from the tree plan, not from the batch.
+
+So: part 1, then part 2, and each gets its own plan. Part 1 first is still the order, not because
+anything blocks part 2 now, but because part 1 is what fixes the failure that started this and is
+worth watching on its own.
