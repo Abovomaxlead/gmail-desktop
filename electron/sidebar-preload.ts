@@ -88,6 +88,25 @@ contextBridge.exposeInMainWorld('desktop', {
   setPhishing: (patch: unknown): void => ipcRenderer.send(IPC.SET_PHISHING, patch),
   setUpdatePrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_UPDATE_PREFS, patch),
   setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
+  countLabelPurge: (
+    email: string,
+    label: string,
+  ): Promise<
+    | {
+        handle: string;
+        email: string;
+        label: string;
+        labels: { name: string; labelId: string; messages: number }[];
+        total: number;
+        capped: boolean;
+      }
+    | { error: string }
+  > => ipcRenderer.invoke(IPC.LABEL_PURGE_COUNT, { email, label }),
+  runLabelPurge: (
+    handle: string,
+    labels: string[],
+  ): Promise<{ trashed: number; failed: number; error?: string }> =>
+    ipcRenderer.invoke(IPC.LABEL_PURGE_RUN, { handle, labels }),
   setVerificationCodes: (patch: unknown): void =>
     ipcRenderer.send(IPC.SET_VERIFICATION_CODES, patch),
   getDownloadHistory: (): Promise<unknown> => ipcRenderer.invoke(IPC.DOWNLOAD_HISTORY_GET),
