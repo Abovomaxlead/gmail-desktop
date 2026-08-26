@@ -88,6 +88,7 @@ import {
   existingSoFar,
   groupDuplicates,
   insertLabelIds,
+  labelsForMessage,
   labelsStillNeeded,
   newMessageCount,
   normalizeTargets,
@@ -95,6 +96,7 @@ import {
   tallyOutcomes,
   threadGroups,
   type CopyMode,
+  type ResolvedTreeLabels,
   type DuplicateHit,
   type ExistingResult,
   type MailboxScan,
@@ -113,7 +115,12 @@ import {
   type LabelThread,
   type TreeThread,
 } from './label-drop';
-import { labelTreeMembers } from './label-tree';
+import {
+  labelTreeMembers,
+  planLabelTree,
+  resolveMessageLabels,
+  type LabelTreePlan,
+} from './label-tree';
 import { fetchThreadEmls } from './mail-fetch';
 import { emptyIndex, indexedScan, remember } from './message-index';
 import { BUSY_TEXT, NO_SUBJECT, SLOW_TEXT, dropOutcome, type MessageRef } from './dropzone';
@@ -127,12 +134,19 @@ import {
   readCopyJournal,
   recordCopyJournalDecision,
   recordCopyJournalEntry,
+  recordCopyJournalLabel,
   startCopyJournal,
   withWarnings,
   type CopyJournalRead,
 } from './copy-journal';
-import { sweepRunMarkers as runSweep } from './copy-marker-run-sweep';
-import type { CopyRunId, CopyStopMode, MarkerLabel, RollbackOutcome } from './copy-run-types';
+import { deleteCreatedLabels, sweepRunMarkers as runSweep } from './copy-marker-run-sweep';
+import type {
+  CopyRunId,
+  CopyStopMode,
+  CreatedLabel,
+  MarkerLabel,
+  RollbackOutcome,
+} from './copy-run-types';
 import {
   GmailCancelledError,
   GmailHttpError,
@@ -141,6 +155,7 @@ import {
   deleteLabel,
   fetchLabels,
   fetchUserLabelMap,
+  createVisibleLabel,
   fetchMessageListPage,
   fetchThreadMessages,
   fetchThreadRaw,
@@ -495,8 +510,9 @@ async function findDuplicates(
   saved: SavedRef[],
   onProgress: (done: number, total: number) => void,
   tally?: { checks: number; reused: number; asked: number },
+  resolved: ResolvedTreeLabels = new Map(),
 ): Promise<{ hits: DuplicateHit[]; scanned: Map<string, MailboxScan> }> {
-  const checks = duplicateChecks(targets, saved);
+  const checks = duplicateChecks(targets, saved, resolved);
 
   // The scan behind the picker asked the wider question — which labels hold this message —
   // so most of these are already answered. What it did not cover, because the mailbox
@@ -1306,6 +1322,9 @@ async function copyToMailbox(arg: {
   /** Whether this run's own scan found this mailbox holding zero copies of a given
    * Message-ID before anything was inserted -- keyed by absenceKey. Empty in 'all' mode. */
   provedAbsent: Set<string>;
+  /** Per mailbox, per Message-ID the labels a dragged tree resolved to. Empty for a flat
+   * drag, where the labels are the target's own ticked ones. */
+  resolved: ResolvedTreeLabels;
   /** This mailbox's own marker label for this run, created before the first file went out to
    * it. Folded into every insert's own labelIds -- see copyOneFile -- never applied after the
    * fact, so a severed insert can never land without it. */
@@ -1360,6 +1379,7 @@ async function copyToMailbox(arg: {
             wait: arg.wait,
             signal: arg.signal,
             provedAbsent: arg.provedAbsent,
+            resolved: arg.resolved,
             markerLabelId: arg.markerLabelId,
           });
           // Only the upload itself. Timing the whole call would fold the wait for room into
@@ -1399,12 +1419,16 @@ async function copyOneFile(arg: {
   wait: () => Promise<'continue' | 'stop'>;
   signal: AbortSignal;
   provedAbsent: Set<string>;
+  /** Per mailbox, per Message-ID the labels a dragged tree resolved to. Empty for a flat
+   * drag, where the labels are the target's own ticked ones. */
+  resolved: ResolvedTreeLabels;
   markerLabelId: string;
 }): Promise<{ outcome: CopyOutcome; threadId?: string; uploadMs?: number }> {
   const { ts, target, ref, index, landedIn } = arg;
   const { file, messageId } = ref;
 
-  const labelIds = labelsStillNeeded(index, target.email, target.labelIds, messageId);
+  const wanted = labelsForMessage(target, messageId, arg.resolved);
+  const labelIds = labelsStillNeeded(index, target.email, wanted, messageId);
   if (labelIds.length === 0) return { outcome: { skipped: true } };
 
   // Checked before the budget is ever asked for room: a file paused here has reserved
@@ -1524,6 +1548,151 @@ async function copyOneFile(arg: {
   });
 }
 
+/** What every mailbox taking a dragged tree has to do, worked out before anything is created */
+interface TreePlanning {
+  /** Per mailbox its own plan; a mailbox not taking the tree is absent */
+  plans: Map<string, LabelTreePlan>;
+  /** Per mailbox the labels resolved so far. Until the missing labels have been created this
+   * only names the ones that were already there, which is exactly what the duplicate scan may
+   * ask about: a label yet to be made holds nothing. */
+  resolved: ResolvedTreeLabels;
+  /** Per mailbox why it could not be planned at all */
+  errors: Map<string, string>;
+}
+
+/**
+ * The label a chosen id belongs to
+ *
+ * @param existing name to id, as the mailbox answered it
+ * @param labelId
+ * @returns the name, or null when the mailbox no longer has that label
+ * @private
+ */
+function nameForLabelId(existing: Map<string, string>, labelId: string): string | null {
+  for (const [name, id] of existing) if (id === labelId) return name;
+  return null;
+}
+
+/**
+ * Per saved message the labels it goes out with in one mailbox
+ *
+ * @param files the drag's saved messages
+ * @param plan
+ * @param ids every destination name that exists in the mailbox now
+ * @returns Message-ID to label ids
+ * @private
+ */
+function perMessageLabels(
+  files: SavedRef[],
+  plan: LabelTreePlan,
+  ids: Map<string, string>,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const file of files) {
+    if (!file.messageId.trim()) continue;
+    out.set(file.messageId, resolveMessageLabels(file.sourceLabels, plan.destinations, ids));
+  }
+  return out;
+}
+
+/**
+ * Works out per mailbox what taking the dragged tree would mean, creating nothing
+ *
+ * Deliberately before the duplicate scan and before the run exists: the scan can only ask
+ * about labels that are already there, and a 'check' pass the user then cancels must not leave
+ * new labels behind in their mailbox.
+ *
+ * @param targets
+ * @param files the drag's saved messages
+ * @param tree what the drag turned out to carry, or null when it was not a label drag
+ * @returns the plans, what already resolves, and per mailbox whatever went wrong
+ * @private
+ */
+async function planTrees(
+  targets: MailDropCopyTarget[],
+  files: SavedRef[],
+  tree: MailDropTree | null,
+): Promise<TreePlanning> {
+  const plans = new Map<string, LabelTreePlan>();
+  const resolved: ResolvedTreeLabels = new Map();
+  const errors = new Map<string, string>();
+  const taking = targets.filter((t) => t.tree);
+  if (!tree || taking.length === 0) return { plans, resolved, errors };
+
+  const members = tree.members.map((m) => m.name);
+  await mapLimit(taking, MAILBOX_LIMIT, async (target) => {
+    const got = await mailboxToken(target.email);
+    if (!got.ok) {
+      errors.set(target.email, got.error);
+      return;
+    }
+    try {
+      const existing = await fetchUserLabelMap(got.token);
+      const chosen = target.tree?.parentLabelId ?? null;
+      const parent = chosen ? nameForLabelId(existing, chosen) : null;
+      // Refused rather than quietly put at the top of the list: the user picked a label, and
+      // landing somewhere else is not a smaller version of that.
+      if (chosen && !parent) {
+        errors.set(target.email, 'het gekozen label bestaat niet meer in dit postvak');
+        return;
+      }
+      const plan = planLabelTree(members, tree.dragged, parent, existing);
+      plans.set(target.email, plan);
+      resolved.set(target.email, perMessageLabels(files, plan, new Map(plan.reuse)));
+    } catch (e) {
+      errors.set(target.email, (e as Error).message);
+    }
+  });
+  return { plans, resolved, errors };
+}
+
+/**
+ * Creates the labels a mailbox is still missing, recording each one as it lands
+ *
+ * Parents before children, which is `plan.create`'s own order -- creating `A/B` first leaves
+ * Gmail drawing a parent nobody made. A name Gmail refuses takes only itself out of the copy:
+ * the messages that would have gone there are skipped and the name is reported, since filing
+ * them under a nearer ancestor would put mail where nobody asked for it.
+ *
+ * @param root the drop folder, for the journal
+ * @param runId
+ * @param email
+ * @param plan
+ * @returns every destination name that exists now, and per failed label its own reason
+ * @private
+ */
+async function createTreeLabels(
+  root: string,
+  runId: CopyRunId,
+  email: string,
+  plan: LabelTreePlan,
+): Promise<{ ids: Map<string, string>; created: CreatedLabel[]; failed: string[]; warnings: string[] }> {
+  const ids = new Map(plan.reuse);
+  const created: CreatedLabel[] = [];
+  const failed: string[] = [];
+  const warnings: string[] = [];
+  if (plan.create.length === 0) return { ids, created, failed, warnings };
+
+  const got = await mailboxToken(email);
+  if (!got.ok) {
+    for (const name of plan.create) failed.push(`${name}: ${got.error}`);
+    return { ids, created, failed, warnings };
+  }
+  for (const name of plan.create) {
+    try {
+      const made = await createVisibleLabel(got.token, name);
+      ids.set(name, made.id);
+      const record: CreatedLabel = { email, labelId: made.id, name };
+      created.push(record);
+      const warn = recordCopyJournalLabel(root, runId, record);
+      if (warn) warnings.push(`kon label "${name}" niet in het journaal zetten: ${warn}`);
+    } catch (e) {
+      failed.push(`${name}: ${(e as Error).message}`);
+    }
+  }
+  return { ids, created, failed, warnings };
+}
+
 /**
  * Sweeps every mailbox's own marker for one run, wiring the real Gmail calls into
  * copy-marker-run-sweep.ts's own sweepRunMarkers
@@ -1536,6 +1705,8 @@ async function copyOneFile(arg: {
  * @param runId
  * @param markers this run's own marker per mailbox, from its journal header
  * @param mode 'strip' for a clean finish or a stop-keep, 'trash' for a stop-rollback
+ * @param created the labels this run made itself, deleted again on a rollback and left alone
+ *   on every other ending
  * @param onProgress called once per mailbox as it settles, so a rollback dialog can show this
  *   running
  * @returns what became of each mailbox, and whether every one of them converged cleanly
@@ -1545,15 +1716,25 @@ async function sweepRunMarkers(
   runId: CopyRunId,
   markers: MarkerLabel[],
   mode: 'strip' | 'trash',
+  created: CreatedLabel[] = [],
   onProgress?: (done: number, total: number) => void,
 ): Promise<RollbackOutcome> {
-  return runSweep(
-    runId,
-    markers,
-    mode,
-    { token: mailboxToken, list: fetchMessageListPage, modify: batchModifyMessages, deleteLabel },
-    onProgress,
-  );
+  const deps = {
+    token: mailboxToken,
+    list: fetchMessageListPage,
+    modify: batchModifyMessages,
+    deleteLabel,
+  };
+  const outcome = await runSweep(runId, markers, mode, deps, onProgress);
+  // After the mail, never before it: a label deleted while its messages still carry it takes
+  // the marker off them too, and the sweep would then have nothing left to find them by.
+  if (mode === 'trash' && created.length > 0) {
+    const left = await deleteCreatedLabels(created, deps);
+    if (left.length > 0) {
+      notifyLog(`[maildrop] rollback: labels bleven staan — ${left.join(', ')}`);
+    }
+  }
+  return outcome;
 }
 
 /**
@@ -1682,6 +1863,10 @@ export async function copyToMailboxes(arg: {
   const files = lastDropSaved;
   if (files.length === 0) return fail('Geen opgeslagen berichten om te kopiëren');
 
+  // Planned before the scan below, and creating nothing yet: see planTrees.
+  const trees = await planTrees(targets, files, lastDropTree);
+  const treeResolved: ResolvedTreeLabels = new Map(trees.resolved);
+
   const total = copyTotal(targets, files.length);
   const ts = new Date().toISOString();
   const root = mailDropFolder();
@@ -1714,6 +1899,7 @@ export async function copyToMailboxes(arg: {
             progress('check', of);
           },
           tally,
+          treeResolved,
         );
     notifyLog(
       `[maildrop] ${
@@ -1744,7 +1930,7 @@ export async function copyToMailboxes(arg: {
         accounts: [],
         needsConfirm: true,
         duplicates: groupDuplicates(hits),
-        newCount: newMessageCount(index, targets, files.map((f) => f.messageId)),
+        newCount: newMessageCount(index, targets, files.map((f) => f.messageId), treeResolved),
       };
     }
   }
@@ -1785,6 +1971,16 @@ export async function copyToMailboxes(arg: {
       progress('copy');
     }
   }
+  // A mailbox whose tree could not even be planned is reported and left alone, exactly like one
+  // whose marker could not be made: there is nothing safe to insert into it either.
+  for (const [email, error] of trees.errors) {
+    if (!markerLabelByEmail.has(email)) continue;
+    notifyLog(`[maildrop] copy ${email}: kon de labelstructuur niet bepalen — ${error}`);
+    accounts.push({ email, copied: 0, skipped: 0, total: files.length, error });
+    done += files.length;
+    progress('copy');
+    markerLabelByEmail.delete(email);
+  }
   const readyTargets = targets.filter((t) => markerLabelByEmail.has(t.email));
 
   // Alongside each other, because the quota that limits a copy is per user and every target is
@@ -1807,6 +2003,27 @@ export async function copyToMailboxes(arg: {
   const control = createCopyRunControl();
   activeRun = { runId, control, root, total };
   startCopyJournal(root, runId, readyTargets.map((t) => t.email), Date.now(), markers);
+
+  // After the journal exists, because every created label is written to it the moment it lands,
+  // and after the markers, because an insert without one must stay impossible. Before the first
+  // insert, because a message cannot be filed under a label that is not there yet.
+  const createdLabels: CreatedLabel[] = [];
+  const treeWarnings: string[] = [];
+  const failedLabels = new Map<string, string[]>();
+  for (const target of readyTargets) {
+    const plan = trees.plans.get(target.email);
+    if (!plan) continue;
+    const made = await createTreeLabels(root, runId, target.email, plan);
+    createdLabels.push(...made.created);
+    treeWarnings.push(...made.warnings);
+    if (made.failed.length > 0) failedLabels.set(target.email, made.failed);
+    treeResolved.set(target.email, perMessageLabels(files, plan, made.ids));
+    notifyLog(
+      `[maildrop] copy ${target.email}: ${made.created.length} label(s) aangemaakt, ${plan.reuse.size} hergebruikt${
+        made.failed.length > 0 ? `, ${made.failed.length} mislukt` : ''
+      }`,
+    );
+  }
 
   const runCopy = async (): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> => {
     const perTarget = await mapLimit(
@@ -1855,6 +2072,7 @@ export async function copyToMailboxes(arg: {
           wait: control.wait,
           signal: control.signal(),
           provedAbsent,
+          resolved: treeResolved,
           markerLabelId: markerLabelByEmail.get(target.email)!,
           onInsert: (ms) => inserts.push(ms),
           onDone: () => {
@@ -1903,7 +2121,17 @@ export async function copyToMailboxes(arg: {
     // read the same as they did when the mailboxes ran one at a time.
     const assembled = assembleCopy(perTarget);
     records.push(...assembled.records);
-    accounts.push(...assembled.accounts);
+    // A label Gmail refused is named in the mailbox's own line rather than folded into the
+    // warnings: the mail that would have gone there was not copied, and that is a property of
+    // this mailbox, not of the run.
+    accounts.push(
+      ...assembled.accounts.map((a) => {
+        const refused = failedLabels.get(a.email);
+        if (!refused) return a;
+        const said = `label niet aangemaakt: ${refused.join('; ')}`;
+        return { ...a, error: a.error ? `${a.error} — ${said}` : said };
+      }),
+    );
     copied += assembled.copied;
     skipped += assembled.skipped;
 
@@ -1916,7 +2144,7 @@ export async function copyToMailboxes(arg: {
     // say so whether or not the run was allowed to run to its own end. A failure here is not
     // swallowed any more -- this share has dropped an appended write before, and the run
     // must say so rather than quietly proceed as if nothing happened.
-    const warnings: string[] = [];
+    const warnings: string[] = [...treeWarnings];
     const logError = attemptWrite(() => appendLog(root, records));
     if (logError) {
       const message = `logboek niet bijgeschreven: ${logError}`;
@@ -2018,7 +2246,7 @@ export async function copyToMailboxes(arg: {
     // the sweep that finds it: list the marker, trash whatever comes back, repeat until the
     // listing is empty. There is nothing left to reconcile by Message-ID; membership under
     // the marker already answers "is this ours" with certainty a search never could.
-    const rollback = await sweepRunMarkers(runId, markers, 'trash', (rDone, rTotal) =>
+    const rollback = await sweepRunMarkers(runId, markers, 'trash', createdLabels, (rDone, rTotal) =>
       dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
         phase: 'rollback',
         done: rDone,
@@ -2084,6 +2312,7 @@ async function finishOrphanRun(
     journal.runId,
     journal.markers,
     mode === 'keep' ? 'strip' : 'trash',
+    journal.created,
   );
   if (!settled(outcome)) {
     notifyLog(
