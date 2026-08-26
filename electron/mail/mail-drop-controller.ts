@@ -30,6 +30,7 @@ import type {
   MailDropFolderStatus,
   MailDropPayload,
   MailDropPreviewItem,
+  MailDropTree,
 } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import {
@@ -104,11 +105,15 @@ import {
   MAX_PAGES,
   MAX_THREADS,
   PAGE_SIZE,
+  SIDEBAR_LABEL_SCRAPE_JS,
   labelListUrl,
-  mergeThreads,
+  labelNamesFromHrefs,
+  mergeTreeThreads,
   scrapeSettled,
   type LabelThread,
+  type TreeThread,
 } from './label-drop';
+import { labelTreeMembers } from './label-tree';
 import { fetchThreadEmls } from './mail-fetch';
 import { emptyIndex, indexedScan, remember } from './message-index';
 import { BUSY_TEXT, NO_SUBJECT, SLOW_TEXT, dropOutcome, type MessageRef } from './dropzone';
@@ -134,8 +139,8 @@ import {
   batchModifyMessages,
   createHiddenLabel,
   deleteLabel,
-  fetchLabelId,
   fetchLabels,
+  fetchUserLabelMap,
   fetchMessageListPage,
   fetchThreadMessages,
   fetchThreadRaw,
@@ -161,6 +166,9 @@ interface SavedRef {
   messageId: string;
   subject: string;
   threadId: string;
+  /** The labels of a dragged tree this message was found under, empty for every other drag.
+   * What the copy turns into destination labels, one mailbox at a time. */
+  sourceLabels: string[];
 }
 
 
@@ -173,6 +181,12 @@ let lastDropPreview: MailDropPreviewItem[] = [];
 let lastDropSaved: SavedRef[] = [];
 
 let lastDropSource = '';
+
+/** The tree the last drag turned out to be, or null when it was not a label drag. Read by the
+ * picker, which draws what would be created, and by the copy, which plans against it. Cleared
+ * at the start of every drop, so a conversation drag can never inherit the previous label
+ * drag's tree. */
+let lastDropTree: MailDropTree | null = null;
 
 /** `scanned` is kept alongside `hits` for exactly one reason: proving, per mailbox and per
  * message, that this run's own scan found zero copies there before it inserted anything --
@@ -452,12 +466,14 @@ function savedRefs(
   files: string[],
   messages: SavedMessage[],
   threadId: string,
+  sourceLabels: string[] = [],
 ): SavedRef[] {
   return messages.map((m, i) => ({
     file: join(root, files[i]),
     messageId: m.headers.messageId,
     subject: m.headers.subject || NO_SUBJECT,
     threadId,
+    sourceLabels,
   }));
 }
 
@@ -572,49 +588,61 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function collectLabelThreads(
   authuser: string,
   label: string,
-): Promise<{ threads: LabelThread[]; capped: boolean }> {
-  const threads: LabelThread[] = [];
+): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean }> {
+  const threads: TreeThread[] = [];
   let capped = false;
-  if (!manager) return { threads, capped };
+  let members: string[] = [label];
+  if (!manager) return { threads, members, capped };
 
   await manager.withHiddenView(labelListUrl(authuser, label, 1), async (wc) => {
-    let firstOfPrevious = '';
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      if (page > 1) {
-        const hash = new URL(labelListUrl(authuser, label, page)).hash;
-        await wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => null);
-      }
-      let pageThreads: LabelThread[] = [];
-      let settled = false;
-      for (let tries = 0; tries < 25 && !settled; tries++) {
-        await delay(400);
-        const now = (await wc.executeJavaScript(LABEL_SCRAPE_JS).catch(() => [])) as LabelThread[];
-        settled = scrapeSettled(pageThreads, now, firstOfPrevious);
-        pageThreads = now;
-      }
-      if (pageThreads.length === 0) break;
-      // The last read rather than nothing when the list never stood still: a busy mailbox
-      // still has rows worth saving, and the log says the count is a floor.
-      if (!settled) {
-        notifyLog(
-          `[maildrop] label "${label}" pagina ${page}: lijst stond niet stil, ${pageThreads.length} rijen genomen`,
-        );
-      }
-      firstOfPrevious = pageThreads[0].threadId;
+    // Gmail's own navigation is the only list of sublabels there is without the API, and it
+    // is read from whichever label view happens to be open -- the sidebar is the same on all
+    // of them.
+    const hrefs = (await wc.executeJavaScript(SIDEBAR_LABEL_SCRAPE_JS).catch(() => [])) as string[];
+    const found = labelTreeMembers(labelNamesFromHrefs(hrefs), label);
+    if (found.length > 0) members = found;
 
-      const { added, total } = mergeThreads(threads, pageThreads);
-      if (total >= MAX_THREADS) {
-        capped = pageThreads.length >= PAGE_SIZE;
-        break;
+    // Carried across the members, not reset per member: the guard against reading a list that
+    // has not been replaced yet is exactly as needed when the previous page belonged to the
+    // previous label as when it belonged to the previous page of this one.
+    let firstOfPrevious = '';
+    for (const member of members) {
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const hash = new URL(labelListUrl(authuser, member, page)).hash;
+        await wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => null);
+        let pageThreads: LabelThread[] = [];
+        let settled = false;
+        for (let tries = 0; tries < 25 && !settled; tries++) {
+          await delay(400);
+          const now = (await wc.executeJavaScript(LABEL_SCRAPE_JS).catch(() => [])) as LabelThread[];
+          settled = scrapeSettled(pageThreads, now, firstOfPrevious);
+          pageThreads = now;
+        }
+        if (pageThreads.length === 0) break;
+        // The last read rather than nothing when the list never stood still: a busy mailbox
+        // still has rows worth saving, and the log says the count is a floor.
+        if (!settled) {
+          notifyLog(
+            `[maildrop] label "${member}" pagina ${page}: lijst stond niet stil, ${pageThreads.length} rijen genomen`,
+          );
+        }
+        firstOfPrevious = pageThreads[0].threadId;
+
+        const { added, total } = mergeTreeThreads(threads, member, pageThreads);
+        if (total >= MAX_THREADS) {
+          capped = pageThreads.length >= PAGE_SIZE;
+          break;
+        }
+        if (added === 0) break;
       }
-      if (added === 0) break;
+      if (capped) break;
     }
   });
-  return { threads, capped };
+  return { threads, members, capped };
 }
 
 interface CollectedThread {
-  thread: LabelThread;
+  thread: TreeThread;
   messages: SavedMessage[];
   error?: string;
 }
@@ -627,23 +655,40 @@ async function collectLabelViaApi(
   account: string,
   label: string,
   report: SaveProgress,
-): Promise<{ collected: CollectedThread[]; capped: boolean } | null> {
+): Promise<{ collected: CollectedThread[]; members: string[]; capped: boolean } | null> {
   if (!account) return null;
   const withToken = await withMailboxToken(account);
   if (!withToken) return null;
 
-  let list: { threadIds: string[]; capped: boolean };
+  const threads: TreeThread[] = [];
+  let members: string[];
+  let capped = false;
   try {
-    const labelId = await withToken((token) => fetchLabelId(token, label));
-    if (!labelId) return null;
-    list = await withToken((token) => listLabelThreadIds(token, labelId, MAX_THREADS));
+    const all = await withToken((token) => fetchUserLabelMap(token));
+    members = labelTreeMembers([...all.keys()], label);
+    if (members.length === 0) return null;
+    // One listing per member, folded into one accumulator: the cap counts the tree, and a
+    // conversation in two of its labels is one conversation carrying both.
+    for (const member of members) {
+      const labelId = all.get(member);
+      if (!labelId) continue;
+      const list = await withToken((token) => listLabelThreadIds(token, labelId, MAX_THREADS));
+      const page = list.threadIds.map((threadId) => ({ threadId, subject: '' }));
+      const { total } = mergeTreeThreads(threads, member, page);
+      capped = capped || list.capped;
+      if (total >= MAX_THREADS) {
+        capped = true;
+        break;
+      }
+    }
   } catch {
     return null;
   }
 
   let pulled = 0;
-  report(0, list.threadIds.length);
-  const collected = await mapLimit(list.threadIds, THREAD_FETCH_LIMIT, async (threadId) => {
+  report(0, threads.length);
+  const collected = await mapLimit(threads, THREAD_FETCH_LIMIT, async (thread) => {
+    const { threadId } = thread;
     try {
       const raws = await withToken((token) => fetchThreadRaw(token, threadId));
       const messages: SavedMessage[] = raws.map((raw) => ({
@@ -651,13 +696,13 @@ async function collectLabelViaApi(
         headers: parseHeaders(raw.toString('utf8')),
       }));
       return {
-        thread: { threadId, subject: messages[0]?.headers.subject || NO_SUBJECT },
+        thread: { ...thread, subject: messages[0]?.headers.subject || NO_SUBJECT },
         messages,
         error: messages.length === 0 ? 'Geen bericht in dit gesprek' : undefined,
       };
     } catch (e) {
       return {
-        thread: { threadId, subject: '' },
+        thread: { ...thread, subject: '' },
         messages: [],
         error: `Ophalen mislukt (${(e as Error).message})`,
       };
@@ -665,10 +710,33 @@ async function collectLabelViaApi(
       // In a finally, so a conversation that could not be fetched still moves the count on.
       // A counter that stops on a failed conversation reads as a pull that hung.
       pulled += 1;
-      report(pulled, list.threadIds.length);
+      report(pulled, threads.length);
     }
   });
-  return { collected, capped: list.capped };
+  return { collected, members, capped };
+}
+
+/**
+ * How many conversations each label of the tree turned out to hold
+ *
+ * Counted off what was actually collected rather than off the listing, so the number the
+ * picker shows is the number that will be copied. A label with none is still in the list: an
+ * empty sublabel is created too, and leaving it out would make the picker promise a shape it
+ * is not going to build.
+ *
+ * @param members every label of the tree, parents first
+ * @param collected
+ * @returns one entry per member, in the members' own order
+ * @private
+ */
+function memberCounts(
+  members: string[],
+  collected: CollectedThread[],
+): Array<{ name: string; threads: number }> {
+  return members.map((name) => ({
+    name,
+    threads: collected.filter((c) => c.thread.labels.includes(name)).length,
+  }));
 }
 
 async function saveLabel(
@@ -692,17 +760,24 @@ async function saveLabel(
   const viaApi = await collectLabelViaApi(account, label, report);
   let collected: CollectedThread[];
   let capped: boolean;
+  let members: string[];
 
   if (viaApi) {
-    notifyLog(`[maildrop] label "${label}" via de API: ${viaApi.collected.length} gesprekken`);
+    notifyLog(
+      `[maildrop] label "${label}" via de API: ${viaApi.members.length} label(s), ${viaApi.collected.length} gesprekken`,
+    );
     if (viaApi.collected.length === 0) return empty();
     collected = viaApi.collected;
     capped = viaApi.capped;
+    members = viaApi.members;
   } else {
     const scraped = await collectLabelThreads(authuser, label);
-    notifyLog(`[maildrop] label "${label}" van de pagina gelezen: ${scraped.threads.length} gesprekken`);
+    notifyLog(
+      `[maildrop] label "${label}" van de pagina gelezen: ${scraped.members.length} label(s), ${scraped.threads.length} gesprekken`,
+    );
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
+    members = scraped.members;
     report(0, scraped.threads.length);
 
     collected = [];
@@ -819,9 +894,18 @@ async function saveLabel(
   const saved: SavedRef[] = [];
   let at = 0;
   for (const c of collected) {
-    saved.push(...savedRefs(root, files.slice(at, at + c.messages.length), c.messages, c.thread.threadId));
+    saved.push(
+      ...savedRefs(
+        root,
+        files.slice(at, at + c.messages.length),
+        c.messages,
+        c.thread.threadId,
+        c.thread.labels,
+      ),
+    );
     at += c.messages.length;
   }
+  lastDropTree = { dragged: label, members: memberCounts(members, collected) };
   return { items, saved, rows: collected.map((c) => c.messages.length) };
 }
 
@@ -901,6 +985,7 @@ async function pullMailDrop(
   lastDropSaved = [];
   dropSerial += 1;
   lastDropSource = account;
+  lastDropTree = null;
   if (!payload.ik) {
     const error = 'Kon Gmail-token niet lezen';
     try {

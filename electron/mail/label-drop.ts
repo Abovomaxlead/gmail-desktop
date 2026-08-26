@@ -159,29 +159,6 @@ export function scrapeSettled(
 // page adds nothing new.
 
 /**
- * Adds a scraped page to what has been collected
- *
- * @param acc mutated in place
- * @param page
- * @returns how many were new, and the running total
- */
-export function mergeThreads(
-  acc: LabelThread[],
-  page: LabelThread[],
-): { added: number; total: number } {
-  const seen = new Set(acc.map((t) => t.threadId));
-  let added = 0;
-  for (const t of page) {
-    if (!t.threadId || seen.has(t.threadId)) continue;
-    if (acc.length >= MAX_THREADS) break;
-    seen.add(t.threadId);
-    acc.push(t);
-    added += 1;
-  }
-  return { added, total: acc.length };
-}
-
-/**
  * Adds one label's scraped page to the tree collected so far
  *
  * The cap counts threads, not entries: a thread already collected under another label of the

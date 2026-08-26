@@ -5,7 +5,6 @@ import {
   labelFromHref,
   labelFromDragTarget,
   labelListUrl,
-  mergeThreads,
   scrapeSettled,
   labelNamesFromHrefs,
   mergeTreeThreads,
@@ -133,28 +132,6 @@ describe('scrapeSettled', () => {
   it('refuses a page still showing the one before it', () => {
     expect(scrapeSettled([t('a'), t('b')], [t('a'), t('b')], 'a')).toBe(false);
     expect(scrapeSettled([t('c'), t('d')], [t('c'), t('d')], 'a')).toBe(true);
-  });
-});
-
-describe('mergeThreads', () => {
-  const t = (id: string): LabelThread => ({ threadId: id, subject: `Onderwerp ${id}` });
-
-  it('adds new threads and reports how many', () => {
-    const acc = [t('a')];
-    expect(mergeThreads(acc, [t('b'), t('c')])).toEqual({ added: 2, total: 3 });
-  });
-  it('reports zero when a page repeats what we already had', () => {
-    const acc = [t('a'), t('b')];
-    expect(mergeThreads(acc, [t('a'), t('b')])).toEqual({ added: 0, total: 2 });
-  });
-  it('skips entries without an id', () => {
-    const acc: LabelThread[] = [];
-    expect(mergeThreads(acc, [{ threadId: '', subject: 'x' }, t('a')]).total).toBe(1);
-  });
-  it('stops at the cap instead of growing without bound', () => {
-    const acc: LabelThread[] = [];
-    const page = Array.from({ length: MAX_THREADS + 25 }, (_, i) => t(`id${i}`));
-    expect(mergeThreads(acc, page)).toEqual({ added: MAX_THREADS, total: MAX_THREADS });
   });
 });
 

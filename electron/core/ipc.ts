@@ -138,6 +138,14 @@ export interface MailDropPreviewItem {
   error?: string;
 }
 
+/** What a dragged label turned out to carry: the label itself and every label nested under it,
+ * with how many conversations each holds. Absent for a drag that was not a label drag, which
+ * is what tells the picker to draw its ordinary ticking screen. */
+export interface MailDropTree {
+  dragged: string;
+  members: Array<{ name: string; threads: number }>;
+}
+
 export type {
   CopyTarget as MailDropCopyTarget,
   CopyAccountResult as MailDropCopyAccountResult,
