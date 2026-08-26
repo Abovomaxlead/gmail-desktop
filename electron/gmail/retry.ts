@@ -5,6 +5,18 @@
 // can be repeated freely. A `messages.insert` that timed out may well have landed, and
 // sending it again puts the mail in the mailbox twice — worse than the error it would paper
 // over. So an insert is only repeated on the answers that prove Gmail refused it outright.
+//
+// A rate limit crosses all of that. It is not a fourth method but a property any of them can
+// come back with, and it is the one refusal worth waiting minutes rather than milliseconds for:
+// the limit is per minute, so the ordinary backoff of half a second and then one and a half
+// exhausts itself inside the very window that refused the call. That is how a copy of 2,574
+// mails came back as 2,573 — three attempts, two seconds, one lost mail.
+//
+// So a rate-limited attempt gets its own budget (QUOTA_ATTEMPTS) and its own wait, and that
+// wait is capped by MAX_QUOTA_WAIT_MS rather than by MAX_WAIT_MS. Two constants for what looks
+// like one thing, on purpose: thirty seconds is right for a drag with somebody watching it, and
+// far too short for an insert three-quarters of the way through a copy of ten thousand. Raising
+// MAX_WAIT_MS would have made the drag hang to save the copy.
 
 
 
@@ -26,6 +38,10 @@ export interface RetryAttempt {
    * would defeat the reason it was cut in the first place. Kept apart from `timedOut` since
    * a GET is otherwise allowed one retry after a timeout, and a cancelled one must not be. */
   cancelled?: boolean;
+  /** Set when isRateLimit read this refusal as a rate limit. Carried as a flag rather than
+   * re-derived here, because the same 403 means two different things depending on the reason
+   * beside it, and this module deliberately does not import the error class that holds it. */
+  rateLimited?: boolean;
   retryAfter?: string | null;
 }
 
@@ -47,6 +63,34 @@ const RETRIABLE_STATUS = new Set([429, 500, 502, 503, 504]);
 /** What an insert may be repeated on: both mean the upload was refused before it was
  * accepted, so nothing landed. */
 const RETRIABLE_INSERT_STATUS = new Set([429, 503]);
+
+/** The reasons Gmail gives when it was a rate limit that refused, across both layers that can
+ * refuse one: the three the Gmail API lists per error, and the one the quota front end in front
+ * of it answers with instead. */
+const RATE_LIMIT_REASONS = new Set([
+  'rateLimitExceeded',
+  'userRateLimitExceeded',
+  'quotaExceeded',
+  'RESOURCE_EXHAUSTED',
+]);
+
+/** How many attempts a rate-limited call gets, against MAX_ATTEMPTS for everything else. Five
+ * waits between six attempts is just over six minutes of patience for one mail -- the right
+ * trade inside a copy that runs for twenty, and the wrong one anywhere a person is waiting. */
+export const QUOTA_ATTEMPTS = 6;
+
+/** A whole minute, not the remainder of one. The app cannot see where Gmail's window boundary
+ * falls, so the full width is the only wait guaranteed to clear it. */
+const QUOTA_WAIT_MS = 60_000;
+
+/** On top of the window, because the meter this app keeps and the meter Gmail keeps do not tick
+ * together. */
+const QUOTA_MARGIN_MS = 5_000;
+
+/** Where a rate-limited wait stops. Kept apart from MAX_WAIT_MS rather than raising it: thirty
+ * seconds is right for a drag somebody is watching, and far too short for an insert inside a
+ * copy of ten thousand. */
+export const MAX_QUOTA_WAIT_MS = 75_000;
 
 
 //===========================
@@ -70,6 +114,24 @@ export function retryAfterMs(header: string | null | undefined, now: number): nu
 }
 
 /**
+ * Whether Gmail refused this because of a rate limit rather than on the merits
+ *
+ * A 429 always is. A 403 only is when it names one of the reasons above: a 403 without one is a
+ * mailbox refusing us, and that must fail at once rather than sit out six quota windows first.
+ * A 400 never is -- admitting it would let a malformed insert be repeated for six minutes
+ * before failing anyway.
+ *
+ * @param status the HTTP status, or null when nothing came back
+ * @param reason Gmail's own reason for it, from parseErrorReason
+ * @returns true when waiting and repeating is the right answer
+ */
+export function isRateLimit(status: number | null, reason: string | null): boolean {
+  if (status === 429) return true;
+  if (status !== 403) return false;
+  return reason !== null && RATE_LIMIT_REASONS.has(reason);
+}
+
+/**
  * How long to wait before sending this request again
  *
  * @param a what the failed attempt ran into
@@ -82,7 +144,10 @@ export function retryWaitMs(
   now = Date.now(),
   jitter: () => number = Math.random,
 ): number | null {
-  if (a.attempt >= MAX_ATTEMPTS) return null;
+  // The attempt budget is the one thing a rate limit changes for every method at once: an
+  // insert and a GET both deserve to sit out a quota window, and neither can do that inside
+  // three attempts spread over two seconds.
+  if (a.attempt >= (a.rateLimited ? QUOTA_ATTEMPTS : MAX_ATTEMPTS)) return null;
 
   // Checked before the per-method branching below, and for every method: a cancelled
   // request is refused the same way an ambiguous POST already is, but a plain GET's own
@@ -98,12 +163,27 @@ export function retryWaitMs(
   // site has to name 'POST_IDEMPOTENT' on purpose to get anything but this refusal.
   if (a.method === 'POST') {
     if (a.timedOut || a.status === null) return null;
-    if (!RETRIABLE_INSERT_STATUS.has(a.status)) return null;
+    // One predicate wider than it was, named on purpose. A rate-limited call was turned away
+    // before it was accepted, so nothing landed and repeating it cannot put a mail in a mailbox
+    // twice -- which is the same proof RETRIABLE_INSERT_STATUS asks for, arriving as a 403
+    // instead of a 429. Nothing else widens this branch.
+    if (!RETRIABLE_INSERT_STATUS.has(a.status) && !a.rateLimited) return null;
   } else if (a.timedOut || a.status === null) {
     // A time-out already cost the full request timeout, so one more try is the whole budget
     if (a.attempt >= 2) return null;
-  } else if (!RETRIABLE_STATUS.has(a.status)) {
+  } else if (!RETRIABLE_STATUS.has(a.status) && !a.rateLimited) {
     return null;
+  }
+
+  // A quota window cannot be waited out by the ordinary backoff, so it is not tried: the wait is
+  // the window's whole width, and Gmail's own Retry-After is preferred only where it asks for
+  // longer than that.
+  if (a.rateLimited) {
+    const askedForQuota = retryAfterMs(a.retryAfter, now) ?? 0;
+    return Math.min(
+      Math.max(askedForQuota, QUOTA_WAIT_MS + QUOTA_MARGIN_MS),
+      MAX_QUOTA_WAIT_MS,
+    );
   }
 
   const asked = retryAfterMs(a.retryAfter, now);
