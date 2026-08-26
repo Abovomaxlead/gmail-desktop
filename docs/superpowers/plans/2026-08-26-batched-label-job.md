@@ -1575,7 +1575,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why:** inside a job `'stop-rollback'` is ambiguous, and the user asked to be given the choice at the moment of stopping rather than having it decided for them. A plain drag has one batch and therefore one meaning, so it keeps two buttons; a job shows three.
 
-- [ ] **Step 1: Split the action**
+- [x] **Step 1: Split the action**
 
 In `electron/core/ipc.ts`:
 
@@ -1602,7 +1602,7 @@ The preload writes the same union out by hand rather than importing it, so it ha
 
 Miss this and the renderer's call typechecks against the old union while the main process no longer answers to it — a stop that silently does nothing.
 
-- [ ] **Step 2: Act on the scope**
+- [x] **Step 2: Act on the scope**
 
 `controlCopyRun`'s two rollback cases:
 
@@ -1684,7 +1684,7 @@ Then where a stopped result ends the job, close the plan with the honest outcome
   }
 ```
 
-- [ ] **Step 3: Offer the choice in the picker**
+- [x] **Step 3: Offer the choice in the picker**
 
 `StopConfirm` gains one prop and one button. Its signature:
 
@@ -1744,12 +1744,12 @@ Below the existing 30-days note, when `job` is present and `job.batch > 1`, add 
 
 Then `controlCopy`'s type and the two handlers at lines 249 and 253 follow the new action names, and a third handler is added for the job scope.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `npm test`, then both tsc projects.
 Expected: PASS and exit 0. `tests/*` do not reference `'stop-rollback'`; if any does, it must move to `'stop-rollback-batch'`, which is the same behaviour it asserted before.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/core/ipc.ts electron/mail/mail-drop-controller.ts renderer/app/maildrop/page.tsx
@@ -1785,7 +1785,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why:** the bar counts one batch. Without the job's own numbers beside it, a job of five batches draws a bar that fills and restarts five times, which reads as four failures.
 
-- [ ] **Step 1: Widen the payload**
+- [x] **Step 1: Widen the payload**
 
 In `electron/core/ipc.ts`:
 
@@ -1803,7 +1803,7 @@ export interface MailDropCopyProgress {
 }
 ```
 
-- [ ] **Step 2: Send it**
+- [x] **Step 2: Send it**
 
 Both senders — the `progress` closure inside `copyToMailboxes` and `sendPausedProgress` — gain the same one field. Add a helper beside `sendPausedProgress` so the shape is decided once:
 
@@ -1822,7 +1822,7 @@ function jobProgressForSend(): MailDropCopyProgress['job'] {
 
 and both senders add `job: jobProgressForSend(),`.
 
-- [ ] **Step 3: Draw it**
+- [x] **Step 3: Draw it**
 
 In `renderer/app/maildrop/page.tsx`, `CopyProgress` gains the same optional field:
 
@@ -1869,12 +1869,12 @@ and the running case gains the batch clause ahead of the count:
 
 Finally, `StopConfirm`'s `job` prop from Task 6 is fed from `phase.job` where it is rendered — the two tasks meet exactly there, and neither invents a second source for it.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `npm test`, then both tsc projects.
 Expected: PASS, exit 0.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add electron/core/ipc.ts electron/mail/mail-drop-controller.ts renderer/app/maildrop/page.tsx
@@ -1909,7 +1909,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Why an offer and not an automatic resume:** an app that comes back from a crash and starts inserting thousands of mails unattended is not something the user can oversee, and at that moment the crash's cause is unknown. This mirrors the orphan-run decision the app already makes for a single run, one level up.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `tests/label-job.test.ts`:
 
@@ -1943,12 +1943,12 @@ describe('resuming', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npx vitest run tests/label-job.test.ts`
 Expected: FAIL — the first case's `jobProgress` and `nextBatch` assertions hold, but `recordJobChoices` with a `labelIds` target and no `tree` must typecheck; if `CopyTarget` is imported as a type only this passes immediately, in which case the test is a regression guard rather than a red step. Say so in the commit rather than manufacturing a failure.
 
-- [ ] **Step 3: Find the pending job at start**
+- [x] **Step 3: Find the pending job at start**
 
 In `mail-drop-controller.ts`, beside `pendingOrphans`:
 
@@ -1984,7 +1984,7 @@ let pendingJob: LabelJob | null = null;
   }
 ```
 
-- [ ] **Step 4: Offer and answer**
+- [x] **Step 4: Offer and answer**
 
 ```ts
 /**
@@ -2063,7 +2063,7 @@ export async function decideJobRun(
 }
 ```
 
-- [ ] **Step 5: Wire the two channels**
+- [x] **Step 5: Wire the two channels**
 
 In `electron/core/ipc.ts`, beside `MAIL_DROP_ORPHAN_GET` and `MAIL_DROP_ORPHAN_DECIDE`:
 
@@ -2103,7 +2103,7 @@ The renderer reaches them through `electron/sidebar-preload.ts`, where the orpha
   ): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.MAIL_DROP_JOB_DECIDE, { jobId, choice }),
 ```
 
-- [ ] **Step 6: Draw the offer**
+- [x] **Step 6: Draw the offer**
 
 In `renderer/app/maildrop/page.tsx`, beside `PendingOrphan`:
 
@@ -2186,12 +2186,12 @@ function JobDecision({
 
 Render it where `phase.kind === 'orphan'` is rendered (lines 440 and 508), and give the status line a `phase.kind === 'job'` case reading `Vorige keer afgebroken — nog een keuze nodig over "{label}"`.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 Run: `npx vitest run tests/label-job.test.ts`, then `npm test`, then both tsc projects.
 Expected: PASS, exit 0.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add electron/mail/label-job.ts electron/core/ipc.ts electron/core/ipc-handlers.ts electron/mail/mail-drop-controller.ts renderer/app/maildrop/page.tsx tests/label-job.test.ts
