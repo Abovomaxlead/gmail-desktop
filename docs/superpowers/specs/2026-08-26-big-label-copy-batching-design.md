@@ -202,6 +202,22 @@ The drop lock veils every Gmail view while a pull runs. Per batch it goes up and
 rather than standing for the whole job — which is the behaviour a 25-minute job needs, and
 falls out of re-entry for free.
 
+**One thing must not be re-entered: the preview.** This was learned the expensive way on
+2026-08-26. Re-opening it per batch looks like the obvious way to show what is happening, and it
+is wrong: the picker's preview handler resets to its `picking` phase, clears the chosen
+mailboxes and puts Kopieer back in front of the user — for the batch the driver is at that moment
+copying. It was pressed nine seconds later and 717 of 719 mails landed twice. So a driven batch
+sends no preview at all; the job line in the progress strip is what reports it, and the list on
+screen stays the one the user confirmed.
+
+And because a UI that does not invite something is not the same as a system that refuses it,
+`copyToMailboxes` takes a `fromJob` flag that only the driver sets and refuses every other caller
+while a job is walking. **The duplicate scan is not a second line of defence here and cannot be
+made into one**: it asks Gmail which labels hold a Message-ID, and Gmail's index lags inserts by
+more than the seconds involved — on the day, the scan asked about 719 mails that were being
+inserted as it asked, found nothing, and let the copy proceed in good faith. Knowing that a job
+owns those files right now is the only thing that can say no.
+
 ### Part 2 — Inheriting batch 1's choices
 
 The user is asked once. Batch 1 opens the picker as it does today; the user ticks mailboxes and
