@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { mapLimit } from '../core/concurrency';
-import { withRetry, type RetryMethod } from './retry';
+import { isRateLimit, withRetry, type RetryMethod } from './retry';
 import { notifyLog } from '../notify/notify-log';
 import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
 import {
@@ -1550,7 +1550,7 @@ async function requestJson(
         // A refusal while the budget still believed there was room means the budget is reading
         // the wrong price list -- which is exactly what happens when Google moves this project
         // to the table it published in May 2026, and nobody is told when that is.
-        if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+        if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
         throw e;
       }
     },
@@ -1558,6 +1558,7 @@ async function requestJson(
       method: retryMethod ?? (init ? 'POST' : 'GET'),
       status: e instanceof GmailHttpError ? e.status : null,
       timedOut: e instanceof GmailTimeoutError,
+      rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
       // A cut request is not a timeout: retry.ts refuses both, but only this one is a
       // deliberate choice worth telling apart from an ambiguous one when something later
       // reads the log back.
@@ -1609,7 +1610,7 @@ export async function requestBatch(
         try {
           return await attemptMultipart(BATCH_URL, accessToken, boundary, body);
         } catch (e) {
-          if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+          if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
           throw e;
         }
       },
@@ -1617,6 +1618,7 @@ export async function requestBatch(
         method: 'GET',
         status: e instanceof GmailHttpError ? e.status : null,
         timedOut: e instanceof GmailTimeoutError,
+        rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
         retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
       }),
     );
