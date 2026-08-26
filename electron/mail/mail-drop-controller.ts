@@ -2100,13 +2100,18 @@ async function walkJob(): Promise<void> {
       // No listing for a later batch: the plan already holds the conversations, and asking Gmail
       // again would both cost a hundred pages and risk a different answer than the one the
       // batches were cut from.
-      const { items, saved } = await saveLabel(
+      const { saved } = await saveLabel(
         ts, job.account, root, job.label, '', '', report, null, at.threads,
       );
       lastDropSaved = saved;
       recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
       activeJob.job = readLabelJob(root, job.jobId) ?? job;
-      openDropPreview(items);
+      // Deliberately NOT reopening the preview for a driven batch. Sending one puts the picker
+      // back into its `picking` phase with the mailboxes cleared and Kopieer live, which is an
+      // invitation to start a second copy of mail this driver is about to copy itself -- and on
+      // 2026-08-26 that invitation was accepted nine seconds after batch 2 began, landing 717
+      // mails twice. The strip's own job line ("Batch 2 van 2") is what reports progress here;
+      // the list on screen stays the one the user confirmed.
     } finally {
       if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
     }
@@ -2114,7 +2119,11 @@ async function walkJob(): Promise<void> {
     // The same call the picker's own Kopieer makes, with the choices batch zero was given. The
     // duplicate scan runs again inside it, per batch, against that batch's own mail -- which is
     // what keeps "which mail lands where" the live answer it has always been.
-    const result = await copyToMailboxes({ targets: job.choices.targets, mode: job.choices.mode });
+    const result = await copyToMailboxes({
+      targets: job.choices.targets,
+      mode: job.choices.mode,
+      fromJob: true,
+    });
     if ('stopped' in result && result.stopped) {
       // Ordinarily closed by the tail of copyToMailboxes before this line is reached, which is
       // why the guard is on activeJob rather than on the result: a stop that got there first
@@ -2164,6 +2173,10 @@ async function walkJob(): Promise<void> {
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
+  /** Set only by the job driver. Every other caller -- the picker's Kopieer, an IPC message, a
+   * stale window -- leaves it unset, which is what the guard below reads to refuse a second copy
+   * of mail a running job is already copying. */
+  fromJob?: boolean;
 }): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
   const requested = normalizeTargets(arg?.targets ?? []);
@@ -2177,6 +2190,20 @@ export async function copyToMailboxes(arg: {
     accounts: [],
     error,
   });
+  // A copy nobody asked for is worse than a copy refused. While the driver is walking a job it
+  // is already copying `lastDropSaved`, and a second call against the same files inserts every
+  // one of them again -- which is exactly what happened on 2026-08-26: the preview reopened for
+  // batch 2 with a live Kopieer button, the button was pressed nine seconds after the driver had
+  // started on the same 719 mails, and 717 of them landed twice.
+  //
+  // The duplicate scan is no defence here and cannot be made one: it asks Gmail which labels
+  // hold a Message-ID, and Gmail's index had not caught up with inserts made seconds earlier, so
+  // the scan found nothing and the second copy proceeded in good faith. The only thing that can
+  // refuse this is knowing a job owns these files right now.
+  if (jobDriving && !arg?.fromJob) {
+    notifyLog('[maildrop] tweede copy geweigerd: de klus kopieert deze mail zelf al');
+    return fail('Er loopt een klus die deze mail zelf kopieert. Pauzeer of stop die eerst.');
+  }
   if (!cfg || !oauthTokens) return fail('Koppeling niet ingesteld');
   // Held in a const because the mailboxes now run inside a closure, where the module binding
   // could in principle have been cleared by the time a worker gets there.
