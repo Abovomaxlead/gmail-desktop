@@ -668,26 +668,34 @@ interface CollectedThread {
 // alongside each other too and it is the product of the two that meets Gmail's quota
 const THREAD_FETCH_LIMIT = 4;
 
-async function collectLabelViaApi(
+/**
+ * Lists every conversation of a dragged label's tree, without fetching any of them
+ *
+ * The cheap half of a label drag, and the half a batched job needs on its own: one
+ * `threads.list` page is 100 ids for 10 units, so a tree of ten thousand is a hundred pages and
+ * a thousand units -- four seconds of the budget, against the minutes fetching them costs. That
+ * is what lets a plan know which conversations it is going to pull before it pulls one.
+ *
+ * @param account the mailbox the label was dragged out of
+ * @param label the dragged label, whose tree is resolved from the mailbox's own label map
+ * @returns the conversations with the tree labels each of them carries, the members in the
+ *   order the tree resolved them, and whether the cap bit -- or null when this mailbox has no
+ *   usable token or does not have the label, which is the caller's signal to scrape instead
+ * @private
+ */
+async function listLabelTree(
   account: string,
   label: string,
-  report: SaveProgress,
-): Promise<{
-  collected: CollectedThread[];
-  members: string[];
-  capped: boolean;
-  cap: number;
-} | null> {
+): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number } | null> {
   if (!account) return null;
   const withToken = await withMailboxToken(account);
   if (!withToken) return null;
 
   const threads: TreeThread[] = [];
-  let members: string[];
   let capped = false;
   try {
     const all = await withToken((token) => fetchUserLabelMap(token));
-    members = labelTreeMembers([...all.keys()], label);
+    const members = labelTreeMembers([...all.keys()], label);
     if (members.length === 0) return null;
     // One listing per member, folded into one accumulator: the cap counts the tree, and a
     // conversation in two of its labels is one conversation carrying both.
@@ -703,13 +711,34 @@ async function collectLabelViaApi(
         break;
       }
     }
+    return { threads, members, capped, cap: API_MAX_THREADS };
   } catch {
     return null;
   }
+}
+
+/**
+ * Fetches the mail of conversations already listed
+ *
+ * @param account
+ * @param slice the conversations to fetch, which for a job is one batch of the plan and for an
+ *   ordinary drag is everything listLabelTree answered
+ * @param report moved on per conversation, in a finally, so one that could not be fetched still
+ *   advances the count -- a counter that stops on a failure reads as a pull that hung
+ * @returns one entry per conversation in `slice`, or null when the mailbox has no usable token
+ * @private
+ */
+async function fetchThreadSlice(
+  account: string,
+  slice: TreeThread[],
+  report: SaveProgress,
+): Promise<CollectedThread[] | null> {
+  const withToken = await withMailboxToken(account);
+  if (!withToken) return null;
 
   let pulled = 0;
-  report(0, threads.length);
-  const collected = await mapLimit(threads, THREAD_FETCH_LIMIT, async (thread) => {
+  report(0, slice.length);
+  return await mapLimit(slice, THREAD_FETCH_LIMIT, async (thread) => {
     const { threadId } = thread;
     try {
       const raws = await withToken((token) => fetchThreadRaw(token, threadId));
@@ -729,13 +758,10 @@ async function collectLabelViaApi(
         error: `Ophalen mislukt (${(e as Error).message})`,
       };
     } finally {
-      // In a finally, so a conversation that could not be fetched still moves the count on.
-      // A counter that stops on a failed conversation reads as a pull that hung.
       pulled += 1;
-      report(pulled, threads.length);
+      report(pulled, slice.length);
     }
   });
-  return { collected, members, capped, cap: API_MAX_THREADS };
 }
 
 /**
@@ -769,6 +795,10 @@ async function saveLabel(
   authuser: string,
   ik: string,
   report: SaveProgress,
+  /** One batch of a job's plan, or null for an ordinary drag, which lists and then fetches
+   * everything it listed. Null is what keeps a label that fits in one batch byte-for-byte
+   * today's drag. */
+  slice: TreeThread[] | null,
 ): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
   const empty = () => {
     const error = `Geen mail gevonden in label "${label}"`;
@@ -779,7 +809,21 @@ async function saveLabel(
     return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [], rows: [] };
   };
 
-  const viaApi = await collectLabelViaApi(account, label, report);
+  const listed = slice ? null : await listLabelTree(account, label);
+  const toFetch = slice ?? listed?.threads ?? null;
+  const viaApi =
+    toFetch === null
+      ? null
+      : await fetchThreadSlice(account, toFetch, report).then((collected) =>
+          collected === null
+            ? null
+            : {
+                collected,
+                members: listed?.members ?? lastDropTree?.members.map((m) => m.name) ?? [label],
+                capped: listed?.capped ?? false,
+                cap: listed?.cap ?? API_MAX_THREADS,
+              },
+        );
   let collected: CollectedThread[];
   let capped: boolean;
   let members: string[];
@@ -1038,6 +1082,7 @@ async function pullMailDrop(
       payload.authuser,
       payload.ik,
       report,
+      null,
     );
     lastDropSaved = refs;
     // rows rather than the display items: those carry the truncation notice too, which is
