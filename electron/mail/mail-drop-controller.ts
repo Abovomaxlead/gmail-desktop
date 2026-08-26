@@ -118,8 +118,13 @@ import {
 } from './label-drop';
 import {
   JOB_BATCH_THREADS,
+  finishLabelJob,
+  inheritedMode,
   needsJob,
+  nextBatch,
   readLabelJob,
+  recordJobBatchState,
+  recordJobChoices,
   sliceIntoBatches,
   startLabelJob,
   type LabelJob,
@@ -237,6 +242,11 @@ let activeRun: { runId: CopyRunId; control: CopyRunControl; root: string; total:
 /** The job the driver is advancing, or null when this drag was not big enough to need one. One
  * at a time, always: the drop lock admits one pull and a job never overlaps its own batches. */
 let activeJob: { job: LabelJob; root: string } | null = null;
+
+/** Set while the driver is walking a job. The tail of copyToMailboxes starts the driver, and the
+ * driver's own loop calls copyToMailboxes -- so this is what keeps that from forking a second
+ * walk on every batch. Read nowhere else: it is a re-entrancy guard, not state anyone reports. */
+let jobDriving = false;
 
 
 //===========================
@@ -1977,6 +1987,97 @@ function sendPausedProgress(): void {
  * never stopped at all, 'kept' when the user chose to leave what had already landed, or a
  * rollback outcome when they chose to undo it -- see copyOneFile and the tail of this
  * function for where each of those is decided. */
+/**
+ * Pulls and copies every batch left in the running job, one at a time
+ *
+ * Not a loop over a list but a walk over the plan on disk: each turn asks it what is next, so a
+ * batch recorded as failed or a job that was closed underneath this stops it, and nothing has to
+ * be kept in memory that a crash would take with it.
+ *
+ * One batch at a time on purpose, never overlapping the next pull with this copy. The two would
+ * spend different mailboxes' quota and overlapping would nearly halve the wall clock, but
+ * `lastDropSaved`, `lastDropPreview`, `lastDropTree` and `dropSerial` are module-level and built
+ * for one drag -- which is exactly what re-entering the ordinary pull per batch relies on.
+ *
+ * @private
+ */
+async function advanceJob(): Promise<void> {
+  // One walk at a time. The loop below awaits copyToMailboxes, and the tail of that function
+  // starts the driver for the batch the user pressed Kopieer on -- so without this guard the
+  // walk forks on every batch and the two halves fight over the drop lock, one of them losing it
+  // and logging a wait nobody caused.
+  if (jobDriving) return;
+  jobDriving = true;
+  try {
+    await walkJob();
+  } finally {
+    jobDriving = false;
+  }
+}
+
+/**
+ * The walk itself, batch after batch, with advanceJob owning the guard around it
+ *
+ * @private
+ */
+async function walkJob(): Promise<void> {
+  while (activeJob) {
+    const { job, root } = activeJob;
+    const at = nextBatch(job);
+    if (!at) break;
+    if (!job.choices) break; // nothing to copy with; batch zero never got its answer
+
+    const token = dropLock.take(Date.now());
+    if (token === null) {
+      notifyLog('[maildrop] klus wacht: er wordt al mail opgehaald');
+      return;
+    }
+    manager?.sendDropLock({ locked: true });
+    try {
+      const ts = new Date().toISOString();
+      dropSerial += 1;
+      lastDropSaved = [];
+      const report: SaveProgress = (done, total) => manager?.sendDropProgress({ done, total });
+      // No listing for a later batch: the plan already holds the conversations, and asking Gmail
+      // again would both cost a hundred pages and risk a different answer than the one the
+      // batches were cut from.
+      const { items, saved } = await saveLabel(
+        ts, job.account, root, job.label, '', '', report, null, at.threads,
+      );
+      lastDropSaved = saved;
+      recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
+      activeJob.job = readLabelJob(root, job.jobId) ?? job;
+      openDropPreview(items);
+    } finally {
+      if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
+    }
+
+    // The same call the picker's own Kopieer makes, with the choices batch zero was given. The
+    // duplicate scan runs again inside it, per batch, against that batch's own mail -- which is
+    // what keeps "which mail lands where" the live answer it has always been.
+    const result = await copyToMailboxes({ targets: job.choices.targets, mode: job.choices.mode });
+    if ('stopped' in result && result.stopped) return;
+  }
+
+  if (activeJob && !nextBatch(activeJob.job)) {
+    const { job, root } = activeJob;
+    const stuck = job.batches.some((b) => b.state === 'failed');
+    // A job stopped by a failed batch is left open on purpose -- no closing line. The picker
+    // already shows that batch's own failure now, and the missing line is what makes the next
+    // start offer to continue, keep or undo it. Closing it here would swallow the one state the
+    // user still has to answer for, which is the whole reason a failed batch stops the walk
+    // instead of stepping over it.
+    if (!stuck) {
+      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, 'completed'));
+      if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+    }
+    notifyLog(
+      `[maildrop] klus voor "${job.label}" ${stuck ? 'gestopt op een mislukte batch, blijft open voor een keuze' : 'afgerond'}: ${job.batches.filter((b) => b.state === 'copied').length} van ${job.batches.length} batches`,
+    );
+    activeJob = null;
+  }
+}
+
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
@@ -2072,6 +2173,17 @@ export async function copyToMailboxes(arg: {
         newCount: newMessageCount(index, targets, files.map((f) => f.messageId), treeResolved),
       };
     }
+  }
+
+  // Recorded the moment the copy is accepted rather than when it finishes: these are the
+  // choices, and a crash between here and the end of batch zero must resume with them rather
+  // than ask again. Only the first batch writes them; every later one is running because of
+  // them.
+  if (activeJob && !activeJob.job.choices) {
+    const choices = { targets, mode: inheritedMode(mode === 'all' ? 'all' : mode === 'new' ? 'new' : null) };
+    const failed = attemptWrite(() => recordJobChoices(activeJob!.root, activeJob!.job.jobId, choices));
+    if (failed) notifyLog(`[maildrop] kon de keuzes van de klus niet vastleggen: ${failed}`);
+    activeJob.job = { ...activeJob.job, choices };
   }
 
   // Minted here rather than reusing dropSerial: dropSerial names the drag, and a 'check' pass
@@ -2416,7 +2528,33 @@ export async function copyToMailboxes(arg: {
   };
 
   try {
-    return await runCopy();
+    const result = await runCopy();
+    // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
+    // failed outright is recorded as failed and nextBatch then stops the job rather than trying
+    // the next two thousand into a mailbox that just refused us.
+    if (activeJob) {
+      const at = nextBatch(activeJob.job);
+      if (at) {
+        const stopped = 'stopped' in result && result.stopped;
+        const failedHard = !stopped && 'ok' in result && !result.ok;
+        const failed = attemptWrite(() =>
+          recordJobBatchState(activeJob!.root, activeJob!.job.jobId, {
+            index: at.index,
+            state: failedHard ? 'failed' : 'copied',
+            runId,
+            copied: 'copied' in result ? result.copied : undefined,
+            skipped: 'skipped' in result ? result.skipped : undefined,
+            error: failedHard ? (result as MailDropCopyResult).error : undefined,
+          }),
+        );
+        if (failed) notifyLog(`[maildrop] kon de stand van batch ${at.index} niet vastleggen: ${failed}`);
+        activeJob.job = readLabelJob(activeJob.root, activeJob.job.jobId) ?? activeJob.job;
+        // A stop is the user's final word on the whole job, not just on this batch, so the driver
+        // is not started. Task 6 decides what the stop rolls back.
+        if (!stopped) void advanceJob();
+      }
+    }
+    return result;
   } finally {
     if (activeRun?.runId === runId) activeRun = null;
   }
