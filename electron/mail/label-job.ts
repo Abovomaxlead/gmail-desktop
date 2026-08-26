@@ -150,6 +150,21 @@ export function sliceIntoBatches(threads: TreeThread[], batchSize: number): Tree
 }
 
 /**
+ * Whether a listed label is big enough to be worth a plan
+ *
+ * The boundary the whole change rests on. At or under the batch size there is no plan file, no
+ * driver and no job progress, and the drag is byte-for-byte the one this app already made -- so
+ * everything a job adds can only ever be reached by a label that genuinely did not fit.
+ *
+ * @param threads what the listing answered
+ * @param batchSize
+ * @returns true when the list has to be cut
+ */
+export function needsJob(threads: TreeThread[], batchSize: number): boolean {
+  return threads.length > batchSize;
+}
+
+/**
  * What every batch after the first is copied with, given what the first one resolved to
  *
  * A named function rather than a ternary at the call site, because it is the one place a

@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import {
   JOB_BATCH_THREADS,
   sliceIntoBatches,
+  needsJob,
   inheritedMode,
   jobPath,
   startLabelJob,
@@ -250,5 +251,19 @@ describe('jobProgress', () => {
   // One-based, because it is read out to a person: "batch 1 van 3", never "batch 0 van 3".
   it('names the first batch as one, not zero', () => {
     expect(jobProgress(written(6, 2)).batch).toBe(1);
+  });
+});
+
+describe('needsJob', () => {
+  // The safety property, as a test: a label that fits is not a job at all, so no plan file is
+  // written, no driver runs, and the drag is byte-for-byte today's drag.
+  it('is false for a label that fits in one batch', () => {
+    expect(needsJob(threads(2000), 2000)).toBe(false);
+    expect(needsJob(threads(1), 2000)).toBe(false);
+    expect(needsJob([], 2000)).toBe(false);
+  });
+
+  it('is true one conversation past the batch size', () => {
+    expect(needsJob(threads(2001), 2000)).toBe(true);
   });
 });

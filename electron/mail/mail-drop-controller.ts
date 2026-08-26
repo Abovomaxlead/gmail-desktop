@@ -117,6 +117,14 @@ import {
   type TreeThread,
 } from './label-drop';
 import {
+  JOB_BATCH_THREADS,
+  needsJob,
+  readLabelJob,
+  sliceIntoBatches,
+  startLabelJob,
+  type LabelJob,
+} from './label-job';
+import {
   labelTreeMembers,
   planLabelTree,
   resolveMessageLabels,
@@ -225,6 +233,10 @@ const dropLock = createDropLock();
  * paused progress line needs the same number the running one showed. */
 let activeRun: { runId: CopyRunId; control: CopyRunControl; root: string; total: number } | null =
   null;
+
+/** The job the driver is advancing, or null when this drag was not big enough to need one. One
+ * at a time, always: the drop lock admits one pull and a job never overlaps its own batches. */
+let activeJob: { job: LabelJob; root: string } | null = null;
 
 
 //===========================
@@ -795,8 +807,13 @@ async function saveLabel(
   authuser: string,
   ik: string,
   report: SaveProgress,
-  /** One batch of a job's plan, or null for an ordinary drag, which lists and then fetches
-   * everything it listed. Null is what keeps a label that fits in one batch byte-for-byte
+  /** What listLabelTree already answered for this drag, handed in rather than asked for again.
+   * The caller has to list before it can decide whether this label needs a plan at all, and
+   * listing twice would double the threads.list pages of every ordinary label drag. Null for a
+   * job's later batch, which has no fresh listing and does not need one. */
+  listed: Awaited<ReturnType<typeof listLabelTree>>,
+  /** One batch of a job's plan, or null for an ordinary drag, which fetches everything the
+   * listing above answered. Null is what keeps a label that fits in one batch byte-for-byte
    * today's drag. */
   slice: TreeThread[] | null,
 ): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
@@ -809,7 +826,6 @@ async function saveLabel(
     return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [], rows: [] };
   };
 
-  const listed = slice ? null : await listLabelTree(account, label);
   const toFetch = slice ?? listed?.threads ?? null;
   const viaApi =
     toFetch === null
@@ -1034,6 +1050,65 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
 }
 
 /**
+ * Decides whether this label needs a plan, and writes one if it does
+ *
+ * @param root the drop folder
+ * @param account
+ * @param label
+ * @param listed what listLabelTree answered, or null when it could not list at all
+ * @returns the slice to pull now -- batch zero for a job, or null for a label that fits, which
+ *   is what makes saveLabel list and fetch everything the way it always has
+ * @private
+ */
+async function planJob(
+  root: string,
+  account: string,
+  label: string,
+  listed: Awaited<ReturnType<typeof listLabelTree>>,
+): Promise<TreeThread[] | null> {
+  activeJob = null;
+  if (!listed || !needsJob(listed.threads, JOB_BATCH_THREADS)) return null;
+
+  const batches = sliceIntoBatches(listed.threads, JOB_BATCH_THREADS);
+  const jobId = randomUUID();
+  const header = {
+    jobId,
+    startedAt: Date.now(),
+    account,
+    label,
+    members: listed.members,
+    batchSize: JOB_BATCH_THREADS,
+    total: listed.threads.length,
+  };
+  // Written before a single mail is fetched: the plan is what a crash halfway through the first
+  // batch is resumed from, and a plan written afterwards would not exist yet at the one moment
+  // it is needed.
+  try {
+    startLabelJob(root, header, batches);
+  } catch (e) {
+    // A plan that cannot be written is not a reason to refuse the drag -- it is a reason to make
+    // it an ordinary one. The label is then capped at a batch, and the truncation is reported
+    // the way every other cap already is.
+    notifyLog(`[maildrop] kon het plan voor "${label}" niet wegschrijven: ${(e as Error).message}`);
+    return batches[0];
+  }
+  // Read back rather than assembled in memory, so what the driver walks is what is on disk. A
+  // read that fails right after a successful write is not a state to invent a job for -- fall
+  // back to the same ordinary drag a failed write gets, since a job whose plan cannot be read
+  // cannot be advanced or resumed either.
+  const planned = readLabelJob(root, jobId);
+  if (!planned) {
+    notifyLog(`[maildrop] plan voor "${label}" niet terug te lezen; als gewone sleep behandeld`);
+    return batches[0];
+  }
+  activeJob = { job: planned, root };
+  notifyLog(
+    `[maildrop] label "${label}": ${listed.threads.length} gesprekken, ${batches.length} batches van ${JOB_BATCH_THREADS}`,
+  );
+  return batches[0];
+}
+
+/**
  * Saves the dragged mail and opens the picker on what it saved
  *
  * @param acctKey the view the drag came from
@@ -1074,6 +1149,12 @@ async function pullMailDrop(
 
   if (payload.label) {
     report(0, 0);
+    // Listed before anything is fetched, so the size is known while it is still cheap to know:
+    // a tree of ten thousand costs a thousand units to list and minutes to pull. A listing that
+    // fails answers null and the scrape inside saveLabel carries the drag, as it always has --
+    // which also means no job, since nothing scraped can exceed one batch.
+    const listed = await listLabelTree(account, payload.label);
+    const slice = await planJob(root, account, payload.label, listed);
     const { items: done, saved: refs, rows } = await saveLabel(
       ts,
       account,
@@ -1082,7 +1163,8 @@ async function pullMailDrop(
       payload.authuser,
       payload.ik,
       report,
-      null,
+      listed,
+      slice,
     );
     lastDropSaved = refs;
     // rows rather than the display items: those carry the truncation notice too, which is
@@ -1204,12 +1286,12 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
 }
 
 // Above this the picker says nothing about duplicates at all, so it is set above the most a
-// drag can produce: a label drag stops at SCRAPE_MAX_THREADS, and once a job exists at one
-// batch (Task 4). It used to be ten, which meant a drag of a hundred rows was reported on for
-// none of them. What made this affordable is the batched query -- ten Message-IDs per search
-// instead of one -- and that the scan runs from the drop rather than from the click, so its
-// cost is paid while the window is still drawing.
-const EXISTING_SCAN_LIMIT = SCRAPE_MAX_THREADS;
+// single pull can produce -- which is one batch of a job, or a scrape's own ceiling for a label
+// small enough not to be one. It used to be ten, which meant a drag of a hundred rows was
+// reported on for none of them. What made this affordable is the batched query -- ten
+// Message-IDs per search instead of one -- and that the scan runs from the drop rather than from
+// the click, so its cost is paid while the window is still drawing.
+const EXISTING_SCAN_LIMIT = Math.max(JOB_BATCH_THREADS, SCRAPE_MAX_THREADS);
 
 const EXISTING_SCAN_CONCURRENCY = 4;
 
