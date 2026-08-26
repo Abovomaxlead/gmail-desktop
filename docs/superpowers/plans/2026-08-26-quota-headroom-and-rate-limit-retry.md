@@ -149,15 +149,31 @@ After:
 
 Nothing else in the function changes. `mine`, the no-banking rule, and the sleep stay exactly as they are.
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [ ] **Step 5: Fix the one pre-existing test that encoded the old rate**
+
+`'spreads a second of calls across the second instead of bursting them'` hard-codes the waits it expects — `[100, 200, 300, 400, 500, 600, 700, 800, 900]` — which are the slice widths the published 250 produced. The property that test is about is that calls are *spread and not bursted*; the width of a slice was never the point, and writing it out is what makes a pacing change look like a regression. Derive it:
+
+```ts
+    // The first goes straight out; each one behind it waits a slice longer, and the last of the
+    // batch waits almost the whole span. The slice is derived rather than written out: its width
+    // is whatever the pacing rate makes it, and SAFETY moved that rate without touching the
+    // property under test here, which is that the calls are spread and not bursted.
+    const slice = (QUOTA_COST['messages.insert'] * 1000) / (UNITS_PER_SECOND * SAFETY);
+    expect(c.waits).toHaveLength(insertsPerSecond - 1);
+    c.waits.forEach((wait, i) => expect(wait).toBeCloseTo(slice * (i + 1), 5));
+```
+
+The two tests after it (`'never lets more than the allowance start inside any one second'` and the one below it) compare against `insertsPerSecond`, which is derived already — leave both alone.
+
+- [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `npx vitest run tests/gmail-quota.test.ts`
-Expected: PASS, all of them, including the file's pre-existing tests.
+Expected: PASS, 31 tests.
 
 Then: `npm test`
 Expected: PASS. Nothing outside this file reads `SAFETY` yet, so no other suite should move.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add electron/gmail/quota.ts tests/gmail-quota.test.ts
