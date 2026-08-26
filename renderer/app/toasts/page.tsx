@@ -1,7 +1,15 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { getStrings } from '../strings';
+import { hoverAt } from '../toast-hover';
 import { Avatar } from '../Avatar';
 import { HAIRLINE } from '../settings/tokens';
 import {
@@ -37,6 +45,25 @@ export default function ToastsPage() {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const hoveredRef = useRef(false);
+  /** Where the pointer last was, in this window's own coordinates. Null while it is elsewhere.
+   * Kept because hover has to be worked out again whenever the stack moves, and the stack
+   * moving is not something the mouse reports. */
+  const pointRef = useRef<{ x: number; y: number } | null>(null);
+
+  /**
+   * Works out which card the pointer is on, from where it last was
+   *
+   * @private
+   */
+  const resolveHover = useCallback((): void => {
+    const at = pointRef.current;
+    if (!at) return;
+    const { id, overStack } = hoverAt(document.elementFromPoint(at.x, at.y));
+    setHoveredId(id);
+    if (overStack === hoveredRef.current) return;
+    hoveredRef.current = overStack;
+    window.desktop?.setToastHovered(overStack);
+  }, []);
 
   useEffect(() => {
     console.log(`[toasts] mounted, bridge=${Boolean(window.desktop)}`);
@@ -57,6 +84,10 @@ export default function ToastsPage() {
     });
 
     window.desktop?.onToastHoverEnd(() => {
+      // Main watched the cursor leave a click-through window, which generates no event here.
+      // The last position goes with it, or the next change of stack would resolve against a
+      // point the pointer is no longer at.
+      pointRef.current = null;
       hoveredRef.current = false;
       setHoveredId(null);
     });
@@ -84,25 +115,25 @@ export default function ToastsPage() {
       };
       console.log(`[toasts] measured ${size.width}x${size.height}, reporting`);
       window.desktop?.reportToastSize(size);
+      // The stack just changed height, so a card may have slid under or out from under a
+      // pointer that never moved -- the same reason the state effect asks again.
+      resolveHover();
     };
     const observer = new ResizeObserver(report);
     observer.observe(el);
     report();
     return () => observer.disconnect();
-  }, [state]);
+  }, [state, resolveHover]);
 
   useEffect(() => {
     const onMove = (e: MouseEvent): void => {
-      const el = document.elementFromPoint(e.clientX, e.clientY);
-      const card = el instanceof Element ? el.closest('[data-toast-card]') : null;
-
-      setHoveredId(card?.getAttribute('data-toast-id') ?? null);
-      const over = card !== null;
-      if (over === hoveredRef.current) return;
-      hoveredRef.current = over;
-      window.desktop?.setToastHovered(over);
+      pointRef.current = { x: e.clientX, y: e.clientY };
+      resolveHover();
     };
     const onLeave = (): void => {
+      // Cleared, not merely ignored: a stack that changes after the pointer has gone would
+      // otherwise resolve against where it last was and put the cross back.
+      pointRef.current = null;
       setHoveredId(null);
       if (!hoveredRef.current) return;
       hoveredRef.current = false;
@@ -121,7 +152,13 @@ export default function ToastsPage() {
       document.documentElement.removeEventListener('mouseleave', onLeave);
       document.removeEventListener('mouseout', onOut);
     };
-  }, []);
+  }, [resolveHover]);
+
+  // A card arriving or leaving moves the rest of the stack under a pointer that has not moved,
+  // and nothing about that is a mouse event. Asked again once React has put the new stack on
+  // screen, or the cross stays on a card the pointer has left -- or on no card at all -- until
+  // the mouse is moved again. Which is exactly what it did.
+  useLayoutEffect(resolveHover, [state, resolveHover]);
 
   const transparent = <style>{'html,body{background:transparent;overflow:hidden}'}</style>;
   if (!state) return transparent;
