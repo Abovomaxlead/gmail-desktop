@@ -614,7 +614,17 @@ function absenceKey(email: string, messageId: string): string {
   return `${email}\0${messageId}`;
 }
 
-function openDropPreview(items: MailDropPreviewItem[]): void {
+/**
+ * Shows the picker on a set of saved mail
+ *
+ * @param items what the pull saved, as the strip and the list draw it
+ * @param driven true when a job's driver is showing a batch it is about to copy itself. The
+ *   picker reads this and updates its list without returning to its picking phase: a driven
+ *   batch must be visible without being offered, since offering it is what landed 717 mails
+ *   twice on 2026-08-26.
+ * @private
+ */
+function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   const overlay =
     dropOverlay ??
@@ -626,7 +636,7 @@ function openDropPreview(items: MailDropPreviewItem[]): void {
     );
   setDropOverlay(overlay);
   lastDropPreview = items;
-  overlay.open({ items, tree: lastDropTree });
+  overlay.open({ items, tree: lastDropTree, driven });
 }
 
 
@@ -2100,18 +2110,18 @@ async function walkJob(): Promise<void> {
       // No listing for a later batch: the plan already holds the conversations, and asking Gmail
       // again would both cost a hundred pages and risk a different answer than the one the
       // batches were cut from.
-      const { saved } = await saveLabel(
+      const { items, saved } = await saveLabel(
         ts, job.account, root, job.label, '', '', report, null, at.threads,
       );
       lastDropSaved = saved;
       recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
       activeJob.job = readLabelJob(root, job.jobId) ?? job;
-      // Deliberately NOT reopening the preview for a driven batch. Sending one puts the picker
-      // back into its `picking` phase with the mailboxes cleared and Kopieer live, which is an
-      // invitation to start a second copy of mail this driver is about to copy itself -- and on
-      // 2026-08-26 that invitation was accepted nine seconds after batch 2 began, landing 717
-      // mails twice. The strip's own job line ("Batch 2 van 2") is what reports progress here;
-      // the list on screen stays the one the user confirmed.
+      // Shown, but marked as driven. Not showing it at all was the first answer to the duplicate
+      // of 2026-08-26 and it went too far: once the picker had been closed after a batch, the
+      // rest of a half-hour job ran with nothing on screen. `driven` is what separates the two
+      // needs -- the picker updates its list and stays out of its picking phase, so the batch is
+      // visible without Kopieer being offered for it.
+      openDropPreview(items, true);
     } finally {
       if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
     }

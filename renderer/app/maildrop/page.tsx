@@ -169,6 +169,9 @@ export default function MailDropModalPage() {
   const [search, setSearch] = useState('');
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
   const [existing, setExisting] = useState<MailDropExisting>(NOTHING_FOUND_YET);
+  /** How far the running job has got, kept apart from `phase` so a batch this window did not
+   * start can still report itself. Null outside a job, and cleared by the next real drag. */
+  const [jobLine, setJobLine] = useState<CopyProgress['job'] | null>(null);
   // Open the moment the X is clicked, not once the pause is confirmed -- the round trip to
   // main must not be what decides whether the dialog appears.
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
@@ -213,13 +216,22 @@ export default function MailDropModalPage() {
     // preview after mounting, on the assumption that the mount belonged to that same drop --
     // and any remount in between broke it, leaving the previous drag's mailboxes on screen with
     // the mailbox just dragged from still offered as a target and the one dragged to gone.
-    bridge.onMailDropPreview(({ items: i, tree: t }) => {
+    bridge.onMailDropPreview((p) => {
+      const { items: i, tree: t } = p as { items: MailDropItem[]; tree?: unknown };
       setItems(i);
       setTree((t as DropTree | null) ?? null);
+      // A driven batch is a job showing what it is about to copy itself, not a new drag. Its list
+      // is worth updating -- the alternative was showing nothing at all, which left a half-hour
+      // job invisible once this window had been closed after a batch. Everything below is the
+      // part that must not happen for it: returning to `picking` clears the chosen mailboxes and
+      // puts Kopieer back in front of the user for mail the driver already has in flight, and on
+      // 2026-08-26 that landed 717 mails twice.
+      if ((p as { driven?: boolean }).driven) return;
       setFlatMode({});
       setPicked({});
       setSearch('');
       setPhase({ kind: 'picking' });
+      setJobLine(null);
       loadLabels();
       loadExisting();
     });
@@ -249,9 +261,15 @@ export default function MailDropModalPage() {
       })
       .catch(() => {});
     bridge.onMailDropExisting((e) => setExisting((cur) => newerExisting(cur, e)));
-    bridge.onMailDropCopyProgress((p: CopyProgress) =>
-      setPhase((cur) => (cur.kind === 'copying' ? { kind: 'copying', ...p } : cur)),
-    );
+    bridge.onMailDropCopyProgress((p: CopyProgress) => {
+      // Kept beside the phase rather than folded into it. A batch the driver started never puts
+      // this window into `copying` -- only its own Kopieer does that -- so before this, progress
+      // for every batch after the first was simply dropped and the window sat on the previous
+      // batch's result. Forcing the phase instead would leave it stuck there when the job ends,
+      // with the close button disabled and nothing left to send.
+      if (p.job) setJobLine(p.job);
+      setPhase((cur) => (cur.kind === 'copying' ? { kind: 'copying', ...p } : cur));
+    });
   }, []);
 
   const n = items.length;
@@ -538,6 +556,7 @@ export default function MailDropModalPage() {
           <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-black/10 px-5 py-3 dark:border-white/10">
             <Status
               phase={phase}
+              jobLine={jobLine}
               pickedCount={pickedCount}
               savedCount={savedCount}
               failures={failures}
@@ -931,17 +950,32 @@ function LabelSearch({ value, onChange }: { value: string; onChange: (v: string)
 
 function Status({
   phase,
+  jobLine,
   pickedCount,
   savedCount,
   failures,
   chips,
 }: {
   phase: Phase;
+  jobLine: CopyProgress['job'] | null;
   pickedCount: number;
   savedCount: number;
   failures: string[];
   chips: PickedChip[];
 }) {
+  // A job carries on between batches, and this window is not in its `copying` phase then: the
+  // batch that is running was started by the driver and not by the button here. Said first and
+  // on its own, because the line underneath it would otherwise be the *previous* batch's result
+  // while the next one is already going -- which reads as finished when it is not.
+  if (jobLine && phase.kind !== 'copying' && jobLine.done < jobLine.total) {
+    return (
+      <span className="text-xs text-blue-700 dark:text-blue-400">
+        Batch {jobLine.batch} van {jobLine.batches} loopt — {jobLine.done} van {jobLine.total}{' '}
+        gekopieerd
+      </span>
+    );
+  }
+
   if (phase.kind === 'copying') {
     if (phase.paused) {
       return (
