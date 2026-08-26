@@ -103,10 +103,11 @@ import {
   type ScanOutcome,
 } from './mail-copy';
 import {
+  API_MAX_THREADS,
   LABEL_SCRAPE_JS,
   MAX_PAGES,
-  MAX_THREADS,
   PAGE_SIZE,
+  SCRAPE_MAX_THREADS,
   SIDEBAR_LABEL_SCRAPE_JS,
   labelListUrl,
   labelNamesFromHrefs,
@@ -604,11 +605,11 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function collectLabelThreads(
   authuser: string,
   label: string,
-): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean }> {
+): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number }> {
   const threads: TreeThread[] = [];
   let capped = false;
   let members: string[] = [label];
-  if (!manager) return { threads, members, capped };
+  if (!manager) return { threads, members, capped, cap: SCRAPE_MAX_THREADS };
 
   await manager.withHiddenView(labelListUrl(authuser, label, 1), async (wc) => {
     // Gmail's own navigation is the only list of sublabels there is without the API, and it
@@ -645,7 +646,7 @@ async function collectLabelThreads(
         firstOfPrevious = pageThreads[0].threadId;
 
         const { added, total } = mergeTreeThreads(threads, member, pageThreads);
-        if (total >= MAX_THREADS) {
+        if (total >= SCRAPE_MAX_THREADS) {
           capped = pageThreads.length >= PAGE_SIZE;
           break;
         }
@@ -654,7 +655,7 @@ async function collectLabelThreads(
       if (capped) break;
     }
   });
-  return { threads, members, capped };
+  return { threads, members, capped, cap: SCRAPE_MAX_THREADS };
 }
 
 interface CollectedThread {
@@ -671,7 +672,12 @@ async function collectLabelViaApi(
   account: string,
   label: string,
   report: SaveProgress,
-): Promise<{ collected: CollectedThread[]; members: string[]; capped: boolean } | null> {
+): Promise<{
+  collected: CollectedThread[];
+  members: string[];
+  capped: boolean;
+  cap: number;
+} | null> {
   if (!account) return null;
   const withToken = await withMailboxToken(account);
   if (!withToken) return null;
@@ -688,11 +694,11 @@ async function collectLabelViaApi(
     for (const member of members) {
       const labelId = all.get(member);
       if (!labelId) continue;
-      const list = await withToken((token) => listLabelThreadIds(token, labelId, MAX_THREADS));
+      const list = await withToken((token) => listLabelThreadIds(token, labelId, API_MAX_THREADS));
       const page = list.threadIds.map((threadId) => ({ threadId, subject: '' }));
-      const { total } = mergeTreeThreads(threads, member, page);
+      const { total } = mergeTreeThreads(threads, member, page, API_MAX_THREADS);
       capped = capped || list.capped;
-      if (total >= MAX_THREADS) {
+      if (total >= API_MAX_THREADS) {
         capped = true;
         break;
       }
@@ -729,7 +735,7 @@ async function collectLabelViaApi(
       report(pulled, threads.length);
     }
   });
-  return { collected, members, capped };
+  return { collected, members, capped, cap: API_MAX_THREADS };
 }
 
 /**
@@ -777,6 +783,9 @@ async function saveLabel(
   let collected: CollectedThread[];
   let capped: boolean;
   let members: string[];
+  // Carried from whichever collector answered rather than read off a constant: both paths reach
+  // the same two truncation messages, and they stop at wildly different numbers.
+  let cap: number;
 
   if (viaApi) {
     notifyLog(
@@ -786,6 +795,7 @@ async function saveLabel(
     collected = viaApi.collected;
     capped = viaApi.capped;
     members = viaApi.members;
+    cap = viaApi.cap;
   } else {
     const scraped = await collectLabelThreads(authuser, label);
     notifyLog(
@@ -794,6 +804,7 @@ async function saveLabel(
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
     members = scraped.members;
+    cap = scraped.cap;
     report(0, scraped.threads.length);
 
     collected = [];
@@ -882,7 +893,7 @@ async function saveLabel(
       account,
       threadId: '',
       label,
-      error: `Afgekapt op ${MAX_THREADS} gesprekken; het label bevat er meer`,
+      error: `Afgekapt op ${cap} gesprekken; het label bevat er meer`,
     });
   }
   try {
@@ -899,7 +910,7 @@ async function saveLabel(
   if (capped) {
     items.push({
       threadId: '',
-      subject: `Afgekapt op ${MAX_THREADS} gesprekken`,
+      subject: `Afgekapt op ${cap} gesprekken`,
       saved: 0,
       error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
     });
@@ -1148,11 +1159,12 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
 }
 
 // Above this the picker says nothing about duplicates at all, so it is set above the most a
-// drag can produce: a label drag stops at MAX_THREADS. It used to be ten, which meant a drag of
-// a hundred rows was reported on for none of them. What made this affordable is the batched
-// query -- ten Message-IDs per search instead of one -- and that the scan runs from the drop
-// rather than from the click, so its cost is paid while the window is still drawing.
-const EXISTING_SCAN_LIMIT = MAX_THREADS;
+// drag can produce: a label drag stops at SCRAPE_MAX_THREADS, and once a job exists at one
+// batch (Task 4). It used to be ten, which meant a drag of a hundred rows was reported on for
+// none of them. What made this affordable is the batched query -- ten Message-IDs per search
+// instead of one -- and that the scan runs from the drop rather than from the click, so its
+// cost is paid while the window is still drawing.
+const EXISTING_SCAN_LIMIT = SCRAPE_MAX_THREADS;
 
 const EXISTING_SCAN_CONCURRENCY = 4;
 
