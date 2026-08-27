@@ -27,7 +27,7 @@ import {
   DROPLOCK_CSS,
   PULLING_TEXT,
   DRAG_CHROME_Z,
-  threadIdFromDragTarget,
+  pressFromDragTarget,
   messageRefFromDragTarget,
   selectedRows,
   rowsForDrag,
@@ -399,9 +399,14 @@ function installDropzone(
       // reaching Gmail; this stops one that started before the veil went up.
       if (locked || e.button !== 0) return;
       const target = e.target as unknown as DragNode | null;
-      pressThreadId = threadIdFromDragTarget(target);
+      // Three kinds and not two, because the label branch below fetches every mail under a
+      // label: a press the guards refused is a press on mail, and only a press on nothing at
+      // all may be offered to it. While both answered null, selecting the subject line of an
+      // opened conversation could arm the strip for a whole label. See DragPress.
+      const press = pressFromDragTarget(target);
+      pressThreadId = press.kind === 'row' ? press.threadId : null;
       pressMessage = pressThreadId ? messageRefFromDragTarget(target) : null;
-      pressLabel = pressThreadId ? null : labelFromDragTarget(target);
+      pressLabel = press.kind === 'none' ? labelFromDragTarget(target) : null;
       pressAt = { x: e.clientX, y: e.clientY };
       dragging = false;
       if (pressThreadId || pressLabel) {
