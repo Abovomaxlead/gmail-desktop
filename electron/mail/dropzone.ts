@@ -118,6 +118,8 @@ const MESSAGE_PERM_ATTR = 'data-message-id';
 const ROW_MESSAGE_ID_ATTR = 'data-legacy-last-message-id';
 const ROW_THREAD_ATTR = 'data-thread-id';
 
+const HEADING_THREAD_ATTR = 'data-thread-perm-id';
+
 
 //===========================
 // Exported functions
@@ -129,8 +131,8 @@ const ROW_THREAD_ATTR = 'data-thread-id';
  * The id sits deep inside the row and never on the drag target, so ancestors are searched
  * downwards too and a hit counts only when exactly one id is found — two mean the search
  * climbed into the list, and a message below it means the search climbed into an opened
- * conversation. A press inside an opened message is no drag, or the strip would arm on
- * selecting a line of text.
+ * conversation. Neither the opened message nor the subject line above it is a drag, or the
+ * strip would arm on selecting a line of text.
  *
  * @param el the element under the cursor when the press began
  * @returns the thread id, or null when the drag did not start on one row
@@ -139,12 +141,14 @@ export function threadIdFromDragTarget(el: DragNode | null): string | null {
   let cur = el;
   for (let depth = 0; cur && depth < 30; depth++) {
     if (cur.getAttribute(MESSAGE_ID_ATTR)) return null;
+    if (isOpenedHeading(cur)) return null;
     const own = cur.getAttribute('data-legacy-thread-id');
     if (own) return own;
     const inside = cur.querySelectorAll?.('[data-legacy-thread-id]');
     if (inside && inside.length > 0) {
       const ids = new Set<string>();
       for (let i = 0; i < inside.length; i++) {
+        if (isOpenedHeading(inside[i])) continue;
         const id = inside[i].getAttribute('data-legacy-thread-id');
         if (id) ids.add(id);
       }
@@ -408,6 +412,27 @@ function insideOneRow(el: DragNode | null): boolean {
     cur = next;
   }
   return false;
+}
+
+// The subject line of an opened conversation carries the thread id itself, so a press on
+// it never reaches the guards below and selecting the subject armed the strip. Beside it
+// the header holds no message either, so a press next to the subject found that same
+// heading downwards and read it as the one row of a list. Skipping the heading in both
+// places leaves the reading pane naming no row at all, which is what it is.
+//
+// Gmail names the thread permanently on the heading and names no message there. A list row
+// always names its last message, so that is what tells the two apart -- the perm id alone
+// would refuse a row that happened to carry one, and dragging from the list must not break.
+
+/**
+ * Whether an element is the subject line of an opened conversation
+ *
+ * @param el
+ * @returns true when it names a thread the way only the heading does
+ * @private
+ */
+function isOpenedHeading(el: { getAttribute(name: string): string | null }): boolean {
+  return !!el.getAttribute(HEADING_THREAD_ATTR) && !el.getAttribute(ROW_MESSAGE_ID_ATTR);
 }
 
 // Gmail hangs more under an opened conversation than its messages. A calendar invite gets

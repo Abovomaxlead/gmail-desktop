@@ -36,6 +36,14 @@ function node(attrs: Record<string, string>, parent: any = null, descendants: an
   };
 }
 
+/** The h2 an opened conversation puts its subject in, as Gmail writes it. */
+function openedHeading() {
+  return node({
+    'data-thread-perm-id': 'thread-f:1874125737797397702',
+    'data-legacy-thread-id': '1a023b6',
+  });
+}
+
 function gmailRow(threadId: string) {
   const subject = node({ 'data-legacy-thread-id': threadId });
   return node({ draggable: 'true', role: 'row' }, null, [subject]);
@@ -100,6 +108,29 @@ describe('threadIdFromDragTarget', () => {
     });
     const row = node({ role: 'row' }, null, [span]);
     expect(threadIdFromDragTarget(node({}, row))).toBe('18f2a');
+  });
+  // The subject line of an opened conversation carries the thread id itself, so the press
+  // lands straight on it and neither guard above ever comes into play. Gmail names the
+  // thread permanently there and names no message at all, where a list row always names
+  // its last one.
+  it('refuses a press on the subject line of an opened conversation', () => {
+    expect(threadIdFromDragTarget(openedHeading())).toBeNull();
+  });
+  // Beside the subject line there is no message either, so the search downwards found the
+  // heading on its own and read it as the one row of a list.
+  it('refuses a press beside that subject line', () => {
+    const header = node({}, null, [openedHeading()]);
+    expect(threadIdFromDragTarget(node({}, header))).toBeNull();
+  });
+  // The heading is known by naming no message, never by the perm id alone: a row that
+  // named both would still be a row, and refusing it would break dragging from the list.
+  it('still arms on a row that names its last message and the thread permanently', () => {
+    const span = node({
+      'data-thread-perm-id': 'thread-f:187',
+      'data-legacy-thread-id': '18f2a',
+      'data-legacy-last-message-id': '18f2a',
+    });
+    expect(threadIdFromDragTarget(span)).toBe('18f2a');
   });
   it('ignores an empty attribute value', () => {
     expect(threadIdFromDragTarget(node({ 'data-legacy-thread-id': '' }))).toBeNull();
