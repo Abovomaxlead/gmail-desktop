@@ -3,6 +3,8 @@
 
 import { BrowserWindow } from 'electron';
 import { attachExternalLinkHandling } from '../system/external-links';
+import { anchorMessage } from '../gmail/message-anchor';
+import { notifyLog } from '../notify/notify-log';
 import { composeUrl } from './compose-url';
 import type { MailtoFields } from '../mail/mailto';
 
@@ -43,8 +45,9 @@ export function openCompose(
  *
  * @param index the account, as Gmail numbers them in /mail/u/<n>
  * @param threadId
+ * @param messageId the mail the notification named, unfolded once the conversation is drawn
  */
-export function openFullThreadWindow(index: number, threadId: string): void {
+export function openFullThreadWindow(index: number, threadId: string, messageId?: string): void {
   const win = new BrowserWindow({
     width: 720,
     height: 800,
@@ -52,5 +55,31 @@ export function openFullThreadWindow(index: number, threadId: string): void {
     webPreferences: { partition: SESSION_PARTITION, contextIsolation: true },
   });
   attachExternalLinkHandling(win.webContents);
-  void win.loadURL(`https://mail.google.com/mail/u/${index}/#inbox/${threadId}`);
+  // Hung off the load rather than off loadURL's promise: Gmail routinely supersedes its own
+  // navigation, which rejects that promise with ERR_ABORTED on a page that loaded fine.
+  if (messageId) {
+    win.webContents.once('did-finish-load', () => void anchorThreadWindow(win, messageId));
+  }
+  void win.loadURL(`https://mail.google.com/mail/u/${index}/#inbox/${threadId}`).catch(() => {});
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Unfolds the notified message in a thread window of the app's own
+ *
+ * @param win
+ * @param messageId
+ * @private
+ */
+async function anchorThreadWindow(win: BrowserWindow, messageId: string): Promise<void> {
+  const gone = (): boolean => win.isDestroyed() || win.webContents.isDestroyed();
+  const seen = await anchorMessage(
+    (script) => (gone() ? Promise.resolve(null) : win.webContents.executeJavaScript(script)),
+    messageId,
+  );
+  notifyLog(`[notify] thread window message ${JSON.stringify(messageId)} on screen: ${seen}`);
 }

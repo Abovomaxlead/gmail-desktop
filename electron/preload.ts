@@ -135,6 +135,35 @@ export function matchThreadsBySubject(
 }
 
 /**
+ * The newest message of a row's conversation
+ *
+ * The row names it: Gmail writes the last message's id beside the thread's, which is the
+ * one a notification is almost always about. Almost, because a reply that landed between
+ * the card and the click would take its place — and that is still the newest mail in the
+ * conversation, never an older one, which is the failure being fixed.
+ *
+ * @param doc
+ * @param threadId the row to read, as matchThreadsBySubject found it
+ * @returns the legacy message id, or undefined when Gmail's row does not carry one
+ */
+export function rowMessageIdFor(
+  doc: { querySelectorAll(sel: string): ArrayLike<any> },
+  threadId: string,
+): string | undefined {
+  if (!threadId) return undefined;
+  for (const el of Array.from(doc.querySelectorAll('[data-legacy-thread-id]'))) {
+    if (el.getAttribute('data-legacy-thread-id') !== threadId) continue;
+    const own = el.getAttribute('data-legacy-last-message-id');
+    if (own) return own;
+    const inside = el.querySelectorAll?.('[data-legacy-last-message-id]');
+    if (!inside || inside.length !== 1) continue;
+    const id = inside[0].getAttribute('data-legacy-last-message-id');
+    if (id) return id;
+  }
+  return undefined;
+}
+
+/**
  * Sends the service worker's notifications through the shim as well
  *
  * Its own showNotification would otherwise reach the Windows shelf, where the app can
@@ -332,7 +361,7 @@ function installDropzone(
 
   // The line and the button are two children of the strip rather than a line with a button put
   // back after it. Writing the strip's textContent drops every child it has, so the button used
-  // to be detached and re-attached for every line drawn -- and progress arrives per mail during
+  // to be detached and re-attached for every line drawn — and progress arrives per mail during
   // a pull. A click only fires when the press and the release land on the same connected
   // element, so a tick between the two swallowed it: the button needed several presses to catch
   // a gap. Moving an existing child with appendChild does the same damage, which is why the
@@ -399,7 +428,7 @@ function installDropzone(
   let pullDone = 0;
 
   /** When this page last asked main to stop the pull, or 0 when it has not. Not a plain flag,
-   * because a cancel that never arrived has to be sendable again -- see requestCancel. */
+   * because a cancel that never arrived has to be sendable again — see requestCancel. */
   let cancelSentAt = 0;
 
   // How long a sent cancel is trusted before the button is offered again. Ticks keep arriving
@@ -410,7 +439,7 @@ function installDropzone(
   /**
    * Asks main to stop the pull, once, and says so on the strip straight away
    *
-   * The one route for both ways in -- the button and Escape -- so the two cannot drift apart.
+   * The one route for both ways in — the button and Escape — so the two cannot drift apart.
    *
    * The line changes on the press rather than when main answers: the strip went on counting up
    * after a cancel, which reads as a click that did nothing and is half of why it was pressed
@@ -418,7 +447,7 @@ function installDropzone(
    *
    * A cancel is sent once, not per press: main's own cancel is idempotent, so pressing twice
    * cannot achieve more than pressing once. The exception is a cancel that provably did nothing
-   * -- the pull is still reporting progress CANCEL_GRACE_MS later -- and there the button comes
+   * — the pull is still reporting progress CANCEL_GRACE_MS later — and there the button comes
    * back rather than leaving the user with a strip that lies.
    *
    * @private
@@ -720,11 +749,13 @@ if (typeof document !== 'undefined') {
     const body = bodies.get(id) ?? '';
     bodies.delete(id);
     const matches = matchThreadsBySubject(document, body);
-    ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, matches[0] ?? undefined, {
+    const threadId = matches[0] ?? undefined;
+    ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId, {
       rows: document.querySelectorAll('[data-legacy-thread-id]').length,
       matches: matches.length,
       hash: location.hash,
       body: body.slice(0, 60),
+      messageId: threadId ? rowMessageIdFor(document, threadId) : undefined,
     });
   });
 

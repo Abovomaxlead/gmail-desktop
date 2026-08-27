@@ -87,6 +87,7 @@ export function activateNotification(
   surface: Surface,
   threadId?: string,
   subject?: string,
+  messageId?: string,
 ): void {
   const idx = idxOfKey(accountKey);
   if (!mainWindow || mainWindow.isDestroyed()) {
@@ -100,13 +101,13 @@ export function activateNotification(
   const windowMode = prefs?.getAll().notificationOpen === 'window';
 
   notifyLog(
-    `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}`,
+    `[notify] activate ${accountKey} surface=${surface} thread=${JSON.stringify(threadId ?? 'none')} message=${JSON.stringify(messageId ?? 'none')} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}`,
   );
 
   if (threadId && surface === 'mail' && windowMode) {
 
-    void manager?.popOutThread(accountKey, threadId, subject).then((ok) => {
-      if (!ok && idx != null) openFullThreadWindow(idx, threadId);
+    void manager?.popOutThread(accountKey, threadId, subject, messageId).then((ok) => {
+      if (!ok && idx != null) openFullThreadWindow(idx, threadId, messageId);
     });
     return;
   }
@@ -121,7 +122,7 @@ export function activateNotification(
   }
   if (idx != null) showAccount(authRef(idx), surface);
   if (surface !== 'mail') return;
-  if (threadId) manager?.openMailThread(accountKey, threadId);
+  if (threadId) manager?.openMailThread(accountKey, threadId, messageId);
   else if (subject) manager?.openMailSearch(accountKey, subject);
 }
 
@@ -174,8 +175,14 @@ async function openNotifiedThread(toast: Toast): Promise<void> {
       null,
     );
     if (found && toast.account) {
-      notifyLog(`[notify] click ${key}: the api says thread=${found.threadId}`);
-      activateNotification(toast.account.key, 'mail', found.threadId, source.notified.subject);
+      notifyLog(`[notify] click ${key}: the api says thread=${found.threadId} message=${found.id}`);
+      activateNotification(
+        toast.account.key,
+        'mail',
+        found.threadId,
+        source.notified.subject,
+        found.id,
+      );
       return;
     }
 
@@ -196,7 +203,7 @@ export function activateToast(toast: Toast): void {
     return;
   }
   if (toast.kind === 'mail' && toast.account) {
-    activateNotification(toast.account.key, 'mail', toast.threadId);
+    activateNotification(toast.account.key, 'mail', toast.threadId, undefined, toast.messageId);
     return;
   }
   if (toast.kind === 'download' && toast.threadId) {

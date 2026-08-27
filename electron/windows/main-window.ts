@@ -189,8 +189,8 @@ export function createWindow(): void {
       pushUnread();
       refreshBadge();
     },
-    (accountKey, surface, threadId, subject) =>
-      activateNotification(accountKey, surface, threadId, subject),
+    (accountKey, surface, threadId, subject, messageId) =>
+      activateNotification(accountKey, surface, threadId, subject, messageId),
     (accountKey, identity) => {
       const idx = idxOfKey(accountKey);
       if (idx != null) onIdentity(idx, identity);

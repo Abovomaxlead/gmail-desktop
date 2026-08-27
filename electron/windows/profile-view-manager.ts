@@ -18,6 +18,7 @@ import {
 } from '../core/ipc';
 import { attachExternalLinkHandling } from '../system/external-links';
 import { mailSearchHash } from '../gmail/google-urls';
+import { anchorMessage } from '../gmail/message-anchor';
 import { notifyLog } from '../notify/notify-log';
 import { titleShowsSubject } from '../notify/notify-match';
 import type { KeyInput } from '../menus/shortcuts';
@@ -84,6 +85,9 @@ export class ProfileViewManager {
   private warming = new Set<string>();
   private popoutExpectUntil = new Map<string, number>();
   private dropRefused = new Set<string>();
+  /** Which anchor owns a mail view. A later click bumps it, and the one still looking
+   * stops. */
+  private anchorRun = new Map<string, number>();
 
   constructor(
     private readonly win: BrowserWindow,
@@ -94,6 +98,7 @@ export class ProfileViewManager {
       surface: Surface,
       threadId?: string,
       subject?: string,
+      messageId?: string,
     ) => void,
     private readonly onIdentity: (
       accountKey: string,
@@ -170,12 +175,13 @@ export class ProfileViewManager {
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
         if (args[1]) notifyLog(`[notify] ${acctKey} lookup ${JSON.stringify(args[1])}`);
 
-        const meta = args[1] as { body?: unknown } | undefined;
+        const meta = args[1] as { body?: unknown; messageId?: unknown } | undefined;
         this.onActivate(
           acctKey,
           surface,
           typeof args[0] === 'string' ? args[0] : undefined,
           typeof meta?.body === 'string' ? meta.body : undefined,
+          typeof meta?.messageId === 'string' ? meta.messageId : undefined,
         );
       }
     });
@@ -302,7 +308,7 @@ export class ProfileViewManager {
    *
    * The sweep has to see all of them: an account can hold a Drive, Docs or Chat view as well
    * as its mail one, and those cost the same renderer each. A hidden scrape view is not
-   * included -- withHiddenView never registers one here.
+   * included — withHiddenView never registers one here.
    *
    * @returns one entry per live view
    */
@@ -416,22 +422,97 @@ export class ProfileViewManager {
   }
 
   /**
-   * Sends the mail view to one conversation
+   * Sends the mail view to one conversation, and to one message inside it
+   *
+   * The thread is what Gmail is navigated by; the message is what the notification was
+   * about, and without it Gmail picks one of its own — an older one, which is the bug this
+   * argument exists for. Pointing at it is a second step because Gmail navigates on its own
+   * clock, so it runs unawaited and says in the log how it went.
    *
    * @param accountKey
    * @param threadId
+   * @param messageId the mail the card named, when it is known
    */
-  openMailThread(accountKey: string, threadId: string): void {
-    const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
+  openMailThread(accountKey: string, threadId: string, messageId?: string): void {
+    const k = viewKey(accountKey, 'mail');
+    const wc = this.views.get(k)?.webContents;
     if (!wc || wc.isDestroyed()) {
       notifyLog(`[notify] ${accountKey} open ${threadId}: no mail view`);
       return;
     }
 
-    console.log(
-      `[notify] ${accountKey} open ${threadId} (loading=${wc.isLoading()}, at ${wc.getURL()})`,
+    notifyLog(
+      `[notify] ${accountKey} open thread=${JSON.stringify(threadId)}` +
+        ` message=${JSON.stringify(messageId ?? 'none')}` +
+        ` (loading=${wc.isLoading()}, at ${wc.getURL()})`,
     );
+    // Claimed before the navigation, and whether or not this one has a message to point at:
+    // sending the view somewhere else is exactly what makes an anchor still looking for the
+    // last conversation wrong, and it would otherwise unfold what it finds when it arrives.
+    const run = this.claimMailView(k);
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`);
+    if (!messageId) return;
+    void this.anchorMailMessage(wc, accountKey, messageId, () => this.anchorRun.get(k) !== run);
+  }
+
+  /**
+   * Says this navigation owns the mail view now
+   *
+   * @param k the view key
+   * @returns the run number, which stops being the current one the moment anything else
+   *   sends this view somewhere
+   * @private
+   */
+  private claimMailView(k: string): number {
+    const run = (this.anchorRun.get(k) ?? 0) + 1;
+    this.anchorRun.set(k, run);
+    return run;
+  }
+
+  /**
+   * Unfolds the message the notification was about, once the conversation is on screen
+   *
+   * @param wc
+   * @param accountKey for the log line, which is the only place the outcome is reported —
+   *   a message that cannot be found leaves the conversation open, which is where the app
+   *   stood before this existed
+   * @param messageId
+   * @param superseded true once a later click has taken this view over
+   * @private
+   */
+  private async anchorMailMessage(
+    wc: WebContents,
+    accountKey: string,
+    messageId: string,
+    superseded: () => boolean,
+  ): Promise<void> {
+    const seen = await anchorMessage(
+      (script) => (wc.isDestroyed() ? Promise.resolve(null) : wc.executeJavaScript(script)),
+      messageId,
+      { superseded },
+    );
+    notifyLog(`[notify] ${accountKey} message ${messageId} on screen: ${seen}`);
+  }
+
+  /**
+   * Points Gmail's own pop-out window at the message too
+   *
+   * @param win the window Gmail opened
+   * @param accountKey
+   * @param messageId
+   * @private
+   */
+  private async anchorPopout(
+    win: BrowserWindow,
+    accountKey: string,
+    messageId: string,
+  ): Promise<void> {
+    const gone = (): boolean => win.isDestroyed() || win.webContents.isDestroyed();
+    const seen = await anchorMessage(
+      (script) => (gone() ? Promise.resolve(null) : win.webContents.executeJavaScript(script)),
+      messageId,
+    );
+    notifyLog(`[notify] ${accountKey} pop-out message ${messageId} on screen: ${seen}`);
   }
 
   /**
@@ -448,8 +529,10 @@ export class ProfileViewManager {
   openMailSearch(accountKey: string, subject: string): boolean {
     const hash = mailSearchHash(subject);
     if (!hash) return false;
-    const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
+    const k = viewKey(accountKey, 'mail');
+    const wc = this.views.get(k)?.webContents;
     if (!wc || wc.isDestroyed()) return false;
+    this.claimMailView(k);
     notifyLog(`[notify] ${accountKey} no thread found, searching for the subject`);
     void wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {});
     return true;
@@ -469,7 +552,12 @@ export class ProfileViewManager {
    * @returns {Promise<boolean>} true once the button is clicked, false if it never appears
    *   — the caller then opens a thread window of its own. The view is restored either way.
    */
-  async popOutThread(accountKey: string, threadId: string, subject?: string): Promise<boolean> {
+  async popOutThread(
+    accountKey: string,
+    threadId: string,
+    subject?: string,
+    messageId?: string,
+  ): Promise<boolean> {
     const k = viewKey(accountKey, 'mail');
     const wc = this.views.get(k)?.webContents;
     if (!wc || wc.isDestroyed()) return false;
@@ -482,8 +570,16 @@ export class ProfileViewManager {
       alreadyOpen || (subject ? titleShowsSubject(title, subject) : title !== titleBefore);
     this.popoutExpectUntil.set(k, Date.now() + 6000);
     let popoutOpened = false;
-    const onCreated = (): void => {
+    // The pop-out is Gmail's own window on the same conversation, so it opens on the same
+    // message the view would have — the wrong one. It is pointed at the mail as well.
+    const onCreated = (created: BrowserWindow): void => {
       popoutOpened = true;
+      if (!messageId || !created) return;
+      // Created is not loaded: Chromium has the window, Gmail has not drawn in it yet, and
+      // starting the looking here would spend the whole budget on the page load.
+      const start = (): void => void this.anchorPopout(created, accountKey, messageId);
+      if (created.webContents.isLoading()) created.webContents.once('did-finish-load', start);
+      else start();
     };
     wc.once('did-create-window', onCreated);
     try {
@@ -491,6 +587,8 @@ export class ProfileViewManager {
       const clicked = await this.clickPopoutButton(wc, showsTheThread);
       if (clicked) await waitUntil(() => popoutOpened, POPOUT_WINDOW_WAIT_MS);
       notifyLog(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
+      // The view is leaving this conversation, so nothing may still be looking in it.
+      this.claimMailView(k);
       this.restoreHash(wc, before, threadId);
       return clicked;
     } finally {

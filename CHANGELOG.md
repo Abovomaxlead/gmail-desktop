@@ -3,6 +3,32 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1787838693] — 2026-08-27
+
+### Opgelost
+- **Klikken op een melding opent nu de mail waar de melding over ging, en niet een oudere
+  mail in hetzelfde gesprek.** De app stuurde Gmail naar het gesprek en liet aan Gmail over
+  welk bericht daarin openklapt. Dat pakt langs twee wegen verkeerd uit: het nummer waarmee
+  een gesprek geopend wordt is het nummer van het **eerste** bericht erin, en waar Gmail zelf
+  kiest, kiest het het oudste ongelezen bericht — liggen er drie ongelezen antwoorden, dan is
+  dat niet degene waarvoor je gewaarschuwd bent. Welke mail het wél was, wist de app allang.
+  Die wordt nu aangewezen: opengeklapt en in beeld gescrold, in het venster zelf, in Gmail's
+  eigen uitklapvenster en in een los mailvenster, en ook in een gedelegeerd postvak, dat tot
+  nu toe altijd de omweg langs de lijst nam. Wordt de mail niet gevonden, dan blijft het
+  gesprek openstaan zoals het eerst deed — er gaat niets verloren, er klapt niets dicht.
+
+### Fixed
+- **Clicking a notification now opens the mail it was about, not an older mail in the same
+  conversation.** The app sent Gmail to the conversation and left it to Gmail which message
+  inside it unfolds. That lands wrong along two roads: the id a conversation is opened by is
+  the id of its **first** message, and where Gmail chooses for itself it unfolds the oldest
+  unread one — with three unread replies waiting, that is not the mail you were told about.
+  Which mail it was, the app already knew. It now points at that one: unfolded and scrolled
+  to, in the window itself, in Gmail's own pop-out and in a separate mail window, and in a
+  delegated mailbox too, which until now always took the detour past the list. When the mail
+  cannot be found the conversation is left open exactly as it was before — nothing is lost
+  and nothing folds shut.
+
 ## [0.3.1-beta.13] — 2026-08-20
 
 ### Gewijzigd
