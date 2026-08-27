@@ -25,6 +25,17 @@ import {
   type MailboxRow,
   type PickedChip,
 } from '../mailbox-rail';
+import {
+  previewMayPick,
+  panelBelongsToJob,
+  phaseAfterJobEnd,
+  panelTitle,
+  panelBody,
+  jobEndText,
+  type JobEnd,
+  type JobLine,
+  type JobPanel,
+} from '../job-panel';
 
 
 //===========================
@@ -80,7 +91,13 @@ interface CopyProgress {
   byMailbox?: ByMailbox[];
   /** Present only during a batched job; absent for a plain drag, which draws the line it
    * always did. */
-  job?: { batch: number; batches: number; done: number; total: number };
+  job?: JobLine;
+  /** Sent when the driver takes over, which is the moment this window stops owning the copy and
+   * the panel becomes the job's. */
+  panel?: JobPanel;
+  /** Sent once, when the walk is over. The driver's copy has no return path to this window --
+   * only its own Kopieer has one -- so this is the only thing that can end the job phase. */
+  jobEnd?: JobEnd;
 }
 
 /** Mirrors electron/mail/copy-run-types.ts's RollbackMailboxOutcome and RollbackOutcome --
@@ -130,13 +147,16 @@ interface StoppedResult {
   rollback?: RollbackOutcome;
   error?: string;
   warnings?: string[];
+  /** Set only when this is a whole job's end rather than one copy's, which is what makes the
+   * report speak of the job instead of listing a batch's mailboxes. */
+  job?: JobEnd;
 }
 
 /** MailDropCopyResult widened with the one field main now adds when the copy itself fully
  * succeeded but writing the record of that (the audit log, or the journal's closing line)
  * did not. Kept local rather than added to ../MailDropModal's mirror for the same reason as
  * CopyProgress above. */
-type DoneResult = MailDropCopyResult & { warnings?: string[] };
+type DoneResult = MailDropCopyResult & { warnings?: string[]; job?: JobEnd };
 
 /** What copyMailDrop actually resolves to now. `stopped?: false` is added purely so the two
  * halves of the union share a discriminant -- DoneResult itself carries no such flag -- which
@@ -150,7 +170,60 @@ type Phase =
   | { kind: 'stopped'; result: StoppedResult }
   | { kind: 'done'; result: DoneResult }
   | { kind: 'orphan'; orphan: PendingOrphan }
-  | { kind: 'job'; job: PendingJob };
+  | { kind: 'job'; job: PendingJob }
+  // The driver is walking a job and this panel is watching it. Deliberately not 'copying':
+  // that phase belongs to this window's own Kopieer and is left by the promise it awaits, and
+  // the driver's copy has no such promise -- forcing it would leave the panel stuck there with
+  // its close button disabled once the job ended. Deliberately not 'picking' either: see
+  // previewMayPick. The way out is a job end, which phaseAfterJobEnd turns into 'done' or
+  // 'stopped'. 'walking' rather than 'job', which is the orphan-job offer above it.
+  | { kind: 'walking'; panel: JobPanel; progress?: CopyProgress };
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * The phase a job's end leaves this panel in, with the report it draws
+ *
+ * The choice of phase lives in ../job-panel; what is added here is the result shape the two
+ * report phases already take, carrying the job itself so the report speaks of the whole walk
+ * rather than listing one batch's mailboxes.
+ *
+ * @param end what main sent when the walk finished
+ * @returns 'done' or 'stopped' -- never the job phase, which has no close button of its own
+ */
+function phaseFromJobEnd(end: JobEnd): Phase {
+  const at = phaseAfterJobEnd(end);
+  if (at.kind === 'stopped') {
+    return {
+      kind: 'stopped',
+      result: {
+        stopped: true,
+        mode: at.mode ?? 'keep',
+        copied: end.done,
+        byMailbox: [],
+        ...(at.mode === 'rollback'
+          ? { rollback: { mailboxes: [], complete: at.complete !== false } }
+          : {}),
+        job: end,
+      },
+    };
+  }
+  return {
+    kind: 'done',
+    result: {
+      ok: !at.error,
+      copied: end.done,
+      skipped: 0,
+      total: end.total,
+      accounts: [],
+      ...(at.error ? { error: at.error } : {}),
+      job: end,
+    },
+  };
+}
 
 
 //===========================
@@ -171,7 +244,7 @@ export default function MailDropModalPage() {
   const [existing, setExisting] = useState<MailDropExisting>(NOTHING_FOUND_YET);
   /** How far the running job has got, kept apart from `phase` so a batch this window did not
    * start can still report itself. Null outside a job, and cleared by the next real drag. */
-  const [jobLine, setJobLine] = useState<CopyProgress['job'] | null>(null);
+  const [jobLine, setJobLine] = useState<JobLine | null>(null);
   // Open the moment the X is clicked, not once the pause is confirmed -- the round trip to
   // main must not be what decides whether the dialog appears.
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
@@ -208,16 +281,34 @@ export default function MailDropModalPage() {
         .catch(() => {
         });
     };
-    void bridge.getMailDropPreview().then(({ items: i, tree: t }) => {
+    void bridge.getMailDropPreview().then((got) => {
+      const { items: i, tree: t, panel, job } = got as {
+        items: MailDropItem[];
+        tree?: unknown;
+        panel?: JobPanel;
+        job?: JobLine;
+      };
       if (i.length > 0) setItems(i);
       setTree((t as DropTree | null) ?? null);
+      // Reopened halfway through a job: without this the window would come back in its picking
+      // phase, offering Kopieer for mail the driver has in flight. Refused by main, but the
+      // offer itself is the thing that must not be there.
+      if (panel) {
+        if (job) setJobLine(job);
+        setPhase((cur) => (cur.kind === 'picking' ? { kind: 'walking', panel } : cur));
+      }
     });
     // Every drop, not every drop but the first. This used to skip the reload for the first
     // preview after mounting, on the assumption that the mount belonged to that same drop --
     // and any remount in between broke it, leaving the previous drag's mailboxes on screen with
     // the mailbox just dragged from still offered as a target and the one dragged to gone.
     bridge.onMailDropPreview((p) => {
-      const { items: i, tree: t } = p as { items: MailDropItem[]; tree?: unknown };
+      const {
+        items: i,
+        tree: t,
+        panel,
+        job,
+      } = p as { items: MailDropItem[]; tree?: unknown; panel?: JobPanel; job?: JobLine };
       setItems(i);
       setTree((t as DropTree | null) ?? null);
       // A driven batch is a job showing what it is about to copy itself, not a new drag. Its list
@@ -226,7 +317,13 @@ export default function MailDropModalPage() {
       // part that must not happen for it: returning to `picking` clears the chosen mailboxes and
       // puts Kopieer back in front of the user for mail the driver already has in flight, and on
       // 2026-08-26 that landed 717 mails twice.
-      if ((p as { driven?: boolean }).driven) return;
+      if (!previewMayPick(p as { driven?: boolean })) {
+        // The same panel it was already looking at, with this batch's numbers in it. Never a new
+        // panel and never a batch report: one job is one piece of work.
+        if (job) setJobLine(job);
+        if (panel) setPhase((cur) => (cur.kind === 'walking' ? { ...cur, panel } : { kind: 'walking', panel }));
+        return;
+      }
       setFlatMode({});
       setPicked({});
       setSearch('');
@@ -268,7 +365,33 @@ export default function MailDropModalPage() {
       // batch's result. Forcing the phase instead would leave it stuck there when the job ends,
       // with the close button disabled and nothing left to send.
       if (p.job) setJobLine(p.job);
-      setPhase((cur) => (cur.kind === 'copying' ? { kind: 'copying', ...p } : cur));
+      // The way out of the job phase, and the only one there is.
+      if (p.jobEnd) {
+        const end = p.jobEnd;
+        setStopDialogOpen(false);
+        // Cleared with the same click, or the footer would go on announcing a running batch
+        // over a panel that has just reported the job finished.
+        setJobLine(null);
+        setPhase(phaseFromJobEnd(end));
+        return;
+      }
+      // The driver has taken over. Announced on this channel because it happens while this
+      // window is still awaiting its own copy: the panel is the job's from here on, whichever
+      // of the two answers first.
+      if (p.panel) {
+        const panel = p.panel;
+        setPhase((cur) => (cur.kind === 'walking' ? { ...cur, panel } : { kind: 'walking', panel }));
+        return;
+      }
+      setPhase((cur) =>
+        cur.kind === 'copying'
+          ? { kind: 'copying', ...p }
+          // Held for the stop dialog, which asks about the batch in flight and needs its
+          // mailboxes and its count to do that.
+          : cur.kind === 'walking'
+            ? { ...cur, progress: p }
+            : cur,
+      );
     });
   }, []);
 
@@ -382,34 +505,63 @@ export default function MailDropModalPage() {
     try {
       const result = (await bridge.copyMailDrop(targets, mode)) as CopyOrStoppedResult;
       setStopDialogOpen(false);
+      // Batch one's copy answers this window, and the driver takes over in the same breath. Which
+      // of the two arrives first is not ours to decide, so a job that has already claimed the
+      // panel keeps it: reporting batch one here is exactly the per-batch panel this replaced.
       if (result.stopped) {
-        setPhase({ kind: 'stopped', result });
+        setPhase((cur) => (panelBelongsToJob(cur) ? cur : { kind: 'stopped', result }));
         return;
       }
-      setPhase(
-        result.needsConfirm
-          ? {
-              kind: 'confirm',
-              duplicates: result.duplicates ?? [],
-              newCount: result.newCount ?? 0,
-            }
-          : { kind: 'done', result },
+      setPhase((cur) =>
+        panelBelongsToJob(cur)
+          ? cur
+          : result.needsConfirm
+            ? {
+                kind: 'confirm',
+                duplicates: result.duplicates ?? [],
+                newCount: result.newCount ?? 0,
+              }
+            : { kind: 'done', result },
       );
     } catch (e) {
       setStopDialogOpen(false);
-      setPhase({
-        kind: 'done',
-        result: {
-          ok: false,
-          copied: 0,
-          skipped: 0,
-          total: 0,
-          accounts: [],
-          error: (e as Error).message,
-        },
-      });
+      setPhase((cur) =>
+        panelBelongsToJob(cur)
+          ? cur
+          : {
+              kind: 'done',
+              result: {
+                ok: false,
+                copied: 0,
+                skipped: 0,
+                total: 0,
+                accounts: [],
+                error: (e as Error).message,
+              },
+            },
+      );
     }
   };
+
+  // A job that has ended still has its numbers, in the report rather than in the line: the line
+  // is cleared the moment the walk is over so the footer stops announcing a running batch.
+  const endJob = phase.kind === 'done' || phase.kind === 'stopped' ? phase.result.job : undefined;
+  const shownJob: JobLine | null = endJob
+    ? {
+        batch: endJob.copiedBatches,
+        batches: endJob.batches,
+        done: endJob.done,
+        total: endJob.total,
+      }
+    : jobLine;
+  // The stop dialog asks about the batch in flight, and during a job it is the driver's batch
+  // rather than this window's. Both hand it the same shape.
+  const stopProgress: CopyProgress | null =
+    phase.kind === 'copying'
+      ? phase
+      : phase.kind === 'walking'
+        ? phase.progress ?? { phase: 'copy', done: 0, total: 0 }
+        : null;
 
   const labelName = (email: string, labelId: string) =>
     labelId === TOP_LEVEL
@@ -422,6 +574,9 @@ export default function MailDropModalPage() {
       <style>{'html,body{background:transparent}'}</style>
 
       <div
+        // Closing the panel during a job does not stop the job -- the driver owns that copy, and
+        // the footer's Annuleren is the way to end it. Only this window's own copy holds the
+        // backdrop, since that one has nothing else watching it.
         className="flex h-screen w-full items-center justify-center bg-black/40 p-6"
         onClick={phase.kind === 'copying' ? undefined : close}
       >
@@ -438,11 +593,7 @@ export default function MailDropModalPage() {
         >
           <header className="flex shrink-0 items-center justify-between gap-3 border-b border-black/10 px-5 py-3.5 dark:border-white/10">
             <h1 className="truncate text-[15px] font-semibold text-neutral-900 dark:text-neutral-100">
-              {failures.length > 0
-                ? 'Slepen mislukt'
-                : n === 1
-                  ? 'Kopieer 1 conversatie'
-                  : `Kopieer ${n} conversaties`}
+              {panelTitle({ items: n, job: shownJob, failed: failures.length > 0 })}
             </h1>
             <button
               // Copying no longer disables this: it pauses and asks instead of doing nothing.
@@ -481,24 +632,36 @@ export default function MailDropModalPage() {
             </div>
           )}
 
-          {phase.kind === 'copying' && stopDialogOpen ? (
+          {stopDialogOpen && stopProgress ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <StopConfirm
-                phase={phase}
-                job={phase.job}
+                phase={stopProgress}
+                job={phase.kind === 'copying' ? phase.job : jobLine ?? undefined}
                 onKeepCopying={keepCopying}
                 onStopAndKeep={stopAndKeep}
                 onStopAndTrashBatch={stopAndTrashBatch}
                 onStopAndTrashJob={stopAndTrashJob}
               />
             </div>
+          ) : phase.kind === 'walking' ? (
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              <JobRunning panel={phase.panel} line={jobLine} />
+            </div>
           ) : phase.kind === 'stopped' ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <StoppedReport result={phase.result} />
+              {phase.result.job ? (
+                <JobReport end={phase.result.job} />
+              ) : (
+                <StoppedReport result={phase.result} />
+              )}
             </div>
           ) : phase.kind === 'done' ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <CopyReport result={phase.result} />
+              {phase.result.job ? (
+                <JobReport end={phase.result.job} />
+              ) : (
+                <CopyReport result={phase.result} />
+              )}
             </div>
           ) : phase.kind === 'confirm' ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
@@ -562,7 +725,7 @@ export default function MailDropModalPage() {
               failures={failures}
               chips={chips}
             />
-            {phase.kind === 'copying' ? (
+            {phase.kind === 'copying' || phase.kind === 'walking' ? (
               // The X in the header does exactly this too, but nothing there told anyone a
               // running copy could be stopped at all -- this is the labelled way in. Disabled
               // once the dialog itself is open, for the same reason the X is: a second click
@@ -967,7 +1130,9 @@ function Status({
   // batch that is running was started by the driver and not by the button here. Said first and
   // on its own, because the line underneath it would otherwise be the *previous* batch's result
   // while the next one is already going -- which reads as finished when it is not.
-  if (jobLine && phase.kind !== 'copying' && jobLine.done < jobLine.total) {
+  // Nothing here while the panel is watching a job: the body already says which batch is
+  // running and how far the job has got, and saying it twice in one panel is noise.
+  if (jobLine && phase.kind !== 'copying' && phase.kind !== 'walking' && jobLine.done < jobLine.total) {
     return (
       <span className="text-xs text-blue-700 dark:text-blue-400">
         Batch {jobLine.batch} van {jobLine.batches} loopt — {jobLine.done} van {jobLine.total}{' '}
@@ -975,6 +1140,11 @@ function Status({
       </span>
     );
   }
+
+  // Empty on purpose while the panel is watching a job: everything it could say is already in
+  // the body above it, and the alternative -- falling through to the picking lines -- would ask
+  // the user to choose a destination for a job that is already filing into one.
+  if (phase.kind === 'walking') return <span />;
 
   if (phase.kind === 'copying') {
     if (phase.paused) {
@@ -1004,6 +1174,9 @@ function Status({
   }
   if (phase.kind === 'stopped') {
     const r = phase.result;
+    if (r.job) {
+      return <span className="text-xs text-neutral-500">{jobEndText(r.job)}</span>;
+    }
     if (r.error) {
       return <span className="text-xs text-red-600 dark:text-red-500">{r.error}</span>;
     }
@@ -1029,6 +1202,17 @@ function Status({
   }
   if (phase.kind === 'done') {
     const r = phase.result;
+    if (r.job) {
+      return (
+        <span
+          className={`text-xs ${
+            r.ok ? 'text-green-700 dark:text-green-500' : 'text-red-600 dark:text-red-500'
+          }`}
+        >
+          {jobEndText(r.job)}
+        </span>
+      );
+    }
     const bad = !r.ok || r.accounts.some((a) => a.error);
     const skipped = r.skipped > 0 ? `, ${r.skipped} overgeslagen` : '';
     return (
@@ -1537,6 +1721,63 @@ function WarningsList({ warnings }: { warnings?: string[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * The body of the panel while the driver walks a job
+ *
+ * One panel for the whole walk: which label is being copied, where it is going, and how far the
+ * job has got. No list of this batch's conversations and no batch report -- those are what made
+ * four batches look like four separate jobs.
+ *
+ * @param panel what main said about the job
+ * @param line how far it has got, absent for the moment between two batches
+ */
+function JobRunning({ panel, line }: { panel: JobPanel; line: JobLine | null }) {
+  const { into, progress } = panelBody({ job: line, targets: panel.targets });
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+        {panel.label}
+      </p>
+      {into && <p className="truncate text-sm text-neutral-700 dark:text-neutral-300">{into}</p>}
+      <p className="text-sm text-blue-700 dark:text-blue-400">{progress || 'Bezig…'}</p>
+    </div>
+  );
+}
+
+/**
+ * The body of the panel once a job is over
+ *
+ * Stands in for CopyReport and StoppedReport, which both answer for one copy's mailboxes: a job
+ * is many copies and the number that matters is its own.
+ *
+ * @param end
+ */
+function JobReport({ end }: { end: JobEnd }) {
+  const { into } = panelBody({ job: null, targets: end.targets });
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+        {end.label}
+      </p>
+      {into && <p className="truncate text-sm text-neutral-700 dark:text-neutral-300">{into}</p>}
+      <p
+        className={`text-sm ${
+          end.outcome === 'completed'
+            ? 'text-green-700 dark:text-green-500'
+            : end.outcome === 'stuck'
+              ? 'text-red-600 dark:text-red-500'
+              : 'text-neutral-700 dark:text-neutral-300'
+        }`}
+      >
+        {jobEndText(end)}
+      </p>
+      <p className="text-xs text-neutral-500">
+        {end.copiedBatches} van {end.batches} batches gekopieerd
+      </p>
     </div>
   );
 }

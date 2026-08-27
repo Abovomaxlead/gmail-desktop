@@ -204,6 +204,33 @@ interface SavedRef {
   sourceLabels: string[];
 }
 
+/** What the panel needs to draw one continuous job: which label is walking, and where it is
+ * being filed. The numbers travel separately, in `job`, because they change while this does not.
+ * Mirrors JobPanel in renderer/app/job-panel.ts, which the renderer cannot import from here. */
+interface JobPanelInfo {
+  label: string;
+  targets: string[];
+}
+
+/** What became of a job, sent once when its walk is over. The plan's own outcome vocabulary plus
+ * 'stuck', which is not an outcome the plan file ever gets: a job stopped on a failed batch is
+ * left open on purpose, so the next start can offer to continue it. Mirrors JobEnd in
+ * renderer/app/job-panel.ts. */
+interface JobEndInfo {
+  outcome: JobOutcome | 'stuck';
+  label: string;
+  done: number;
+  total: number;
+  batches: number;
+  copiedBatches: number;
+  targets: string[];
+  error?: string;
+}
+
+/** The progress payload widened with the two things one continuous job panel needs. Kept local
+ * rather than added to core/ipc.ts's mirror, the same way the picker page widens its own copy. */
+type PanelProgress = MailDropCopyProgress & { panel?: JobPanelInfo; jobEnd?: JobEndInfo };
+
 
 //===========================
 // Module state
@@ -258,6 +285,12 @@ let activeJob: { job: LabelJob; root: string } | null = null;
  * finished, which is the only moment the earlier batches may be swept: two sweeps trashing under
  * two markers in one mailbox at once is a race with nothing to gain. */
 let rollbackWholeJob = false;
+
+/** A stop the user asked for while the driver was between two batches, where there is no copy
+ * in flight for the gate to take it. Read at the top of the walk and again once a batch has been
+ * pulled -- the two moments the driver answers to nobody else -- and cleared the moment it is
+ * honoured. Null at every other time. */
+let jobStopWanted: 'keep' | 'rollback' | null = null;
 
 /** Set while the driver is walking a job. The tail of copyToMailboxes starts the driver, and the
  * driver's own loop calls copyToMailboxes -- so this is what keeps that from forking a second
@@ -634,6 +667,21 @@ function absenceKey(email: string, messageId: string): string {
  */
 function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (driven) {
+    // Sent, never opened. open() re-attaches the view on top of everything attached since, so a
+    // batch finishing threw the panel back in front of whatever the user was doing -- three times
+    // over in a four-batch job. One job is one panel: it updates where it stands, and a panel the
+    // user closed stays closed.
+    lastDropPreview = items;
+    dropOverlay?.send(IPC.MAIL_DROP_PREVIEW, {
+      items,
+      tree: lastDropTree,
+      driven: true,
+      panel: jobPanelInfo(),
+      job: activeJob ? jobProgress(activeJob.job) : undefined,
+    });
+    return;
+  }
   const overlay =
     dropOverlay ??
     new OverlayView(
@@ -1254,9 +1302,23 @@ async function pullMailDrop(
 }
 
 /** What the preview window should draw. It asks once it is listening rather than being
- * pushed to, because the overlay loads after the drop that filled this. */
-export function dropPreviewItems(): { items: MailDropPreviewItem[]; tree: MailDropTree | null } {
-  return { items: lastDropPreview, tree: lastDropTree };
+ * pushed to, because the overlay loads after the drop that filled this.
+ *
+ * The job carried alongside it is what a window reopened halfway through a walk needs: without it
+ * that window would come back in its picking phase and offer Kopieer for mail the driver already
+ * has in flight. */
+export function dropPreviewItems(): {
+  items: MailDropPreviewItem[];
+  tree: MailDropTree | null;
+  panel?: JobPanelInfo;
+  job?: MailDropCopyProgress['job'];
+} {
+  const panel = jobPanelInfo();
+  return {
+    items: lastDropPreview,
+    tree: lastDropTree,
+    ...(panel && activeJob ? { panel, job: jobProgress(activeJob.job) } : {}),
+  };
 }
 
 export function closeDropPreview(): void {
@@ -1987,7 +2049,18 @@ function settled(outcome: RollbackOutcome): boolean {
  *   take it
  */
 export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyControlResult {
-  if (!activeRun) return { ok: false, error: 'Er wordt niet gekopieerd' };
+  if (!activeRun) {
+    // Between two batches there is no copy in flight, and the panel's Annuleren is live for the
+    // whole job: the stop is remembered and the driver honours it before the batch it has just
+    // pulled goes out. Nothing of that batch has landed yet, so 'stop-rollback-batch' has nothing
+    // of its own to sweep and means the same here as leaving what is there -- only the job-wide
+    // choice reaches the batches that did finish.
+    if (activeJob && jobDriving && action !== 'pause' && action !== 'resume') {
+      jobStopWanted = action === 'stop-rollback-job' ? 'rollback' : 'keep';
+      return { ok: true };
+    }
+    return { ok: false, error: 'Er wordt niet gekopieerd' };
+  }
   const { control } = activeRun;
   switch (action) {
     case 'pause':
@@ -2013,6 +2086,75 @@ export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyC
     default:
       return { ok: false, error: 'Onbekende actie' };
   }
+}
+
+/**
+ * What the panel should say a job is doing, or nothing when no job is walking
+ *
+ * Gated on the choices rather than on the job existing: a plan is written before the user has
+ * picked anything, and a panel told about that job would replace the picking phase with a job
+ * phase before there was a job to walk.
+ *
+ * @returns the label and its target mailboxes, or undefined outside a walking job
+ * @private
+ */
+function jobPanelInfo(): JobPanelInfo | undefined {
+  const choices = activeJob?.job.choices;
+  if (!activeJob || !choices) return undefined;
+  return { label: activeJob.job.label, targets: choices.targets.map((t) => t.email) };
+}
+
+/**
+ * Tells the panel a job has taken the copy over
+ *
+ * Sent on the progress channel because it happens while the picker is still awaiting the answer
+ * to batch one's own Kopieer: whichever of the two arrives first, the panel ends up showing the
+ * job rather than that one batch's report.
+ *
+ * @private
+ */
+function sendJobPanel(): void {
+  const panel = jobPanelInfo();
+  if (!panel || !activeJob) return;
+  const line = jobProgress(activeJob.job);
+  dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
+    phase: 'copy',
+    done: line.done,
+    total: line.total,
+    job: line,
+    panel,
+  } satisfies PanelProgress);
+}
+
+/**
+ * Tells the panel what became of the job
+ *
+ * The only way out of the panel's job phase: the driver's copy has no return path to that
+ * window -- only the picker's own Kopieer has one -- so a job that ended without this would
+ * leave the panel sitting on a walk that is over, with its close button disabled.
+ *
+ * @param job the plan as it stands, after its closing line has been written
+ * @param outcome 'stuck' for a job left open on a failed batch; otherwise the plan's own outcome
+ * @private
+ */
+function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck'): void {
+  const line = jobProgress(job);
+  dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
+    phase: 'copy',
+    done: line.done,
+    total: line.total,
+    job: line,
+    jobEnd: {
+      outcome,
+      label: job.label,
+      done: line.done,
+      total: line.total,
+      batches: job.batches.length,
+      copiedBatches: job.batches.filter((b) => b.state === 'copied').length,
+      targets: (job.choices?.targets ?? []).map((t) => t.email),
+      error: job.batches.find((b) => b.state === 'failed')?.error,
+    },
+  } satisfies PanelProgress);
 }
 
 /**
@@ -2090,6 +2232,11 @@ async function advanceJob(): Promise<void> {
   // and logging a wait nobody caused.
   if (jobDriving) return;
   jobDriving = true;
+  // A stop meant for the walk that just ended is not one this walk inherits.
+  jobStopWanted = null;
+  // Before the first pull, so the panel leaves batch one's own report behind while that batch's
+  // answer is still on its way back to the window.
+  sendJobPanel();
   try {
     await walkJob();
   } finally {
@@ -2104,6 +2251,10 @@ async function advanceJob(): Promise<void> {
  */
 async function walkJob(): Promise<void> {
   while (activeJob) {
+    if (jobStopWanted) {
+      await stopWalkedJob(jobStopWanted);
+      return;
+    }
     const { job, root } = activeJob;
     const at = nextBatch(job);
     if (!at) break;
@@ -2139,6 +2290,13 @@ async function walkJob(): Promise<void> {
       if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
     }
 
+    // Asked for while this batch was being pulled: stopped before a single mail of it goes out,
+    // which is why this sits between the pull and the copy rather than only at the top of the walk.
+    if (jobStopWanted) {
+      await stopWalkedJob(jobStopWanted);
+      return;
+    }
+
     // The same call the picker's own Kopieer makes, with the choices batch zero was given. The
     // duplicate scan runs again inside it, per batch, against that batch's own mail -- which is
     // what keeps "which mail lands where" the live answer it has always been.
@@ -2168,6 +2326,7 @@ async function walkJob(): Promise<void> {
           notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
         }
         rollbackWholeJob = false;
+        sendJobEnd(stoppedJob, outcome);
         activeJob = null;
       }
       return;
@@ -2189,8 +2348,40 @@ async function walkJob(): Promise<void> {
     notifyLog(
       `[maildrop] klus voor "${job.label}" ${stuck ? 'gestopt op een mislukte batch, blijft open voor een keuze' : 'afgerond'}: ${job.batches.filter((b) => b.state === 'copied').length} van ${job.batches.length} batches`,
     );
+    sendJobEnd(job, stuck ? 'stuck' : 'completed');
     activeJob = null;
   }
+}
+
+/**
+ * Ends a job the user cancelled between two batches
+ *
+ * The same two steps the stop of a running batch takes, minus the batch: the one just pulled has
+ * not inserted anything, so there is nothing of it to sweep. 'rollback' still means the batches
+ * that did finish, swept by the same rollbackFinishedBatches a running stop uses -- what
+ * cancelling does to mail that already landed is decided in one place, not two.
+ *
+ * @param mode what the panel asked for
+ * @private
+ */
+async function stopWalkedJob(mode: 'keep' | 'rollback'): Promise<void> {
+  jobStopWanted = null;
+  if (!activeJob) return;
+  const { job, root } = activeJob;
+  const trouble = mode === 'rollback' ? await rollbackFinishedBatches(job, root) : [];
+  const outcome: JobOutcome =
+    mode === 'keep' ? 'kept' : trouble.length === 0 ? 'rolled-back' : 'rolled-back-partial';
+  const failed = attemptWrite(() => finishLabelJob(root, job.jobId, outcome));
+  if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+  if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
+  notifyLog(
+    `[maildrop] klus voor "${job.label}" gestopt tussen twee batches: ${
+      mode === 'keep' ? 'wat er staat blijft staan' : 'teruggedraaid'
+    }`,
+  );
+  rollbackWholeJob = false;
+  sendJobEnd(readLabelJob(root, job.jobId) ?? job, outcome);
+  activeJob = null;
 }
 
 export async function copyToMailboxes(arg: {
@@ -2707,6 +2898,7 @@ export async function copyToMailboxes(arg: {
       if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
       if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
       rollbackWholeJob = false;
+      sendJobEnd(job, outcome);
       activeJob = null;
     }
     return result;
