@@ -23,6 +23,10 @@ import {
   jobProgress,
   type LabelJob,
 } from '../electron/mail/label-job';
+// A batch's own run says which mailboxes it opened, and the plan points at that run by id --
+// the link the note at the top of label-job.ts describes. Written here the way the copy writes
+// it, so the reading side is proved against the real record and not against a fixture.
+import { startCopyJournal } from '../electron/mail/copy-journal';
 
 const thread = (id: string, labels = ['Klanten']) => ({ threadId: id, subject: `re ${id}`, labels });
 
@@ -440,6 +444,138 @@ describe('jobProgress on a failed batch', () => {
   // on top of the failed batch's own count.
   it('adds no running figure on top of a stuck batch', () => {
     expect(jobProgress(stuckAfter(20, 1), { phase: 'copy', done: 25, targets: 1 }).done).toBe(45);
+  });
+
+  // The seam. A mailbox that cannot be given a marker label is never inserted into, so the
+  // copy's count is spread over the mailboxes that were ready and not over the mailboxes that
+  // were chosen. Dividing by the chosen ones understated a failed batch by exactly the share of
+  // every mailbox that dropped out -- the understatement this whole function exists to stop, and
+  // a disagreement with the live line, which divides by the ready ones.
+  describe('when a mailbox dropped out before the copy', () => {
+    /** Batch 0 copied; batch 1 failed after `copied` inserts into a run whose journal names
+     * `ready` mailboxes, while the job's choices name three. */
+    const droppedOut = (copied: number, ready: number): LabelJob => {
+      written(100, 25);
+      recordJobChoices(root, 'job-1', {
+        targets: [
+          { email: 'a@example.com', labelIds: ['L'] },
+          { email: 'b@example.com', labelIds: ['L'] },
+          { email: 'c@example.com', labelIds: ['L'] },
+        ],
+        mode: 'new',
+      });
+      recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 75 });
+      // The run's own record of which mailboxes it opened, written by the copy before its first
+      // insert. This is where the ready count comes from.
+      startCopyJournal(
+        root,
+        'run-b',
+        Array.from({ length: ready }, (_, i) => `box${i}@example.com`),
+        2_000,
+      );
+      recordJobBatchState(root, 'job-1', {
+        index: 1,
+        state: 'failed',
+        runId: 'run-b',
+        copied,
+        error: 'Geen rechten',
+      });
+      return readLabelJob(root, 'job-1')!;
+    };
+
+    it('remembers how many mailboxes the batch was really writing to', () => {
+      expect(droppedOut(40, 2).batches[1].mailboxes).toBe(2);
+    });
+
+    // 40 inserts across the two mailboxes that were ready is 20 conversations. Divided by the
+    // three that were chosen it reads 13, and the line would drop by seven the moment the batch
+    // was recorded.
+    it('divides by the mailboxes it wrote to, not by the ones that were chosen', () => {
+      expect(jobProgress(droppedOut(40, 2)).done).toBe(45);
+    });
+
+    it('still divides by the chosen mailboxes when no run recorded its own', () => {
+      expect(jobProgress(stuckAfter(60, 3)).done).toBe(45);
+    });
+  });
+});
+
+// Continuing a stuck job appends a bare 'pending' line for the failed batch, which carries no
+// count of its own. Folded in wholesale that erased what the batch had managed, and the line the
+// user was reading dropped by a batch the moment they accepted the offer -- while the mail it
+// counted was still sitting in the mailbox.
+describe('jobProgress when a stuck batch is taken up again', () => {
+  const retried = (): LabelJob => {
+    written(100, 25);
+    recordJobChoices(root, 'job-1', {
+      targets: [{ email: 'a@example.com', labelIds: ['L'] }],
+      mode: 'new',
+    });
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    startCopyJournal(root, 'run-b', ['a@example.com'], 2_000);
+    recordJobBatchState(root, 'job-1', {
+      index: 1,
+      state: 'failed',
+      runId: 'run-b',
+      copied: 20,
+      error: 'Geen rechten',
+    });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pending' });
+    return readLabelJob(root, 'job-1')!;
+  };
+
+  it('keeps what the batch managed when a later line does not mention it', () => {
+    const batch = retried().batches[1];
+    expect(batch.state).toBe('pending');
+    expect(batch.copied).toBe(20);
+    expect(batch.mailboxes).toBe(1);
+  });
+
+  it('goes on counting that mail, which never left the mailbox', () => {
+    expect(jobProgress(retried()).done).toBe(45);
+  });
+
+  // The batch is being copied again, so its own count and the running figure describe the same
+  // conversations. The larger of the two, never the sum.
+  it('does not count the retried batch twice while it copies again', () => {
+    expect(jobProgress(retried(), { phase: 'copy', done: 5, targets: 1 }).done).toBe(45);
+    expect(jobProgress(retried(), { phase: 'copy', done: 22, targets: 1 }).done).toBe(47);
+  });
+});
+
+// The gap the contract has to own up to. `running` counts every message the copy attempted,
+// duplicates it skipped included; `copied` counts only the inserts that landed. A batch that
+// skipped most of its mail and then failed is recorded well below what the line was showing, so
+// the line steps back without any restart.
+describe('jobProgress when a batch fails below what it was showing', () => {
+  const failedAfterRunning = (copied: number): LabelJob => {
+    written(100, 25);
+    recordJobChoices(root, 'job-1', {
+      targets: [{ email: 'a@example.com', labelIds: ['L'] }],
+      mode: 'new',
+    });
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    startCopyJournal(root, 'run-b', ['a@example.com'], 2_000);
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'failed', runId: 'run-b', copied });
+    return readLabelJob(root, 'job-1')!;
+  };
+
+  it('steps back to what the batch actually inserted', () => {
+    const walking = written(100, 25);
+    recordJobChoices(root, 'job-1', {
+      targets: [{ email: 'a@example.com', labelIds: ['L'] }],
+      mode: 'new',
+    });
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    const mid = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(mid, { phase: 'copy', done: 25, targets: 1 }).done).toBe(50);
+    expect(jobProgress(failedAfterRunning(0)).done).toBe(25);
+    expect(walking.total).toBe(100);
+  });
+
+  it('never steps back below what the plan file accounts for', () => {
+    expect(jobProgress(failedAfterRunning(0)).done).toBe(25);
+    expect(jobProgress(failedAfterRunning(20)).done).toBe(45);
   });
 });
 

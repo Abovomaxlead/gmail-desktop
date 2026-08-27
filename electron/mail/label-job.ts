@@ -19,6 +19,7 @@
 
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { readCopyJournal } from './copy-journal';
 import type { CopyRunId } from './copy-run-types';
 import type { TreeThread } from './label-drop';
 import type { CopyTarget } from './mail-copy';
@@ -46,6 +47,11 @@ export interface JobBatch {
   runId?: CopyRunId;
   copied?: number;
   skipped?: number;
+  /** How many mailboxes that run actually opened, which is what its `copied` is spread over.
+   * Fewer than the job's chosen targets whenever a mailbox could not be given a marker label,
+   * since one without a marker is never inserted into. Read off the run's own journal when the
+   * state is written; absent on a plan written before that was recorded. */
+  mailboxes?: number;
   error?: string;
 }
 
@@ -113,6 +119,7 @@ interface JobStateLine {
   runId?: CopyRunId;
   copied?: number;
   skipped?: number;
+  mailboxes?: number;
   error?: string;
 }
 
@@ -233,6 +240,13 @@ export function recordJobChoices(root: string, jobId: string, choices: JobChoice
 /**
  * Records one batch reaching a new state, the moment it does
  *
+ * The mailbox count is filled in here rather than asked of the caller. A batch's `copied` is
+ * spread over the mailboxes its run actually opened, and only that run knows which those were --
+ * it names them in its own journal header before its first insert. This is the moment both the
+ * run id and the count are still reachable, so the count is written down beside the state and
+ * the reading side never has to guess it. Costs one journal read per batch that names a run,
+ * which is twice in a batch's life, against a batch that takes minutes.
+ *
  * @param root the drop folder
  * @param jobId
  * @param at the batch, its new state, and whatever became known with it
@@ -242,7 +256,8 @@ export function recordJobBatchState(
   jobId: string,
   at: Omit<JobStateLine, 'type'>,
 ): void {
-  writeLine(root, jobId, { type: 'state', ...at });
+  const mailboxes = at.mailboxes ?? (at.runId ? mailboxesOfRun(root, at.runId) : undefined);
+  writeLine(root, jobId, { type: 'state', ...at, ...(mailboxes ? { mailboxes } : {}) });
 }
 
 /**
@@ -310,7 +325,13 @@ export function parseLabelJob(raw: string): LabelJob | null {
     } else if (type === 'choices') choices = (parsed as JobChoicesLine).choices;
     else if (type === 'state') {
       const { type: _discriminator, ...state } = parsed as JobStateLine;
-      states.set(state.index, state);
+      // Folded over the batch's earlier lines rather than replacing them. A line records one
+      // transition and carries only what became known with it, so the bare 'pending' line that
+      // takes a stuck batch up again mentions no count -- and replacing wholesale threw away
+      // what that batch had already put in the mailbox, which the line was still counting a
+      // moment earlier. A key absent from the newer line keeps the older value; a key present
+      // on it wins, so a second attempt still overwrites the first attempt's figures.
+      states.set(state.index, { ...states.get(state.index), ...state });
     } else if (type === 'done') outcome = (parsed as JobDoneLine).outcome;
   }
   if (!header) return null;
@@ -330,6 +351,7 @@ export function parseLabelJob(raw: string): LabelJob | null {
         runId: state?.runId,
         copied: state?.copied,
         skipped: state?.skipped,
+        mailboxes: state?.mailboxes,
         error: state?.error,
       };
     });
@@ -400,15 +422,24 @@ export function nextBatch(job: LabelJob): JobBatch | null {
  * How far the whole job has got, for the strip above the picker
  *
  * Counted in conversations, matching what the drop progress already counts. Every batch that
- * answered is counted off the plan file -- a copied one by its whole slice, a failed one by what
- * it actually managed before it stopped -- so all of that reads back identically after a restart.
+ * answered is counted off the plan file -- a copied one by its whole slice, one that stopped part
+ * way by what it actually managed -- so all of that reads back identically after a restart.
  *
- * The batch under way is the one part that is nowhere on disk. It is folded in from `running`,
- * and a resumed job has nothing to fold in until its next batch reports, so the line can step
- * back across a restart: by at most that batch's own slice, and never below what the plan file
- * already accounts for. Persisting a per-insert tally would close that gap and was rejected --
- * this file writes transitions and not tallies, for the reason the note at the top gives, and the
- * copy journal already records every insert that landed.
+ * The number can step back, in two ways, and neither is a restart losing the plan file:
+ *
+ * A restart loses the batch under way. That batch is the one part nowhere on disk, folded in from
+ * `running`, and a resumed job has nothing to fold in until its next batch reports -- so the line
+ * falls back by at most that batch's own slice, and never below what the plan file accounts for.
+ * Persisting a per-insert tally would close that gap and was rejected: this file writes
+ * transitions and not tallies, for the reason the note at the top gives, and the copy journal
+ * already records every insert that landed.
+ *
+ * A batch can also be recorded below what it was showing, with no restart involved. `running`
+ * counts every message the copy attempted, the duplicates it skipped included, while the `copied`
+ * it finally records counts only the inserts that landed. A batch that skipped most of its mail
+ * and then failed therefore drops to its recorded figure the moment it answers. That is the
+ * estimate being corrected by the count, not the count being lost, and it is bounded the same
+ * way: by that batch's own slice.
  *
  * @param job
  * @param running what the copy of the current batch has managed so far, when one is under way
@@ -425,21 +456,11 @@ export function jobProgress(
   total: number;
 } {
   const at = nextBatch(job);
-  // A copied batch answered for its whole slice; a failed one only for what it got through, and
-  // that share is in the copy's own unit, so it is converted the same way the running batch is.
-  const behind = job.batches.reduce(
-    (sum, b) =>
-      b.state === 'copied'
-        ? sum + b.threads.length
-        : b.state === 'failed'
-          ? sum + partialConversations(job, b)
-          : sum,
-    0,
-  );
+  const done = job.batches.reduce((sum, b) => sum + batchConversations(job, b, at, running), 0);
   return {
     batch: batchNumber(job),
     batches: job.batches.length,
-    done: Math.min(behind + runningConversations(at, running), job.total),
+    done: Math.min(done, job.total),
     total: job.total,
   };
 }
@@ -448,6 +469,34 @@ export function jobProgress(
 //===========================
 // Helper functions
 //===========================
+
+// One contribution per batch, chosen rather than accumulated. A batch that was taken up again
+// after failing has both a count of its own and a live figure describing the same conversations
+// -- its first attempt's mail is still in the mailbox while the second attempt re-walks it -- and
+// adding those together counted that mail twice. The larger of the two is the floor under what
+// is known to have landed, and being one expression it cannot be summed by accident.
+
+/**
+ * What one batch is worth to the job line, in conversations
+ *
+ * @param job
+ * @param batch
+ * @param at the batch under way, so a live figure is only ever applied to that one
+ * @param running
+ * @returns conversations, between zero and the batch's own slice
+ * @private
+ */
+function batchConversations(
+  job: LabelJob,
+  batch: JobBatch,
+  at: JobBatch | null,
+  running?: RunningBatchProgress,
+): number {
+  if (batch.state === 'copied') return batch.threads.length;
+  const recorded = partialConversations(job, batch);
+  const live = batch === at ? runningConversations(at, running) : 0;
+  return Math.max(recorded, live);
+}
 
 /**
  * Which batch the line names
@@ -492,28 +541,44 @@ function runningConversations(at: JobBatch | null, running?: RunningBatchProgres
 }
 
 /**
- * What a batch that failed part-way is worth to the job line, in conversations
+ * What a batch that did not finish is worth to the job line, in conversations
  *
  * Mail that really moved. A batch that failed after copying eight hundred conversations had those
  * eight hundred in the mailbox, and counting only the copied batches understated the job by every
  * one of them -- in that run and in every resume after it, since the count is on disk.
  *
  * Its `copied` is the copy's own figure, in the same message-insert unit the running batch reports,
- * so it needs the same conversion. The mailbox count comes from the job's choices rather than from
- * a caller: those are written before the first insert, which is exactly what lets a resumed job
- * convert a figure the run that wrote it is no longer around to explain.
+ * so it needs the same conversion. Divided by the mailboxes the run opened, which is what those
+ * inserts are spread over: a mailbox that never got a marker label is never inserted into, so
+ * dividing by the mailboxes that were merely chosen understated the batch by that mailbox's whole
+ * share -- and disagreed with the live line, which divides by the ready ones too. Only a plan
+ * written before that count was recorded falls back to the chosen ones, which is the closest
+ * thing on the file and never overstates, since ready can only be fewer.
  *
  * @param job
- * @param batch one whose state is 'failed'
+ * @param batch any batch that is not 'copied'; one that recorded no count is worth nothing
  * @returns conversations, between zero and the batch's own slice
  * @private
  */
 function partialConversations(job: LabelJob, batch: JobBatch): number {
   return conversationsFrom(
     batch.copied ?? 0,
-    job.choices?.targets.length ?? 0,
+    batch.mailboxes ?? job.choices?.targets.length ?? 0,
     batch.threads.length,
   );
+}
+
+/**
+ * How many mailboxes one run actually opened
+ *
+ * @param root the drop folder
+ * @param runId
+ * @returns the count, or undefined when that run left no journal to read it from
+ * @private
+ */
+function mailboxesOfRun(root: string, runId: CopyRunId): number | undefined {
+  const count = readCopyJournal(root, runId)?.targets.length ?? 0;
+  return count > 0 ? count : undefined;
 }
 
 /**
