@@ -34,6 +34,7 @@ import { type AppearancePatch, type PrefsStore } from './prefs-store';
 import { addAccount, redetect, removeAccount } from '../accounts/detection-controller';
 import { refreshDelegatedFromApi } from '../delegation/delegated-controller';
 import {
+  cancelMailDropPull,
   closeDropPreview,
   controlCopyRun,
   copyToMailboxes,
@@ -279,6 +280,7 @@ export function registerIpc(): void {
   ipcMain.on(IPC.SET_DEFAULT_MAIL, () => requestDefaultMail());
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => dropPreviewItems());
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => closeDropPreview());
+  ipcMain.on(IPC.MAIL_DROP_PULL_CANCEL, () => cancelMailDropPull());
   ipcMain.handle(IPC.LABELS_GET, () => labelsForCopyTargets());
   ipcMain.handle(IPC.LABEL_PURGE_COUNT, (_e, arg: { email: string; label: string }) =>
     countLabelForPurge(arg.email, arg.label),

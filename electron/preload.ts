@@ -23,6 +23,8 @@ import {
   DROPZONE_ID,
   DROPZONE_CSS,
   DROPZONE_LABEL,
+  CANCEL_ID,
+  CANCEL_LABEL,
   DROPLOCK_ID,
   DROPLOCK_CSS,
   PULLING_TEXT,
@@ -302,12 +304,14 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
  * @param send hands a finished drop to main
  * @param log a line into notify.log, the only place a message from inside Google's page
  *   is ever read back
+ * @param cancelPull asks main to stop the pull that is running
  * @returns what to call with main's answer, which the strip then shows
  * @private
  */
 function installDropzone(
   send: (p: MailDropPayload) => void,
   log: (message: string) => void,
+  cancelPull: () => void,
 ): {
   showResult: (r: MailDropResult) => void;
   showProgress: (p: MailDropSaveProgress) => void;
@@ -326,6 +330,13 @@ function installDropzone(
   lock.id = DROPLOCK_ID;
   lock.setAttribute('data-state', 'off');
 
+  // The button that stops a pull. Created here beside the strip rather than on demand, and put
+  // back per line rather than kept: assigning the strip's textContent drops every child it has.
+  const cancel = document.createElement('button');
+  cancel.id = CANCEL_ID;
+  cancel.type = 'button';
+  cancel.textContent = CANCEL_LABEL;
+
   const host = document.body ?? document.documentElement;
   const attach = () => {
     if (!host.contains(style)) host.appendChild(style);
@@ -343,10 +354,33 @@ function installDropzone(
    * The other accounts' pages are locked by the same pull and get none. */
   let mine = false;
   const setState = (s: string) => zone.setAttribute('data-state', s);
+
+  /**
+   * Puts one line in the strip, with or without the button that stops a pull
+   *
+   * @param text the line to show
+   * @param cancellable whether this line belongs to a pull the user may still stop
+   * @private
+   */
+  const showLine = (text: string, cancellable = false): void => {
+    zone.textContent = text;
+    if (cancellable) zone.appendChild(cancel);
+  };
+
+  /** Whether there is a pull on screen to stop. `saving` is the one flag that is already true
+   * for every line a pull shows: this page sets it the moment it starts one, setLock sets it on
+   * every page a pull veils, and reset clears it. The button's own presence is not enough --
+   * a line may still be on screen after the pull behind it has answered. */
+  const pullCancellable = (): boolean => saving;
+
+  cancel.addEventListener('click', () => {
+    if (pullCancellable()) cancelPull();
+  });
   const reset = () => {
     saving = false;
-    // A page that is still locked says so again rather than inviting another drag.
-    zone.textContent = locked ? PULLING_TEXT : DROPZONE_LABEL;
+    // A page that is still locked says so again rather than inviting another drag, and keeps
+    // the button for as long as that pull is still running.
+    showLine(locked ? PULLING_TEXT : DROPZONE_LABEL, locked);
     setState(locked ? 'armed' : 'idle');
   };
 
@@ -425,6 +459,21 @@ function installDropzone(
     true,
   );
 
+  // The one key this page answers, and only while a pull holds it. Capture, like the mouse
+  // listeners above, so Gmail does not get to it first.
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Escape' || !pullCancellable()) return;
+      // Swallowed for the reason the veil swallows the mouse: the key that stops the pull must
+      // not also close whatever sits behind it.
+      e.preventDefault();
+      e.stopPropagation();
+      cancelPull();
+    },
+    true,
+  );
+
   document.addEventListener(
     'mousemove',
     (e) => {
@@ -433,9 +482,9 @@ function installDropzone(
       if (!dragging && !movedEnough(pressAt, at)) return;
       dragging = true;
       if (clearTimer) clearTimeout(clearTimer);
-      zone.textContent = pressLabel
-        ? `Sleep hier om alle mail uit "${pressLabel}" op te slaan`
-        : DROPZONE_LABEL;
+      showLine(
+        pressLabel ? `Sleep hier om alle mail uit "${pressLabel}" op te slaan` : DROPZONE_LABEL,
+      );
       setState(isOverZone(at, zone.getBoundingClientRect()) ? 'over' : 'armed');
     },
     true,
@@ -458,7 +507,7 @@ function installDropzone(
       if (label) {
         saving = true;
         mine = true;
-        zone.textContent = `Mail uit "${label}" ophalen…`;
+        showLine(`Mail uit "${label}" ophalen…`, true);
         setState('armed');
         send({
           items: [],
@@ -493,7 +542,7 @@ function installDropzone(
       );
       saving = true;
       mine = true;
-      zone.textContent = items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…';
+      showLine(items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…', true);
       setState('armed');
       send({
         items,
@@ -509,7 +558,7 @@ function installDropzone(
   return {
     showResult: (r: MailDropResult) => {
       mine = false;
-      zone.textContent = resultText(r);
+      showLine(resultText(r));
       setState(r.ok ? 'done' : 'failed');
       if (clearTimer) clearTimeout(clearTimer);
       clearTimer = setTimeout(reset, 2000);
@@ -517,7 +566,7 @@ function installDropzone(
 
     showProgress: (p: MailDropSaveProgress) => {
       if (clearTimer) clearTimeout(clearTimer);
-      zone.textContent = savingText(p.done, p.total);
+      showLine(savingText(p.done, p.total), true);
       setState('armed');
     },
 
@@ -533,7 +582,7 @@ function installDropzone(
         // The page that dragged already says what it is doing, and its own line is the better
         // one to keep until the first count arrives.
         if (!mine) {
-          zone.textContent = PULLING_TEXT;
+          showLine(PULLING_TEXT, true);
           setState('armed');
         }
         return;
@@ -542,7 +591,7 @@ function installDropzone(
       // the line to leave standing. So the strip is only touched for the two cases the result
       // does not cover: a lock that lifted itself, and a page that had no result coming.
       if (l.note) {
-        zone.textContent = l.note;
+        showLine(l.note);
         setState('failed');
         if (clearTimer) clearTimeout(clearTimer);
         clearTimer = setTimeout(reset, 4000);
@@ -636,6 +685,7 @@ if (typeof document !== 'undefined') {
         const drop = installDropzone(
           (p) => ipcRenderer.send(IPC.MAIL_DROP, p),
           (message) => ipcRenderer.send(IPC.VIEW_LOG, message),
+          () => ipcRenderer.send(IPC.MAIL_DROP_PULL_CANCEL),
         );
         ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e2: unknown, r: MailDropResult) => drop.showResult(r));
         ipcRenderer.on(IPC.MAIL_DROP_SAVE_PROGRESS, (_e2: unknown, p: MailDropSaveProgress) =>

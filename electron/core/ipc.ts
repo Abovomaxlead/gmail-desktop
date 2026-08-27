@@ -82,6 +82,7 @@ export const IPC = {
   MAIL_DROP_RESULT: 'mail:drop-result',
   MAIL_DROP_SAVE_PROGRESS: 'maildrop:save-progress',
   MAIL_DROP_LOCK: 'maildrop:lock',
+  MAIL_DROP_PULL_CANCEL: 'maildrop:pull-cancel',
   MAIL_DROP_PREVIEW: 'maildrop:preview',
   MAIL_DROP_PREVIEW_CLOSE: 'maildrop:preview-close',
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get',

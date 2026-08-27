@@ -149,7 +149,15 @@ import {
 } from './label-tree';
 import { fetchThreadEmls } from './mail-fetch';
 import { emptyIndex, indexedScan, remember } from './message-index';
-import { BUSY_TEXT, NO_SUBJECT, SLOW_TEXT, dropOutcome, type MessageRef } from './dropzone';
+import {
+  BUSY_TEXT,
+  NO_SUBJECT,
+  SLOW_TEXT,
+  cancelledText,
+  dropOutcome,
+  type MessageRef,
+} from './dropzone';
+import { createPullControl, type PullControl } from './pull-control';
 import { DROP_LOCK_MS, createDropLock } from './drop-lock';
 import { defaultMailFolder, looksRemoteFolder } from './mail-folder';
 import { createCopyRunControl, type CopyRunControl } from './copy-control';
@@ -298,6 +306,15 @@ let activeJob: { job: LabelJob; root: string } | null = null;
  * finished, which is the only moment the earlier batches may be swept: two sweeps trashing under
  * two markers in one mailbox at once is a race with nothing to gain. */
 let rollbackWholeJob = false;
+
+/** The gate of the pull that holds the drop lock, or null when nothing is being pulled. One at
+ * a time is not an assumption but a property of the lock: dropLock.take admits one holder, and
+ * both pull paths create this where they take it and clear it where they release it. */
+let activePull: PullControl | null = null;
+
+/** How many conversations the pull that holds the lock has fetched, so a cancel can say how far
+ * it got. Reset where the gate is created. */
+let pullDone = 0;
 
 /** A stop the user asked for while the driver was between two batches, where there is no copy
  * in flight for the gate to take it. Read at the top of the walk and again once a batch has been
@@ -847,7 +864,10 @@ async function fetchThreadSlice(
 
   let pulled = 0;
   report(0, slice.length);
-  return await mapLimit(slice, THREAD_FETCH_LIMIT, async (thread) => {
+  // The gate of the pull that holds the lock, read here rather than threaded through saveLabel:
+  // activePull IS this pull, since the lock admits one. mapLimit answers 'stop' to every worker
+  // once it is stopped, so the loop leaves off where it stands.
+  const collected = await mapLimit(slice, THREAD_FETCH_LIMIT, async (thread): Promise<CollectedThread> => {
     const { threadId } = thread;
     try {
       const raws = await withToken((token) => fetchThreadRaw(token, threadId));
@@ -870,7 +890,11 @@ async function fetchThreadSlice(
       pulled += 1;
       report(pulled, slice.length);
     }
-  });
+  }, activePull?.wait);
+  // mapLimit's signature promises R[], but a stop leaves the slot of every item it kept from
+  // starting untouched, so the holes are real at runtime even though the type cannot show them.
+  // Dropped rather than handed on, since a conversation that never started is not one that failed.
+  return collected.filter((c) => c !== undefined);
 }
 
 /**
@@ -1140,6 +1164,11 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
     return;
   }
   manager?.sendDropLock({ locked: true });
+  // The gate lives exactly as long as the lock does, which is what makes activePull mean "the
+  // pull that is running" everywhere else in this file.
+  const pull = createPullControl();
+  activePull = pull;
+  pullDone = 0;
   // The lock lifts itself as well. The pull is the one thing here that waits on Gmail without
   // a timeout of its own, and a request that never answers would otherwise leave every Gmail
   // view under the veil until the app is restarted.
@@ -1151,9 +1180,53 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
     await pullMailDrop(acctKey, payload, profile);
   } finally {
     clearTimeout(lifts);
+    if (activePull === pull) activePull = null;
     // Only if this pull still holds it: one that answers after its hold went stale must not
-    // unlock the pull that replaced it.
-    if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
+    // unlock the pull that replaced it. A cancelled pull rides the same note the self-lifting
+    // lock uses, so the strip says how far it got without a second channel for it.
+    if (dropLock.release(token)) {
+      manager?.sendDropLock(
+        pull.stopped() ? { locked: false, note: cancelledText(pullDone) } : { locked: false },
+      );
+    }
+  }
+}
+
+/**
+ * The progress callback every pull path hands down, which also remembers how far it got
+ *
+ * One function rather than the same arrow in three places, because the count it keeps is what
+ * the cancel line reports and that has to be the same number the strip was last shown.
+ *
+ * @returns the callback saveLabel and the row loop report through
+ * @private
+ */
+function pullReporter(): SaveProgress {
+  return (done, total) => {
+    pullDone = done;
+    manager?.sendDropProgress({ done, total });
+  };
+}
+
+/**
+ * Stops the pull that is running, if there is one
+ *
+ * Asked for by the strip's Annuleren button and by Escape, over IPC. What has already been
+ * fetched stays on disk untouched: the drop folder's own three-day sweep takes it, which is why
+ * nothing is deleted here. The picker is not opened for a cancelled pull either -- half a label
+ * is not a set anybody asked to copy.
+ *
+ * A cancel inside a job's batch also ends the job, keeping every batch that was already copied:
+ * jobStopWanted is the same field the stop dialog sets between two batches, and the driver
+ * honours it before it starts the batch it just pulled.
+ */
+export function cancelMailDropPull(): void {
+  if (!activePull || activePull.stopped()) return;
+  activePull.stop();
+  notifyLog(`[maildrop] ophalen geannuleerd na ${pullDone} gesprek(ken)`);
+  if (activeJob && jobDriving) {
+    jobStopWanted = 'keep';
+    notifyLog('[maildrop] de klus stopt hierop; wat al gekopieerd is blijft staan');
   }
 }
 
@@ -1244,7 +1317,7 @@ async function pullMailDrop(
   const items = payload.items ?? [];
   // Counted in conversations, and sent to every Gmail view: they are all locked by this pull,
   // so they all say how far it has got.
-  const report: SaveProgress = (done, total) => manager?.sendDropProgress({ done, total });
+  const report = pullReporter();
   lastDropSaved = [];
   dropSerial += 1;
   lastDropSource = account;
@@ -1283,6 +1356,13 @@ async function pullMailDrop(
       listed,
       slice,
     );
+    // Nothing is offered for copying out of a cancelled pull: half a label is not a set anybody
+    // asked to copy, and what was fetched stays on disk for the three-day sweep to take. The
+    // strip's line comes off the lock's note where the lock is released.
+    if (activePull?.stopped()) {
+      lastDropSaved = [];
+      return;
+    }
     lastDropSaved = refs;
     // rows rather than the display items: those carry the truncation notice too, which is
     // not a conversation that failed to save.
@@ -1300,30 +1380,43 @@ async function pullMailDrop(
   const cache: ThreadReadCache = new Map();
   let pulled = 0;
   report(0, items.length);
-  const results = await mapLimit(items, DRAG_THREAD_LIMIT, async (item) => {
-    const one = await saveOneThread(
-      ts,
-      account,
-      root,
-      item.threadId,
-      payload.authuser,
-      payload.ik,
-      item.message ?? null,
-      item.messageUnknown ?? false,
-      cache,
-    );
-    // After the row is saved rather than as it starts, and counted here rather than off the
-    // results array: they come back in drag order but they do not finish in it.
-    pulled += 1;
-    report(pulled, items.length);
-    return one;
-  });
+  const results = await mapLimit(
+    items,
+    DRAG_THREAD_LIMIT,
+    async (item) => {
+      const one = await saveOneThread(
+        ts,
+        account,
+        root,
+        item.threadId,
+        payload.authuser,
+        payload.ik,
+        item.message ?? null,
+        item.messageUnknown ?? false,
+        cache,
+      );
+      // After the row is saved rather than as it starts, and counted here rather than off the
+      // results array: they come back in drag order but they do not finish in it.
+      pulled += 1;
+      report(pulled, items.length);
+      return one;
+    },
+    activePull?.wait,
+  );
+
+  if (activePull?.stopped()) {
+    lastDropSaved = [];
+    return;
+  }
 
   const done: MailDropPreviewItem[] = [];
   const saved: number[] = [];
   let lastError: string | undefined;
   for (const [i, item] of items.entries()) {
-    const r = results[i];
+    // A row a stop kept from starting leaves mapLimit's slot untouched. Reached only by a cancel
+    // that lands between the loop ending and the check above it, and read as a row that saved
+    // nothing rather than crashed on.
+    const r = results[i] ?? { count: 0, saved: [] as SavedRef[], error: undefined };
     saved.push(r.count);
     if (r.error) lastError = r.error;
     lastDropSaved.push(...r.saved);
@@ -2376,28 +2469,48 @@ async function walkJob(): Promise<void> {
       return;
     }
     manager?.sendDropLock({ locked: true });
+    // A batch's pull is cancellable exactly like a plain drag's, and it is the longer of the two:
+    // this is the wait the user is most likely to want out of. The driver's own check right after
+    // this block sees jobStopWanted, which cancelMailDropPull sets, and ends the job before the
+    // batch it just pulled goes out.
+    const pull = createPullControl();
+    activePull = pull;
+    pullDone = 0;
     try {
       const ts = new Date().toISOString();
       dropSerial += 1;
       lastDropSaved = [];
-      const report: SaveProgress = (done, total) => manager?.sendDropProgress({ done, total });
+      const report = pullReporter();
       // No listing for a later batch: the plan already holds the conversations, and asking Gmail
       // again would both cost a hundred pages and risk a different answer than the one the
       // batches were cut from.
       const { items, saved } = await saveLabel(
         ts, job.account, root, job.label, '', '', report, null, at.threads,
       );
-      lastDropSaved = saved;
-      recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
-      activeJob.job = readLabelJob(root, job.jobId) ?? job;
-      // Shown, but marked as driven. Not showing it at all was the first answer to the duplicate
-      // of 2026-08-26 and it went too far: once the picker had been closed after a batch, the
-      // rest of a half-hour job ran with nothing on screen. `driven` is what separates the two
-      // needs -- the picker updates its list and stays out of its picking phase, so the batch is
-      // visible without Kopieer being offered for it.
-      openDropPreview(items, true);
+      // A cancelled batch pull records nothing and shows nothing: the batch stays 'pending', so a
+      // job resumed later pulls it again rather than copying half of it. Deliberately not a
+      // return: the walk's own stop check sits just past this block and is what ends the job and
+      // lets the panel out of its walking phase. Leaving here would strand it there.
+      if (pull.stopped()) {
+        lastDropSaved = [];
+      } else {
+        lastDropSaved = saved;
+        recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
+        activeJob.job = readLabelJob(root, job.jobId) ?? job;
+        // Shown, but marked as driven. Not showing it at all was the first answer to the
+        // duplicate of 2026-08-26 and it went too far: once the picker had been closed after a
+        // batch, the rest of a half-hour job ran with nothing on screen. `driven` is what
+        // separates the two needs -- the picker updates its list and stays out of its picking
+        // phase, so the batch is visible without Kopieer being offered for it.
+        openDropPreview(items, true);
+      }
     } finally {
-      if (dropLock.release(token)) manager?.sendDropLock({ locked: false });
+      if (activePull === pull) activePull = null;
+      if (dropLock.release(token)) {
+        manager?.sendDropLock(
+          pull.stopped() ? { locked: false, note: cancelledText(pullDone) } : { locked: false },
+        );
+      }
     }
 
     // Asked for while this batch was being pulled: stopped before a single mail of it goes out,

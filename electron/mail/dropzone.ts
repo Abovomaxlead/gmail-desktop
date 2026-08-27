@@ -77,6 +77,20 @@ export const DROPZONE_ID = 'gmd-dropzone';
 export const DROPZONE_Z = 2147483646;
 export const DRAG_CHROME_Z = 2147483647;
 
+export const CANCEL_ID = 'gmd-dropzone-cancel';
+
+export const CANCEL_LABEL = 'Annuleren';
+
+// The strip passes clicks through to Gmail and one element inside it does not. A child may set
+// pointer-events: auto under a parent that set none -- the property is inherited but not
+// binding, so each element decides for itself -- which is what lets the strip stay a label
+// while the button in it is a button. The surface around it goes on letting Gmail have the
+// click, so nothing of the promise below is given up beyond this one element.
+//
+// Whether the button is on screen is decided here rather than in the page's own script: that
+// script draws the report a finished drop ends on, and hiding the button would be one more
+// thing it had to remember. A report has nothing left to cancel, so the two states that draw
+// one -- done and failed -- match no rule that shows it.
 export const DROPZONE_CSS = `
 #${DROPZONE_ID} {
   position: fixed; top: 0; left: 0; right: 0; height: 56px;
@@ -91,6 +105,15 @@ export const DROPZONE_CSS = `
 #${DROPZONE_ID}[data-state="over"] { display: flex; background: #d2e3fc; border-style: solid; }
 #${DROPZONE_ID}[data-state="done"] { display: flex; color: #188038; border-color: #188038; background: rgba(230, 244, 234, 0.97); }
 #${DROPZONE_ID}[data-state="failed"] { display: flex; color: #c5221f; border-color: #c5221f; background: rgba(252, 232, 230, 0.97); }
+#${CANCEL_ID} {
+  display: none; pointer-events: auto;
+  margin-left: 16px; padding: 3px 12px;
+  font: inherit; color: inherit;
+  background: transparent; border: 1px solid currentColor; border-radius: 8px;
+  cursor: pointer;
+}
+#${DROPZONE_ID}[data-state="armed"] #${CANCEL_ID} { display: inline-block; }
+#${DROPZONE_ID}[data-state="over"] #${CANCEL_ID} { display: inline-block; }
 `;
 
 export const DROPZONE_LABEL = 'Sleep hier om de mail op te slaan';
@@ -107,9 +130,12 @@ export const DROPLOCK_ID = 'gmd-droplock';
  * on top of it. */
 export const DROPLOCK_Z = DROPZONE_Z - 1;
 
-// The one layer in this file that does swallow clicks: while mail is being pulled the page
-// underneath must not answer a second drag, and a strip that only says so does not stop one.
-// Apart, so the strip's own stylesheet keeps its promise of never taking a click.
+// The one layer in this file that swallows clicks wholesale: while mail is being pulled the
+// page underneath must not answer a second drag, and a strip that only says so does not stop
+// one. Apart, so the strip's own stylesheet keeps its promise -- which is no longer "never a
+// click" but "no click but the cancel button's": the rule for DROPZONE_ID is still
+// pointer-events none and passes everything through, and the rule for CANCEL_ID is the only
+// one in that sheet setting auto.
 export const DROPLOCK_CSS = `
 #${DROPLOCK_ID} {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -129,6 +155,10 @@ export const PULLING_TEXT = 'Er wordt mail opgehaald…';
 export const BUSY_TEXT = 'Er wordt al mail opgehaald';
 
 export const SLOW_TEXT = 'Ophalen duurde te lang';
+
+/** A cancel that caught the pull before a single conversation landed. Its own line rather than
+ * a count of nothing, the same way NOTHING_SAVED is not "0 opgeslagen". */
+export const CANCELLED_NOTHING = 'Geannuleerd, niets opgehaald';
 
 const MESSAGE_ID_ATTR = 'data-legacy-message-id';
 const MESSAGE_PERM_ATTR = 'data-message-id';
@@ -420,6 +450,21 @@ export function dropOutcome(
 export function savingText(done: number, total: number): string {
   if (total <= 0) return SEARCHING_TEXT;
   return `${done} van ${total} opgehaald`;
+}
+
+/**
+ * What the strip says once a pull has been cancelled
+ *
+ * Conversations, because that is what the line was counting a moment earlier -- see
+ * savingText. The total is left out: a cancelled pull was never going to reach it, and naming
+ * it invites the reading that the rest still follows.
+ *
+ * @param done conversations pulled before the cancel took effect
+ * @returns the line for the strip, which counts what was kept
+ */
+export function cancelledText(done: number): string {
+  if (done < 1) return CANCELLED_NOTHING;
+  return `Geannuleerd — ${done} conversatie${done === 1 ? '' : 's'} opgehaald`;
 }
 
 /**

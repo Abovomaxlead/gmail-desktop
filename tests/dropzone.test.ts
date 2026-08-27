@@ -28,6 +28,9 @@ import {
   NO_SUBJECT,
   isOverZone,
   movedEnough,
+  CANCEL_ID,
+  CANCEL_LABEL,
+  cancelledText,
 } from '../electron/mail/dropzone';
 
 //===========================
@@ -794,14 +797,95 @@ describe('resultText', () => {
   });
 });
 
+// The strip reports what a cancelled pull managed before it was stopped, in the unit the pull
+// counts in -- conversations, the same ones savingText was counting a moment earlier.
+describe('cancelledText', () => {
+  it('counts what a cancelled pull had already fetched', () => {
+    expect(cancelledText(300)).toBe('Geannuleerd — 300 conversaties opgehaald');
+  });
+  it('says one conversation in the singular', () => {
+    expect(cancelledText(1)).toBe('Geannuleerd — 1 conversatie opgehaald');
+  });
+  // Its own line rather than "0 conversaties": a cancel that caught the pull before anything
+  // landed leaves nothing behind, and a count of nothing reads as a number that went wrong.
+  it('has a line of its own for a pull that fetched nothing', () => {
+    expect(cancelledText(0)).toBe('Geannuleerd, niets opgehaald');
+  });
+  it('reads a count below zero as nothing fetched', () => {
+    expect(cancelledText(-5)).toBe('Geannuleerd, niets opgehaald');
+  });
+});
+
+/** Every rule of a stylesheet as selector and declarations, which is all these tests need to
+ * ask which selector carries a property rather than whether the sheet mentions it anywhere. */
+function rulesOf(css: string): Array<{ selector: string; body: string }> {
+  return css
+    .split('}')
+    .map((block) => {
+      const [selector, body] = block.split('{');
+      return { selector: (selector ?? '').trim(), body: (body ?? '').trim() };
+    })
+    .filter((rule) => rule.selector && rule.body);
+}
+
+/**
+ * The display value one rule sets
+ *
+ * Read out rather than matched with a negative lookahead: `display:\s*(?!none)` also matches
+ * `display: none`, because the optional whitespace backtracks to nothing and the lookahead
+ * then reads the space instead of the value.
+ *
+ * @param body the rule's declarations
+ * @returns the value, or null when the rule does not set display at all
+ */
+function displayOf(body: string): string | null {
+  const found = /(?:^|;)\s*display:\s*([^;]+)/.exec(body);
+  return found ? found[1].trim() : null;
+}
+
 describe('constants', () => {
   it('keeps the strip hidden until a drag arms it', () => {
     expect(DROPZONE_CSS).toContain('display: none');
     expect(DROPZONE_CSS).toContain('[data-state="armed"] { display: flex');
   });
-  it('never lets the strip swallow clicks meant for Gmail', () => {
-    expect(DROPZONE_CSS).toContain('pointer-events: none');
-    expect(DROPZONE_CSS).not.toContain('pointer-events: auto');
+
+  // Sharpened rather than relaxed when the cancel button arrived. Asserting that the sheet
+  // nowhere says 'pointer-events: auto' stopped being the promise worth keeping -- the promise
+  // is that the strip's own surface passes clicks through to Gmail, and that exactly one
+  // element inside it may take them. So this now names the rule each value is allowed on,
+  // which the flat string check could not do.
+  it('never lets the strip itself swallow clicks meant for Gmail', () => {
+    const strip = rulesOf(DROPZONE_CSS).find((r) => r.selector === `#${DROPZONE_ID}`);
+    expect(strip?.body).toContain('pointer-events: none');
+  });
+
+  it('lets the cancel button, and nothing else, take a click', () => {
+    const takesClicks = rulesOf(DROPZONE_CSS).filter((r) => r.body.includes('pointer-events: auto'));
+    expect(takesClicks).toHaveLength(1);
+    expect(takesClicks[0].selector).toContain(`#${CANCEL_ID}`);
+  });
+
+  it('names the cancel button so the page and the stylesheet agree', () => {
+    expect(CANCEL_ID).toBe('gmd-dropzone-cancel');
+    expect(CANCEL_LABEL).toBe('Annuleren');
+    expect(DROPZONE_CSS).toContain(`#${CANCEL_ID}`);
+  });
+
+  // A finished drop has nothing left to cancel, so the button is gone in the two states that
+  // report one. Decided here in css and not in the page, because the page's own script is
+  // what draws the report and would have to remember to take the button away again.
+  it('shows the cancel button while the strip is live and never on a report', () => {
+    const shows = rulesOf(DROPZONE_CSS).filter((r) => {
+      const display = displayOf(r.body);
+      return r.selector.includes(`#${CANCEL_ID}`) && display !== null && display !== 'none';
+    });
+    expect(shows.length).toBeGreaterThan(0);
+    for (const rule of shows) {
+      expect(rule.selector).not.toContain('done');
+      expect(rule.selector).not.toContain('failed');
+    }
+    const base = rulesOf(DROPZONE_CSS).find((r) => r.selector === `#${CANCEL_ID}`);
+    expect(base?.body).toContain('display: none');
   });
 
   it('scopes every css rule to the dropzone id', () => {
