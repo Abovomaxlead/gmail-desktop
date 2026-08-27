@@ -748,9 +748,22 @@ export default function MailDropModalPage() {
           {controlError && (
             // Above the footer rather than in it: the footer's own line is the job's progress,
             // and a refused stop is about the button beside it, not about how far the job got.
-            <p className="shrink-0 border-t border-black/10 px-5 pt-3 text-xs text-red-700 dark:border-white/10 dark:text-red-400">
-              {controlError}
-            </p>
+            //
+            // Dismissable, because nothing else is guaranteed to clear it: a stop clicked just
+            // after the job answered is refused by main and set here after the job end that would
+            // have cleared it, which left a red line standing over a panel reporting a finished
+            // job.
+            <div className="flex shrink-0 items-start justify-between gap-3 border-t border-black/10 px-5 pt-3 dark:border-white/10">
+              <p className="text-xs text-red-700 dark:text-red-400">{controlError}</p>
+              <button
+                type="button"
+                onClick={() => setControlError(null)}
+                aria-label="Melding sluiten"
+                className="shrink-0 rounded px-1 text-xs text-red-700 hover:bg-red-500/10 dark:text-red-400"
+              >
+                ✕
+              </button>
+            </div>
           )}
 
           <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-black/10 px-5 py-3 dark:border-white/10">

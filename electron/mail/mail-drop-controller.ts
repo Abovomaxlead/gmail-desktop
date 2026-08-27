@@ -134,6 +134,14 @@ import {
   type RunningBatchProgress,
 } from './label-job';
 import {
+  STOP_TOO_LATE_TEXT,
+  jobStopFromAction,
+  pullRefusal,
+  sameJobPlan,
+  stopReachesRun,
+  type JobPlanRef,
+} from './job-guard';
+import {
   labelTreeMembers,
   planLabelTree,
   resolveMessageLabels,
@@ -275,6 +283,11 @@ let activeRun: {
   /** Mailboxes this run writes to, kept because `total` alone cannot be turned back into
    * conversations for the job line */
   targets: number;
+  /** Set once the run has read its own stop mode, after which its tally is fixed. Everything
+   * that follows -- the log, the marker sweep with its five rounds of backoff -- is seconds of
+   * work in which the gate no longer decides anything, and a stop arriving then was answered as
+   * if it had been taken. See stopReachesRun. */
+  decided: boolean;
 } | null = null;
 
 /** The job the driver is advancing, or null when this drag was not big enough to need one. One
@@ -1107,6 +1120,17 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
   // picker on screen with the previous drag's mailboxes.
   if (payload.label && !profile) return;
 
+  // Before the lock, because the driver does not hold it while it copies -- only while it pulls.
+  // A drag landing in that gap used to displace the walking plan: see pullRefusal for why this is
+  // refused rather than carried. Answered the same way a drag during another pull is, so the view
+  // it came from hears something either way.
+  const busy = pullRefusal(jobDriving);
+  if (busy) {
+    manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error: busy });
+    notifyLog('[maildrop] sleep geweigerd: er loopt een klus die zelf mail kopieert');
+    return;
+  }
+
   const token = dropLock.take(Date.now());
   if (token === null) {
     // The views are locked already; this answers the drag that got in just before the lock
@@ -1577,7 +1601,9 @@ async function copyToMailbox(arg: {
   markerLabelId: string;
   /** The milliseconds one upload took, for the log */
   onInsert?: (ms: number) => void;
-  onDone: () => void;
+  /** Called once for every file this mailbox is through with, saying whether an insert landed.
+   * The bar counts every call; the job line counts only the landings. */
+  onDone: (landed: boolean) => void;
 }): Promise<CopyOutcome[]> {
   const { cfg, tokens, ts, target, files, index, onDone } = arg;
   const outcomes = new Array<CopyOutcome>(files.length);
@@ -1633,7 +1659,7 @@ async function copyToMailbox(arg: {
           // it runs.
           if (uploadMs !== undefined) arg.onInsert?.(uploadMs);
           outcomes[at] = outcome;
-          onDone();
+          onDone(outcome.copied === true);
           return { threadId: threadId ?? undefined };
         },
         arg.groupLimit,
@@ -2053,32 +2079,60 @@ function settled(outcome: RollbackOutcome): boolean {
 /**
  * Pauses, resumes or stops the copy in flight
  *
+ * A stop is answered by whichever of the two can still act on it. The run's own gate takes it
+ * while the run is still deciding; once the run has settled its tally -- everything after
+ * stopReachesRun turns false, which is the log and a marker sweep of up to five rounds -- the gate
+ * is a no-op that used to be reported as a success, and the walk went on to pull the next batch.
+ * The job carries the intent instead, and where there is no job either, this says so rather than
+ * claiming a stop nothing will honour.
+ *
  * @param action what the paused dialog asked for
- * @returns whether the gate took the action, since there is not always a copy running to
- *   take it
+ * @returns whether the action was taken, and by what
  */
 export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyControlResult {
-  if (!activeRun) {
-    // Between two batches there is no copy in flight, and the panel's Annuleren is live for the
-    // whole job: the stop is remembered and the driver honours it before the batch it has just
-    // pulled goes out. Nothing of that batch has landed yet, so 'stop-rollback-batch' has nothing
-    // of its own to sweep and means the same here as leaving what is there -- only the job-wide
-    // choice reaches the batches that did finish.
-    if (activeJob && jobDriving && action !== 'pause' && action !== 'resume') {
-      jobStopWanted = action === 'stop-rollback-job' ? 'rollback' : 'keep';
-      return { ok: true };
-    }
-    return { ok: false, error: 'Er wordt niet gekopieerd' };
-  }
-  const { control } = activeRun;
-  switch (action) {
-    case 'pause':
-      control.pause();
+  const pausing = action === 'pause' || action === 'resume';
+  // Pause and resume are the run's alone: between batches there is nothing to hold still, and the
+  // panel treats their refusal as the non-event it is.
+  if (activeRun && pausing) {
+    if (action === 'pause') {
+      activeRun.control.pause();
       sendPausedProgress();
-      return { ok: true };
-    case 'resume':
-      control.resume();
-      return { ok: true };
+    } else {
+      activeRun.control.resume();
+    }
+    return { ok: true };
+  }
+  if (pausing) return { ok: false, error: 'Er wordt niet gekopieerd' };
+
+  if (activeRun) {
+    const reach = { decided: activeRun.decided, stopping: activeRun.control.stopMode() !== null };
+    if (stopReachesRun(reach)) return stopTheRun(activeRun.control, action);
+  }
+  // No run that can still take it. Between two batches, and now also inside a batch whose tally is
+  // already fixed, the panel's Annuleren is live for the whole job: the stop is remembered and the
+  // driver honours it before the next batch goes out. What that batch landed stays where it is --
+  // it cannot be swept once its own markers have been stripped -- so only the job-wide choice
+  // reaches the batches that finished, exactly as it does between two batches.
+  if (activeJob && jobDriving) {
+    jobStopWanted = jobStopFromAction(action);
+    return { ok: true };
+  }
+  return { ok: false, error: activeRun ? STOP_TOO_LATE_TEXT : 'Er wordt niet gekopieerd' };
+}
+
+/**
+ * Hands a stop to the gate of the run in flight
+ *
+ * @param control the running gate
+ * @param action the stop the dialog asked for
+ * @returns what to tell the panel
+ * @private
+ */
+function stopTheRun(
+  control: CopyRunControl,
+  action: MailDropCopyControlAction,
+): MailDropCopyControlResult {
+  switch (action) {
     case 'stop-keep':
       control.stop('keep');
       return { ok: true };
@@ -2492,12 +2546,20 @@ export async function copyToMailboxes(arg: {
   let done = 0;
   let copied = 0;
   let skipped = 0;
-  // What of `done` is a mailbox dropping out rather than mail going up. The bar counts a
-  // mailbox that cannot be written to as finished -- its share of the work is over, and the
-  // bar would otherwise stop short of its own total -- but the job line counts mail, and
-  // crediting a whole mailbox there read as "666 van 3535 gekopieerd" before a single message
-  // had been sent. Kept beside `done` rather than subtracted from it, so the bar is untouched.
-  let credited = 0;
+  // Inserts that landed, which is the one number the job line may speak. `done` is every file
+  // this copy has finished with, whatever became of it -- a duplicate it skipped, an upload that
+  // failed, a whole mailbox that dropped out before it began -- because that is what lets the bar
+  // reach its own total. The job line says "gekopieerd" and the paused line counts the copy
+  // journal, which holds only inserts that answered; counting attempts against a journal of
+  // landings is what made the line fall the moment the user pressed pause, 1535 to 1074 on a batch
+  // where no mail had moved. A mailbox that drops out lands nothing, so this needs no correction
+  // of its own -- which is what the credit kept beside `done` used to be for.
+  let landed = 0;
+  // The plan this copy answers for, captured rather than read again at the far end. The tail runs
+  // minutes after this line, and a plan replaced in between took this batch's insert count into
+  // its own file: two thousand conversations recorded as copied that nobody had copied. What the
+  // tail compares against is sameJobPlan.
+  const forPlan: JobPlanRef | null = activeJob ? { jobId: activeJob.job.jobId } : null;
   // The mailboxes actually being written to. The job line divides inserts by this to reach
   // conversations, and the paused line divides the journal's entries by the same figure --
   // readyTargets, since a mailbox without a marker label is never inserted into. Dividing the
@@ -2512,9 +2574,11 @@ export async function copyToMailboxes(arg: {
       phase,
       done,
       total: of,
-      // `done` is inserts here and conversations up there; the phase and the mailbox count are
-      // what let jobProgress convert between the two.
-      job: jobProgressForSend({ phase, done: done - credited, targets: writingTo }),
+      // Two different counts on purpose: the bar takes every file this copy is through with,
+      // the job line only the inserts that landed -- the same unit the paused line reads off the
+      // journal. The phase and the mailbox count are what let jobProgress turn those into
+      // conversations.
+      job: jobProgressForSend({ phase, done: landed, targets: writingTo }),
     });
 
   let index = new Set<string>();
@@ -2631,7 +2695,6 @@ export async function copyToMailboxes(arg: {
       notifyLog(`[maildrop] copy ${a.email}: kon geen intern label aanmaken — ${a.error}`);
       accounts.push({ email: a.email, copied: 0, skipped: 0, total: files.length, error: a.error });
       done += files.length;
-      credited += files.length;
       progress('copy');
     }
   }
@@ -2642,7 +2705,6 @@ export async function copyToMailboxes(arg: {
     notifyLog(`[maildrop] copy ${email}: kon de labelstructuur niet bepalen — ${error}`);
     accounts.push({ email, copied: 0, skipped: 0, total: files.length, error });
     done += files.length;
-    credited += files.length;
     progress('copy');
     markerLabelByEmail.delete(email);
   }
@@ -2669,7 +2731,7 @@ export async function copyToMailboxes(arg: {
   const copyFrom = Date.now();
 
   const control = createCopyRunControl();
-  activeRun = { runId, control, root, total, targets: readyTargets.length };
+  activeRun = { runId, control, root, total, targets: readyTargets.length, decided: false };
   // A stop asked for while the marker labels were being made, which is the one window between
   // the check above and the gate below. Handed to the gate rather than acted on here: stopping
   // a run is the gate's job, and every worker below asks it before it starts anything.
@@ -2721,7 +2783,6 @@ export async function copyToMailboxes(arg: {
           );
           if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
           done += files.length;
-          credited += files.length;
           progress('copy');
           return {
             account: {
@@ -2752,8 +2813,9 @@ export async function copyToMailboxes(arg: {
           resolved: treeResolved,
           markerLabelId: markerLabelByEmail.get(target.email)!,
           onInsert: (ms) => inserts.push(ms),
-          onDone: () => {
+          onDone: (ok) => {
             done += 1;
+            if (ok) landed += 1;
             progress('copy');
           },
         });
@@ -2829,6 +2891,10 @@ export async function copyToMailboxes(arg: {
       notifyLog(`[maildrop] ${message}`);
     }
 
+    // Marked before the read and not after it: from here the run's outcome is settled, and a stop
+    // arriving during the sweep below cannot change it however long that sweep takes. Set on the
+    // run rather than kept local, because the one who has to know is controlCopyRun.
+    if (activeRun?.runId === runId) activeRun.decided = true;
     const stopMode = control.stopMode();
     if (!stopMode) {
       // Recorded before the sweep is even attempted: a normal, never-stopped finish still
@@ -2955,16 +3021,27 @@ export async function copyToMailboxes(arg: {
 
   try {
     const result = await runCopy();
+    // Only ever the plan this copy was started for. Read afresh, this recorded the batch against
+    // whichever plan happened to be held when the copy answered -- a second drag mid-copy was
+    // enough -- and that plan's own first batch was then marked copied, carrying this run's
+    // insert count, with its two thousand conversations skipped for good. A drag can no longer
+    // land here (see pullRefusal), and this is what makes the write safe rather than merely
+    // unlikely.
+    const held = activeJob ? { jobId: activeJob.job.jobId } : null;
+    const ours = sameJobPlan(forPlan, held) ? activeJob : null;
+    if (forPlan && !ours) {
+      notifyLog('[maildrop] batchstand niet vastgelegd: deze klus wordt niet meer gelopen');
+    }
     // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
     // failed outright is recorded as failed and nextBatch then stops the job rather than trying
     // the next two thousand into a mailbox that just refused us.
-    if (activeJob) {
-      const at = nextBatch(activeJob.job);
+    if (ours) {
+      const at = nextBatch(ours.job);
       if (at) {
         const stopped = 'stopped' in result && result.stopped;
         const failedHard = !stopped && 'ok' in result && !result.ok;
         const failed = attemptWrite(() =>
-          recordJobBatchState(activeJob!.root, activeJob!.job.jobId, {
+          recordJobBatchState(ours.root, ours.job.jobId, {
             index: at.index,
             state: failedHard ? 'failed' : 'copied',
             runId,
@@ -2974,14 +3051,16 @@ export async function copyToMailboxes(arg: {
           }),
         );
         if (failed) notifyLog(`[maildrop] kon de stand van batch ${at.index} niet vastleggen: ${failed}`);
-        activeJob.job = readLabelJob(activeJob.root, activeJob.job.jobId) ?? activeJob.job;
+        ours.job = readLabelJob(ours.root, ours.job.jobId) ?? ours.job;
         // A stop is the user's final word on the whole job, not just on this batch, so the driver
         // is not started. What the stop rolls back is decided just below.
         if (!stopped) void advanceJob();
       }
     }
-    if (activeJob && 'stopped' in result && result.stopped) {
-      const { job, root } = activeJob;
+    // The same plan again, for the same reason: a stop closes the job this copy belonged to and
+    // never one that took its place.
+    if (ours && 'stopped' in result && result.stopped) {
+      const { job, root } = ours;
       const trouble = rollbackWholeJob ? await rollbackFinishedBatches(job, root) : [];
       const outcome: JobOutcome =
         result.mode === 'keep'
