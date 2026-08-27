@@ -14,6 +14,7 @@ import {
   panelBody,
   jobEndText,
   controlFailureText,
+  type EndPhase,
   type JobEnd,
   type JobEndOutcome,
 } from '../renderer/app/job-panel';
@@ -96,6 +97,26 @@ describe('phaseAfterJobEnd', () => {
       stuck: true,
     };
     expect([...JOB_END_OUTCOMES].sort()).toEqual(Object.keys(covered).sort());
+  });
+
+  // The loop above is satisfied by the fallback too -- it answers 'done' like any other -- so on
+  // its own it lets a forgotten case through while the panel tells the user the outcome is
+  // unknown. This pins the phase each outcome must reach, and the table is a record the compiler
+  // fills: a sixth outcome does not compile here until it is named, and then the assertion below
+  // fails until it has a case of its own.
+  it('gives every outcome a phase of its own, never the unknown-outcome fallback', () => {
+    const expected: Record<JobEndOutcome, EndPhase> = {
+      completed: { kind: 'done' },
+      kept: { kind: 'stopped', mode: 'keep', complete: true },
+      'rolled-back': { kind: 'stopped', mode: 'rollback', complete: true },
+      'rolled-back-partial': { kind: 'stopped', mode: 'rollback', complete: false },
+      stuck: { kind: 'done', error: 'Geen rechten' },
+    };
+    for (const outcome of JOB_END_OUTCOMES) {
+      const at = phaseAfterJobEnd(end({ outcome, error: 'Geen rechten' }));
+      expect(at).toEqual(expected[outcome]);
+      expect(at.error ?? '').not.toContain('onbekende uitkomst');
+    }
   });
 
   // A switch with no default returns undefined, and the page reads .kind off it straight away.
@@ -275,5 +296,42 @@ describe('jobEndText', () => {
     expect(
       jobEndText(end({ outcome: 'stuck', done: 50, copiedBatches: 2, error: 'Geen rechten' })),
     ).toBe('Klus gestopt op batch 3 van 4 — Geen rechten');
+  });
+
+  // Every outcome at once, off the record the compiler checks rather than off five separate
+  // cases: a sixth outcome added to the union fails to compile here until this table names it,
+  // so the suite cannot go green on a line nobody wrote.
+  it('closes on a line of its own for every outcome the union names', () => {
+    const expected: Record<JobEndOutcome, string> = {
+      completed: 'Klus afgerond — 50 van 100 conversaties gekopieerd',
+      kept: 'Klus gestopt — 50 van 100 conversaties blijven gekopieerd',
+      'rolled-back': 'Klus gestopt en ongedaan gemaakt',
+      'rolled-back-partial': 'Klus gestopt, ongedaan maken niet overal gelukt',
+      stuck: 'Klus gestopt op batch 3 van 4 — Geen rechten',
+    };
+    for (const outcome of JOB_END_OUTCOMES) {
+      const text = jobEndText(
+        end({ outcome, done: 50, copiedBatches: 2, batches: 4, error: 'Geen rechten' }),
+      );
+      expect(text).toBe(expected[outcome]);
+      expect(text).not.toContain('onbekende uitkomst');
+    }
+  });
+
+  // The switch had no default and no trailing return, so anything outside the union came back
+  // undefined and the closing line rendered blank in all three places the page draws it. Main
+  // and the renderer are separate builds, so an outcome this compiler never saw is exactly the
+  // case that reaches here.
+  it('still says something for an outcome it has never heard of', () => {
+    const text = jobEndText(end({ outcome: 'abandoned' as JobEndOutcome }));
+    expect(typeof text).toBe('string');
+    expect(text).toBeTruthy();
+    expect(text).toContain('abandoned');
+  });
+
+  it('still says something when the outcome is missing altogether', () => {
+    const text = jobEndText({ ...end(), outcome: undefined as unknown as JobEndOutcome });
+    expect(typeof text).toBe('string');
+    expect(text).toBeTruthy();
   });
 });

@@ -162,16 +162,21 @@ export function phaseAfterJobEnd(end: JobEnd): EndPhase {
       return { kind: 'stopped', mode: 'rollback', complete: true };
     case 'rolled-back-partial':
       return { kind: 'stopped', mode: 'rollback', complete: false };
-    // Two guards, because they fail at different moments. `never` is the compile-time one: a
-    // sixth outcome added to the union stops building here rather than at the call site. The
-    // return under it is the runtime one, for an outcome that never went through this compiler
-    // at all -- main and the renderer are separate builds, and the page reads .kind off this
-    // straight away, so `undefined` here is the stranded panel this module exists to prevent.
-    default:
-      return {
-        kind: 'done',
-        error: `De klus eindigde op een onbekende uitkomst (${String((end as JobEnd).outcome)})`,
-      };
+    // Two belts, and they fail at different moments. The `never` assignment is the compile-time
+    // one: with every member of JobEndOutcome answered above, `end.outcome` narrows to `never`
+    // here, so a sixth member makes this line fail to compile in this function. It was claimed
+    // in a comment before and written nowhere, and a probe that adds a sixth outcome then broke
+    // the build in jobEndText instead -- the sibling, by accident of that one having no default
+    // -- while this switch quietly absorbed the new outcome and called it unknown.
+    //
+    // The return under it is the runtime belt, for an outcome that never went through this
+    // compiler at all: main and the renderer are separate builds, and the page reads .kind off
+    // this straight away, so `undefined` here is the stranded panel this module exists to
+    // prevent.
+    default: {
+      const unhandled: never = end.outcome;
+      return { kind: 'done', error: unknownOutcome(unhandled) };
+    }
   }
 }
 
@@ -273,6 +278,13 @@ export function jobEndText(end: JobEnd): string {
       return `Klus gestopt op batch ${end.copiedBatches + 1} van ${end.batches}${
         end.error ? ` — ${end.error}` : ''
       }`;
+    // The same two belts as phaseAfterJobEnd, for the same reason and with the same words: this
+    // is the panel's closing line and the page draws it in three places, so a switch that fell
+    // through returned undefined and drew an empty line where the job's result belongs.
+    default: {
+      const unhandled: never = end.outcome;
+      return unknownOutcome(unhandled);
+    }
   }
 }
 
@@ -280,6 +292,21 @@ export function jobEndText(end: JobEnd): string {
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * The line both switches fall back on for an outcome this build has never heard of
+ *
+ * The parameter is `never` on purpose: without a cast, the only value that can be passed is one
+ * the compiler has already narrowed to `never`, which is what the default of an exhaustive switch
+ * hands over. So the fallback cannot be reached from a switch that still has a case missing.
+ *
+ * @param outcome what arrived, which the compiler believes cannot exist
+ * @returns the sentence, naming the outcome so a screenshot or a log says which one it was
+ * @private
+ */
+function unknownOutcome(outcome: never): string {
+  return `De klus eindigde op een onbekende uitkomst (${String(outcome)})`;
+}
 
 /**
  * Mailbox addresses as a person reads them out
