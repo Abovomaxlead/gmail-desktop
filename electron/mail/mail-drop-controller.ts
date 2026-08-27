@@ -131,6 +131,7 @@ import {
   startLabelJob,
   type JobOutcome,
   type LabelJob,
+  type RunningBatchProgress,
 } from './label-job';
 import {
   labelTreeMembers,
@@ -239,8 +240,15 @@ const dropLock = createDropLock();
 /** The copy in flight right now, if any -- so a pause or stop asked for over IPC can reach
  * the loop that is actually running. `total` is carried here too, not recomputed, since a
  * paused progress line needs the same number the running one showed. */
-let activeRun: { runId: CopyRunId; control: CopyRunControl; root: string; total: number } | null =
-  null;
+let activeRun: {
+  runId: CopyRunId;
+  control: CopyRunControl;
+  root: string;
+  total: number;
+  /** Mailboxes this run writes to, kept because `total` alone cannot be turned back into
+   * conversations for the job line */
+  targets: number;
+} | null = null;
 
 /** The job the driver is advancing, or null when this drag was not big enough to need one. One
  * at a time, always: the drop lock admits one pull and a job never overlaps its own batches. */
@@ -2010,12 +2018,17 @@ export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyC
 /**
  * The running job's own numbers, for the strip that draws above one batch's bar
  *
+ * The batches behind come off the plan file; the batch in flight is only in the caller's own
+ * counters, so it is handed in. Called without it the line steps once a batch, which is what
+ * it did before -- so every caller that has the figures passes them.
+ *
+ * @param running the current batch's live insert count and mailbox count, when copying
  * @returns the job's progress, or undefined when this is a plain drag -- which is what makes the
  *   picker draw exactly the line it drew before jobs existed
  * @private
  */
-function jobProgressForSend(): MailDropCopyProgress['job'] {
-  return activeJob ? jobProgress(activeJob.job) : undefined;
+function jobProgressForSend(running?: RunningBatchProgress): MailDropCopyProgress['job'] {
+  return activeJob ? jobProgress(activeJob.job, running) : undefined;
 }
 
 /**
@@ -2029,7 +2042,7 @@ function jobProgressForSend(): MailDropCopyProgress['job'] {
  */
 function sendPausedProgress(): void {
   if (!activeRun) return;
-  const { runId, root, total } = activeRun;
+  const { runId, root, total, targets } = activeRun;
   const entries = readCopyJournal(root, runId)?.entries ?? [];
   const byMailbox = new Map<string, number>();
   for (const e of entries) byMailbox.set(e.email, (byMailbox.get(e.email) ?? 0) + 1);
@@ -2039,7 +2052,7 @@ function sendPausedProgress(): void {
     total,
     paused: true,
     byMailbox: [...byMailbox.entries()].map(([email, copied]) => ({ email, copied })),
-    job: jobProgressForSend(),
+    job: jobProgressForSend({ phase: 'copy', done: entries.length, targets }),
   } satisfies MailDropCopyProgress);
 }
 
@@ -2242,7 +2255,9 @@ export async function copyToMailboxes(arg: {
       phase,
       done,
       total: of,
-      job: jobProgressForSend(),
+      // `done` is inserts here and conversations up there; the phase and the mailbox count are
+      // what let jobProgress convert between the two.
+      job: jobProgressForSend({ phase, done, targets: targets.length }),
     });
 
   let index = new Set<string>();
@@ -2377,7 +2392,7 @@ export async function copyToMailboxes(arg: {
   const copyFrom = Date.now();
 
   const control = createCopyRunControl();
-  activeRun = { runId, control, root, total };
+  activeRun = { runId, control, root, total, targets: readyTargets.length };
   startCopyJournal(root, runId, readyTargets.map((t) => t.email), Date.now(), markers);
 
   // After the journal exists, because every created label is written to it the moment it lands,

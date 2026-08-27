@@ -73,6 +73,17 @@ export interface LabelJob {
   outcome: JobOutcome | null;
 }
 
+/** The live figures of the batch being copied right now, which are the one part of a job's
+ * progress that is nowhere on disk. `done` is counted the way the copy itself counts it: one
+ * per message per target mailbox, and during 'check' one per message scanned instead. Neither
+ * of those is a conversation, which is why it is handed over raw with `targets` beside it and
+ * normalised here rather than added anywhere else. */
+export interface RunningBatchProgress {
+  phase: 'check' | 'copy';
+  done: number;
+  targets: number;
+}
+
 interface JobHeaderLine {
   type: 'header';
   jobId: string;
@@ -390,13 +401,18 @@ export function nextBatch(job: LabelJob): JobBatch | null {
  *
  * Counted in conversations, matching what the drop progress already counts, and off the copied
  * batches rather than a running tally so a resumed job reports the same number the one before
- * it did.
+ * it did. The batch being worked on is folded in on top of that from `running`, which is the
+ * only part not on disk -- without it the line stood still for a whole batch.
  *
  * @param job
+ * @param running what the copy of the current batch has managed so far, when one is under way
  * @returns the batch being worked on (one-based, because it is read out to a person), how many
  *   there are, and the conversations behind and in total
  */
-export function jobProgress(job: LabelJob): {
+export function jobProgress(
+  job: LabelJob,
+  running?: RunningBatchProgress,
+): {
   batch: number;
   batches: number;
   done: number;
@@ -404,10 +420,11 @@ export function jobProgress(job: LabelJob): {
 } {
   const copied = job.batches.filter((b) => b.state === 'copied');
   const at = nextBatch(job);
+  const behind = copied.reduce((sum, b) => sum + b.threads.length, 0);
   return {
     batch: (at?.index ?? job.batches.length - 1) + 1,
     batches: job.batches.length,
-    done: copied.reduce((sum, b) => sum + b.threads.length, 0),
+    done: Math.min(behind + runningConversations(at, running), job.total),
     total: job.total,
   };
 }
@@ -416,6 +433,29 @@ export function jobProgress(job: LabelJob): {
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * What the running batch is worth to the job line, in conversations
+ *
+ * Inserts divided by mailboxes, because the same mail goes up once per target and the line
+ * counts each conversation once. That division is exact only for one message per conversation;
+ * a thread of five mails would run past its own batch, so the share is capped at the batch's
+ * conversation count. Capped rather than scaled: the batch's message count is not written down
+ * anywhere, and a bar that arrives early is a smaller lie than one that overshoots the total.
+ *
+ * Nothing is folded in during 'check': that counter is the duplicate scan's, and it would move
+ * the line before a single mail had gone out.
+ *
+ * @param at the batch being worked on, or null when the job has none left
+ * @param running
+ * @returns conversations, between zero and the batch's own slice
+ * @private
+ */
+function runningConversations(at: JobBatch | null, running?: RunningBatchProgress): number {
+  if (!at || !running || running.phase !== 'copy') return 0;
+  const share = Math.floor(Math.max(0, running.done) / Math.max(1, running.targets));
+  return Math.min(share, at.threads.length);
+}
 
 function writeLine(root: string, jobId: string, line: JobLine): void {
   mkdirSync(root, { recursive: true });

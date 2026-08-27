@@ -252,6 +252,82 @@ describe('jobProgress', () => {
   it('names the first batch as one, not zero', () => {
     expect(jobProgress(written(6, 2)).batch).toBe(1);
   });
+
+  // What the live figures fix: without them the line froze on the finished-batch sum for the
+  // whole of a batch -- "2000 van 3535" for twenty minutes, seen on 2026-08-26.
+  it('adds what the running batch has copied so far', () => {
+    written(6, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: 1, targets: 1 }).done).toBe(3);
+  });
+
+  // The trap this whole change is about: the closure counts inserts, one per message per
+  // mailbox, and the line counts conversations. Three mailboxes must not run the line to
+  // three times the total.
+  it('does not multiply the running batch by the number of mailboxes', () => {
+    written(6, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: 3, targets: 3 }).done).toBe(3);
+    expect(jobProgress(job, { phase: 'copy', done: 6, targets: 3 }).done).toBe(4);
+  });
+
+  // A conversation of five mails is five inserts per mailbox, so the normalised figure runs
+  // past the batch's own conversation count. It stops at the batch.
+  it('never credits the running batch beyond its own conversations', () => {
+    written(6, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: 40, targets: 1 }).done).toBe(4);
+  });
+
+  // During 'check' that same counter is the duplicate scan's, and folding it in would move the
+  // line before a single mail had gone out.
+  it('ignores the running batch while it is still scanning for duplicates', () => {
+    written(6, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'check', done: 2, targets: 1 }).done).toBe(2);
+  });
+
+  it('never reports less than the batches already finished', () => {
+    written(6, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: -5, targets: 1 }).done).toBe(2);
+    expect(jobProgress(job, { phase: 'copy', done: 0, targets: 0 }).done).toBe(2);
+  });
+
+  // The last batch is short: two finished batches plus a running one of two must not report
+  // more conversations than the job was planned with.
+  it('never reports more than the job total', () => {
+    written(5, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'copied', runId: 'run-b', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 2, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: 99, targets: 1 })).toEqual({
+      batch: 3,
+      batches: 3,
+      done: 5,
+      total: 5,
+    });
+  });
+
+  // A job whose batches are all copied has nothing running to fold in, whatever is passed.
+  it('folds in nothing once every batch is copied', () => {
+    written(4, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'copied', runId: 'run-b', copied: 2 });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: 2, targets: 1 }).done).toBe(4);
+  });
 });
 
 describe('needsJob', () => {
