@@ -8,11 +8,14 @@ import {
   JOB_END_OUTCOMES,
   previewMayPick,
   panelBelongsToJob,
+  panelMayWalk,
   phaseAfterJobEnd,
   panelTitle,
   panelBody,
   jobEndText,
+  controlFailureText,
   type JobEnd,
+  type JobEndOutcome,
 } from '../renderer/app/job-panel';
 
 const line = (over: Partial<{ batch: number; batches: number; done: number; total: number }> = {}) => ({
@@ -78,6 +81,82 @@ describe('phaseAfterJobEnd', () => {
     for (const outcome of JOB_END_OUTCOMES) {
       expect(['done', 'stopped']).toContain(phaseAfterJobEnd(end({ outcome })).kind);
     }
+  });
+
+  // The list the loop above walks used to be a hand-written array, which a union is never
+  // obliged to fill: an outcome added to the type and forgotten here left this suite green
+  // while that outcome returned undefined. JOB_END_OUTCOMES is now the keys of a record the
+  // compiler checks, so this asserts the list is the union rather than someone's memory of it.
+  it('walks every outcome the type allows, not a list someone wrote out', () => {
+    const covered: Record<JobEndOutcome, true> = {
+      completed: true,
+      kept: true,
+      'rolled-back': true,
+      'rolled-back-partial': true,
+      stuck: true,
+    };
+    expect([...JOB_END_OUTCOMES].sort()).toEqual(Object.keys(covered).sort());
+  });
+
+  // A switch with no default returns undefined, and the page reads .kind off it straight away.
+  // Nothing sends this today; the moment a sixth outcome exists on one side of the IPC and not
+  // the other, this is the difference between a closable panel and the stranded one 68f1981
+  // was written to replace.
+  it('still leaves a closable phase for an outcome it has never heard of', () => {
+    const at = phaseAfterJobEnd(end({ outcome: 'abandoned' as JobEndOutcome }));
+    expect(at).toBeDefined();
+    expect(['done', 'stopped']).toContain(at.kind);
+    expect(at.error).toBeTruthy();
+  });
+});
+
+// A panel message puts the panel into its walking phase, and one arriving after the job has
+// already reported its end would take a finished report back into a phase whose only exit is an
+// end that has already been sent.
+describe('panelMayWalk', () => {
+  it('lets a job take a panel that is picking', () => {
+    expect(panelMayWalk({ kind: 'picking' })).toBe(true);
+  });
+  it('lets a job take the panel over from the window own copy', () => {
+    expect(panelMayWalk({ kind: 'copying' })).toBe(true);
+  });
+  it('keeps refreshing a panel that is already walking', () => {
+    expect(panelMayWalk({ kind: 'walking' })).toBe(true);
+  });
+  it('refuses to walk again once the job has reported its end', () => {
+    expect(panelMayWalk({ kind: 'done', result: { job: end() } })).toBe(false);
+    expect(panelMayWalk({ kind: 'stopped', result: { job: end({ outcome: 'kept' }) } })).toBe(false);
+  });
+  it('lets a job take a panel showing a plain drag report, which is no job', () => {
+    expect(panelMayWalk({ kind: 'done' })).toBe(true);
+  });
+});
+
+// Every control call used to be fired and forgotten, so a refused stop looked exactly like an
+// honoured one -- which is what made a stranded panel silent instead of visible.
+describe('controlFailureText', () => {
+  it('says nothing when the gate took the action', () => {
+    expect(controlFailureText('stop-keep', { ok: true })).toBeNull();
+  });
+
+  // The pause fired alongside the stop dialog is refused whenever there is no copy in flight,
+  // which is every gap between two batches -- a normal moment, not a failure to report.
+  it('says nothing about a pause or resume that had nothing to take it', () => {
+    expect(controlFailureText('pause', { ok: false, error: 'Er wordt niet gekopieerd' })).toBeNull();
+    expect(controlFailureText('resume', { ok: false, error: 'Er wordt niet gekopieerd' })).toBeNull();
+  });
+
+  it('reports a refused stop, with the reason the gate gave', () => {
+    const text = controlFailureText('stop-keep', { ok: false, error: 'Er wordt niet gekopieerd' });
+    expect(text).toContain('Er wordt niet gekopieerd');
+  });
+
+  it('reports a stop that never reached main at all', () => {
+    expect(controlFailureText('stop-rollback-job', undefined)).toBeTruthy();
+  });
+
+  it('names no reason it was not given', () => {
+    expect(controlFailureText('stop-rollback-batch', { ok: false })).toBeTruthy();
   });
 
   it('reports a finished job as done', () => {

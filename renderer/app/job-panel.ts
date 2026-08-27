@@ -56,6 +56,15 @@ export interface PhaseAt {
   result?: { job?: JobEnd };
 }
 
+/** What the footer can ask of the copy in flight. The page's own union, mirrored here because
+ * the rule about which refusals are worth reporting is this module's, not the page's. */
+export type JobControlAction =
+  | 'pause'
+  | 'resume'
+  | 'stop-keep'
+  | 'stop-rollback-batch'
+  | 'stop-rollback-job';
+
 export type JobEndOutcome =
   | 'completed'
   | 'kept'
@@ -78,15 +87,20 @@ export interface EndPhase {
 // Constants
 //===========================
 
+// Written as the keys of a record rather than as an array, because an array of a union is
+// under no obligation to hold all of it: the hand-listed version compiled and tested green
+// with an outcome missing, which is exactly the hole the list was supposed to close. A
+// Record<JobEndOutcome, true> does not compile until every member is there.
+
 /** Every outcome a job can end on, so a test can walk them all rather than trust a list of
  * cases someone remembered to write. */
-export const JOB_END_OUTCOMES: JobEndOutcome[] = [
-  'completed',
-  'kept',
-  'rolled-back',
-  'rolled-back-partial',
-  'stuck',
-];
+export const JOB_END_OUTCOMES = Object.keys({
+  completed: true,
+  kept: true,
+  'rolled-back': true,
+  'rolled-back-partial': true,
+  stuck: true,
+} satisfies Record<JobEndOutcome, true>) as JobEndOutcome[];
 
 
 //===========================
@@ -148,7 +162,31 @@ export function phaseAfterJobEnd(end: JobEnd): EndPhase {
       return { kind: 'stopped', mode: 'rollback', complete: true };
     case 'rolled-back-partial':
       return { kind: 'stopped', mode: 'rollback', complete: false };
+    // Two guards, because they fail at different moments. `never` is the compile-time one: a
+    // sixth outcome added to the union stops building here rather than at the call site. The
+    // return under it is the runtime one, for an outcome that never went through this compiler
+    // at all -- main and the renderer are separate builds, and the page reads .kind off this
+    // straight away, so `undefined` here is the stranded panel this module exists to prevent.
+    default:
+      return {
+        kind: 'done',
+        error: `De klus eindigde op een onbekende uitkomst (${String((end as JobEnd).outcome)})`,
+      };
   }
+}
+
+/**
+ * Whether a panel message may put the panel into its walking phase
+ *
+ * A job announces itself on the progress channel, and that channel keeps delivering after the
+ * walk is over. Taking a finished report back into the walking phase would put the panel behind
+ * a phase whose only exit -- the job end -- has already been sent and will not come again.
+ *
+ * @param cur the phase the panel is in
+ * @returns false once the panel is showing a job that has reported its end
+ */
+export function panelMayWalk(cur: PhaseAt): boolean {
+  return !panelBelongsToJob(cur) || cur.kind === 'walking';
 }
 
 /**
@@ -187,6 +225,32 @@ export function panelBody(arg: { job: JobLine | null; targets: string[] }): {
       ? `Batch ${job.batch} van ${job.batches} — ${job.done} van ${job.total} gekopieerd`
       : '',
   };
+}
+
+// Every control call used to be fired and forgotten -- five `void controlCopy(...)` call sites
+// -- so a stop the gate refused looked exactly like one it took: the dialog closed, nothing
+// happened, and the panel went on saying the job was running. That silence is what turned a
+// stranded walk into something only a log file could explain.
+//
+// A refused pause is the exception and has to stay silent. The stop dialog pauses and opens in
+// the same click, and between two batches there is no copy in flight to take that pause -- a
+// normal moment in every job, not a failure worth a red line.
+
+/**
+ * What the panel should say when the gate did not take an action
+ *
+ * @param action what was asked
+ * @param result what main answered, or undefined when the call never got there
+ * @returns the line to show, or null when there is nothing worth reporting
+ */
+export function controlFailureText(
+  action: JobControlAction,
+  result: { ok: boolean; error?: string } | undefined | null,
+): string | null {
+  if (result?.ok) return null;
+  if (action === 'pause' || action === 'resume') return null;
+  const why = result?.error ?? 'de kopieeractie reageerde niet';
+  return `Stoppen is niet gelukt — ${why}`;
 }
 
 /**

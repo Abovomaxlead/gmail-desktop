@@ -1150,6 +1150,15 @@ async function planJob(
   label: string,
   listed: Awaited<ReturnType<typeof listLabelTree>>,
 ): Promise<TreeThread[] | null> {
+  // A new drag replaces whatever job was held here, and the driver only holds the drop lock
+  // while it pulls -- so this can land while a batch of the previous job is copying. Clearing
+  // it outright left that walk with nothing to report and the panel behind a phase it could
+  // not leave, so the old job is ended properly first. Its copy is not touched: activeRun
+  // answers for that, and what has landed stays landed.
+  if (activeJob) {
+    notifyLog(`[maildrop] klus voor "${activeJob.job.label}" losgelaten voor een nieuwe sleep`);
+    endWalkedJob(activeJob.job, 'stuck', 'Er werd opnieuw gesleept, dus de klus is losgelaten');
+  }
   activeJob = null;
   if (!listed || !needsJob(listed.threads, JOB_BATCH_THREADS)) return null;
 
@@ -2135,9 +2144,11 @@ function sendJobPanel(): void {
  *
  * @param job the plan as it stands, after its closing line has been written
  * @param outcome 'stuck' for a job left open on a failed batch; otherwise the plan's own outcome
+ * @param reason what to tell the user, for an ending no batch recorded -- a lost drop lock, a
+ *   plan with no choices, a throw. Falls back to the failed batch's own error.
  * @private
  */
-function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck'): void {
+function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: string): void {
   const line = jobProgress(job);
   dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
     phase: 'copy',
@@ -2152,9 +2163,33 @@ function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck'): void {
       batches: job.batches.length,
       copiedBatches: job.batches.filter((b) => b.state === 'copied').length,
       targets: (job.choices?.targets ?? []).map((t) => t.email),
-      error: job.batches.find((b) => b.state === 'failed')?.error,
+      error: reason ?? job.batches.find((b) => b.state === 'failed')?.error,
     },
   } satisfies PanelProgress);
+}
+
+// The panel's walking phase is left by a job end and by nothing else, so every path that lets
+// go of a walked job has to send one. Three did not: a throw out of the pull or the copy, a
+// drop lock taken by a second drag, and a plan whose batch one never got its choices. Each
+// left activeJob set with no end sent, and the panel then sat on a walk that was over -- with
+// Annuleren refused too, since the guard behind it wants a driver that is no longer there.
+//
+// Hence one function, and the rule that goes with it: activeJob is cleared here and in no
+// other place. What makes that a guarantee rather than three more cases handled is the
+// `finally` in advanceJob, which ends any job still held once the walk has left, however it
+// left.
+
+/**
+ * Lets go of a walked job, telling the panel what became of it
+ *
+ * @param job the plan as it stands, after whatever closing line the caller decided to write
+ * @param outcome 'stuck' leaves the plan open for the next start to offer
+ * @param reason what to tell the user when no batch recorded the failure
+ * @private
+ */
+function endWalkedJob(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: string): void {
+  sendJobEnd(job, outcome, reason);
+  activeJob = null;
 }
 
 /**
@@ -2239,7 +2274,18 @@ async function advanceJob(): Promise<void> {
   sendJobPanel();
   try {
     await walkJob();
+  } catch (e) {
+    // A pull that lost the network, a copy that could not even start. Left open rather than
+    // closed: nothing here says the mail already copied is unwanted, and the next start's
+    // offer is where that is answered.
+    const why = (e as Error)?.message ?? 'onbekende fout';
+    notifyLog(`[maildrop] klus afgebroken door een fout: ${why}`);
+    if (activeJob) endWalkedJob(activeJob.job, 'stuck', why);
   } finally {
+    // The guarantee. Every ending above clears activeJob through endWalkedJob, and anything
+    // that reaches here still holding one left the walk by a route nobody wrote down -- which
+    // is precisely the case that used to strand the panel. Reported rather than dropped.
+    if (activeJob) endWalkedJob(activeJob.job, 'stuck', 'De klus is onverwacht gestopt');
     jobDriving = false;
   }
 }
@@ -2258,11 +2304,21 @@ async function walkJob(): Promise<void> {
     const { job, root } = activeJob;
     const at = nextBatch(job);
     if (!at) break;
-    if (!job.choices) break; // nothing to copy with; batch zero never got its answer
+    // Nothing to copy with; batch zero never got its answer. Reported rather than broken out
+    // of: the tail below only speaks for a job that has run out of batches, so this one used
+    // to leave the walk without a word and be offered again at every start, forever.
+    if (!job.choices) {
+      notifyLog(`[maildrop] klus voor "${job.label}" kan niet lopen: er zijn geen postvakken gekozen`);
+      endWalkedJob(job, 'stuck', 'Deze klus heeft geen gekozen postvakken — sleep het label opnieuw');
+      return;
+    }
 
     const token = dropLock.take(Date.now());
+    // Nobody resumes a walk that stood aside, so standing aside is an ending and says so. The
+    // plan stays open, which is what makes the next start offer to continue it.
     if (token === null) {
-      notifyLog('[maildrop] klus wacht: er wordt al mail opgehaald');
+      notifyLog('[maildrop] klus gestopt: er wordt al mail opgehaald');
+      endWalkedJob(job, 'stuck', 'Er werd al andere mail opgehaald, dus de klus is gestopt');
       return;
     }
     manager?.sendDropLock({ locked: true });
@@ -2326,8 +2382,7 @@ async function walkJob(): Promise<void> {
           notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
         }
         rollbackWholeJob = false;
-        sendJobEnd(stoppedJob, outcome);
-        activeJob = null;
+        endWalkedJob(stoppedJob, outcome);
       }
       return;
     }
@@ -2348,8 +2403,7 @@ async function walkJob(): Promise<void> {
     notifyLog(
       `[maildrop] klus voor "${job.label}" ${stuck ? 'gestopt op een mislukte batch, blijft open voor een keuze' : 'afgerond'}: ${job.batches.filter((b) => b.state === 'copied').length} van ${job.batches.length} batches`,
     );
-    sendJobEnd(job, stuck ? 'stuck' : 'completed');
-    activeJob = null;
+    endWalkedJob(job, stuck ? 'stuck' : 'completed');
   }
 }
 
@@ -2380,8 +2434,7 @@ async function stopWalkedJob(mode: 'keep' | 'rollback'): Promise<void> {
     }`,
   );
   rollbackWholeJob = false;
-  sendJobEnd(readLabelJob(root, job.jobId) ?? job, outcome);
-  activeJob = null;
+  endWalkedJob(readLabelJob(root, job.jobId) ?? job, outcome);
 }
 
 export async function copyToMailboxes(arg: {
@@ -2439,6 +2492,19 @@ export async function copyToMailboxes(arg: {
   let done = 0;
   let copied = 0;
   let skipped = 0;
+  // What of `done` is a mailbox dropping out rather than mail going up. The bar counts a
+  // mailbox that cannot be written to as finished -- its share of the work is over, and the
+  // bar would otherwise stop short of its own total -- but the job line counts mail, and
+  // crediting a whole mailbox there read as "666 van 3535 gekopieerd" before a single message
+  // had been sent. Kept beside `done` rather than subtracted from it, so the bar is untouched.
+  let credited = 0;
+  // The mailboxes actually being written to. The job line divides inserts by this to reach
+  // conversations, and the paused line divides the journal's entries by the same figure --
+  // readyTargets, since a mailbox without a marker label is never inserted into. Dividing the
+  // live line by every chosen mailbox instead made the two disagree, and the count jumped the
+  // moment the user pressed pause. Starts at the chosen count because nothing has been
+  // inserted yet while that is still all we know.
+  let writingTo = targets.length;
   // No mailbox in here any more: both phases run several at once, so naming one of them was
   // going to be a lie. The count is over the whole copy.
   const progress = (phase: 'check' | 'copy', of = total) =>
@@ -2448,7 +2514,7 @@ export async function copyToMailboxes(arg: {
       total: of,
       // `done` is inserts here and conversations up there; the phase and the mailbox count are
       // what let jobProgress convert between the two.
-      job: jobProgressForSend({ phase, done, targets: targets.length }),
+      job: jobProgressForSend({ phase, done: done - credited, targets: writingTo }),
     });
 
   let index = new Set<string>();
@@ -2517,6 +2583,21 @@ export async function copyToMailboxes(arg: {
     activeJob.job = { ...activeJob.job, choices };
   }
 
+  // The stop the user asked for while this batch was still being scanned for duplicates. There
+  // is no gate to take it during 'check' -- activeRun is not set until the copy itself starts --
+  // so it was recorded and then only looked at between batches, which meant watching the whole
+  // batch copy after asking it to stop. Consumed here instead: before the marker labels, before
+  // the journal, before a single insert, so nothing of this batch exists to answer for.
+  if (arg?.fromJob && jobStopWanted) {
+    const mode: CopyStopMode = jobStopWanted === 'rollback' ? 'rollback' : 'keep';
+    // The job-wide sweep, exactly as the running stop sets it: this batch has nothing of its
+    // own to undo, and only the batches that already finished are anybody's question.
+    if (jobStopWanted === 'rollback') rollbackWholeJob = true;
+    jobStopWanted = null;
+    notifyLog('[maildrop] batch gestopt tijdens de dubbelencheck, er is niets van verstuurd');
+    return { stopped: true, mode, copied: 0, byMailbox: [] } satisfies MailDropCopyStoppedResult;
+  }
+
   // Minted here rather than reusing dropSerial: dropSerial names the drag, and a 'check' pass
   // followed by an 'all' pass against the same drag are two runs, each with its own inserts
   // to answer for if either one is stopped partway through.
@@ -2550,6 +2631,7 @@ export async function copyToMailboxes(arg: {
       notifyLog(`[maildrop] copy ${a.email}: kon geen intern label aanmaken — ${a.error}`);
       accounts.push({ email: a.email, copied: 0, skipped: 0, total: files.length, error: a.error });
       done += files.length;
+      credited += files.length;
       progress('copy');
     }
   }
@@ -2560,10 +2642,14 @@ export async function copyToMailboxes(arg: {
     notifyLog(`[maildrop] copy ${email}: kon de labelstructuur niet bepalen — ${error}`);
     accounts.push({ email, copied: 0, skipped: 0, total: files.length, error });
     done += files.length;
+    credited += files.length;
     progress('copy');
     markerLabelByEmail.delete(email);
   }
   const readyTargets = targets.filter((t) => markerLabelByEmail.has(t.email));
+  // From here the two lines speak the same unit. Nothing has been inserted yet, so moving it
+  // now cannot make the count jump.
+  writingTo = readyTargets.length;
 
   // Alongside each other, because the quota that limits a copy is per user and every target is
   // a different user: three mailboxes have three times ten inserts a second between them where
@@ -2584,6 +2670,14 @@ export async function copyToMailboxes(arg: {
 
   const control = createCopyRunControl();
   activeRun = { runId, control, root, total, targets: readyTargets.length };
+  // A stop asked for while the marker labels were being made, which is the one window between
+  // the check above and the gate below. Handed to the gate rather than acted on here: stopping
+  // a run is the gate's job, and every worker below asks it before it starts anything.
+  if (arg?.fromJob && jobStopWanted) {
+    if (jobStopWanted === 'rollback') rollbackWholeJob = true;
+    control.stop(jobStopWanted === 'rollback' ? 'rollback' : 'keep');
+    jobStopWanted = null;
+  }
   startCopyJournal(root, runId, readyTargets.map((t) => t.email), Date.now(), markers);
 
   // After the journal exists, because every created label is written to it the moment it lands,
@@ -2627,6 +2721,7 @@ export async function copyToMailboxes(arg: {
           );
           if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
           done += files.length;
+          credited += files.length;
           progress('copy');
           return {
             account: {
@@ -2898,8 +2993,7 @@ export async function copyToMailboxes(arg: {
       if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
       if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
       rollbackWholeJob = false;
-      sendJobEnd(job, outcome);
-      activeJob = null;
+      endWalkedJob(job, outcome);
     }
     return result;
   } finally {

@@ -28,7 +28,10 @@ import {
 import {
   previewMayPick,
   panelBelongsToJob,
+  panelMayWalk,
   phaseAfterJobEnd,
+  controlFailureText,
+  type JobControlAction,
   panelTitle,
   panelBody,
   jobEndText,
@@ -248,6 +251,8 @@ export default function MailDropModalPage() {
   // Open the moment the X is clicked, not once the pause is confirmed -- the round trip to
   // main must not be what decides whether the dialog appears.
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
+  /** What the last stop asked of main and did not get, or null when there is nothing to say */
+  const [controlError, setControlError] = useState<string | null>(null);
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -321,7 +326,11 @@ export default function MailDropModalPage() {
         // The same panel it was already looking at, with this batch's numbers in it. Never a new
         // panel and never a batch report: one job is one piece of work.
         if (job) setJobLine(job);
-        if (panel) setPhase((cur) => (cur.kind === 'walking' ? { ...cur, panel } : { kind: 'walking', panel }));
+        if (panel) {
+          setPhase((cur) =>
+            !panelMayWalk(cur) ? cur : cur.kind === 'walking' ? { ...cur, panel } : { kind: 'walking', panel },
+          );
+        }
         return;
       }
       setFlatMode({});
@@ -369,6 +378,8 @@ export default function MailDropModalPage() {
       if (p.jobEnd) {
         const end = p.jobEnd;
         setStopDialogOpen(false);
+        // The job answered in the end, so whatever the last stop could not get is stale.
+        setControlError(null);
         // Cleared with the same click, or the footer would go on announcing a running batch
         // over a panel that has just reported the job finished.
         setJobLine(null);
@@ -380,7 +391,12 @@ export default function MailDropModalPage() {
       // of the two answers first.
       if (p.panel) {
         const panel = p.panel;
-        setPhase((cur) => (cur.kind === 'walking' ? { ...cur, panel } : { kind: 'walking', panel }));
+        // Not once this panel has already reported the job's end. The progress channel goes on
+        // delivering after a walk is over, and a panel message landing then would put the
+        // finished report back behind a phase whose only exit has already been sent.
+        setPhase((cur) =>
+          !panelMayWalk(cur) ? cur : cur.kind === 'walking' ? { ...cur, panel } : { kind: 'walking', panel },
+        );
         return;
       }
       setPhase((cur) =>
@@ -401,36 +417,49 @@ export default function MailDropModalPage() {
   // controlMailDropCopy is not yet part of DesktopBridge (../page.tsx) -- that interface is
   // outside this change's owned files -- so it is reached through an explicit, narrow cast
   // instead of widening `window.desktop` to `any`.
-  const controlCopy = (
-    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',
-  ) =>
+  const controlCopy = (action: JobControlAction) =>
     (
       window.desktop as unknown as {
         controlMailDropCopy?: (a: typeof action) => Promise<{ ok: boolean; error?: string }>;
       }
     ).controlMailDropCopy?.(action);
 
+  // Every one of these used to be fired and forgotten, so a stop the gate refused looked
+  // exactly like one it took: the dialog closed and the panel went on saying the job was
+  // running. Awaited and reported instead -- what to report is controlFailureText's rule, so
+  // that a refused pause between two batches stays the non-event it is.
+  const ask = async (action: JobControlAction) => {
+    setControlError(null);
+    let answer: { ok: boolean; error?: string } | undefined;
+    try {
+      answer = await controlCopy(action);
+    } catch (e) {
+      answer = { ok: false, error: (e as Error)?.message };
+    }
+    setControlError(controlFailureText(action, answer));
+  };
+
   // Pausing and opening the dialog happen in the same click, together: the user does not
   // have to wait on a round trip to main before seeing their choices.
   const requestStop = () => {
-    void controlCopy('pause');
+    void ask('pause');
     setStopDialogOpen(true);
   };
   const keepCopying = () => {
     setStopDialogOpen(false);
-    void controlCopy('resume');
+    void ask('resume');
   };
   const stopAndKeep = () => {
     setStopDialogOpen(false);
-    void controlCopy('stop-keep');
+    void ask('stop-keep');
   };
   const stopAndTrashBatch = () => {
     setStopDialogOpen(false);
-    void controlCopy('stop-rollback-batch');
+    void ask('stop-rollback-batch');
   };
   const stopAndTrashJob = () => {
     setStopDialogOpen(false);
-    void controlCopy('stop-rollback-job');
+    void ask('stop-rollback-job');
   };
 
   const decideOrphan = (runId: string, mode: 'keep' | 'rollback') => {
@@ -714,6 +743,14 @@ export default function MailDropModalPage() {
                 />
               )}
             </div>
+          )}
+
+          {controlError && (
+            // Above the footer rather than in it: the footer's own line is the job's progress,
+            // and a refused stop is about the button beside it, not about how far the job got.
+            <p className="shrink-0 border-t border-black/10 px-5 pt-3 text-xs text-red-700 dark:border-white/10 dark:text-red-400">
+              {controlError}
+            </p>
           )}
 
           <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-black/10 px-5 py-3 dark:border-white/10">
