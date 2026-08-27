@@ -1202,8 +1202,19 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
  * @private
  */
 function pullReporter(): SaveProgress {
+  // The gate of the pull this reporter belongs to, taken now rather than read per call: both
+  // callers set activePull before they ask for one, and a report arriving late must answer for
+  // its own pull and not for whichever one is running by then.
+  const mine = activePull;
   return (done, total) => {
     pullDone = done;
+    // Kept counting, but no longer shown. The requests already on the wire go on landing for as
+    // long as they take -- mapLimit only refuses to claim the next item, and nothing severs a
+    // fetch in flight -- and every one of them used to push the strip's count one higher after
+    // Annuleren was pressed. A line that goes on climbing is exactly what a swallowed click looks
+    // like, which is why the button was pressed again. The count itself is still kept, because
+    // the line the lock closes with reports how far the pull actually got.
+    if (mine?.stopped()) return;
     manager?.sendDropProgress({ done, total });
   };
 }
@@ -1344,6 +1355,16 @@ async function pullMailDrop(
     // fails answers null and the scrape inside saveLabel carries the drag, as it always has --
     // which also means no job, since nothing scraped can exceed one batch.
     const listed = await listLabelTree(account, payload.label);
+    // The listing is the one stretch of a label pull with no gate in it -- a tree of ten thousand
+    // is a thousand units and minutes of paging -- so a cancel asked for during it was not looked
+    // at until the fetch below had been started and had answered. Checked here as well, before a
+    // plan is written for a pull nobody wants any more and before the first conversation is
+    // asked for. Nothing has been fetched at this point, so nothing is thrown away.
+    if (activePull?.stopped()) {
+      lastDropSaved = [];
+      notifyLog('[maildrop] ophalen geannuleerd tijdens het opsommen van het label');
+      return;
+    }
     const slice = await planJob(root, account, payload.label, listed);
     const { items: done, saved: refs, rows } = await saveLabel(
       ts,

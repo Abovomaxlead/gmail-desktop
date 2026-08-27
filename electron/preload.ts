@@ -25,6 +25,7 @@ import {
   DROPZONE_LABEL,
   CANCEL_ID,
   CANCEL_LABEL,
+  cancelledText,
   DROPLOCK_ID,
   DROPLOCK_CSS,
   PULLING_TEXT,
@@ -321,7 +322,6 @@ function installDropzone(
   style.textContent = DROPZONE_CSS + DROPLOCK_CSS;
   const zone = document.createElement('div');
   zone.id = DROPZONE_ID;
-  zone.textContent = DROPZONE_LABEL;
   zone.setAttribute('data-state', 'idle');
 
   // The veil that makes a pull exclusive. Always in the page and shown by its data-state, so
@@ -330,8 +330,20 @@ function installDropzone(
   lock.id = DROPLOCK_ID;
   lock.setAttribute('data-state', 'off');
 
-  // The button that stops a pull. Created here beside the strip rather than on demand, and put
-  // back per line rather than kept: assigning the strip's textContent drops every child it has.
+  // The line and the button are two children of the strip rather than a line with a button put
+  // back after it. Writing the strip's textContent drops every child it has, so the button used
+  // to be detached and re-attached for every line drawn -- and progress arrives per mail during
+  // a pull. A click only fires when the press and the release land on the same connected
+  // element, so a tick between the two swallowed it: the button needed several presses to catch
+  // a gap. Moving an existing child with appendChild does the same damage, which is why the
+  // append in showLine is guarded rather than repeated.
+
+  /** Carries the line the strip shows. Written through, never replaced. */
+  const line = document.createTextNode(DROPZONE_LABEL);
+  zone.appendChild(line);
+
+  // The button that stops a pull. Appended once for the whole pull and taken out only by a line
+  // that is not a pull's.
   const cancel = document.createElement('button');
   cancel.id = CANCEL_ID;
   cancel.type = 'button';
@@ -358,13 +370,22 @@ function installDropzone(
   /**
    * Puts one line in the strip, with or without the button that stops a pull
    *
+   * The button is left exactly where it is for as long as the lines keep belonging to a pull:
+   * re-appending it would move it, and a moved element loses the click it was in the middle of.
+   *
    * @param text the line to show
    * @param cancellable whether this line belongs to a pull the user may still stop
    * @private
    */
   const showLine = (text: string, cancellable = false): void => {
-    zone.textContent = text;
-    if (cancellable) zone.appendChild(cancel);
+    line.nodeValue = text;
+    if (cancellable) {
+      if (cancel.parentNode !== zone) zone.appendChild(cancel);
+      return;
+    }
+    // showResult and reset used to clear the button by wiping textContent. The line is its own
+    // node now, so the button has to be taken out by name.
+    if (cancel.parentNode) cancel.remove();
   };
 
   /** Whether there is a pull on screen to stop. `saving` is the one flag that is already true
@@ -373,11 +394,47 @@ function installDropzone(
    * a line may still be on screen after the pull behind it has answered. */
   const pullCancellable = (): boolean => saving;
 
-  cancel.addEventListener('click', () => {
-    if (pullCancellable()) cancelPull();
-  });
+  /** How far the pull had got at the last tick, so the line a cancel draws counts the same
+   * conversations the line before it did. Cleared with the rest of the pull's state in reset. */
+  let pullDone = 0;
+
+  /** When this page last asked main to stop the pull, or 0 when it has not. Not a plain flag,
+   * because a cancel that never arrived has to be sendable again -- see requestCancel. */
+  let cancelSentAt = 0;
+
+  // How long a sent cancel is trusted before the button is offered again. Ticks keep arriving
+  // for a moment after a cancel that did land, since the fetches already on the wire finish on
+  // their own; this is comfortably longer than that and far shorter than a stuck pull.
+  const CANCEL_GRACE_MS = 6000;
+
+  /**
+   * Asks main to stop the pull, once, and says so on the strip straight away
+   *
+   * The one route for both ways in -- the button and Escape -- so the two cannot drift apart.
+   *
+   * The line changes on the press rather than when main answers: the strip went on counting up
+   * after a cancel, which reads as a click that did nothing and is half of why it was pressed
+   * again. Taking the button out with it makes a second press unnecessary and impossible.
+   *
+   * A cancel is sent once, not per press: main's own cancel is idempotent, so pressing twice
+   * cannot achieve more than pressing once. The exception is a cancel that provably did nothing
+   * -- the pull is still reporting progress CANCEL_GRACE_MS later -- and there the button comes
+   * back rather than leaving the user with a strip that lies.
+   *
+   * @private
+   */
+  const requestCancel = (): void => {
+    if (!pullCancellable() || cancelSentAt !== 0) return;
+    cancelSentAt = Date.now();
+    cancelPull();
+    showLine(cancelledText(pullDone));
+  };
+
+  cancel.addEventListener('click', requestCancel);
   const reset = () => {
     saving = false;
+    pullDone = 0;
+    cancelSentAt = 0;
     // A page that is still locked says so again rather than inviting another drag, and keeps
     // the button for as long as that pull is still running.
     showLine(locked ? PULLING_TEXT : DROPZONE_LABEL, locked);
@@ -469,7 +526,8 @@ function installDropzone(
       // not also close whatever sits behind it.
       e.preventDefault();
       e.stopPropagation();
-      cancelPull();
+      // The same route the button takes, so the two cannot answer differently.
+      requestCancel();
     },
     true,
   );
@@ -566,6 +624,15 @@ function installDropzone(
 
     showProgress: (p: MailDropSaveProgress) => {
       if (clearTimer) clearTimeout(clearTimer);
+      pullDone = p.done;
+      // A tick this long after a cancel is a pull that never heard it. The button comes back
+      // rather than leaving a strip that says the pull was stopped while it counts on. Within
+      // the grace window the cancel stands, and the line it drew is left alone: the fetches
+      // that were already on the wire report in for a moment yet.
+      if (cancelSentAt !== 0) {
+        if (Date.now() - cancelSentAt < CANCEL_GRACE_MS) return;
+        cancelSentAt = 0;
+      }
       showLine(savingText(p.done, p.total), true);
       setState('armed');
     },

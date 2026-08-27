@@ -25,7 +25,11 @@
 
 export interface PullControl {
   /** Asked before each piece of work is claimed. Answers at once either way -- there is no pause
-   * for a caller to be suspended by. */
+   * for a caller to be suspended by.
+   *
+   * Handed to mapLimit detached from the object it came off -- `activePull?.wait`, twice in
+   * mail-drop-controller.ts -- so it must never read `this`. The implementation below closes over
+   * its state instead, which is what makes that call site correct rather than lucky. */
   wait(): Promise<'continue' | 'stop'>;
   /** One-way and idempotent: there is no resume, and Escape and the button may both arrive for
    * the same pull. */

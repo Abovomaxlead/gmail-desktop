@@ -91,6 +91,18 @@ export const CANCEL_LABEL = 'Annuleren';
 // script draws the report a finished drop ends on, and hiding the button would be one more
 // thing it had to remember. A report has nothing left to cancel, so the two states that draw
 // one -- done and failed -- match no rule that shows it.
+//
+// The strip is display: flex, which makes the button a flex item, and a flex item shrinks
+// below its own content by default. A long line beside it would squeeze the box the click has
+// to land in while the label went on spilling out of it -- there to read, smaller to hit --
+// so it is fixed at its content width with flex: 0 0 auto. The padding is what makes it a
+// target rather than a line of text: 8px above and below carries it to roughly 35px inside a
+// strip whose content box is 52px, so it stays clear of the border either side.
+//
+// Hover and active are not decoration here. Without them a press gives no answer at all, and
+// a user who cannot tell whether it registered presses again -- which is one of the ways this
+// reads as "cancelling needs several clicks". Neutral black rather than the strip's blue,
+// because the four states draw four different backgrounds behind this same button.
 export const DROPZONE_CSS = `
 #${DROPZONE_ID} {
   position: fixed; top: 0; left: 0; right: 0; height: 56px;
@@ -107,11 +119,14 @@ export const DROPZONE_CSS = `
 #${DROPZONE_ID}[data-state="failed"] { display: flex; color: #c5221f; border-color: #c5221f; background: rgba(252, 232, 230, 0.97); }
 #${CANCEL_ID} {
   display: none; pointer-events: auto;
-  margin-left: 16px; padding: 3px 12px;
+  flex: 0 0 auto;
+  margin-left: 16px; padding: 8px 14px;
   font: inherit; color: inherit;
   background: transparent; border: 1px solid currentColor; border-radius: 8px;
-  cursor: pointer;
+  cursor: pointer; user-select: none;
 }
+#${CANCEL_ID}:hover { background: rgba(0, 0, 0, 0.06); }
+#${CANCEL_ID}:active { background: rgba(0, 0, 0, 0.14); }
 #${DROPZONE_ID}[data-state="armed"] #${CANCEL_ID} { display: inline-block; }
 #${DROPZONE_ID}[data-state="over"] #${CANCEL_ID} { display: inline-block; }
 `;
