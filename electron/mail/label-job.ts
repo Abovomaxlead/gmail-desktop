@@ -399,15 +399,21 @@ export function nextBatch(job: LabelJob): JobBatch | null {
 /**
  * How far the whole job has got, for the strip above the picker
  *
- * Counted in conversations, matching what the drop progress already counts, and off the copied
- * batches rather than a running tally so a resumed job reports the same number the one before
- * it did. The batch being worked on is folded in on top of that from `running`, which is the
- * only part not on disk -- without it the line stood still for a whole batch.
+ * Counted in conversations, matching what the drop progress already counts. Every batch that
+ * answered is counted off the plan file -- a copied one by its whole slice, a failed one by what
+ * it actually managed before it stopped -- so all of that reads back identically after a restart.
+ *
+ * The batch under way is the one part that is nowhere on disk. It is folded in from `running`,
+ * and a resumed job has nothing to fold in until its next batch reports, so the line can step
+ * back across a restart: by at most that batch's own slice, and never below what the plan file
+ * already accounts for. Persisting a per-insert tally would close that gap and was rejected --
+ * this file writes transitions and not tallies, for the reason the note at the top gives, and the
+ * copy journal already records every insert that landed.
  *
  * @param job
  * @param running what the copy of the current batch has managed so far, when one is under way
- * @returns the batch being worked on (one-based, because it is read out to a person), how many
- *   there are, and the conversations behind and in total
+ * @returns the batch under way or at fault (one-based, because it is read out to a person), how
+ *   many there are, and the conversations behind and in total
  */
 export function jobProgress(
   job: LabelJob,
@@ -418,11 +424,20 @@ export function jobProgress(
   done: number;
   total: number;
 } {
-  const copied = job.batches.filter((b) => b.state === 'copied');
   const at = nextBatch(job);
-  const behind = copied.reduce((sum, b) => sum + b.threads.length, 0);
+  // A copied batch answered for its whole slice; a failed one only for what it got through, and
+  // that share is in the copy's own unit, so it is converted the same way the running batch is.
+  const behind = job.batches.reduce(
+    (sum, b) =>
+      b.state === 'copied'
+        ? sum + b.threads.length
+        : b.state === 'failed'
+          ? sum + partialConversations(job, b)
+          : sum,
+    0,
+  );
   return {
-    batch: (at?.index ?? job.batches.length - 1) + 1,
+    batch: batchNumber(job),
     batches: job.batches.length,
     done: Math.min(behind + runningConversations(at, running), job.total),
     total: job.total,
@@ -435,16 +450,36 @@ export function jobProgress(
 //===========================
 
 /**
+ * Which batch the line names
+ *
+ * The batch under way, or the one that stopped the job. `nextBatch` answers null for a stuck job
+ * exactly as it does for a finished one, and falling back to the last batch for both claimed
+ * "batch 4 van 4" over a job that never got past its second -- with no way to tell the two apart
+ * on the number alone. The failed batch is named instead, which is the batch the user has to
+ * answer for and the same one the panel's own closing line names (jobEndText in
+ * renderer/app/job-panel.ts).
+ *
+ * @param job
+ * @returns the one-based number, or zero for a plan holding no batches at all -- there is no
+ *   batch one to point at, and zero is the only number that is not a claim
+ * @private
+ */
+function batchNumber(job: LabelJob): number {
+  if (job.batches.length === 0) return 0;
+  const at = nextBatch(job);
+  // The first failed batch, which is the one nextBatch stopped at: a later one cannot exist,
+  // since a failure ends the walk rather than stepping over it.
+  const stuck = job.batches.find((b) => b.state === 'failed');
+  return (at?.index ?? stuck?.index ?? job.batches.length - 1) + 1;
+}
+
+/**
  * What the running batch is worth to the job line, in conversations
  *
- * Inserts divided by mailboxes, because the same mail goes up once per target and the line
- * counts each conversation once. That division is exact only for one message per conversation;
- * a thread of five mails would run past its own batch, so the share is capped at the batch's
- * conversation count. Capped rather than scaled: the batch's message count is not written down
- * anywhere, and a bar that arrives early is a smaller lie than one that overshoots the total.
- *
  * Nothing is folded in during 'check': that counter is the duplicate scan's, and it would move
- * the line before a single mail had gone out.
+ * the line before a single mail had gone out. Nothing either once the job has no batch under way,
+ * so a figure handed in over a stuck or finished job is ignored rather than added to a batch that
+ * has already been counted off the plan file.
  *
  * @param at the batch being worked on, or null when the job has none left
  * @param running
@@ -453,8 +488,54 @@ export function jobProgress(
  */
 function runningConversations(at: JobBatch | null, running?: RunningBatchProgress): number {
   if (!at || !running || running.phase !== 'copy') return 0;
-  const share = Math.floor(Math.max(0, running.done) / Math.max(1, running.targets));
-  return Math.min(share, at.threads.length);
+  return conversationsFrom(running.done, running.targets, at.threads.length);
+}
+
+/**
+ * What a batch that failed part-way is worth to the job line, in conversations
+ *
+ * Mail that really moved. A batch that failed after copying eight hundred conversations had those
+ * eight hundred in the mailbox, and counting only the copied batches understated the job by every
+ * one of them -- in that run and in every resume after it, since the count is on disk.
+ *
+ * Its `copied` is the copy's own figure, in the same message-insert unit the running batch reports,
+ * so it needs the same conversion. The mailbox count comes from the job's choices rather than from
+ * a caller: those are written before the first insert, which is exactly what lets a resumed job
+ * convert a figure the run that wrote it is no longer around to explain.
+ *
+ * @param job
+ * @param batch one whose state is 'failed'
+ * @returns conversations, between zero and the batch's own slice
+ * @private
+ */
+function partialConversations(job: LabelJob, batch: JobBatch): number {
+  return conversationsFrom(
+    batch.copied ?? 0,
+    job.choices?.targets.length ?? 0,
+    batch.threads.length,
+  );
+}
+
+/**
+ * Inserts turned into conversations, capped at the batch they belong to
+ *
+ * Divided by the mailboxes, because the same mail goes up once per target and the line counts
+ * each conversation once. That division is exact only for one message per conversation; a thread
+ * of five mails would run past its own batch, so the share is capped at the batch's conversation
+ * count. Capped rather than scaled: the batch's message count is not written down anywhere, and a
+ * bar that arrives early is a smaller lie than one that overshoots the total.
+ *
+ * @param inserts what the copy counted, one per message per target mailbox
+ * @param targets how many mailboxes those inserts were spread over
+ * @param slice the batch's own conversation count
+ * @returns conversations, between zero and `slice`; zero when there is no mailbox to divide by,
+ *   since inserts into no mailbox convert to nothing -- reading them as conversations credited a
+ *   whole batch to a copy where every mailbox had failed and nothing had gone out
+ * @private
+ */
+function conversationsFrom(inserts: number, targets: number, slice: number): number {
+  if (targets < 1) return 0;
+  return Math.min(Math.floor(Math.max(0, inserts) / targets), slice);
 }
 
 function writeLine(root: string, jobId: string, line: JobLine): void {

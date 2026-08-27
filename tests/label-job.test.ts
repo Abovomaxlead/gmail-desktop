@@ -328,6 +328,154 @@ describe('jobProgress', () => {
     const job = readLabelJob(root, 'job-1')!;
     expect(jobProgress(job, { phase: 'copy', done: 2, targets: 1 }).done).toBe(4);
   });
+
+  // A copy into no mailbox at all cannot be turned into conversations, and reading the raw
+  // insert count as one credited a whole batch to a run where every mailbox had failed its
+  // marker and nothing had gone out.
+  it('credits the running batch nothing when there is no mailbox to divide by', () => {
+    written(6, 2);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(jobProgress(job, { phase: 'copy', done: 900, targets: 0 }).done).toBe(2);
+  });
+});
+
+describe('jobProgress.batch', () => {
+  // The line said "Batch 4 van 4 loopt" over a job that never got past its second: nextBatch
+  // answers null for a stuck job exactly as it does for a finished one, and the fallback took
+  // the last batch for both. The panel's own closing line already named the failed batch, so
+  // the two contradicted each other.
+  it('names the batch that stopped the job, not the last one', () => {
+    written(100, 25);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'failed', error: 'Geen rechten' });
+    const at = jobProgress(readLabelJob(root, 'job-1')!);
+    expect(at.batch).toBe(2);
+    expect(at.batches).toBe(4);
+  });
+
+  it('names the batch being worked on while the job is walking', () => {
+    written(100, 25);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    expect(jobProgress(readLabelJob(root, 'job-1')!).batch).toBe(2);
+  });
+
+  // Pinned rather than changed: a finished job has no batch under way, and the last one is the
+  // one it finished on.
+  it('names the last batch once every batch is copied', () => {
+    written(100, 25);
+    for (const index of [0, 1, 2, 3]) {
+      recordJobBatchState(root, 'job-1', { index, state: 'copied', runId: `run-${index}`, copied: 25 });
+    }
+    expect(jobProgress(readLabelJob(root, 'job-1')!).batch).toBe(4);
+  });
+
+  // Zero, because there is no batch one to point at. Reachable only defensively -- needsJob
+  // keeps a label that fits out of a plan entirely -- but "batch 1 van 0" would be a claim and
+  // this is not.
+  it('names no batch at all for a plan with no batches', () => {
+    expect(jobProgress(written(0, 25))).toEqual({ batch: 0, batches: 0, done: 0, total: 0 });
+  });
+});
+
+describe('jobProgress on a failed batch', () => {
+  /** A four-batch plan of 25 whose first batch is copied and whose second failed after
+   * managing `copied` inserts into `targets` mailboxes. */
+  const stuckAfter = (copied: number, targets: number): LabelJob => {
+    written(100, 25);
+    recordJobChoices(root, 'job-1', {
+      targets: Array.from({ length: targets }, (_, i) => ({
+        email: `box${i}@example.com`,
+        labelIds: ['Label_1'],
+      })),
+      mode: 'new',
+    });
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', {
+      index: 1,
+      state: 'failed',
+      runId: 'run-b',
+      copied,
+      error: 'Geen rechten',
+    });
+    return readLabelJob(root, 'job-1')!;
+  };
+
+  // Mail that really moved. A batch that failed after copying twenty of its twenty-five had
+  // those twenty in the mailbox, and reporting the job as 25 of 100 understated it by every one
+  // of them -- in that run and in every resume after it.
+  it('counts what the failed batch managed before it failed', () => {
+    expect(jobProgress(stuckAfter(20, 1)).done).toBe(45);
+  });
+
+  // Its count is in the copy's own unit, one per message per mailbox, exactly like the running
+  // batch's -- and the mailbox count is on disk in the choices, so a resume can divide too.
+  it('divides a failed batch by the mailboxes it was copying into', () => {
+    expect(jobProgress(stuckAfter(60, 3)).done).toBe(45);
+  });
+
+  it('never credits a failed batch beyond its own slice', () => {
+    expect(jobProgress(stuckAfter(999, 1)).done).toBe(50);
+  });
+
+  it('credits a failed batch nothing when it recorded no count', () => {
+    written(100, 25);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'failed', error: 'Geen rechten' });
+    expect(jobProgress(readLabelJob(root, 'job-1')!).done).toBe(25);
+  });
+
+  // No choices means no mailbox count to divide by, so there is nothing to convert its inserts
+  // with. Zero rather than a guess.
+  it('credits a failed batch nothing when the job never recorded its choices', () => {
+    written(100, 25);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'failed', copied: 20, error: 'Nee' });
+    expect(jobProgress(readLabelJob(root, 'job-1')!).done).toBe(25);
+  });
+
+  // A stuck job has no batch under way, so a running figure handed in anyway must not be added
+  // on top of the failed batch's own count.
+  it('adds no running figure on top of a stuck batch', () => {
+    expect(jobProgress(stuckAfter(20, 1), { phase: 'copy', done: 25, targets: 1 }).done).toBe(45);
+  });
+});
+
+describe('jobProgress across a restart', () => {
+  // The half of the docblock's claim that is true: everything the plan file accounts for reads
+  // back identically, so a resumed job never starts lower than the last run's finished batches.
+  it('reads the same numbers back off the plan file', () => {
+    written(100, 25);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'copied', runId: 'run-b', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 2, state: 'pulled' });
+    const before = jobProgress(readLabelJob(root, 'job-1')!);
+    const after = jobProgress(readLabelJob(root, 'job-1')!);
+    expect(after).toEqual(before);
+    expect(after.done).toBe(50);
+  });
+
+  // The half that is not, held to the bound the docblock now states instead of the equivalence
+  // it used to claim: the running batch is nowhere on disk, so a restart falls back to the
+  // on-disk figure -- never below it, and never by more than that batch's own slice.
+  it('falls back to the plan file by at most the running batch, never below it', () => {
+    written(100, 25);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 25 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'pulled' });
+    const job = readLabelJob(root, 'job-1')!;
+
+    const beforeCrash = jobProgress(job, { phase: 'copy', done: 60, targets: 3 });
+    const afterResume = jobProgress(readLabelJob(root, 'job-1')!);
+
+    expect(beforeCrash.done).toBe(45);
+    expect(afterResume.done).toBe(25);
+    expect(afterResume.done).toBeLessThanOrEqual(beforeCrash.done);
+    expect(beforeCrash.done - afterResume.done).toBeLessThanOrEqual(25);
+    // And the batch it names does not move: that part is on disk.
+    expect(afterResume.batch).toBe(beforeCrash.batch);
+  });
 });
 
 describe('needsJob', () => {
