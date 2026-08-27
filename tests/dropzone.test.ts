@@ -78,6 +78,29 @@ describe('threadIdFromDragTarget', () => {
     expect(threadIdFromDragTarget(node({}, node({}, message)))).toBeNull();
     expect(threadIdFromDragTarget(message)).toBeNull();
   });
+  // Gmail draws the card for a calendar invite beside the message instead of inside it, so
+  // a press on it has no message id above it at all and the search climbed on to the
+  // reading pane -- which names exactly one conversation and answered with it. Selecting
+  // the appointment title armed the strip.
+  it('refuses a press in the card Gmail draws beside an opened message', () => {
+    const subject = node({ 'data-legacy-thread-id': '1a023b6' });
+    const message = node({ 'data-legacy-message-id': '1a023b6' });
+    const pane = node({}, null, [subject, message]);
+    const cardArea = node({}, pane);
+    const card = node({ 'data-card-id': '0:msg-f:187:extractedsmartmailevent' }, cardArea);
+    expect(threadIdFromDragTarget(node({}, node({}, card)))).toBeNull();
+  });
+  // A row names its last message with data-legacy-last-message-id and never with
+  // data-legacy-message-id, and the guard above must not read the two as one attribute.
+  it('still arms on a list row that names its last message', () => {
+    const span = node({
+      'data-thread-id': '#thread-f:187',
+      'data-legacy-thread-id': '18f2a',
+      'data-legacy-last-message-id': '18f2a',
+    });
+    const row = node({ role: 'row' }, null, [span]);
+    expect(threadIdFromDragTarget(node({}, row))).toBe('18f2a');
+  });
   it('ignores an empty attribute value', () => {
     expect(threadIdFromDragTarget(node({ 'data-legacy-thread-id': '' }))).toBeNull();
   });

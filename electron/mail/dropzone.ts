@@ -128,8 +128,9 @@ const ROW_THREAD_ATTR = 'data-thread-id';
  *
  * The id sits deep inside the row and never on the drag target, so ancestors are searched
  * downwards too and a hit counts only when exactly one id is found — two mean the search
- * climbed into the list. A press inside an opened message is no drag, or the strip would
- * arm on selecting a line of text.
+ * climbed into the list, and a message below it means the search climbed into an opened
+ * conversation. A press inside an opened message is no drag, or the strip would arm on
+ * selecting a line of text.
  *
  * @param el the element under the cursor when the press began
  * @returns the thread id, or null when the drag did not start on one row
@@ -147,7 +148,7 @@ export function threadIdFromDragTarget(el: DragNode | null): string | null {
         const id = inside[i].getAttribute('data-legacy-thread-id');
         if (id) ids.add(id);
       }
-      if (ids.size === 1) return [...ids][0];
+      if (ids.size === 1) return holdsOpenedMessage(cur) ? null : [...ids][0];
       if (ids.size > 1) return null;
     }
     const next: DragNode | null = cur.parentElement;
@@ -405,6 +406,30 @@ function insideOneRow(el: DragNode | null): boolean {
     const next: DragNode | null = cur.parentElement;
     if (next === cur) break;
     cur = next;
+  }
+  return false;
+}
+
+// Gmail hangs more under an opened conversation than its messages. A calendar invite gets
+// a card of Gmail's own beside the message rather than inside it, and a press on that card
+// passes no message id on its way up, so the guard above never fires and the search climbs
+// on to the reading pane -- which holds exactly one thread id and reads as one row.
+// Selecting the appointment title armed the strip. What separates the two is what hangs
+// below: the pane holds the opened message, and a list row never does. A row names its
+// last message with data-legacy-last-message-id, which is a different attribute.
+
+/**
+ * Whether an opened message hangs below an element
+ *
+ * @param el the ancestor the downward search is about to answer with
+ * @returns true when the element encloses a message of an opened conversation
+ * @private
+ */
+function holdsOpenedMessage(el: DragNode): boolean {
+  const found = el.querySelectorAll?.(`[${MESSAGE_ID_ATTR}]`);
+  if (!found) return false;
+  for (let i = 0; i < found.length; i++) {
+    if (found[i].getAttribute(MESSAGE_ID_ATTR)) return true;
   }
   return false;
 }
