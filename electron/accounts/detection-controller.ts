@@ -4,7 +4,7 @@
 // until detection-planner says to stop. Index 0 is exempt from the probe timeout, since
 // giving up on it would leave the app showing nothing at all.
 
-import { pushActive, pushProfiles, pushUnread, refreshBadge } from '../core/broadcast';
+import { pushActive, pushHidden, pushProfiles, pushUnread, refreshBadge } from '../core/broadcast';
 import {
   SESSION_PARTITION,
   accountCache,
@@ -14,6 +14,7 @@ import {
   coverage,
   delegated,
   currentLocale,
+  hidden,
   history,
   keyOf,
   keyOfIndex,
@@ -35,7 +36,7 @@ import {
 import { refreshNotifyAllowed, playNotificationSound } from '../notify/notify-gating';
 import { showToast } from '../toast/toast-presenter';
 import { startMailSync } from '../push/mail-sync-controller';
-import { maybeStartDelegatedApiScan } from '../delegation/delegated-controller';
+import { maybeStartDelegatedApiScan, refreshDelegatedFromApi } from '../delegation/delegated-controller';
 import { connectAccount } from '../auth/oauth-flow';
 import { isAllowedAccount } from '../auth/account-domain';
 import { revokeRefreshToken } from '../auth/token-revoke';
@@ -143,12 +144,23 @@ export function onIdentity(index: number, identity: { email: string; name: strin
   if (decision.register && identity.email) {
     if (isVisibleAdd) {
       visibleProbe = null;
+      // Asking for an account by name outranks having waved it away: the + button is how a
+      // hidden own account comes back, and it must not be gated on the list below.
+      hidden?.remove(identity.email);
       void addAccountAfterConsent(index, identity, decision.stop);
       return;
     }
-    registerAccount(index, identity);
-    if (manager?.activeKey() == null) {
-      switchSurface(index, 'mail');
+    // Found again, as it will be at every launch: no API lists the signed-in accounts, so the
+    // probe cannot be told to skip an index. Seen, so the planner still recognises a repeat and
+    // knows where the list ends; never registered, so it draws no row.
+    if (hidden?.has(identity.email)) {
+      seenEmails.add(identity.email);
+      manager?.discardView(keyOfIndex(index), 'mail');
+    } else {
+      registerAccount(index, identity);
+      if (manager?.activeKey() == null) {
+        switchSurface(index, 'mail');
+      }
     }
   } else if (index > 0) {
     manager?.discardView(keyOfIndex(index), 'mail');
@@ -232,6 +244,14 @@ async function addAccountAfterConsent(
 }
 
 export function removeAccount(email: string): void {
+  // Remembered before anything else is undone, because both discovery paths keep running: the
+  // probe finds a signed-in account again at the next launch, and the relay names a delegation
+  // again the moment it is asked. This list is the only thing that makes a removal outlast the
+  // session it happened in. A row that is already gone reads as an own account -- the delegated
+  // half is prunable and would be dropped again by the first scan.
+  const profile = profiles.find((p) => p.email === email);
+  hidden?.add(email, profile?.kind === 'delegated' ? 'delegated' : 'authuser');
+  pushHidden();
   accountCache?.remove(email);
   const doomed = oauthTokens?.get(email);
   if (doomed?.accessToken) void stopWatch(doomed.accessToken).catch(() => undefined);
@@ -243,7 +263,6 @@ export function removeAccount(email: string): void {
   // before the unlink would keep working. Told separately, and never waited on: unlinking is
   // a local act and must finish with the network down.
   if (doomed?.refreshToken) void reportRevoke(email, doomed.refreshToken);
-  const profile = profiles.find((p) => p.email === email);
   if (!profile) {
     pushProfiles();
     return;
@@ -263,6 +282,24 @@ export function removeAccount(email: string): void {
     if (next) showAccount(next.ref, 'mail');
     else pushActive();
   }
+}
+
+/**
+ * Lets a mailbox be found again, and goes looking for it where that is possible
+ *
+ * The two halves differ in how soon it comes back. A delegation can be asked for on the spot,
+ * so the row returns within seconds. An own account cannot: the probe walks /mail/u/0 upward
+ * from an empty list, and once accounts hold the indexes below it there is no way back into
+ * that walk -- so it returns at the next start, which is what the line under the list says.
+ *
+ * @param email
+ */
+export function unhideAccount(email: string): void {
+  const entry = hidden?.list().find((h) => h.email === email.trim().toLowerCase());
+  if (!entry) return;
+  hidden?.remove(entry.email);
+  pushHidden();
+  if (entry.kind === 'delegated') void refreshDelegatedFromApi({ asked: true });
 }
 
 

@@ -17,6 +17,7 @@ import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 import type { OAuthStatusReport } from '../lib/oauth-status';
+import type { HiddenAccount } from '../lib/hidden-accounts';
 import type { ComposeAccountAsk } from '../lib/compose-account';
 import type { SettingsSection } from './settings/nav';
 import type { MailDropFolderStatus } from '../../electron/core/ipc';
@@ -156,6 +157,9 @@ interface DesktopBridge {
   addDelegated(): void;
   setColor(email: string, color: string): void;
   removeAccount(email: string): void;
+  getHiddenAccounts(): Promise<HiddenAccount[]>;
+  unhideAccount(email: string): void;
+  onHiddenAccounts(cb: (hidden: HiddenAccount[]) => void): void;
   toggleSettings(open: boolean): void;
   popupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onSettingsForceClose(cb: () => void): void;

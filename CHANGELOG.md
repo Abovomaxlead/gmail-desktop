@@ -3,6 +3,31 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1787916585] — 2026-08-28
+
+### Toegevoegd
+- **Een postvak dat je weghaalt blijft weg, ook na een update.** Verwijderen hield maar één
+  sessie stand. Bij de volgende start zoekt de app opnieuw welke Google-accounts op deze
+  computer zijn ingelogd, en vraagt hij Google opnieuw welke postvakken aan je gedelegeerd
+  zijn — en alles wat hij vond kwam terug. Wie twintig delegaties heeft, klikte na elke
+  update twintig rijen opnieuw weg. De app onthoudt nu wat je hebt weggehaald. Onder de
+  accountlijst in de instellingen staat **Verborgen postvakken**, met per adres een knop om
+  het terug te zetten: een gedelegeerd postvak staat er binnen een minuut weer, een eigen
+  account bij de volgende start. Wordt een delegatie bij Google later echt ingetrokken, dan
+  vergeet de app hem ook uit dat lijstje, zodat hij gewoon weer verschijnt als je hem
+  opnieuw krijgt.
+
+### Added
+- **A mailbox you remove now stays removed, updates included.** Removing one lasted a single
+  session. At the next start the app looks again for the Google accounts signed in on this
+  machine, and asks Google again which mailboxes are delegated to you — and everything it
+  found came straight back. Anyone holding twenty delegations cleared the same twenty rows
+  after every update. The app now remembers what you took away. Under the account list in
+  settings there is a **Hidden mailboxes** block with a button per address to put one back:
+  a delegated mailbox returns within a minute, an own account at the next start. If a
+  delegation is later genuinely revoked at Google, the app forgets it from that list too, so
+  it simply reappears if you are granted it again.
+
 ## [1.0.0-beta.1787838693] — 2026-08-27
 
 ### Opgelost

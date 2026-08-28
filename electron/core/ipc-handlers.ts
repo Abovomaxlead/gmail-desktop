@@ -15,6 +15,7 @@ import {
   colors,
   currentLocale,
   downloadHistory,
+  hidden,
   mainWindow,
   manager,
   oauthStatuses,
@@ -31,7 +32,7 @@ import {
 import { pushPrefs, pushProfiles, pushUnread, refreshBadge } from './broadcast';
 import { type LanguagePref } from './locale';
 import { type AppearancePatch, type PrefsStore } from './prefs-store';
-import { addAccount, redetect, removeAccount } from '../accounts/detection-controller';
+import { addAccount, redetect, removeAccount, unhideAccount } from '../accounts/detection-controller';
 import { refreshDelegatedFromApi } from '../delegation/delegated-controller';
 import {
   cancelMailDropPull,
@@ -114,6 +115,8 @@ export function registerIpc(): void {
     pushProfiles();
   });
   ipcMain.on(IPC.REMOVE_ACCOUNT, (_e, arg: { email: string }) => removeAccount(arg.email));
+  ipcMain.handle(IPC.HIDDEN_GET, () => hidden?.list() ?? []);
+  ipcMain.on(IPC.UNHIDE_ACCOUNT, (_e, arg: { email: string }) => unhideAccount(arg.email));
   ipcMain.on(IPC.UPDATE_CHECK, () => checkForUpdate());
   ipcMain.on(IPC.UPDATE_DOWNLOAD, () => downloadUpdate());
   ipcMain.on(IPC.UPDATE_INSTALL, () => installUpdate());

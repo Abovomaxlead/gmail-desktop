@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { HiddenAccount } from '../../lib/hidden-accounts';
 import type { Profile } from '../page';
 import type { UiStrings } from '../strings';
 import { Avatar } from '../Avatar';
@@ -30,6 +31,48 @@ const CARD_FOCUS_RING = SURFACE_FOCUS_RING;
 
 
 //===========================
+// Hook
+//===========================
+
+const hiddenListeners = new Set<(list: HiddenAccount[]) => void>();
+let hiddenSubscribed = false;
+let hiddenKnown: HiddenAccount[] = [];
+
+/**
+ * The mailboxes main is keeping off the screen, live
+ *
+ * One ipcRenderer listener for the life of the window: the preload has no way to take one off
+ * again, and this panel is mounted afresh every time settings opens.
+ *
+ * @returns {HiddenAccount[]}
+ * @private
+ */
+function useHiddenAccounts(): HiddenAccount[] {
+  const [list, setList] = useState<HiddenAccount[]>(hiddenKnown);
+
+  useEffect(() => {
+    hiddenListeners.add(setList);
+    if (!hiddenSubscribed) {
+      hiddenSubscribed = true;
+      window.desktop?.onHiddenAccounts(tell);
+    }
+    const pending = window.desktop?.getHiddenAccounts();
+    if (pending) void pending.then(tell);
+    return () => {
+      hiddenListeners.delete(setList);
+    };
+  }, []);
+
+  return list;
+}
+
+function tell(list: HiddenAccount[]): void {
+  hiddenKnown = list;
+  for (const fn of hiddenListeners) fn(list);
+}
+
+
+//===========================
 // Component
 //===========================
 
@@ -46,6 +89,7 @@ export function AccountsSection({
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [overEmail, setOverEmail] = useState<string | null>(null);
   const oauth = useOAuthStatuses();
+  const hidden = useHiddenAccounts();
 
   const nameFields = useRef<Record<string, HTMLInputElement | null>>({});
 
@@ -253,6 +297,37 @@ export function AccountsSection({
           })}
         </div>
       </SettingsGroup>
+
+      {hidden.length > 0 && (
+        <SettingsGroup title={S.hiddenTitle}>
+          <p className={`mb-3 max-w-[46ch] ${HINT}`}>{S.hiddenDescription}</p>
+
+          <div className="flex flex-col gap-2">
+            {hidden.map((h) => (
+              <div
+                key={h.email}
+                className={`${CARD} flex items-center justify-between gap-3 px-3 py-2.5`}
+              >
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate text-[13.5px]">{h.email}</span>
+                  {/* Only an own account has to wait: a delegation is asked for again on the
+                      spot, while the probe that finds own accounts only walks at startup. */}
+                  {h.kind === 'authuser' && (
+                    <span className={`mt-0.5 ${HINT}`}>{S.hiddenReturnsOnRestart}</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => window.desktop?.unhideAccount(h.email)}
+                  className={BUTTON}
+                >
+                  {S.hiddenRestore}
+                </button>
+              </div>
+            ))}
+          </div>
+        </SettingsGroup>
+      )}
 
       <SettingsGroup>
         <SettingRow label={S.redetectLabel} description={S.redetectDescription}>

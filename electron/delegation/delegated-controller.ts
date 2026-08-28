@@ -24,6 +24,7 @@ import {
   colorForEmail,
   colors,
   delegated,
+  hidden,
   keyOf,
   keyOfIndex,
   manager,
@@ -317,8 +318,14 @@ export async function refreshDelegatedFromApi(opts: { asked?: boolean } = {}): P
     answers.push({ ok: true, email: requester.email, mailboxes: res.mailboxes });
   }
 
+  // Mailboxes the user waved away go in as held, which does both halves of remembering that
+  // in one place: nothing held is ever added, so a hidden mailbox is not drawn again; and a
+  // held address no answer names comes back as one to remove, so a hidden one whose
+  // delegation was revoked at Google leaves the list rather than hiding a mailbox that is
+  // not there any more.
+  const hiddenHere = hidden?.emailsOfKind('delegated') ?? [];
   const at = reconcileDelegations({
-    stored: delegated.list().map((d) => d.email),
+    stored: [...delegated.list().map((d) => d.email), ...hiddenHere],
     answers,
     requesters: requesters.length,
   });
@@ -333,7 +340,18 @@ export async function refreshDelegatedFromApi(opts: { asked?: boolean } = {}): P
     notifyLog(`[delegated] ${added.length} postvak(ken) bijgekomen: ${added.join(', ')}`);
   }
 
-  for (const email of at.remove) dropDelegated(email);
+  // A hidden mailbox has no row and no stored entry, so there is nothing to take off the
+  // screen: it only stops being hidden. Decided by the same guard that decides a real removal,
+  // which refuses on any doubt -- see delegated-reconcile.ts.
+  const hiddenSet = new Set(hiddenHere);
+  for (const email of at.remove) {
+    if (hiddenSet.has(email.toLowerCase())) {
+      hidden?.remove(email);
+      notifyLog(`[delegated] ${email} is niet meer gedelegeerd; stond verborgen, nu vergeten`);
+      continue;
+    }
+    dropDelegated(email);
+  }
 
   if (added.length === 0 && at.remove.length === 0 && opts.asked) {
     notifyLog(`[delegated] niets veranderd (${at.why})`);

@@ -14,6 +14,7 @@ import {
   colors,
   coverage,
   currentLocale,
+  hidden,
   keyOf,
   mainWindow,
   prefs,
@@ -91,6 +92,16 @@ export function pushProfiles(): void {
     refreshBadge();
   }
   onProfilesPushed();
+}
+
+/**
+ * Tells settings which mailboxes are being kept off the screen
+ *
+ * The list is not part of the profiles: a hidden mailbox has no row, no view and no key, and
+ * the one place it appears is the block in settings that hands it back.
+ */
+export function pushHidden(): void {
+  mainWindow?.webContents.send(IPC.HIDDEN_CHANGED, hidden?.list() ?? []);
 }
 
 export function pushUnread(): void {

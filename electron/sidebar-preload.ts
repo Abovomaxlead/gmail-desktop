@@ -10,6 +10,7 @@ import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from './auth/oauth-health';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
+import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
 
 
 //===========================
@@ -63,6 +64,11 @@ contextBridge.exposeInMainWorld('desktop', {
   setColor: (email: string, color: string): void =>
     ipcRenderer.send(IPC.SET_COLOR, { email, color }),
   removeAccount: (email: string): void => ipcRenderer.send(IPC.REMOVE_ACCOUNT, { email }),
+  getHiddenAccounts: (): Promise<HiddenAccount[]> => ipcRenderer.invoke(IPC.HIDDEN_GET),
+  unhideAccount: (email: string): void => ipcRenderer.send(IPC.UNHIDE_ACCOUNT, { email }),
+  onHiddenAccounts: (cb: (arg: HiddenAccount[]) => void): void => {
+    ipcRenderer.on(IPC.HIDDEN_CHANGED, (_e, arg) => cb(arg));
+  },
   checkForUpdate: (): void => ipcRenderer.send(IPC.UPDATE_CHECK),
   downloadUpdate: (): void => ipcRenderer.send(IPC.UPDATE_DOWNLOAD),
   installUpdate: (): void => ipcRenderer.send(IPC.UPDATE_INSTALL),

@@ -38,6 +38,7 @@ import {
   setDelegated,
   setDetectionStarted,
   setDownloadHistory,
+  setHidden,
   setHistory,
   setMessageIndex,
   setMainWindow,
@@ -78,6 +79,7 @@ import { notifyLog, openNotifyLog } from '../notify/notify-log';
 import { ColorStore } from '../accounts/color-store';
 import { AccountCacheStore, rememberedOrder } from '../accounts/account-cache';
 import { DelegatedStore } from '../delegation/delegated-store';
+import { HiddenStore } from '../accounts/hidden-store';
 import { OAuthStore, type ProtectResult } from '../auth/oauth-store';
 import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
@@ -169,6 +171,7 @@ export function createWindow(): void {
   setMessageIndex(new MessageIndexStore(join(app.getPath('userData'), 'message-index.json')));
   setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
   setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
+  setHidden(new HiddenStore(join(app.getPath('userData'), 'hidden.json')));
 
   const cache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
 

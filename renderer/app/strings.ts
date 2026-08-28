@@ -266,6 +266,11 @@ export interface UiStrings {
   removeConfirmAfter: string;
   remove: string;
   cancel: string;
+
+  hiddenTitle: string;
+  hiddenDescription: string;
+  hiddenRestore: string;
+  hiddenReturnsOnRestart: string;
   redetectLabel: string;
   redetect: string;
   redetectDescription: string;
@@ -660,10 +665,16 @@ export const STRINGS_NORMAL: UiStrings = {
   },
   removeAccount: 'Remove account',
   removeConfirmBefore:
-    'Remove this account from the app? It stays signed in with Google — re-add it later with the ',
+    'Remove this mailbox from the app? It stays signed in with Google, and the app remembers that you do not want it — put it back under Hidden mailboxes below, or with the ',
   removeConfirmAfter: ' button.',
   remove: 'Remove',
   cancel: 'Cancel',
+
+  hiddenTitle: 'Hidden mailboxes',
+  hiddenDescription:
+    'Mailboxes you removed. They stay off the screen until you put one back, updates included.',
+  hiddenRestore: 'Put back',
+  hiddenReturnsOnRestart: 'appears at the next start',
   redetectLabel: 'Account detection',
   redetect: 'Re-detect accounts',
   redetectDescription: 'Looks again at the Google accounts you are signed in to.',
@@ -979,10 +990,16 @@ export const STRINGS_RENE: UiStrings = {
     return key ? COLOR_RENE[key] : hex;
   },
   removeAccount: 'Weg ermee',
-  removeConfirmBefore: 'Mag deze weg uit de app? Je kan hem later weer terug doen met de ',
+  removeConfirmBefore:
+    'Mag deze weg uit de app? De app onthoudt dat, ook na een update. Terugzetten kan hieronder bij Weggeklikt, of met de ',
   removeConfirmAfter: ' knop.',
   remove: 'Weg',
   cancel: 'Nee',
+
+  hiddenTitle: 'Weggeklikt',
+  hiddenDescription: 'Deze heb je weggedaan. Ze blijven weg tot je ze terugzet, ook na een update.',
+  hiddenRestore: 'Terug',
+  hiddenReturnsOnRestart: 'komt terug als je de app opnieuw opstart',
   redetectLabel: 'Accounts zoeken',
   redetect: 'Zoek nog een keer',
   redetectDescription: 'De app kijkt nog een keer wie er mee doet.',
@@ -1312,10 +1329,16 @@ export const STRINGS_NL: UiStrings = {
   },
   removeAccount: 'Account verwijderen',
   removeConfirmBefore:
-    'Dit account uit de app verwijderen? Het blijft ingelogd bij Google — voeg het later opnieuw toe met de ',
+    'Dit postvak uit de app verwijderen? Het blijft ingelogd bij Google, en de app onthoudt dat je het niet wilt zien — terugzetten kan hieronder bij Verborgen postvakken, of met de ',
   removeConfirmAfter: '-knop.',
   remove: 'Verwijderen',
   cancel: 'Annuleren',
+
+  hiddenTitle: 'Verborgen postvakken',
+  hiddenDescription:
+    'Postvakken die je hebt verwijderd. Ze blijven weg tot je er een terugzet, ook na een update.',
+  hiddenRestore: 'Terugzetten',
+  hiddenReturnsOnRestart: 'verschijnt bij de volgende start',
   redetectLabel: 'Accounts zoeken',
   redetect: 'Accounts opnieuw zoeken',
   redetectDescription: 'Zoekt opnieuw in de Google-accounts waarop je bent ingelogd.',

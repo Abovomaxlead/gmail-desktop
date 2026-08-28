@@ -17,6 +17,7 @@ import { PushCoverage } from '../push/push-coverage';
 import type { ProfileViewManager, Profile, Surface } from '../windows/profile-view-manager';
 import type { ColorStore } from '../accounts/color-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
+import type { HiddenStore } from '../accounts/hidden-store';
 import type { PrefsStore } from './prefs-store';
 import type { OAuthStore } from '../auth/oauth-store';
 import type { HistoryStore } from '../gmail/history-store';
@@ -60,6 +61,7 @@ export let manager: ProfileViewManager | null = null;
 export let prefs: PrefsStore | null = null;
 export let colors: ColorStore | null = null;
 export let delegated: DelegatedStore | null = null;
+export let hidden: HiddenStore | null = null;
 export let oauthTokens: OAuthStore | null = null;
 export let history: HistoryStore | null = null;
 
@@ -107,6 +109,9 @@ export function setColors(v: ColorStore | null): void {
 }
 export function setDelegated(v: DelegatedStore | null): void {
   delegated = v;
+}
+export function setHidden(v: HiddenStore | null): void {
+  hidden = v;
 }
 export function setOauthTokens(v: OAuthStore | null): void {
   oauthTokens = v;
