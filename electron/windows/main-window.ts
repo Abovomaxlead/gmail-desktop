@@ -39,6 +39,7 @@ import {
   setDetectionStarted,
   setDownloadHistory,
   setHidden,
+  setRecentLabels,
   setHistory,
   setMessageIndex,
   setMainWindow,
@@ -80,6 +81,7 @@ import { ColorStore } from '../accounts/color-store';
 import { AccountCacheStore, rememberedOrder } from '../accounts/account-cache';
 import { DelegatedStore } from '../delegation/delegated-store';
 import { HiddenStore } from '../accounts/hidden-store';
+import { RecentLabelStore } from '../mail/recent-labels-store';
 import { OAuthStore, type ProtectResult } from '../auth/oauth-store';
 import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
@@ -172,6 +174,7 @@ export function createWindow(): void {
   setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
   setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
   setHidden(new HiddenStore(join(app.getPath('userData'), 'hidden.json')));
+  setRecentLabels(new RecentLabelStore(join(app.getPath('userData'), 'recent-labels.json')));
 
   const cache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
 

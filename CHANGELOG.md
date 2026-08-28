@@ -3,6 +3,26 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1787920120] — 2026-08-28
+
+### Toegevoegd
+- **Boven de labels van elk postvak staan de labels waar je vandaag al naartoe kopieerde.**
+  Een postvak heeft honderden labels en een dag werk gaat meestal naar twee of drie ervan, dus
+  begon elke sleep met hetzelfde woord intypen. Onder het kopje **Recent** staan nu de vijf
+  labels waar die dag een kopie in is beland, de laatste bovenaan, per postvak apart. De lijst
+  gaat over vandaag: morgen begint hij leeg en vult hij zich vanzelf weer. Zodra je iets in
+  het zoekveld typt verdwijnt het kopje, want dan zijn de zoekresultaten de lijst. Een label
+  dat bij Google is weggegooid valt er stil uit.
+
+### Added
+- **The labels you already copied into today sit above each mailbox's list.** A mailbox holds
+  hundreds of labels and a day's work usually goes into two or three of them, so every drag
+  started by typing the same word again. Under a **Recent** heading you now get the five
+  labels a copy landed in that day, the most recent first, per mailbox. The list is about
+  today: tomorrow it starts empty and fills itself again. The moment you type in the search
+  box the heading goes, because then the search results are the list. A label deleted at
+  Google quietly drops out of it.
+
 ## [1.0.0-beta.1787916585] — 2026-08-28
 
 ### Toegevoegd

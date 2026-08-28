@@ -23,6 +23,7 @@ import {
   prefs,
   profiles,
   keyOf,
+  recentLabels,
   reconnectAccounts,
   setSettingsPanelOpen,
   toastWindow,
@@ -292,6 +293,7 @@ export function registerIpc(): void {
     purgeCountedLabel(arg.handle, arg.labels),
   );
   ipcMain.handle(IPC.MAIL_DROP_EXISTING_GET, () => existingForCopyTargets());
+  ipcMain.handle(IPC.MAIL_DROP_RECENT_GET, () => recentLabels?.today() ?? []);
   ipcMain.handle(IPC.MAIL_DROP_COPY, (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) =>
     copyToMailboxes(arg),
   );

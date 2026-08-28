@@ -36,6 +36,7 @@ import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import {
   SESSION_PARTITION,
   dropOverlay,
+  recentLabels,
   keyOf,
   mainWindow,
   manager,
@@ -2667,6 +2668,13 @@ export async function copyToMailboxes(arg: {
   if (targets.length === 0) return fail('Alleen postvakken van het werkdomein kunnen worden gekozen');
   const files = lastDropSaved;
   if (files.length === 0) return fail('Geen opgeslagen berichten om te kopiëren');
+
+  // Written down here rather than at the far end: this copy can be minutes of work, and the
+  // picker asks for the list the next time it opens -- which may well be while this one is
+  // still running. A copy that fails halfway is the one you most want offered back anyway.
+  // A tree copy passes no label ids and is skipped inside remember: its labels do not exist
+  // yet when it is asked for, so it has nothing to offer back.
+  for (const target of targets) recentLabels?.remember(target.email, target.labelIds);
 
   // Planned before the scan below, and creating nothing yet: see planTrees.
   const trees = await planTrees(targets, files, lastDropTree);

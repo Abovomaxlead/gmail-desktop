@@ -19,6 +19,7 @@ export const IPC = {
   ACCOUNT_IDENTITY: 'account:identity',
   MAIL_DROP: 'mail:drop',
   MAIL_DROP_ALLOWED_GET: 'maildrop:allowed-get',
+  MAIL_DROP_RECENT_GET: 'maildrop:recent-get',
   SWITCH_SURFACE: 'switch:surface',
   REDETECT: 'accounts:redetect',
   ADD_ACCOUNT: 'accounts:add',

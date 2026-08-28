@@ -18,6 +18,7 @@ import type { ProfileViewManager, Profile, Surface } from '../windows/profile-vi
 import type { ColorStore } from '../accounts/color-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
 import type { HiddenStore } from '../accounts/hidden-store';
+import type { RecentLabelStore } from '../mail/recent-labels-store';
 import type { PrefsStore } from './prefs-store';
 import type { OAuthStore } from '../auth/oauth-store';
 import type { HistoryStore } from '../gmail/history-store';
@@ -62,6 +63,7 @@ export let prefs: PrefsStore | null = null;
 export let colors: ColorStore | null = null;
 export let delegated: DelegatedStore | null = null;
 export let hidden: HiddenStore | null = null;
+export let recentLabels: RecentLabelStore | null = null;
 export let oauthTokens: OAuthStore | null = null;
 export let history: HistoryStore | null = null;
 
@@ -112,6 +114,9 @@ export function setDelegated(v: DelegatedStore | null): void {
 }
 export function setHidden(v: HiddenStore | null): void {
   hidden = v;
+}
+export function setRecentLabels(v: RecentLabelStore | null): void {
+  recentLabels = v;
 }
 export function setOauthTokens(v: OAuthStore | null): void {
   oauthTokens = v;

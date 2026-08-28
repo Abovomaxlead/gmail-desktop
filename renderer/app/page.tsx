@@ -18,6 +18,7 @@ import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
 import type { OAuthStatusReport } from '../lib/oauth-status';
 import type { HiddenAccount } from '../lib/hidden-accounts';
+import type { RecentLabelUse } from './recent-labels';
 import type { ComposeAccountAsk } from '../lib/compose-account';
 import type { SettingsSection } from './settings/nav';
 import type { MailDropFolderStatus } from '../../electron/core/ipc';
@@ -236,6 +237,7 @@ interface DesktopBridge {
   closeMailDropPreview(): void;
   getMailDropPreview(): Promise<{ items: MailDropItem[]; tree?: unknown }>;
   getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
+  getRecentLabels(): Promise<RecentLabelUse[]>;
   getMailDropExisting(): Promise<MailDropExisting>;
   onMailDropExisting(cb: (arg: MailDropExisting) => void): void;
   copyMailDrop(

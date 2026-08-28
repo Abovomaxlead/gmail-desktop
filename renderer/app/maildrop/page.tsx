@@ -10,6 +10,7 @@ import type {
 } from '../MailDropModal';
 import { labelKind, type LabelKind } from '../label-kind';
 import { filterLabels } from '../label-search';
+import { recentFor, type RecentLabelUse } from '../recent-labels';
 import { dropFailures } from '../drop-outcome';
 import {
   existingCount,
@@ -243,6 +244,7 @@ export default function MailDropModalPage() {
   const [active, setActive] = useState('');
   const [picked, setPicked] = useState<Record<string, string[]>>({});
   const [search, setSearch] = useState('');
+  const [recent, setRecent] = useState<RecentLabelUse[]>([]);
   const [phase, setPhase] = useState<Phase>({ kind: 'picking' });
   const [existing, setExisting] = useState<MailDropExisting>(NOTHING_FOUND_YET);
   /** How far the running job has got, kept apart from `phase` so a batch this window did not
@@ -264,6 +266,16 @@ export default function MailDropModalPage() {
     const loadLabels = () => {
       const mine = (labelRun += 1);
       setAccounts(null);
+      // Asked per drop, like the labels themselves: a copy started from another window, or one
+      // the driver made between two drops, belongs in this list too.
+      void bridge
+        .getRecentLabels()
+        .then((r) => {
+          if (mine === labelRun) setRecent(r);
+        })
+        .catch(() => {
+          if (mine === labelRun) setRecent([]);
+        });
       void bridge
         .getLabels()
         .then(({ accounts: a }) => {
@@ -726,6 +738,7 @@ export default function MailDropModalPage() {
                 <LabelPane
                   account={openMailbox}
                   search={search}
+                  recent={recentFor(recent, openMailbox.email, openMailbox.labels)}
                   picked={picked[openMailbox.email] ?? []}
                   disabled={phase.kind === 'copying'}
                   tree={takesTree(openMailbox.email) ? tree : null}
@@ -941,6 +954,7 @@ function RailPlaceholder() {
  *
  * @param account
  * @param search
+ * @param recent the labels today's copies went into for this mailbox, newest first
  * @param picked the labels ticked for this account, or its one chosen destination
  * @param disabled while a copy is running
  * @param tree the dragged tree when this mailbox takes it, null when it does not
@@ -953,6 +967,7 @@ function RailPlaceholder() {
 function LabelPane({
   account,
   search,
+  recent,
   picked,
   disabled,
   tree,
@@ -963,6 +978,7 @@ function LabelPane({
 }: {
   account: AccountLabels;
   search: string;
+  recent: Label[];
   picked: string[];
   disabled: boolean;
   tree: DropTree | null;
@@ -976,6 +992,9 @@ function LabelPane({
   const places: Array<{ id: string; name: string }> = single
     ? [{ id: TOP_LEVEL, name: 'Bovenin' }, ...shown]
     : shown;
+  // Only above an empty box. Once something is typed the list is the answer to that, and a
+  // shortcut standing in front of it is one more thing to read past.
+  const shortcuts = search.trim() === '' ? recent : [];
   return (
     <div className="flex min-w-0 flex-1 flex-col">
       <div className="shrink-0 border-b border-black/5 px-4 py-2 dark:border-white/10">
@@ -1007,47 +1026,102 @@ function LabelPane({
         <span className="px-4 py-3 text-xs text-neutral-400">Geen label gevonden</span>
       ) : (
         <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+          {shortcuts.length > 0 && (
+            <>
+              <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+                Recent
+              </p>
+              {shortcuts.map((label) => (
+                <PlaceRow
+                  key={`recent-${label.id}`}
+                  label={label}
+                  on={picked.includes(label.id)}
+                  single={single}
+                  disabled={disabled}
+                  already={countExisting(label.id)}
+                  onToggle={() => onToggle(label.id)}
+                />
+              ))}
+              <div className="my-1.5 border-t border-black/5 dark:border-white/10" />
+            </>
+          )}
           {single && (
             <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
               Plaats onder
             </p>
           )}
-          {places.map((label) => {
-            const on = picked.includes(label.id);
-            // Never asked about a place that is not a label, and never about a label that is
-            // about to be created: neither can hold anything yet.
-            const already = label.id === TOP_LEVEL ? 0 : countExisting(label.id);
-            return (
-              <label
-                key={label.id}
-                className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm transition ${
-                  on
-                    ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
-                    : 'text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-300 dark:hover:bg-white/5'
-                }`}
-              >
-                <input
-                  type={single ? 'radio' : 'checkbox'}
-                  checked={on}
-                  disabled={disabled}
-                  onChange={() => onToggle(label.id)}
-                  className="h-4 w-4 shrink-0 accent-blue-600"
-                />
-                {label.id === TOP_LEVEL ? <TopLevelIcon /> : <LabelIcon id={label.id} />}
-                <span className="truncate" title={label.name}>
-                  {label.name}
-                </span>
-                {already > 0 && (
-                  <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
-                    {already === 1 ? 'staat er al' : `${already} staan er al`}
-                  </span>
-                )}
-              </label>
-            );
-          })}
+          {places.map((label) => (
+            <PlaceRow
+              key={label.id}
+              label={label}
+              on={picked.includes(label.id)}
+              single={single}
+              disabled={disabled}
+              // Never asked about a place that is not a label, and never about a label that is
+              // about to be created: neither can hold anything yet.
+              already={label.id === TOP_LEVEL ? 0 : countExisting(label.id)}
+              onToggle={() => onToggle(label.id)}
+            />
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One place the mail can go, as a row in the picker
+ *
+ * Shared by the Recent block and the list under it, so a label offered twice is the same row
+ * twice -- one tickbox drawn two ways is what would make them disagree.
+ *
+ * @param label
+ * @param on whether it is ticked
+ * @param single one destination rather than several, which turns the tickbox into a choice
+ * @param disabled while a copy is running
+ * @param already how much of the drag this label holds already
+ * @param onToggle
+ */
+function PlaceRow({
+  label,
+  on,
+  single,
+  disabled,
+  already,
+  onToggle,
+}: {
+  label: { id: string; name: string };
+  on: boolean;
+  single: boolean;
+  disabled: boolean;
+  already: number;
+  onToggle: () => void;
+}) {
+  return (
+    <label
+      className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm transition ${
+        on
+          ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
+          : 'text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-300 dark:hover:bg-white/5'
+      }`}
+    >
+      <input
+        type={single ? 'radio' : 'checkbox'}
+        checked={on}
+        disabled={disabled}
+        onChange={onToggle}
+        className="h-4 w-4 shrink-0 accent-blue-600"
+      />
+      {label.id === TOP_LEVEL ? <TopLevelIcon /> : <LabelIcon id={label.id} />}
+      <span className="truncate" title={label.name}>
+        {label.name}
+      </span>
+      {already > 0 && (
+        <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
+          {already === 1 ? 'staat er al' : `${already} staan er al`}
+        </span>
+      )}
+    </label>
   );
 }
 

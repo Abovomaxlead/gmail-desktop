@@ -11,6 +11,7 @@ import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from './auth/oauth-health';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
 import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
+import type { RecentLabelUse } from '../renderer/app/recent-labels';
 
 
 //===========================
@@ -151,6 +152,7 @@ contextBridge.exposeInMainWorld('desktop', {
   getMailDropPreview: (): Promise<{ items: unknown[]; tree?: unknown }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
   getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
+  getRecentLabels: (): Promise<RecentLabelUse[]> => ipcRenderer.invoke(IPC.MAIL_DROP_RECENT_GET),
   getMailDropExisting: (): Promise<{
     accounts: unknown[];
     scanned: number;
