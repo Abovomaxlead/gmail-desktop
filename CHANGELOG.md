@@ -14,6 +14,15 @@ to [Semantic Versioning](https://semver.org/).
   het zoekveld typt verdwijnt het kopje, want dan zijn de zoekresultaten de lijst. Een label
   dat bij Google is weggegooid valt er stil uit.
 
+### Opgelost
+- **De zoekbalk in de labelkiezer heeft eindelijk echt de cursor.** Het paneel is een eigen
+  venster boven Gmail, en zo'n venster krijgt het toetsenbord niet door alleen zichtbaar te
+  worden. De cursor stond dus keurig in het zoekveld terwijl wat je typte naar Gmail
+  erachter ging. Nu pakt het paneel het toetsenbord zodra het opengaat — ook bij de eerste
+  sleep na het opstarten, waar het venster nog gebouwd moest worden. De balk die meldt dat
+  een account opnieuw gekoppeld moet worden doet dat uitdrukkelijk niet: die verschijnt
+  terwijl je aan het typen bent en hoort je niet te onderbreken.
+
 ### Added
 - **The labels you already copied into today sit above each mailbox's list.** A mailbox holds
   hundreds of labels and a day's work usually goes into two or three of them, so every drag
@@ -22,6 +31,15 @@ to [Semantic Versioning](https://semver.org/).
   today: tomorrow it starts empty and fills itself again. The moment you type in the search
   box the heading goes, because then the search results are the list. A label deleted at
   Google quietly drops out of it.
+
+### Fixed
+- **The search box in the label picker finally really has the caret.** The panel is a window
+  of its own above Gmail, and such a window does not get the keyboard merely by becoming
+  visible. The caret sat neatly in the search box while what you typed went to Gmail behind
+  it. The panel now takes the keyboard the moment it opens — including on the first drag
+  after a start, where the window still had to be built. The bar telling you an account needs
+  reconnecting explicitly does not: it appears while you are typing and has no business
+  interrupting you.
 
 ## [1.0.0-beta.1787916585] — 2026-08-28
 

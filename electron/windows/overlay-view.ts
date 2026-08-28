@@ -44,6 +44,13 @@ export class OverlayView {
       win: { width: number; height: number },
       rows: number,
     ) => Rect = (w) => contentBounds(w, barScale(win)),
+    // Whether opening this overlay should take the keyboard with it. A panel with a search
+    // box has to: a view added to the window keeps drawing without ever being focused, so its
+    // autoFocus lands in a page that receives nothing and what you type goes to Gmail behind
+    // it. A banner must not, for the same reason read the other way round -- it appears while
+    // someone is typing, and taking the keyboard off them mid-sentence is worse than being
+    // ignored.
+    private readonly takesFocus = false,
   ) {
     this.win.on('resize', () => this.applyBounds());
   }
@@ -63,6 +70,9 @@ export class OverlayView {
     this.view!.setVisible(true);
     this.visible = true;
     this.applyBounds();
+    // On open only, never on raise(): raise is about who is on top, and pulling the keyboard
+    // away from a view halfway through a sentence is exactly what it must not do.
+    if (this.takesFocus) this.view!.webContents.focus();
     this.flush();
   }
 
@@ -105,6 +115,10 @@ export class OverlayView {
     view.setBackgroundColor('#00000000');
     view.webContents.on('did-finish-load', () => {
       this.ready = true;
+      // Again here, because the first open is the one that builds this view: focusing a page
+      // that has not loaded yet is asking a window that does not exist to take the keyboard,
+      // and the first drop after a start would be the one drop that still typed into Gmail.
+      if (this.takesFocus && this.visible) view.webContents.focus();
       this.flush();
     });
     void view.webContents.loadURL(this.url);

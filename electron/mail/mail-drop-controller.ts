@@ -720,6 +720,10 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
       SIDEBAR_PRELOAD_PATH,
       DEV_URL ? `${DEV_URL}/maildrop` : 'app://bundle/maildrop.html',
       IPC.MAIL_DROP_PREVIEW,
+      undefined,
+      // Takes the keyboard: the panel opens on a search box, and without this the caret sits
+      // in a view that receives nothing while what you type goes to the Gmail view behind it.
+      true,
     );
   setDropOverlay(overlay);
   lastDropPreview = items;
