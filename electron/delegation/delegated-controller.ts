@@ -19,6 +19,7 @@ import { canRunDelegatedApiScan } from './delegated-discovery-gate';
 import { deadDelegatedUrls } from './delegated-health';
 import { reconcileDelegations, type RequesterAnswer } from './delegated-reconcile';
 import { pushProfiles } from '../core/broadcast';
+import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
 import { notifyLog } from '../notify/notify-log';
 import {
   colorForEmail,
@@ -89,6 +90,9 @@ export function loadDelegatedProfiles(): void {
   if (fresh.length > 0) {
     pushProfiles();
     syncCalendarViews();
+    // Gmail raises nothing in a delegated view, so the API sweep is the only thing that can
+    // notify for these mailboxes; a row that appears has to be picked up by it.
+    startMailSync();
     for (const profile of fresh) {
       if (surfacesForRef(profile.ref).length > 0) warmAccount(profile);
     }
@@ -380,6 +384,7 @@ function dropDelegated(email: string): void {
     profiles.splice(at, 1);
   }
   rereadFor.delete(email.toLowerCase());
+  stopMailboxSync(email);
   notifyLog(`[delegated] ${email} is niet meer gedelegeerd; rij en views weg`);
   pushProfiles();
   syncCalendarViews();

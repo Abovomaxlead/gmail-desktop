@@ -12,7 +12,6 @@ import { shell } from 'electron';
 import { IPC } from '../core/ipc';
 import { mapLimit } from '../core/concurrency';
 import {
-  authRef,
   idxOfKey,
   isQuitting,
   keyOf,
@@ -37,6 +36,7 @@ import {
   markMessageRead,
   type MessageMeta,
 } from '../gmail/gmail-api';
+import { surfacesForRef } from '../../renderer/lib/surfaces';
 import type { Surface } from '../windows/profile-view-manager';
 import type { Toast, ToastAction } from '../../renderer/lib/toast';
 
@@ -96,7 +96,8 @@ export function activateNotification(
     hooks.reopenWindow();
     return;
   }
-  if (!profiles.some((p) => keyOf(p) === accountKey)) return;
+  const profile = profiles.find((p) => keyOf(p) === accountKey);
+  if (!profile) return;
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
   const windowMode = prefs?.getAll().notificationOpen === 'window';
 
@@ -120,7 +121,10 @@ export function activateNotification(
     setSettingsPanelOpen(false);
     mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
   }
-  if (idx != null) showAccount(authRef(idx), surface);
+  // The profile's own ref, never one rebuilt from the index: a delegated mailbox has no
+  // index, so idx is null for it and the mailbox that raised the card would stay off screen
+  // while the thread opened in a view nobody was looking at.
+  if (surfacesForRef(profile.ref).includes(surface)) showAccount(profile.ref, surface);
   if (surface !== 'mail') return;
   if (threadId) manager?.openMailThread(accountKey, threadId, messageId);
   else if (subject) manager?.openMailSearch(accountKey, subject);

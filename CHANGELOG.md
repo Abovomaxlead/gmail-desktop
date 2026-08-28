@@ -16,6 +16,16 @@ to [Semantic Versioning](https://semver.org/).
   account bij de volgende start. Wordt een delegatie bij Google later echt ingetrokken, dan
   vergeet de app hem ook uit dat lijstje, zodat hij gewoon weer verschijnt als je hem
   opnieuw krijgt.
+- **Je krijgt nu meldingen van gedelegeerde postvakken.** Die kwamen er nooit, en niet
+  doordat er een schakelaar uit stond: Gmail zelf geeft geen bureaubladmelding in het
+  venster van een postvak waar je gedelegeerde van bent. Dat is in de log van de app zwart
+  op wit terug te zien — wekenlang wél mail die binnenkwam, nooit een melding die Gmail
+  opwierp. De app kijkt nu zelf, elke minuut, rechtstreeks bij Google, en laat dezelfde
+  kaart zien als bij je eigen accounts: afzender, onderwerp, de kleur van dat postvak.
+  Klikken opent die mail in dat postvak, en brengt het postvak in beeld. Mail die er al lag
+  toen de app startte blijft stil, dus een postvak met dertig ongelezen berichten geeft geen
+  dertig meldingen, en Promoties en Sociaal zwijgen net als bij je eigen accounts. De
+  schakelaar per account blijft de baas: staat een postvak op stil, dan blijft het stil.
 
 ### Added
 - **A mailbox you remove now stays removed, updates included.** Removing one lasted a single
@@ -27,6 +37,17 @@ to [Semantic Versioning](https://semver.org/).
   a delegated mailbox returns within a minute, an own account at the next start. If a
   delegation is later genuinely revoked at Google, the app forgets it from that list too, so
   it simply reappears if you are granted it again.
+
+- **Delegated mailboxes now raise notifications.** They never did, and not because a switch
+  was off: Gmail itself raises no desktop notification in the view of a mailbox you are a
+  delegate of. The app's own log shows it in black and white — weeks of mail arriving in
+  those mailboxes, and never one notification raised by Gmail. The app now looks for itself,
+  once a minute, straight at Google, and shows the same card as for your own accounts:
+  sender, subject, that mailbox's colour. Clicking opens that mail in that mailbox and
+  brings the mailbox to the front. Mail that was already there when the app started stays
+  quiet, so a mailbox holding thirty unread does not raise thirty cards, and Promotions and
+  Social stay silent exactly as they do for your own accounts. The per-account switch stays
+  in charge: a mailbox set to silent stays silent.
 
 ## [1.0.0-beta.1787838693] — 2026-08-27
 

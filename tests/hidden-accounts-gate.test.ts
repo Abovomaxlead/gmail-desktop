@@ -69,7 +69,10 @@ vi.mock('../electron/notify/notify-gating', () => ({
   playNotificationSound: vi.fn(),
 }));
 vi.mock('../electron/toast/toast-presenter', () => ({ showToast: vi.fn() }));
-vi.mock('../electron/push/mail-sync-controller', () => ({ startMailSync: vi.fn() }));
+vi.mock('../electron/push/mail-sync-controller', () => ({
+  startMailSync: vi.fn(),
+  stopMailboxSync: vi.fn(),
+}));
 vi.mock('../electron/delegation/delegated-controller', () => ({
   maybeStartDelegatedApiScan: vi.fn(),
   refreshDelegatedFromApi: vi.fn(),

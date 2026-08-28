@@ -24,7 +24,6 @@ import {
   prefs,
   profiles,
   setCachedAccounts,
-  syncRunners,
   unread,
 } from '../core/runtime';
 import {
@@ -35,7 +34,7 @@ import {
 } from '../windows/view-surfaces';
 import { refreshNotifyAllowed, playNotificationSound } from '../notify/notify-gating';
 import { showToast } from '../toast/toast-presenter';
-import { startMailSync } from '../push/mail-sync-controller';
+import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
 import { maybeStartDelegatedApiScan, refreshDelegatedFromApi } from '../delegation/delegated-controller';
 import { connectAccount } from '../auth/oauth-flow';
 import { isAllowedAccount } from '../auth/account-domain';
@@ -257,7 +256,7 @@ export function removeAccount(email: string): void {
   if (doomed?.accessToken) void stopWatch(doomed.accessToken).catch(() => undefined);
   history?.remove(email);
   coverage.forget(email);
-  syncRunners.delete(email);
+  stopMailboxSync(email);
   oauthTokens?.remove(email);
   // Deleting our copy leaves the grant standing at Google, so a refresh token that leaked
   // before the unlink would keep working. Told separately, and never waited on: unlinking is
