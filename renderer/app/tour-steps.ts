@@ -65,10 +65,14 @@ const STEPS: readonly TourStep[] = [
     stage: null,
     opensTabMenu: false,
   },
+  // bottom-end where its neighbours are bottom-start, and it has to stay that way: this is the
+  // one step that pops the OS menu, the menu opens under the active tab towards the left of the
+  // strip, and a card at bottom-start would sit underneath it with the text unreadable. The
+  // spotlight still cuts around the whole strip; only the card moves out of the way.
   {
     id: 'tab-menu',
     anchor: 'tabs',
-    on: 'bottom-start',
+    on: 'bottom-end',
     titleKey: 'tourTabMenuTitle',
     bodyKey: 'tourTabMenuBody',
     stage: null,

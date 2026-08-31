@@ -70,6 +70,15 @@ describe('planTour', () => {
     expect(popping.map((s) => s.id)).toEqual(['tab-menu']);
   });
 
+  // The menu opens under the active tab, towards the left of the strip. A card on that same
+  // side lands underneath it and the text cannot be read, so the step that pops the menu has
+  // to put its card at the other end. Tidying this back to match its neighbours is the
+  // regression.
+  it('keeps the card clear of the menu it pops', () => {
+    const step = planTour().find((s) => s.opensTabMenu);
+    expect(step?.on).toBe('bottom-end');
+  });
+
   it('names a string that exists for every title and body', () => {
     for (const step of planTour()) {
       expect(typeof STRINGS_NORMAL[step.titleKey], `${step.id} title`).toBe('string');
