@@ -18,6 +18,23 @@ const ERR_ABORTED = -3;
 
 export const TOAST_REBUILD_ATTEMPTS = 3;
 
+/** How long without spending an attempt before the budget above is whole again.
+ *
+ * The bound on its own put the original bug back one layer down. Attempts are spent in a
+ * single burst -- three render timeouts is eleven seconds -- and nothing ever gave them
+ * back: the one signal that does is a size report, and a stack the presenter is routing
+ * around is never handed a card to measure. So eleven bad seconds cost every notification
+ * until the app was restarted, which is the "sometimes I get a Windows notification"
+ * this exists to end.
+ *
+ * Measured from the last attempt actually spent, never from a refusal, or a machine that
+ * gets a notification a minute would push the spell out for ever and never refill. The
+ * same shape and the same cure as RECOVER_AFTER_MS in gmail/quota.ts: a budget that only
+ * ever goes down turns one bad burst into a permanent verdict. A page that genuinely
+ * cannot paint therefore costs three windows a minute rather than a loop, and keeps
+ * notifying through the system shelf the whole time. */
+export const TOAST_REBUILD_RECOVER_AFTER_MS = 60_000;
+
 
 //===========================
 // Window
@@ -29,6 +46,8 @@ export class ToastWindow {
   private destroyed = false;
   private broken = false;
   private rebuilds = 0;
+  /** When an attempt was last spent, so a quiet spell can give the budget back. */
+  private lastRebuildAt = 0;
   private readyTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -132,11 +151,13 @@ export class ToastWindow {
    */
   rebuild(): boolean {
     if (this.destroyed) return false;
+    this.refillAttempts();
     if (this.rebuilds >= TOAST_REBUILD_ATTEMPTS) {
       notifyLog(`[toast] giving up on the stack after ${this.rebuilds} rebuilds`);
       return false;
     }
     this.rebuilds += 1;
+    this.lastRebuildAt = Date.now();
     notifyLog(`[toast] rebuilding the stack (attempt ${this.rebuilds})`);
     this.clearReadyTimer();
     const dead = this.win;
@@ -145,6 +166,24 @@ export class ToastWindow {
     this.broken = false;
     if (dead && !dead.isDestroyed()) dead.destroy();
     return true;
+  }
+
+  /**
+   * Gives the rebuild budget back once the trouble has stopped
+   *
+   * Nothing to give back while none is spent, which is also what keeps a stack that came
+   * back to life on its own out of the clock entirely: noteAlive zeroes the count, and this
+   * then has nothing to do.
+   *
+   * @private
+   */
+  private refillAttempts(): void {
+    if (this.rebuilds === 0) return;
+    if (Date.now() - this.lastRebuildAt < TOAST_REBUILD_RECOVER_AFTER_MS) return;
+    notifyLog(
+      `[toast] no rebuild for ${TOAST_REBUILD_RECOVER_AFTER_MS / 1000}s, the stack gets its ${TOAST_REBUILD_ATTEMPTS} attempts back`,
+    );
+    this.rebuilds = 0;
   }
 
   /**
