@@ -145,8 +145,17 @@ export function TourGuide({
     tour.on('cancel', finish);
     void tour.start();
 
+    // Torn down silently. Completing the tour here would report it as finished and write
+    // tour.seen, so anything that unmounts and remounts this component -- StrictMode in a dev
+    // build being the obvious one -- would mark the tour done and then run it again with the
+    // window no longer given over to it. A window closed halfway leaves seen false instead,
+    // which means the tour comes back, and that is the kinder of the two mistakes.
     return () => {
-      if (!reported) tour.complete();
+      for (const t of timers) window.clearTimeout(t);
+      tour.off('complete', finish);
+      tour.off('cancel', finish);
+      if (tour.isActive()) void tour.cancel();
+      stage.current(null);
     };
   }, []);
 

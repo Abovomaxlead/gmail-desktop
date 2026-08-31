@@ -132,6 +132,10 @@ export function registerIpc(): void {
   // panel makes. The settingsPanelOpen guard is what stops a tour that ends while the panel
   // happens to be open from painting Gmail over the panel.
   ipcMain.on(IPC.TOUR_ACTIVE, (_e, arg: { active: boolean }) => {
+    // Logged because the one way this feature fails is invisibly: the tour draws in the
+    // renderer page and every Gmail view is painted over it, so a hide that does not arrive
+    // looks exactly like a tour that never started.
+    console.info(`[tour] views ${arg.active ? 'hidden' : 'shown'}`);
     if (arg.active) manager?.hideAll();
     else if (!settingsPanelOpen) manager?.showActive();
   });

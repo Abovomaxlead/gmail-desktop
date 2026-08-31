@@ -331,6 +331,7 @@ export default function AppShell() {
   // matter: without the first, a returning user's detected accounts would start the tour;
   // without the second, adding a second account years later would.
   const tourArmed = useRef(false);
+  const touring = tourSteps !== null;
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -397,6 +398,17 @@ export default function AppShell() {
       return () => mq.removeEventListener('change', apply);
     }
   }, [prefs?.theme]);
+
+  // The Gmail views stay hidden for exactly as long as the tour is on screen. This used to be
+  // a hide in startTour paired with an unhide in endTour, and that pairing is what put Gmail
+  // back over a running tour: TourGuide decides when the tour is over, so anything that
+  // remounted it sent the unhide while the walk was still going. Tying it to the tour's own
+  // presence instead means the two cannot drift apart.
+  useEffect(() => {
+    if (!touring) return;
+    window.desktop?.setTourActive(true);
+    return () => window.desktop?.setTourActive(false);
+  }, [touring]);
 
   // The tour belongs to the moment somebody links their first mailbox in this app, so it is
   // armed by the act of adding one rather than by a mailbox appearing. Detection finds
@@ -484,7 +496,6 @@ export default function AppShell() {
   // What the bar draws while the tour is up, and which mailbox the demo panel names. The
   // panel shows a real address rather than a made-up one, so nobody has to wonder whether
   // they are looking at their own mail.
-  const touring = tourSteps !== null;
   const barProfiles = barProfilesFor(profiles, touring, S);
   const barUnread = touring ? { ...unread, [TOUR_DEMO_KEY]: TOUR_DEMO_UNREAD } : unread;
   // Nothing pinned means the pinned step has nothing to point at, so the bar borrows one for
@@ -520,14 +531,27 @@ export default function AppShell() {
   function startTour() {
     tourStarted.current = true;
     setTourSteps(planTour());
-    window.desktop?.setTourActive(true);
   }
 
   function endTour() {
     setTourSteps(null);
     setTourStage(null);
-    window.desktop?.setTourActive(false);
     window.desktop?.setTourSeen(true);
+  }
+
+  /**
+   * Draws the stage a step asked for, and re-asserts that the tour owns the window
+   *
+   * The second half is the same move OverlayView.raise() makes, for the same reason: being the
+   * only thing on screen is not something the tour keeps by itself. One stray showActive()
+   * would otherwise leave Gmail painted over the rest of the walk, and every step is a free
+   * chance to put that right.
+   *
+   * @param stage
+   */
+  function showStage(stage: TourStage) {
+    setTourStage(stage);
+    window.desktop?.setTourActive(true);
   }
 
   function replayTour() {
@@ -606,7 +630,7 @@ export default function AppShell() {
         <TourGuide
           steps={tourSteps}
           S={S}
-          onStage={setTourStage}
+          onStage={showStage}
           onTabMenu={showTabMenu}
           onEnd={endTour}
         />
