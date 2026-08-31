@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsPanel } from './SettingsPanel';
 import { Topbar } from './Topbar';
 import type {
@@ -11,8 +11,11 @@ import type {
   MailDropExisting,
 } from './MailDropModal';
 import { getStrings } from './strings';
+import { TourGuide } from './TourGuide';
+import { planTour, type TourStep } from './tour-steps';
 import type { Surface } from '../lib/surfaces';
-import { googleAppTarget } from '../lib/google-apps';
+import { openableSurfaces } from '../lib/surfaces';
+import { googleAppTarget, pinnedSurfacesFor } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
 import type { ReconnectAccount } from './reconnect-text';
@@ -300,6 +303,11 @@ export default function AppShell() {
   const S = getStrings(prefs?.locale ?? 'en', prefs?.reneMode === true);
   const [isDefaultMail, setIsDefaultMail] = useState(false);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [tourSteps, setTourSteps] = useState<TourStep[] | null>(null);
+  // Once per session, whether the tour ran to the end or was waved away. Without this the
+  // effect below would start it again on the next profile push, because prefs.tour.seen
+  // only turns true after a round trip through main.
+  const tourStarted = useRef(false);
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -366,6 +374,16 @@ export default function AppShell() {
     }
   }, [prefs?.theme]);
 
+  // The tour waits for a mailbox to point at. On a fresh install the tab strip is empty,
+  // and a provisional tab is one remembered from the bar before detection has recovered its
+  // address, so neither can carry the steps that talk about tabs.
+  useEffect(() => {
+    if (tourStarted.current) return;
+    if (!prefs || prefs.tour.seen || settingsOpen) return;
+    if (!profiles.some((p) => !p.provisional)) return;
+    startTour();
+  }, [profiles, prefs, settingsOpen, active]);
+
   function open(key: string, surface: Surface) {
     if (settingsOpen) setSettingsOpen(false);
     const row = profiles.find((p) => p.key === key);
@@ -430,6 +448,34 @@ export default function AppShell() {
     window.desktop?.setAccountOrder(emails);
   }
 
+  /**
+   * Whether the active mailbox has any Google apps pinned to the bar
+   *
+   * @returns false when nothing is pinned, or when no mailbox is active yet
+   */
+  function hasPinnedApps(): boolean {
+    const row = active ? (profiles.find((p) => p.key === active.key) ?? null) : null;
+    if (!row || !prefs) return false;
+    return pinnedSurfacesFor(prefs.googleApps.pinned, openableSurfaces(row)).length > 0;
+  }
+
+  function startTour() {
+    tourStarted.current = true;
+    setTourSteps(planTour({ hasPinned: hasPinnedApps() }));
+    window.desktop?.setTourActive(true);
+  }
+
+  function endTour() {
+    setTourSteps(null);
+    window.desktop?.setTourActive(false);
+    window.desktop?.setTourSeen(true);
+  }
+
+  function replayTour() {
+    closeSettings();
+    startTour();
+  }
+
   return (
     <div className="flex h-screen w-full flex-col bg-neutral-100 text-neutral-800 dark:bg-neutral-950 dark:text-neutral-200">
       <Topbar
@@ -471,6 +517,7 @@ export default function AppShell() {
           onRequestDefaultMail={() => window.desktop?.requestDefaultMail()}
         />
       )}
+      {tourSteps && <TourGuide steps={tourSteps} S={S} onEnd={endTour} />}
     </div>
   );
 }
