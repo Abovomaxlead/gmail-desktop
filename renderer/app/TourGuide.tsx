@@ -2,8 +2,8 @@
 
 import { useEffect, useRef } from 'react';
 import Shepherd from 'shepherd.js';
+import type { StepOptions, Tour } from 'shepherd.js';
 import { offset } from '@floating-ui/dom';
-import type { StepOptions } from 'shepherd.js';
 import 'shepherd.js/dist/css/shepherd.css';
 import { anchorSelector, type TourStage, type TourStep } from './tour-steps';
 import type { UiStrings } from './strings';
@@ -16,6 +16,15 @@ import type { UiStrings } from './strings';
 // The effect has no dependencies on purpose. Rebuilding the tour on a re-render would
 // restart it at step one every time an unread count arrived, and unread counts arrive
 // constantly. The strings and the steps are read once, at the moment the tour starts.
+//
+// The tour is built on a task rather than in the effect body, and that is not a delay for its
+// own sake. React StrictMode -- on by default in the App Router in dev -- runs this effect,
+// its cleanup, and the effect again, all on the same component instance. Shepherd's start()
+// is async, so a tour built inline could not be caught by the cleanup that followed
+// microseconds later: isActive() was still false, nothing was cancelled, and the first tour
+// appeared after its own teardown, beside the one the remount had started. Two cards on
+// screen, on two different steps. Deferring the build means the whole double invoke is over
+// before any tour exists, and the first cleanup has nothing to undo but a timer.
 //
 // canClickTarget is false throughout: a click on the highlighted gear would open the
 // settings panel over the tour, which the tour cannot see and cannot recover from.
@@ -78,70 +87,12 @@ export function TourGuide({
       return;
     }
 
-    // Any tour still up belongs to a previous mount of this component, and two shepherd
-    // tours draw two sets of cards -- of which only one is the one the user is answering.
-    if (Shepherd.activeTour) void Shepherd.activeTour.cancel();
-
-    const tour = new Shepherd.Tour({
-      useModalOverlay: true,
-      defaultStepOptions: {
-        canClickTarget: false,
-        skipMissingElement: true,
-        waitForElement: 2000,
-        scrollTo: false,
-        cancelIcon: { enabled: true },
-        modalOverlayOpeningPadding: 6,
-        modalOverlayOpeningRadius: 10,
-      },
-    });
-
     const timers: number[] = [];
-
-    steps.forEach((step, i) => {
-      const selector = anchorSelector(step.anchor);
-      const options: StepOptions = {
-        id: step.id,
-        title: S[step.titleKey],
-        text: S[step.bodyKey],
-        // Every step announces its stage, null included, so leaving a staged step clears it
-        // without the next step having to know what the last one put up.
-        beforeShowPromise: () => {
-          stage.current(step.stage);
-          return afterPaint();
-        },
-        buttons: [
-          i === 0
-            ? { text: S.tourSkip, secondary: true, action: () => void tour.cancel() }
-            : { text: S.tourBack, secondary: true, action: () => void tour.back() },
-          i === steps.length - 1
-            ? { text: S.tourDone, action: () => tour.complete() }
-            : { text: S.tourNext, action: () => void tour.next() },
-        ],
-      };
-      if (selector) options.attachTo = { element: selector, on: step.on };
-      if (step.classes) options.classes = step.classes;
-      // Concatenated with shepherd's own flip and shift rather than replacing them, because it
-      // merges the two with deepmerge-ts and that joins arrays. The arrow survives too: it is
-      // appended only when the merged list holds no middleware named 'arrow'.
-      if (step.offset) options.floatingUIOptions = { middleware: [offset(step.offset)] };
-      if (step.stage !== null) {
-        options.skipMissingElement = false;
-        options.waitForElement = 0;
-      }
-      if (step.opensTabMenu) {
-        options.when = {
-          show: () => {
-            timers.push(window.setTimeout(() => tabMenu.current(), TAB_MENU_DELAY_MS));
-          },
-        };
-      }
-      tour.addStep(options);
-    });
-
-    // Finishing and skipping differ in what the user learned, not in what the app has to
-    // do, so both arrive here. The flag is what keeps the unmount path from reporting a
-    // second time after the tour has already ended on its own.
+    let tour: Tour | null = null;
     let reported = false;
+
+    // Finishing and skipping differ in what the user learned, not in what the app has to do,
+    // so both arrive here. The flag is what keeps a second event from reporting twice.
     const finish = () => {
       if (reported) return;
       reported = true;
@@ -151,27 +102,91 @@ export function TourGuide({
       stage.current(null);
       end.current();
     };
-    tour.on('complete', finish);
-    tour.on('cancel', finish);
 
-    // start() is async, and StrictMode tears this effect down before it settles. Without the
-    // check the tour would appear after its own teardown, beside the one the remount started.
-    let disposed = false;
-    void tour.start().then(() => {
-      if (disposed && tour.isActive()) void tour.cancel();
-    });
+    const build = (): Tour => {
+      // A tour still up can only belong to a previous mount of this component, and two
+      // shepherd tours draw two sets of cards.
+      if (Shepherd.activeTour) void Shepherd.activeTour.cancel();
+
+      const built = new Shepherd.Tour({
+        useModalOverlay: true,
+        defaultStepOptions: {
+          canClickTarget: false,
+          skipMissingElement: true,
+          waitForElement: 2000,
+          scrollTo: false,
+          cancelIcon: { enabled: true },
+          modalOverlayOpeningPadding: 6,
+          modalOverlayOpeningRadius: 10,
+        },
+      });
+
+      steps.forEach((step, i) => {
+        const selector = anchorSelector(step.anchor);
+        const options: StepOptions = {
+          id: step.id,
+          title: S[step.titleKey],
+          text: S[step.bodyKey],
+          // Every step announces its stage, null included, so leaving a staged step clears it
+          // without the next step having to know what the last one put up. Only a staged step
+          // waits for a paint: shepherd keeps the previous card up until this promise settles,
+          // so waiting where there is nothing to render would leave two cards overlapping for
+          // those frames.
+          beforeShowPromise: () => {
+            stage.current(step.stage);
+            return step.stage === null ? Promise.resolve() : afterPaint();
+          },
+          buttons: [
+            i === 0
+              ? { text: S.tourSkip, secondary: true, action: () => void built.cancel() }
+              : { text: S.tourBack, secondary: true, action: () => void built.back() },
+            i === steps.length - 1
+              ? { text: S.tourDone, action: () => built.complete() }
+              : { text: S.tourNext, action: () => void built.next() },
+          ],
+        };
+        if (selector) options.attachTo = { element: selector, on: step.on };
+        if (step.classes) options.classes = step.classes;
+        // Concatenated with shepherd's own flip and shift rather than replacing them, because
+        // it merges the two with deepmerge-ts and that joins arrays. The arrow survives too:
+        // it is appended only when the merged list holds no middleware named 'arrow'.
+        if (step.offset) options.floatingUIOptions = { middleware: [offset(step.offset)] };
+        if (step.stage !== null) {
+          options.skipMissingElement = false;
+          options.waitForElement = 0;
+        }
+        if (step.opensTabMenu) {
+          options.when = {
+            show: () => {
+              timers.push(window.setTimeout(() => tabMenu.current(), TAB_MENU_DELAY_MS));
+            },
+          };
+        }
+        built.addStep(options);
+      });
+
+      built.on('complete', finish);
+      built.on('cancel', finish);
+      return built;
+    };
+
+    const startTimer = window.setTimeout(() => {
+      tour = build();
+      void tour.start();
+    }, 0);
 
     // Torn down silently. Completing the tour here would report it as finished and write
-    // tour.seen, so anything that unmounts and remounts this component -- StrictMode in a dev
-    // build being the obvious one -- would mark the tour done and then run it again with the
-    // window no longer given over to it. A window closed halfway leaves seen false instead,
-    // which means the tour comes back, and that is the kinder of the two mistakes.
+    // tour.seen, so a remount would mark the tour done and then run it again with the window
+    // no longer given over to it. A window closed halfway leaves seen false instead, which
+    // means the tour comes back, and that is the kinder of the two mistakes.
     return () => {
-      disposed = true;
+      window.clearTimeout(startTimer);
       for (const t of timers) window.clearTimeout(t);
-      tour.off('complete', finish);
-      tour.off('cancel', finish);
-      if (tour.isActive()) void tour.cancel();
+      if (tour) {
+        tour.off('complete', finish);
+        tour.off('cancel', finish);
+        if (tour.isActive()) void tour.cancel();
+      }
       stage.current(null);
     };
   }, []);
