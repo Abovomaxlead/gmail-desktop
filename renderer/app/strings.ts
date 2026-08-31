@@ -750,11 +750,10 @@ export const STRINGS_NORMAL: UiStrings = {
   tourDone: 'Done',
   tourSkip: 'Skip',
   tourWelcomeTitle: 'Welcome to Gmail Desktop',
-  tourWelcomeBody:
-    'A minute’s look at what this app adds to Gmail. Press Esc to leave at any point.',
+  tourWelcomeBody: 'A minute’s look at what this app adds to Gmail.',
   tourTabsTitle: 'One tab per mailbox',
   tourTabsBody:
-    'Every account and every shared mailbox gets a tab. Click one to switch to it; the number beside a name is its unread mail.',
+    'Every account and every shared mailbox gets a tab. Click another mailbox to switch to it.',
   tourTabMenuTitle: 'More behind every tab',
   tourTabMenuBody:
     'Right-click a tab to see what else it opens: its Calendar, and for your own accounts Drive and Contacts as well. Drag a tab sideways to reorder the strip.',
@@ -766,10 +765,9 @@ export const STRINGS_NORMAL: UiStrings = {
     'These open in the mailbox you are looking at. Choose which ones sit here under Settings, Google apps.',
   tourMailDropTitle: 'Drop mail onto the window',
   tourMailDropBody:
-    'Drag .eml files, or a folder of them, onto this window. The app files them under labels you pick, in several mailboxes at once.',
+    'From here you can copy the mail you dragged in to any of your labels.',
   tourFeedbackTitle: 'Report a problem',
-  tourFeedbackBody:
-    'The speech bubble writes to the developer, with the app’s diagnostics attached if you want them.',
+  tourFeedbackBody: 'The speech bubble writes a message to the developer.',
   tourGearTitle: 'Everything else',
   tourGearBody:
     'Notifications, downloads, updates and the rest live behind the gear. You can start this tour again from Settings, General.',
@@ -777,7 +775,7 @@ export const STRINGS_NORMAL: UiStrings = {
   tourDemoLabels: 'Clients,Invoices,Projects,Archive 2026,Newsletters,To do',
   tourStripTitle: 'Drag mail out of Gmail',
   tourStripBody:
-    'Pick up a conversation in Gmail and this strip appears across the top. Drop it there and the mail is saved as a file in your mail-drop folder -- and the next step is what puts it back.',
+    'Drag a conversation in Gmail and this strip appears across the top. Drop the mail there and you can copy it to the mailboxes you have access to.',
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -1111,11 +1109,10 @@ export const STRINGS_RENE: UiStrings = {
   tourDone: 'Klaar',
   tourSkip: 'Nu niet',
   tourWelcomeTitle: 'Welkom!',
-  tourWelcomeBody:
-    'We lopen even samen door de app. Het duurt een minuutje. Wil je stoppen? Druk op Esc.',
+  tourWelcomeBody: 'We lopen even samen door de app. Het duurt een minuutje.',
   tourTabsTitle: 'Elke mailbox een tabje',
   tourTabsBody:
-    'Bovenaan staat een tabje voor elke mailbox. Klik erop om te wisselen. Het getal zegt hoeveel nieuwe mail er is.',
+    'Bovenaan staat een tabje voor elke mailbox. Klik op een ander tabje om te wisselen.',
   tourTabMenuTitle: 'Rechtermuisknop op een tabje',
   tourTabMenuBody:
     'Klik met de rechtermuisknop op een tabje. Dan zie je wat er nog meer bij hoort: de agenda, en bij je eigen mailboxen ook Drive en contacten. Slepen mag ook, dan verschuif je het tabje.',
@@ -1127,7 +1124,7 @@ export const STRINGS_RENE: UiStrings = {
     'Deze knoppen horen bij de mailbox die je nu ziet. Welke knoppen hier staan, kies je bij Instellingen, Google-apps.',
   tourMailDropTitle: 'Mail hierheen slepen',
   tourMailDropBody:
-    'Sleep mailbestanden op dit venster. De app zet ze dan netjes onder een label. In meerdere mailboxen tegelijk, als je dat wilt.',
+    'Hiervandaan kun je de gesleepte mail kopiëren naar verschillende labels.',
   tourFeedbackTitle: 'Iets kwijt of stuk?',
   tourFeedbackBody:
     'Klik op het wolkje. Dan stuur je een berichtje naar de maker van de app.',
@@ -1138,7 +1135,7 @@ export const STRINGS_RENE: UiStrings = {
   tourDemoLabels: 'Klanten,Rekeningen,Klussen,Oud,Nieuwsbrieven,Nog doen',
   tourStripTitle: 'Mail eruit slepen',
   tourStripBody:
-    'Pak in Gmail een mailtje op. Dan komt deze balk bovenaan in beeld. Laat het daar los en de mail wordt bewaard als bestand. De volgende stap laat zien hoe je het weer terugzet.',
+    'Sleep in Gmail een mailtje en deze balk komt bovenaan in beeld. Laat de mail daar los en je kunt hem kopiëren naar de mailboxen waar je bij mag.',
 };
 
 export const STRINGS_NL: UiStrings = {
@@ -1490,11 +1487,10 @@ export const STRINGS_NL: UiStrings = {
   tourDone: 'Gereed',
   tourSkip: 'Overslaan',
   tourWelcomeTitle: 'Welkom bij Gmail Desktop',
-  tourWelcomeBody:
-    'Een rondleiding van een minuut langs wat deze app aan Gmail toevoegt. Met Esc stopt u wanneer u wilt.',
+  tourWelcomeBody: 'Een rondleiding van een minuut langs wat deze app aan Gmail toevoegt.',
   tourTabsTitle: 'Eén tab per postbus',
   tourTabsBody:
-    'Elk account en elke gedeelde postbus krijgt een tab. Klik erop om te wisselen; het getal naast een naam is de ongelezen post.',
+    'Elk account en elke gedeelde postbus krijgt een tab. Klik op een andere postbus om te wisselen.',
   tourTabMenuTitle: 'Meer achter elke tab',
   tourTabMenuBody:
     'Klik met de rechtermuisknop op een tab om te zien wat die verder opent: de Agenda, en bij uw eigen accounts ook Drive en Contacten. Versleep een tab om de strook te herschikken.',
@@ -1506,10 +1502,9 @@ export const STRINGS_NL: UiStrings = {
     'Deze openen in de postbus die u nu bekijkt. Welke hier staan, kiest u bij Instellingen, Google-apps.',
   tourMailDropTitle: 'Post op het venster slepen',
   tourMailDropBody:
-    'Sleep .eml-bestanden, of een map ermee, op dit venster. De app zet ze onder labels die u kiest, in meerdere postbussen tegelijk.',
+    'Het is vanaf hier mogelijk om de gesleepte e-mails te kopiëren naar verschillende labels.',
   tourFeedbackTitle: 'Een probleem melden',
-  tourFeedbackBody:
-    'De tekstballon schrijft een bericht aan de ontwikkelaar, desgewenst met de diagnostiek van de app erbij.',
+  tourFeedbackBody: 'De tekstballon schrijft een bericht aan de ontwikkelaar.',
   tourGearTitle: 'Al het overige',
   tourGearBody:
     'Meldingen, downloads, updates en de rest zitten achter het tandwiel. Deze rondleiding start u opnieuw bij Instellingen, Algemeen.',
@@ -1517,7 +1512,7 @@ export const STRINGS_NL: UiStrings = {
   tourDemoLabels: 'Klanten,Facturen,Projecten,Archief 2026,Nieuwsbrieven,Te doen',
   tourStripTitle: 'Mail uit Gmail slepen',
   tourStripBody:
-    'Pak in Gmail een gesprek op en deze balk verschijnt bovenaan. Laat het daar los en de mail wordt als bestand in uw maildrop-map opgeslagen -- en de volgende stap zet het weer terug.',
+    'Sleep in Gmail een gesprek en deze balk verschijnt bovenaan. Laat de mail daar los en de mail is te kopiëren naar de mailboxen waar u toegang tot hebt.',
 };
 
 

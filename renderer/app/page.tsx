@@ -292,8 +292,9 @@ declare global {
 // address, so nothing it pushes will ever collide, and open() can refuse this one by name.
 const TOUR_DEMO_KEY = 'tour-demo';
 
-// The example tab carries a count, because "the number beside a name is its unread mail" is
-// one of the things the tab step claims and a tab without one would not show it.
+// The example tab carries a count so it reads as a real tab beside the real ones. It used to
+// be here to back the tab step's claim about what the number means; that claim is gone from
+// the copy, and looking like the genuine article is reason enough on its own.
 const TOUR_DEMO_UNREAD = 3;
 
 // What the bar borrows when nothing is pinned. Drive is in APP_SURFACES, so it is openable for
