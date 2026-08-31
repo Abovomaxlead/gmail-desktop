@@ -15,6 +15,7 @@
 - **All committed text is English.** Code comments, commit messages and docs. The app's *user-facing* strings are a different matter and are written in all three sets (see below).
 - **Comment convention.** Banner sections are exactly three lines: 27 `=` characters, the Title-case name, 27 `=`. Two blank lines above a banner, one below. Fixed section order per file kind; an empty section stays. Docblocks are one-line description (third person, present tense, no trailing period), blank `*` line, then `@param` per argument in signature order and `@returns` last. Inline comments are rare, sentence case, no trailing period, above the line they explain, and say *why* not *what*. Roughly one comment line per ten of code.
 - **Three string sets, always.** Every new key must be added to `STRINGS_NORMAL` (English), `STRINGS_RENE` (simple, informal Dutch) and `STRINGS_NL` (businesslike Dutch). `tests/strings-sets.test.ts` enforces identical keys, no empty values, and **that no Dutch value equals its English one**. A stub fails the suite.
+- **vitest does not type-check.** It runs through esbuild, which strips types without checking them, so a missing property or a wrong signature passes the suite silently. Any step whose red state is a *type* error must be verified with `npx tsc --noEmit -p <config>`, never with vitest.
 - **Muted text carries its dark variant.** `text-neutral-500` alone is 4.18:1 on the dark card and fails; pair it with `dark:text-neutral-400`. Same rule in raw CSS: `#737373` light, `#a3a3a3` dark.
 - **Tailwind 3 opacity must be bracketed.** `border-black/8` emits nothing; write `border-black/[0.08]`.
 - **NEVER run a production build while the app or dev server is running.** A production build poisons `.next` and makes `npm run dev` 404 its own routes. Before any `npm run build`, check for a running instance (Task 7 shows how). An `EPERM` on `.next/trace` means the app is running, not that the code is broken.
@@ -252,13 +253,15 @@ In `renderer/app/strings.ts`, add a blank line then this block at the end of the
   tourGearBody: string;
 ```
 
-- [ ] **Step 2: Run the suite to verify it fails**
+- [ ] **Step 2: Verify the red state with the type checker, not with vitest**
+
+vitest runs through esbuild, which **strips types without checking them**, so `npx vitest run tests/strings-sets.test.ts` passes at this point and proves nothing. The missing properties are a type error, so ask the type checker:
 
 ```bash
-npx vitest run tests/strings-sets.test.ts
+npx tsc --noEmit -p renderer/tsconfig.json
 ```
 
-Expected: FAIL. TypeScript reports that `STRINGS_NORMAL`, `STRINGS_RENE` and `STRINGS_NL` are each missing 24 properties from `UiStrings`.
+Expected: FAIL with `TS2740` against each of `STRINGS_NORMAL`, `STRINGS_RENE` and `STRINGS_NL` — "missing the following properties from type 'UiStrings': tourGroup, tourReplay, tourReplayDescription, tourReplayButton, and 20 more".
 
 - [ ] **Step 3: Add the English values**
 
@@ -377,13 +380,14 @@ Businesslike Dutch, `u`. In `STRINGS_NL`, after `composePickerCancel: 'Annuleren
     'Meldingen, downloads, updates en de rest zitten achter het tandwiel. Deze rondleiding start u opnieuw bij Instellingen, Algemeen.',
 ```
 
-- [ ] **Step 6: Run the suite to verify it passes**
+- [ ] **Step 6: Run the type check and the suite to verify both pass**
 
 ```bash
+npx tsc --noEmit -p renderer/tsconfig.json
 npx vitest run tests/strings-sets.test.ts
 ```
 
-Expected: PASS. In particular `translates every value that is not deliberately shared with English` must pass — if it names a `tour*` key, the Dutch value is still the English one and needs writing, **not** an entry in `SAME_IN_BOTH`.
+Expected: no type errors, then PASS. In particular `translates every value that is not deliberately shared with English` must pass — if it names a `tour*` key, the Dutch value is still the English one and needs writing, **not** an entry in `SAME_IN_BOTH`.
 
 - [ ] **Step 7: Commit**
 
