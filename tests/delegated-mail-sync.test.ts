@@ -125,9 +125,9 @@ vi.mock('../electron/gmail/gmail-api', async (importOriginal) => {
   };
 });
 
-const { startMailSync, stopMailboxSync } = await import('../electron/push/mail-sync-controller');
-
-const SYNC_MS = 60_000;
+const { startMailSync, stopMailboxSync, DELEGATED_SYNC_MS: SYNC_MS } = await import(
+  '../electron/push/mail-sync-controller'
+);
 
 beforeEach(() => {
   vi.useFakeTimers();

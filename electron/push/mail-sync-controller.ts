@@ -239,11 +239,23 @@ function startApiSync(): void {
 //===========================
 
 // Faster than the own-account sweep, because it is not a safety net behind a page that
-// already notified -- it is the only thing watching. A minute is what a person reads as
-// "the app told me", and one history.list per mailbox per minute is nothing against a
-// quota measured per mailbox: the token belongs to the delegated mailbox, so twenty of
-// them spend twenty separate allowances rather than one.
-const DELEGATED_SYNC_MS = 60_000;
+// already notified -- it is the only thing watching. It was a minute, on the reasoning
+// that a minute reads as "the app told me"; the number was never the quota talking, and
+// the quota turns out to have nothing to say about it either way.
+//
+// An idle sweep is one history.list, which is 2 units, and the allowance is per mailbox
+// rather than shared: the token belongs to the delegated mailbox, so twenty of them spend
+// twenty separate allowances. Four sweeps a minute is 8 units of a published 15,000 --
+// and still only 0.13% of the 6,000 this project would get on the table published on
+// 1 May 2026. Nothing about this interval is priced by Gmail.
+//
+// What does scale with it is the relay while it is down, since a failed mint is not
+// cached and every sweep asks again; and the sweeps of all mailboxes landing in one tick,
+// because their tokens were stamped together and so expire together. Both are survivable
+// four times a minute and are the reason this is not tighter still.
+/** Exported for the tests, which advance fake timers by exactly one sweep: a mirrored
+ * literal there went on reading as one sweep long after this stopped being a minute. */
+export const DELEGATED_SYNC_MS = 15_000;
 
 // When the watch on each mailbox began. Mail already sitting there is not news, so this is
 // what keeps the first sweep quiet -- support@ holding twenty-seven unread must not raise
@@ -252,7 +264,7 @@ const DELEGATED_SYNC_MS = 60_000;
 const delegatedSince = new Map<string, number>();
 
 // The last complaint made about each mailbox, so a relay that is down says so once instead
-// of once a minute for as long as the app runs.
+// of once a sweep for as long as the app runs.
 const delegatedComplaint = new Map<string, string>();
 
 let delegatedTimer: ReturnType<typeof setInterval> | null = null;
@@ -325,7 +337,7 @@ function delegatedSyncRunnerFor(email: string): { run(): Promise<void> } | null 
  *
  * A mailbox that cannot be reached notifies exactly as silently as one with no mail, which
  * is the failure this whole thing exists to end -- so it has to leave a line. The same line
- * every minute would bury the log, so only a changed reason is written.
+ * every sweep would bury the log, so only a changed reason is written.
  *
  * @param email
  * @param e whatever the runner threw, usually the relay's own sentence
@@ -353,7 +365,9 @@ function startDelegatedSync(): void {
   for (const email of wanted) {
     if (delegatedSince.has(email)) continue;
     delegatedSince.set(email, Date.now());
-    notifyLog(`[notify] gedelegeerd postvak ${email} wordt nu elke minuut gelezen`);
+    notifyLog(
+      `[notify] gedelegeerd postvak ${email} wordt nu elke ${DELEGATED_SYNC_MS / 1000} seconden gelezen`,
+    );
     void delegatedSyncRunnerFor(email)?.run();
   }
   if (delegatedTimer || wanted.size === 0) return;
