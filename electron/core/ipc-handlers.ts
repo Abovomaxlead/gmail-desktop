@@ -27,6 +27,7 @@ import {
   reconnectAccounts,
   setSettingsPanelOpen,
   settingsPanelOpen,
+  startedWithoutAccounts,
   toastWindow,
   toasts,
   SESSION_PARTITION,
@@ -138,6 +139,13 @@ export function registerIpc(): void {
     console.info(`[tour] views ${arg.active ? 'hidden' : 'shown'}`);
     if (arg.active) manager?.hideAll();
     else if (!settingsPanelOpen) manager?.showActive();
+  });
+  // Asked rather than pushed: the renderer can ask whenever it is ready, so there is no race
+  // between this answer and the first profiles push. Logged for the same reason the line above
+  // is: a tour that never arms is indistinguishable from a tour that never triggers.
+  ipcMain.handle(IPC.TOUR_FIRST_RUN, () => {
+    console.info(`[tour] first run: ${startedWithoutAccounts}`);
+    return startedWithoutAccounts;
   });
   ipcMain.on(IPC.SET_TOUR_SEEN, (_e, v: boolean) => {
     if (!prefs) return;

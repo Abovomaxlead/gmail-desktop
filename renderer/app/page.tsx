@@ -199,6 +199,7 @@ interface DesktopBridge {
   }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean; lowMemory?: boolean }): void;
   setTourActive(active: boolean): void;
+  isFirstRun(): Promise<boolean>;
   setTourSeen(v: boolean): void;
   setVerificationCodes(patch: {
     autoCopy?: boolean;
@@ -328,10 +329,9 @@ export default function AppShell() {
   // effect below would start it again on the next profile push, because prefs.tour.seen
   // only turns true after a round trip through main.
   const tourStarted = useRef(false);
-  // Set by the act of adding a mailbox, and only while the bar is still empty. Both halves
-  // matter: without the first, a returning user's detected accounts would start the tour;
-  // without the second, adding a second account years later would.
-  const tourArmed = useRef(false);
+  // State and not a ref: arming happens after an await, and a ref would leave the effect
+  // below sitting on the value it read before the answer arrived.
+  const [tourArmed, setTourArmed] = useState(false);
   const touring = tourSteps !== null;
 
   useEffect(() => {
@@ -360,6 +360,13 @@ export default function AppShell() {
     bridge.onUpdateStatus(setUpdate);
     bridge.onPrefsChanged((p) => setPrefs(p as Prefs));
     bridge.onDefaultMailStatus(setIsDefaultMail);
+    // On a fresh install nobody presses the plus button: the Gmail view is already open on a
+    // sign-in page, you sign in there, and detection pushes the account like any other. So the
+    // tour cannot hang off addAccount alone -- it also arms when main says this launch found no
+    // own account remembered on disk, which is the one honest test for a first ever run.
+    void bridge.isFirstRun().then((first) => {
+      if (first) setTourArmed(true);
+    });
   }, []);
 
   const popupMenu = useCallback(
@@ -411,20 +418,22 @@ export default function AppShell() {
     return () => window.desktop?.setTourActive(false);
   }, [touring]);
 
-  // The tour belongs to the moment somebody links their first mailbox in this app, so it is
-  // armed by the act of adding one rather than by a mailbox appearing. Detection finds
-  // accounts that were already signed in at the browser, and firing on that would walk a
-  // returning user through a bar they have used for months.
+  // The tour belongs to the moment somebody gets their first mailbox in this app, and armed is
+  // what separates that from a returning user's accounts simply being detected at startup. It
+  // is set two ways: main saying this launch found nothing remembered on disk, which is a fresh
+  // install however the account arrives, and the plus button, for an empty bar that had one
+  // before. Firing on a mailbox appearing alone would walk a returning user through a bar they
+  // have used for months.
   //
   // A provisional tab is one remembered from the bar before detection has recovered its
   // address, so it cannot carry the steps that talk about tabs and does not count as arrival.
   useEffect(() => {
-    if (!tourArmed.current || tourStarted.current) return;
+    if (!tourArmed || tourStarted.current) return;
     if (!prefs || prefs.tour.seen) return;
     if (!profiles.some((p) => !p.provisional)) return;
     if (settingsOpen) closeSettings();
     startTour();
-  }, [profiles, prefs, settingsOpen, active]);
+  }, [tourArmed, profiles, prefs, settingsOpen, active]);
 
   function open(key: string, surface: Surface) {
     // The tour's example tab has no view behind it, and ensureView would throw on its index
@@ -526,7 +535,7 @@ export default function AppShell() {
    * decide whether they get the tour.
    */
   function armTour() {
-    if (prefs?.tour.seen === false && profiles.length === 0) tourArmed.current = true;
+    if (prefs?.tour.seen === false && profiles.length === 0) setTourArmed(true);
   }
 
   function startTour() {

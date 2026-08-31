@@ -34,6 +34,7 @@ import {
   setAccountCache,
   setAccountCacheLoaded,
   setCachedAccounts,
+  setStartedWithoutAccounts,
   setColors,
   setDelegated,
   setDetectionStarted,
@@ -182,6 +183,7 @@ export function createWindow(): void {
   if (!accountCacheLoaded) {
     setAccountCacheLoaded(true);
     const remembered = cache.list();
+    setStartedWithoutAccounts(remembered.length === 0);
     setCachedAccounts(remembered);
     setSeedOrder(rememberedOrder(remembered));
   }

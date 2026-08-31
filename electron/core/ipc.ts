@@ -31,6 +31,7 @@ export const IPC = {
   UNHIDE_ACCOUNT: 'accounts:unhide',
   SETTINGS_TOGGLE: 'settings:toggle',
   TOUR_ACTIVE: 'tour:active',
+  TOUR_FIRST_RUN: 'tour:first-run',
   SET_TOUR_SEEN: 'prefs:tour-seen',
   MENU_POPUP: 'menu:popup',
   UPDATE_CHECK: 'update:check',

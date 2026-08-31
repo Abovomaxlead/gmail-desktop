@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   toggleSettings: (open: boolean): void => ipcRenderer.send(IPC.SETTINGS_TOGGLE, { open }),
   setTourActive: (active: boolean): void => ipcRenderer.send(IPC.TOUR_ACTIVE, { active }),
+  isFirstRun: (): Promise<boolean> => ipcRenderer.invoke(IPC.TOUR_FIRST_RUN),
   setTourSeen: (v: boolean): void => ipcRenderer.send(IPC.SET_TOUR_SEEN, v),
   popupMenu: (items: NativeMenuItem[], anchor?: { x: number; y: number }): Promise<string | null> =>
     ipcRenderer.invoke(IPC.MENU_POPUP, items, anchor),

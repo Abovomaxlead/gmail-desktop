@@ -72,6 +72,11 @@ export let history: HistoryStore | null = null;
 export let messageIndex: MessageIndexStore | null = null;
 export let downloadHistory: DownloadHistoryStore | null = null;
 export let accountCache: AccountCacheStore | null = null;
+
+// Whether this process started with no own account remembered on disk, which is the one honest
+// answer to "has this installation ever had a mailbox". Captured once, when the cache is first
+// read, so reopening the window cannot change it.
+export let startedWithoutAccounts = false;
 export let toasts: ToastController | null = null;
 export let toastWindow: ToastWindow | null = null;
 export let dropOverlay: OverlayView | null = null;
@@ -129,6 +134,9 @@ export function setMessageIndex(v: MessageIndexStore | null): void {
 }
 export function setDownloadHistory(v: DownloadHistoryStore | null): void {
   downloadHistory = v;
+}
+export function setStartedWithoutAccounts(v: boolean): void {
+  startedWithoutAccounts = v;
 }
 export function setAccountCache(v: AccountCacheStore | null): void {
   accountCache = v;
