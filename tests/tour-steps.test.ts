@@ -79,6 +79,14 @@ describe('planTour', () => {
     expect(step?.on).toBe('bottom-end');
   });
 
+  // A centred card has no anchor to be nudged off, so an offset there is a setting that reads
+  // as if it does something and does not.
+  it('nudges no card that has nothing to be nudged off', () => {
+    for (const step of planTour()) {
+      if (step.offset) expect(step.anchor, `${step.id} offset`).not.toBeNull();
+    }
+  });
+
   it('names a string that exists for every title and body', () => {
     for (const step of planTour()) {
       expect(typeof STRINGS_NORMAL[step.titleKey], `${step.id} title`).toBe('string');

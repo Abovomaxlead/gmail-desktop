@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import Shepherd from 'shepherd.js';
+import { offset } from '@floating-ui/dom';
 import type { StepOptions } from 'shepherd.js';
 import 'shepherd.js/dist/css/shepherd.css';
 import { anchorSelector, type TourStage, type TourStep } from './tour-steps';
@@ -115,6 +116,10 @@ export function TourGuide({
       };
       if (selector) options.attachTo = { element: selector, on: step.on };
       if (step.classes) options.classes = step.classes;
+      // Concatenated with shepherd's own flip and shift rather than replacing them, because it
+      // merges the two with deepmerge-ts and that joins arrays. The arrow survives too: it is
+      // appended only when the merged list holds no middleware named 'arrow'.
+      if (step.offset) options.floatingUIOptions = { middleware: [offset(step.offset)] };
       if (step.stage !== null) {
         options.skipMissingElement = false;
         options.waitForElement = 0;
