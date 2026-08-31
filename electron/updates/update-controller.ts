@@ -63,7 +63,6 @@ let hooks: UpdateHooks = {
   onStatusChanged: () => {},
 };
 
-let updateRequested = false;
 let downloadAttempt = 0;
 let downloadInFlight = false;
 let downloadRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -119,7 +118,6 @@ export function checkForUpdateFromTray(): void {
 }
 
 export function downloadUpdate(): void {
-  updateRequested = true;
   if (downloadRetryTimer) {
     clearTimeout(downloadRetryTimer);
     downloadRetryTimer = null;
@@ -184,12 +182,14 @@ export function setupUpdater(): void {
   autoUpdater.on('download-progress', (p) =>
     sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }),
   );
+  // Downloaded is where a download stops. It used to install from here, which made
+  // "download" mean "restart and install now" -- and the flag it hung on could never be
+  // false, since attemptUpdateDownload is reachable only from downloadUpdate. Publishing the
+  // state is the whole of the offer: the Updates section draws its 'restart and install'
+  // button on it and the tray item becomes an install item. installUpdate is the only thing
+  // that quits, and autoInstallOnAppQuit covers the user who simply closes the app.
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdate({ state: 'downloaded', version: info.version });
-    if (updateRequested) {
-      setIsQuitting(true);
-      autoUpdater.quitAndInstall();
-    }
   });
 }
 
