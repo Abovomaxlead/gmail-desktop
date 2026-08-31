@@ -1118,7 +1118,7 @@ function PlaceRow({
       </span>
       {already > 0 && (
         <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
-          {already === 1 ? 'staat er al' : `${already} staan er al`}
+          {already === 1 ? 'Bericht bestaat al in label' : `${already} berichten bestaan al in label`}
         </span>
       )}
     </label>
