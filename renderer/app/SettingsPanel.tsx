@@ -53,6 +53,7 @@ export function SettingsPanel({
   onSetNotifications,
   isDefaultMail,
   onRequestDefaultMail,
+  onReplayTour,
 }: {
   profiles: Profile[];
   /** A section to jump to. Carries a sequence number because asking twice for the same
@@ -75,6 +76,7 @@ export function SettingsPanel({
   }) => void;
   isDefaultMail: boolean;
   onRequestDefaultMail: () => void;
+  onReplayTour: () => void;
 }) {
   const [section, setSection] = useState<SettingsSection>(
     sectionRequest?.section ?? DEFAULT_SECTION,
@@ -131,6 +133,7 @@ export function SettingsPanel({
                 onSetAutoStart={onSetAutoStart}
                 onSetLaunchMinimized={onSetLaunchMinimized}
                 onRequestDefaultMail={onRequestDefaultMail}
+                onReplayTour={onReplayTour}
               />
             );
           case 'accounts':

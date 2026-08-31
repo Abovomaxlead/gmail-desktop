@@ -13,8 +13,7 @@ import type {
 import { getStrings } from './strings';
 import { TourGuide } from './TourGuide';
 import { planTour, type TourStep } from './tour-steps';
-import type { Surface } from '../lib/surfaces';
-import { openableSurfaces } from '../lib/surfaces';
+import { openableSurfaces, type Surface } from '../lib/surfaces';
 import { googleAppTarget, pinnedSurfacesFor } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from './changelog-types';
@@ -515,6 +514,7 @@ export default function AppShell() {
           onSetNotifications={(a) => window.desktop?.setNotifications(a)}
           isDefaultMail={isDefaultMail}
           onRequestDefaultMail={() => window.desktop?.requestDefaultMail()}
+          onReplayTour={replayTour}
         />
       )}
       {tourSteps && <TourGuide steps={tourSteps} S={S} onEnd={endTour} />}
