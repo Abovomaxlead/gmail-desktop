@@ -6,6 +6,12 @@
 // check started from the tray owes an answer even when it is "nothing new", so that one
 // check remembers it has a dialog to pop.
 //
+// A third, about error text. What reaches the panel goes through updateErrorText:
+// electron-updater's message is written for a log and carries the response headers as JSON,
+// which the Updates section rendered verbatim. The full text is never lost — autoUpdater
+// writes update.log — so the retry decision and the log line keep the raw message and only
+// the panel gets the shortened one.
+//
 // The status lives in runtime, because the tray and the settings panel both draw from it
 // and it must survive the window this module has no hand in creating.
 
@@ -29,6 +35,7 @@ import { prereleaseAllowed } from './update-channel';
 import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
+import { updateErrorText } from './update-error';
 import { createUpdateLog, type UpdateLogger } from './update-log';
 import { showToast } from '../toast/toast-presenter';
 import { playNotificationSound } from '../notify/notify-gating';
@@ -98,7 +105,9 @@ export function checkForUpdate(opts?: { background?: boolean }): void {
   sendUpdate({ state: 'checking' });
   autoUpdater
     .checkForUpdates()
-    .catch((err) => sendUpdate({ state: 'error', message: String(err?.message || err) }));
+    .catch((err) =>
+      sendUpdate({ state: 'error', message: updateErrorText(String(err?.message || err)) }),
+    );
 }
 
 export function checkForUpdateFromTray(): void {
@@ -168,7 +177,7 @@ export function setupUpdater(): void {
   );
   autoUpdater.on('error', (err) => {
     if (downloadInFlight) return;
-    sendUpdate({ state: 'error', message: String(err?.message || err) });
+    sendUpdate({ state: 'error', message: updateErrorText(String(err?.message || err)) });
   });
   autoUpdater.on('download-progress', (p) =>
     sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }),
@@ -260,7 +269,7 @@ function attemptUpdateDownload(): void {
       const message = String(err?.message || err);
       if (!shouldRetryDownload(message, attempt)) {
         updateLog?.error(`download failed after ${attempt} attempt(s): ${message}`);
-        sendUpdate({ state: 'error', message });
+        sendUpdate({ state: 'error', message: updateErrorText(message) });
         return;
       }
       updateLog?.warn(`download attempt ${attempt} failed, retrying: ${message}`);
