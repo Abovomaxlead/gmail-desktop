@@ -121,13 +121,13 @@ if (!gotTheLock) {
 function wireModules(): void {
   setOnProfilesPushed(() => scheduleOAuthHealthCheck());
   setUpdateHooks({
-    openSettingsPanel: () => openSettingsPanel(),
+    openSettingsPanel: (section) => openSettingsPanel(section),
     onStatusChanged: () => refreshTray(),
   });
   setNotifyGatingHooks({ onDndCleared: () => refreshTray() });
   setToastActivationHooks({
     reopenWindow: () => createWindow(),
-    openSettingsPanel: () => openSettingsPanel(),
+    openSettingsPanel: (section) => openSettingsPanel(section),
   });
   setTrayHooks({
     refreshNotifyAllowed: () => refreshNotifyAllowed(),

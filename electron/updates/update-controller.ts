@@ -49,7 +49,7 @@ import { playNotificationSound } from '../notify/notify-gating';
  * because each of these already reaches down for the functions here — the tray menu offers
  * check, download and install, and the settings panel is where a check reports back. */
 export interface UpdateHooks {
-  openSettingsPanel(): void;
+  openSettingsPanel(section?: string): void;
   onStatusChanged(): void;
 }
 
@@ -111,7 +111,9 @@ export function checkForUpdate(opts?: { background?: boolean }): void {
 }
 
 export function checkForUpdateFromTray(): void {
-  hooks.openSettingsPanel();
+  // The same reasoning as the update card: somebody who asked for a check from the tray is
+  // owed the section that answers, not the one they happened to leave open.
+  hooks.openSettingsPanel('updates');
   pendingTrayUpdateCheck = true;
   checkForUpdate();
 }

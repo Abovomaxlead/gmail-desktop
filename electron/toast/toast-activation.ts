@@ -48,10 +48,13 @@ import type { Toast, ToastAction } from '../../renderer/lib/toast';
 /** The two things above this module that a click can reach. The main window is rebuilt by
  * a click that arrives after it closed, and an update or error card opens the settings
  * panel; both belong to the window layer, which wires the click handlers in the first
- * place. */
+ * place.
+ *
+ * The section is optional because only a card that knows where it is going names one: the
+ * list of sections belongs to the renderer, so it travels as a string. */
 export interface ToastActivationHooks {
   reopenWindow(): void;
-  openSettingsPanel(): void;
+  openSettingsPanel(section?: string): void;
 }
 
 
@@ -216,7 +219,15 @@ export function activateToast(toast: Toast): void {
     else if (action === 'show-in-folder') shell.showItemInFolder(toast.threadId);
     return;
   }
-  if (toast.kind === 'update' || toast.kind === 'error') {
+  // Named, because getting the user to the new version is the whole point of this card and
+  // openSettingsPanel without a section leaves the panel wherever it last was.
+  if (toast.kind === 'update') {
+    hooks.openSettingsPanel('updates');
+    return;
+  }
+  // Deliberately unnamed. This card is raised when adding an account failed, so Updates
+  // would be the wrong place to send it.
+  if (toast.kind === 'error') {
     hooks.openSettingsPanel();
     return;
   }
