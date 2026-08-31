@@ -78,6 +78,10 @@ export function TourGuide({
       return;
     }
 
+    // Any tour still up belongs to a previous mount of this component, and two shepherd
+    // tours draw two sets of cards -- of which only one is the one the user is answering.
+    if (Shepherd.activeTour) void Shepherd.activeTour.cancel();
+
     const tour = new Shepherd.Tour({
       useModalOverlay: true,
       defaultStepOptions: {
@@ -149,7 +153,13 @@ export function TourGuide({
     };
     tour.on('complete', finish);
     tour.on('cancel', finish);
-    void tour.start();
+
+    // start() is async, and StrictMode tears this effect down before it settles. Without the
+    // check the tour would appear after its own teardown, beside the one the remount started.
+    let disposed = false;
+    void tour.start().then(() => {
+      if (disposed && tour.isActive()) void tour.cancel();
+    });
 
     // Torn down silently. Completing the tour here would report it as finished and write
     // tour.seen, so anything that unmounts and remounts this component -- StrictMode in a dev
@@ -157,6 +167,7 @@ export function TourGuide({
     // window no longer given over to it. A window closed halfway leaves seen false instead,
     // which means the tour comes back, and that is the kinder of the two mistakes.
     return () => {
+      disposed = true;
       for (const t of timers) window.clearTimeout(t);
       tour.off('complete', finish);
       tour.off('cancel', finish);

@@ -130,6 +130,7 @@ const STEPS: readonly TourStep[] = [
     titleKey: 'tourTabMenuTitle',
     bodyKey: 'tourTabMenuBody',
     stage: null,
+    offset: { crossAxis: 30 },
     opensTabMenu: true,
   },
   {
