@@ -131,6 +131,7 @@ export interface Prefs {
     deleteAfter: boolean;
   };
   advanced: { hardwareAcceleration: boolean; lowMemory?: boolean };
+  tour: { seen: boolean };
   reneMode: boolean;
   language: 'system' | 'en' | 'nl';
   locale: 'en' | 'nl';
@@ -193,6 +194,8 @@ interface DesktopBridge {
     allowPrerelease?: boolean;
   }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean; lowMemory?: boolean }): void;
+  setTourActive(active: boolean): void;
+  setTourSeen(v: boolean): void;
   setVerificationCodes(patch: {
     autoCopy?: boolean;
     confidence?: 'medium' | 'high';

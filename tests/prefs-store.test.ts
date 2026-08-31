@@ -154,6 +154,30 @@ describe('PrefsStore', () => {
     writeFileSync(file, JSON.stringify({ ...store.getAll(), language: 'fr' }));
     expect(new PrefsStore(file).getAll().language).toBe('system');
   });
+
+  it('defaults the tour to unseen', () => {
+    expect(new PrefsStore(file).getAll().tour).toEqual({ seen: false });
+  });
+
+  // A prefs.json written by a build from before the tour existed has no tour key at all,
+  // and an undefined field would make the trigger's `prefs.tour.seen` throw.
+  it('reads a prefs file written before the tour existed as unseen', () => {
+    writeFileSync(file, JSON.stringify({ theme: 'dark' }), 'utf8');
+    expect(new PrefsStore(file).getAll().tour).toEqual({ seen: false });
+  });
+
+  it('remembers the tour as seen across a reload', () => {
+    const store = new PrefsStore(file);
+    store.setTour({ seen: true });
+    expect(new PrefsStore(file).getAll().tour.seen).toBe(true);
+  });
+
+  it('leaves the other tabs alone when the tour is marked seen', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    store.setTour({ seen: true });
+    expect(new PrefsStore(file).getAll().theme).toBe('dark');
+  });
 });
 
 describe('PrefsStore mailDrop', () => {

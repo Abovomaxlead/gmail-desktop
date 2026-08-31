@@ -26,6 +26,7 @@ import {
   recentLabels,
   reconnectAccounts,
   setSettingsPanelOpen,
+  settingsPanelOpen,
   toastWindow,
   toasts,
   SESSION_PARTITION,
@@ -125,6 +126,19 @@ export function registerIpc(): void {
     setSettingsPanelOpen(arg.open);
     if (arg.open) manager?.hideAll();
     else manager?.showActive();
+  });
+  // The tour draws in the renderer page, and the Gmail views are painted on top of it, so
+  // they have to be out of the way or the tour is invisible. Same two calls the settings
+  // panel makes. The settingsPanelOpen guard is what stops a tour that ends while the panel
+  // happens to be open from painting Gmail over the panel.
+  ipcMain.on(IPC.TOUR_ACTIVE, (_e, arg: { active: boolean }) => {
+    if (arg.active) manager?.hideAll();
+    else if (!settingsPanelOpen) manager?.showActive();
+  });
+  ipcMain.on(IPC.SET_TOUR_SEEN, (_e, v: boolean) => {
+    if (!prefs) return;
+    prefs.setTour({ seen: v });
+    pushPrefs();
   });
   ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[]) => {
     const win = BrowserWindow.fromWebContents(e.sender);

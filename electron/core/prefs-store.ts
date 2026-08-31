@@ -124,6 +124,10 @@ export interface MailDropPrefs {
   folder: string;
 }
 
+export interface TourPrefs {
+  seen: boolean;
+}
+
 export interface Prefs {
   window: WindowPrefs;
   autoStart: boolean;
@@ -141,6 +145,7 @@ export interface Prefs {
   googleApps: GoogleAppsPrefs;
   verificationCodes: VerificationCodePrefs;
   advanced: AdvancedPrefs;
+  tour: TourPrefs;
   reneMode: boolean;
 }
 
@@ -192,6 +197,7 @@ export const DEFAULT_PREFS: Prefs = {
   },
   verificationCodes: { autoCopy: false, confidence: 'high', markRead: false, deleteAfter: false },
   advanced: { hardwareAcceleration: true, lowMemory: false },
+  tour: { seen: false },
   reneMode: false,
 };
 
@@ -351,6 +357,7 @@ export class PrefsStore {
           hardwareAcceleration: bool(raw.advanced?.hardwareAcceleration, true),
           lowMemory: bool(raw.advanced?.lowMemory, false),
         },
+        tour: { seen: bool(raw.tour?.seen, false) },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
       };
     } catch {
@@ -415,6 +422,10 @@ export class PrefsStore {
   setAdvanced(patch: Partial<AdvancedPrefs>): void {
     const prefs = this.getAll();
     this.write({ ...prefs, advanced: { ...prefs.advanced, ...patch } });
+  }
+  setTour(patch: Partial<TourPrefs>): void {
+    const prefs = this.getAll();
+    this.write({ ...prefs, tour: { ...prefs.tour, ...patch } });
   }
   setVerificationCodes(patch: Partial<VerificationCodePrefs>): void {
     const prefs = this.getAll();

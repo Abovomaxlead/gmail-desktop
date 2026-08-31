@@ -30,6 +30,8 @@ export const IPC = {
   HIDDEN_CHANGED: 'accounts:hidden-changed',
   UNHIDE_ACCOUNT: 'accounts:unhide',
   SETTINGS_TOGGLE: 'settings:toggle',
+  TOUR_ACTIVE: 'tour:active',
+  SET_TOUR_SEEN: 'prefs:tour-seen',
   MENU_POPUP: 'menu:popup',
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
