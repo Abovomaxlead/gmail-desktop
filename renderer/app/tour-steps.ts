@@ -40,7 +40,17 @@ export interface TourStep {
   stage: TourStage;
   /** Whether entering this step pops the real OS tab menu, which no stage can imitate. */
   opensTabMenu: boolean;
+  /**
+   * Extra classes on this step's card, for a step that needs styling its neighbours do not.
+   *
+   * Shepherd's own `classPrefix` is not this hook: it sits on the tour rather than the step,
+   * and it renames shepherd's internal class names instead of adding one. Note also that a
+   * padding class widens the card rather than moving it, because FloatingUI positions the
+   * element with `left` and `top`; shifting a card is `floatingUIOptions`, not a class.
+   */
+  classes?: string;
 }
+
 
 //===========================
 // Constants

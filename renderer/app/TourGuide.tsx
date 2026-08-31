@@ -114,6 +114,7 @@ export function TourGuide({
         ],
       };
       if (selector) options.attachTo = { element: selector, on: step.on };
+      if (step.classes) options.classes = step.classes;
       if (step.stage !== null) {
         options.skipMissingElement = false;
         options.waitForElement = 0;
