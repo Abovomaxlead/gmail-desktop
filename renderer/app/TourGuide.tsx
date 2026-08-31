@@ -4,7 +4,13 @@ import { useEffect, useRef } from 'react';
 import Shepherd from 'shepherd.js';
 import type { StepOptions, Tour } from 'shepherd.js';
 import { offset } from '@floating-ui/dom';
+// Order matters and is the whole reason these two sit here rather than in globals.css. Next
+// emits the layout's stylesheet before a component's, so overrides written in globals.css
+// landed *before* shepherd's own and lost every tie on specificity -- which is how the card
+// kept shepherd's grey header band, unreadable once the title went light in dark mode.
+// Importing the override sheet straight after the library's settles it by order instead.
 import 'shepherd.js/dist/css/shepherd.css';
+import './tour.css';
 import { anchorSelector, type TourStage, type TourStep } from './tour-steps';
 import type { UiStrings } from './strings';
 
