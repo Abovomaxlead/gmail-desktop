@@ -54,6 +54,7 @@ export function SettingsPanel({
   isDefaultMail,
   onRequestDefaultMail,
   onReplayTour,
+  onAddAccount,
 }: {
   profiles: Profile[];
   /** A section to jump to. Carries a sequence number because asking twice for the same
@@ -77,6 +78,7 @@ export function SettingsPanel({
   isDefaultMail: boolean;
   onRequestDefaultMail: () => void;
   onReplayTour: () => void;
+  onAddAccount: () => void;
 }) {
   const [section, setSection] = useState<SettingsSection>(
     sectionRequest?.section ?? DEFAULT_SECTION,
@@ -138,7 +140,12 @@ export function SettingsPanel({
             );
           case 'accounts':
             return (
-              <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />
+              <AccountsSection
+                S={S}
+                profiles={profiles}
+                onRedetect={onRedetect}
+                onAddAccount={onAddAccount}
+              />
             );
           case 'google-apps':
             return <GoogleAppsSection S={S} prefs={prefs} />;

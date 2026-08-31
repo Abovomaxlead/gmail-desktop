@@ -10,9 +10,11 @@ import type {
   MailDropCopyMode,
   MailDropExisting,
 } from './MailDropModal';
-import { getStrings } from './strings';
+import { getStrings, type UiStrings } from './strings';
 import { TourGuide } from './TourGuide';
-import { planTour, type TourStep } from './tour-steps';
+import { TourStage as TourStageView } from './TourStage';
+import { planTour, type TourStage, type TourStep } from './tour-steps';
+import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { openableSurfaces, type Surface } from '../lib/surfaces';
 import { googleAppTarget, pinnedSurfacesFor } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
@@ -283,6 +285,19 @@ declare global {
 
 
 //===========================
+// Constants
+//===========================
+
+// A key no real profile can carry: main builds them from an authuser index or a delegated
+// address, so nothing it pushes will ever collide, and open() can refuse this one by name.
+const TOUR_DEMO_KEY = 'tour-demo';
+
+// The example tab carries a count, because "the number beside a name is its unread mail" is
+// one of the things the tab step claims and a tab without one would not show it.
+const TOUR_DEMO_UNREAD = 3;
+
+
+//===========================
 // Page
 //===========================
 
@@ -303,10 +318,15 @@ export default function AppShell() {
   const [isDefaultMail, setIsDefaultMail] = useState(false);
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [tourSteps, setTourSteps] = useState<TourStep[] | null>(null);
+  const [tourStage, setTourStage] = useState<TourStage>(null);
   // Once per session, whether the tour ran to the end or was waved away. Without this the
   // effect below would start it again on the next profile push, because prefs.tour.seen
   // only turns true after a round trip through main.
   const tourStarted = useRef(false);
+  // Set by the act of adding a mailbox, and only while the bar is still empty. Both halves
+  // matter: without the first, a returning user's detected accounts would start the tour;
+  // without the second, adding a second account years later would.
+  const tourArmed = useRef(false);
 
   useEffect(() => {
     const bridge = window.desktop;
@@ -373,17 +393,24 @@ export default function AppShell() {
     }
   }, [prefs?.theme]);
 
-  // The tour waits for a mailbox to point at. On a fresh install the tab strip is empty,
-  // and a provisional tab is one remembered from the bar before detection has recovered its
-  // address, so neither can carry the steps that talk about tabs.
+  // The tour belongs to the moment somebody links their first mailbox in this app, so it is
+  // armed by the act of adding one rather than by a mailbox appearing. Detection finds
+  // accounts that were already signed in at the browser, and firing on that would walk a
+  // returning user through a bar they have used for months.
+  //
+  // A provisional tab is one remembered from the bar before detection has recovered its
+  // address, so it cannot carry the steps that talk about tabs and does not count as arrival.
   useEffect(() => {
-    if (tourStarted.current) return;
-    if (!prefs || prefs.tour.seen || settingsOpen) return;
+    if (!tourArmed.current || tourStarted.current) return;
+    if (!prefs || prefs.tour.seen) return;
     if (!profiles.some((p) => !p.provisional)) return;
+    if (settingsOpen) closeSettings();
     startTour();
   }, [profiles, prefs, settingsOpen, active]);
 
   function open(key: string, surface: Surface) {
+    // The tour's example tab has no view behind it, and ensureView would throw on its index
+    if (key === TOUR_DEMO_KEY) return;
     if (settingsOpen) setSettingsOpen(false);
     const row = profiles.find((p) => p.key === key);
     if (row?.provisional) {
@@ -403,10 +430,12 @@ export default function AppShell() {
   }
   function addAccount() {
     if (settingsOpen) setSettingsOpen(false);
+    armTour();
     window.desktop?.addAccount();
   }
   function addDelegated() {
     if (settingsOpen) setSettingsOpen(false);
+    armTour();
     // Nothing to track here any more. This used to raise a "looking…" state that a
     // suggestion message cleared; discovery now asks the relay and whatever it finds arrives
     // through onProfilesChanged like any other account, so the tab appearing in the bar is
@@ -447,6 +476,17 @@ export default function AppShell() {
     window.desktop?.setAccountOrder(emails);
   }
 
+  // What the bar draws while the tour is up, and which mailbox the demo panel names. The
+  // panel shows a real address rather than a made-up one, so nobody has to wonder whether
+  // they are looking at their own mail.
+  const touring = tourSteps !== null;
+  const barProfiles = barProfilesFor(profiles, touring, S);
+  const barUnread = touring ? { ...unread, [TOUR_DEMO_KEY]: TOUR_DEMO_UNREAD } : unread;
+  const stageMailbox =
+    (active ? profiles.find((p) => p.key === active.key)?.email : undefined) ??
+    profiles[0]?.email ??
+    '';
+
   /**
    * Whether the active mailbox has any Google apps pinned to the bar
    *
@@ -458,6 +498,16 @@ export default function AppShell() {
     return pinnedSurfacesFor(prefs.googleApps.pinned, openableSurfaces(row)).length > 0;
   }
 
+  /**
+   * Arms the tour, if this is somebody's first mailbox and they have not seen it
+   *
+   * Called from every path that adds one, so where the user pressed the button does not
+   * decide whether they get the tour.
+   */
+  function armTour() {
+    if (prefs?.tour.seen === false && profiles.length === 0) tourArmed.current = true;
+  }
+
   function startTour() {
     tourStarted.current = true;
     setTourSteps(planTour({ hasPinned: hasPinnedApps() }));
@@ -466,6 +516,7 @@ export default function AppShell() {
 
   function endTour() {
     setTourSteps(null);
+    setTourStage(null);
     window.desktop?.setTourActive(false);
     window.desktop?.setTourSeen(true);
   }
@@ -475,11 +526,23 @@ export default function AppShell() {
     startTour();
   }
 
+  /**
+   * Pops the real OS tab menu for the demo tab, so the right-click step shows the thing
+   * itself rather than a drawing of it
+   *
+   * Whatever is chosen is dropped on the floor: the tour is a walk, and the demo tab has no
+   * view behind it to switch to.
+   */
+  function showTabMenu() {
+    const demo = demoProfile(S);
+    void popupMenu(planTabMenu(displayName(demo), tabMenuChoices(demo)));
+  }
+
   return (
-    <div className="flex h-screen w-full flex-col bg-neutral-100 text-neutral-800 dark:bg-neutral-950 dark:text-neutral-200">
+    <div className="relative flex h-screen w-full flex-col bg-neutral-100 text-neutral-800 dark:bg-neutral-950 dark:text-neutral-200">
       <Topbar
-        profiles={profiles}
-        unread={unread}
+        profiles={barProfiles}
+        unread={barUnread}
         prefs={prefs}
         active={active}
         labelFor={displayName}
@@ -515,9 +578,19 @@ export default function AppShell() {
           isDefaultMail={isDefaultMail}
           onRequestDefaultMail={() => window.desktop?.requestDefaultMail()}
           onReplayTour={replayTour}
+          onAddAccount={addAccount}
         />
       )}
-      {tourSteps && <TourGuide steps={tourSteps} S={S} onEnd={endTour} />}
+      <TourStageView stage={tourStage} email={stageMailbox} S={S} />
+      {tourSteps && (
+        <TourGuide
+          steps={tourSteps}
+          S={S}
+          onStage={setTourStage}
+          onTabMenu={showTabMenu}
+          onEnd={endTour}
+        />
+      )}
     </div>
   );
 }
@@ -529,4 +602,41 @@ export default function AppShell() {
 
 function displayName(p: Profile): string {
   return (p.label && p.label.trim()) || p.name || p.email;
+}
+
+/**
+ * The example mailbox the tour puts in the bar
+ *
+ * A first run has one account and no delegated mailbox, so the steps about switching tabs,
+ * reordering them and their right-click menu would point at a strip with a single tab in it.
+ * This is what they point at instead. `authuser` with a calendar on purpose: it is what makes
+ * the tab menu offer its full set, which is the thing that step is about.
+ *
+ * @param S the active string set, so the tab is named in the user's own language
+ * @returns {Profile} a profile with a key nothing will ever open
+ */
+function demoProfile(S: UiStrings): Profile {
+  return {
+    key: TOUR_DEMO_KEY,
+    kind: 'authuser',
+    index: -1,
+    email: 'example@example.invalid',
+    name: S.tourDemoTabName,
+    avatarUrl: '',
+    color: '#a142f4',
+    hasCalendar: true,
+  };
+}
+
+/**
+ * The bar's tabs while the tour runs
+ *
+ * @param profiles what main actually reported
+ * @param touring whether the tour is on screen
+ * @param S
+ * @returns the real tabs, with the example one appended while there is nothing to demonstrate
+ */
+function barProfilesFor(profiles: Profile[], touring: boolean, S: UiStrings): Profile[] {
+  if (!touring || profiles.length >= 2) return profiles;
+  return [...profiles, demoProfile(S)];
 }

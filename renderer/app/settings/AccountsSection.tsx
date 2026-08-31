@@ -80,10 +80,12 @@ export function AccountsSection({
   S,
   profiles,
   onRedetect,
+  onAddAccount,
 }: {
   S: UiStrings;
   profiles: Profile[];
   onRedetect: () => void;
+  onAddAccount: () => void;
 }) {
   const [confirmEmail, setConfirmEmail] = useState<string | null>(null);
   const [dragEmail, setDragEmail] = useState<string | null>(null);
@@ -118,7 +120,7 @@ export function AccountsSection({
         <div className="mb-3 flex items-center justify-end">
           <button
             type="button"
-            onClick={() => window.desktop?.addAccount()}
+            onClick={onAddAccount}
             aria-label={S.addAccountLabel}
             title={S.addAccountLabel}
             className={`shrink-0 rounded-full bg-neutral-900 px-3 py-1 text-[13px] font-medium text-white transition hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300 motion-reduce:transition-none ${FOCUS_RING}`}

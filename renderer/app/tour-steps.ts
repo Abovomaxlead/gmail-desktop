@@ -6,6 +6,11 @@
 // Anchors name a [data-tour] attribute on one of Topbar's own controls, never a class or a
 // position: a class is a styling decision that may change, and the attribute exists for
 // this and nothing else.
+//
+// Two steps describe interface a first-time user has never triggered, so they carry a stage:
+// the tour puts the real component on screen with example data for as long as the step lasts,
+// and anchors the card to it. The stage is the one anchor the tour draws itself, which is why
+// TourGuide has to render it before the step positions rather than after.
 
 import type { UiStrings } from './strings';
 
@@ -14,7 +19,10 @@ import type { UiStrings } from './strings';
 // Types
 //===========================
 
-export type TourAnchor = 'tabs' | 'add' | 'pinned' | 'feedback' | 'gear' | null;
+export type TourAnchor = 'tabs' | 'add' | 'pinned' | 'feedback' | 'gear' | 'stage' | null;
+
+/** What the tour puts on screen for the length of a step. */
+export type TourStage = 'strip' | 'label-panel' | null;
 
 /** The plain-string members of UiStrings; a tour step never takes a parameter. */
 export type TourTextKey = {
@@ -28,6 +36,10 @@ export interface TourStep {
   on: 'bottom' | 'bottom-start' | 'bottom-end';
   titleKey: TourTextKey;
   bodyKey: TourTextKey;
+  /** null for every step that points at interface the window already shows. */
+  stage: TourStage;
+  /** Whether entering this step pops the real OS tab menu, which no stage can imitate. */
+  opensTabMenu: boolean;
 }
 
 export interface TourInput {
@@ -46,6 +58,8 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom',
     titleKey: 'tourWelcomeTitle',
     bodyKey: 'tourWelcomeBody',
+    stage: null,
+    opensTabMenu: false,
   },
   {
     id: 'tabs',
@@ -53,6 +67,8 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom-start',
     titleKey: 'tourTabsTitle',
     bodyKey: 'tourTabsBody',
+    stage: null,
+    opensTabMenu: false,
   },
   {
     id: 'tab-menu',
@@ -60,6 +76,8 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom-start',
     titleKey: 'tourTabMenuTitle',
     bodyKey: 'tourTabMenuBody',
+    stage: null,
+    opensTabMenu: true,
   },
   {
     id: 'add',
@@ -67,6 +85,8 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom',
     titleKey: 'tourAddTitle',
     bodyKey: 'tourAddBody',
+    stage: null,
+    opensTabMenu: false,
   },
   {
     id: 'pinned',
@@ -74,13 +94,28 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom-end',
     titleKey: 'tourPinnedTitle',
     bodyKey: 'tourPinnedBody',
+    stage: null,
+    opensTabMenu: false,
+  },
+  // Saving mail out comes before filing it back in, because the strip is what produces the
+  // files the drop panel then asks about.
+  {
+    id: 'strip',
+    anchor: 'stage',
+    on: 'bottom',
+    titleKey: 'tourStripTitle',
+    bodyKey: 'tourStripBody',
+    stage: 'strip',
+    opensTabMenu: false,
   },
   {
     id: 'maildrop',
-    anchor: null,
+    anchor: 'stage',
     on: 'bottom',
     titleKey: 'tourMailDropTitle',
     bodyKey: 'tourMailDropBody',
+    stage: 'label-panel',
+    opensTabMenu: false,
   },
   {
     id: 'feedback',
@@ -88,6 +123,8 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom-end',
     titleKey: 'tourFeedbackTitle',
     bodyKey: 'tourFeedbackBody',
+    stage: null,
+    opensTabMenu: false,
   },
   {
     id: 'gear',
@@ -95,6 +132,8 @@ const STEPS: readonly TourStep[] = [
     on: 'bottom-end',
     titleKey: 'tourGearTitle',
     bodyKey: 'tourGearBody',
+    stage: null,
+    opensTabMenu: false,
   },
 ];
 
@@ -123,4 +162,19 @@ export function planTour(input: TourInput): TourStep[] {
  */
 export function anchorSelector(anchor: TourAnchor): string | null {
   return anchor === null ? null : `[data-tour="${anchor}"]`;
+}
+
+/**
+ * Turns the comma-separated example labels into rows the demo panel can draw
+ *
+ * @param csv the tourDemoLabels string, which is one translated key rather than an array
+ *   because UiStrings is flat and a translator should see the names together
+ * @returns one row per name, with an id no real Gmail label can collide with
+ */
+export function demoLabels(csv: string): { id: string; name: string }[] {
+  return csv
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name !== '')
+    .map((name, i) => ({ id: `tour-demo-label-${i}`, name }));
 }
