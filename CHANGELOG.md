@@ -3,6 +3,25 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1788179222] — 2026-08-31
+
+### Toegevoegd
+- **Een rondleiding die je bij de eerste postbus door de app loopt.** Alles wat deze app aan
+  Gmail toevoegt is onzichtbaar tot iemand het je vertelt: dat de strook bovenin één tab per
+  postbus is, dat de rechtermuisknop op een tab de agenda en Drive opent, en vooral dat je mail
+  naar het venster kunt slepen. Voor dat laatste is geen knop, want het gebaar *is* de knop. In
+  negen stappen komt het één keer langs, op het moment dat je je eerste postbus toevoegt.
+
+  Elke stap laat zien waar hij over gaat in plaats van het te beschrijven. Heb je nog maar één
+  postbus, dan leent de balk er een voorbeeldtabje bij, zodat wisselen en herschikken iets
+  hebben om aan te wijzen. De stap over de rechtermuisknop opent het échte menu, onder je eigen
+  tab. De balk waar je mail op laat vallen en de labelkiezer worden getoond zoals ze eruitzien,
+  niet nagemaakt. En staat er geen Google-app vastgezet, dan komt daar ook een voorbeeld voor.
+
+- **De rondleiding is opnieuw te starten bij Instellingen, Algemeen.** Hij komt één keer
+  vanzelf en daarna nooit meer, en dat werkt alleen als overslaan zonder risico is. Wie hem
+  wegklikt en er later toch langs wil, hoeft niets opnieuw in te stellen.
+
 ## [1.0.0-beta.1787920120] — 2026-08-28
 
 ### Toegevoegd
