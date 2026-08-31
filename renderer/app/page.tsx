@@ -560,25 +560,32 @@ export default function AppShell() {
   }
 
   /**
-   * Pops the real OS tab menu under the signed-in mailbox's own tab
+   * Pops the real OS tab menu, fixed under the tab it belongs to
    *
-   * Under that tab and not at the cursor: the cursor is wherever the mouse happens to rest
-   * when the step arrives, and a menu floating there explains nothing about right-clicking a
-   * tab. It is the real mailbox's own menu too, so what it lists is true of the account the
-   * user actually has. Only when that mailbox has nothing to offer -- a delegated tab with no
-   * calendar yields no menu at all -- does the example tab stand in, so the step still shows
-   * something.
+   * Under the tab and never at the cursor: the cursor is wherever the mouse happens to rest
+   * when the step arrives, and a menu floating in the middle of the window explains nothing
+   * about right-clicking a tab.
+   *
+   * The mailbox you are signed in to comes first, because that is the tab the eye is on and
+   * its menu is true of the account you actually have. A delegated tab yields Calendar at
+   * most and one without a calendar yields no menu at all, so if the active tab is that, the
+   * search moves on to a tab that does have one. The example mailbox is the last resort, and
+   * only reachable on a first run, where it is in the bar and therefore has a tab to sit
+   * under.
    *
    * Whatever is chosen is dropped on the floor: the tour is a walk, not a wizard.
    */
   function showTabMenu() {
-    const real = profiles.find((p) => !p.provisional) ?? null;
-    const realChoices = real ? tabMenuChoices(real) : [];
-    const [subject, choices] =
-      real && realChoices.length > 0
-        ? ([real, realChoices] as const)
-        : ([demoProfile(S), tabMenuChoices(demoProfile(S))] as const);
-    void popupMenu(planTabMenu(displayName(subject), choices), tabAnchor(subject.key));
+    const hasMenu = (p: Profile) => tabMenuChoices(p).length > 0;
+    const activeRow = active ? profiles.find((p) => p.key === active.key) : undefined;
+    const subject =
+      (activeRow && hasMenu(activeRow) ? activeRow : undefined) ??
+      profiles.find((p) => !p.provisional && hasMenu(p)) ??
+      demoProfile(S);
+    void popupMenu(
+      planTabMenu(displayName(subject), tabMenuChoices(subject)),
+      tabAnchor(subject.key),
+    );
   }
 
   return (
@@ -688,15 +695,21 @@ function barProfilesFor(profiles: Profile[], touring: boolean, S: UiStrings): Pr
 /**
  * Where a tab's bottom-left corner is, for a menu that has to sit under it
  *
- * In CSS pixels, which is what main converts by the window's zoom factor. Undefined when the
- * tab is not in the bar, and the menu then falls back to the cursor rather than to a corner.
+ * In CSS pixels, which is what main converts by the window's zoom factor.
+ *
+ * Falls back to the tab strip itself rather than to undefined, because undefined means the
+ * cursor and a menu at the cursor is the whole thing this exists to prevent. The strip is
+ * always in the bar, so the menu lands under the tabs even when one particular tab cannot be
+ * found.
  *
  * @param key the profile key the tab carries in data-tab-key
- * @returns {{x: number, y: number}|undefined}
+ * @returns {{x: number, y: number}|undefined} undefined only when the bar itself is not drawn
  */
 function tabAnchor(key: string): { x: number; y: number } | undefined {
-  const tab = document.querySelector(`[data-tab-key="${key}"]`);
-  if (!tab) return undefined;
-  const r = tab.getBoundingClientRect();
+  const target =
+    document.querySelector(`[data-tab-key="${key}"]`) ??
+    document.querySelector('[data-tour="tabs"]');
+  if (!target) return undefined;
+  const r = target.getBoundingClientRect();
   return { x: Math.round(r.left), y: Math.round(r.bottom) };
 }
