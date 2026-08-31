@@ -752,7 +752,7 @@ export const STRINGS_NORMAL: UiStrings = {
     'Every account and every shared mailbox gets a tab. Click one to switch to it; the number beside a name is its unread mail.',
   tourTabMenuTitle: 'More behind every tab',
   tourTabMenuBody:
-    'Right-click a tab to open that account’s Calendar, Drive or Contacts. Drag a tab sideways to reorder the strip.',
+    'Right-click a tab to see what else it opens: its Calendar, and for your own accounts Drive and Contacts as well. Drag a tab sideways to reorder the strip.',
   tourAddTitle: 'Add a mailbox',
   tourAddBody:
     'The plus links another Google account, or a mailbox somebody has shared with you.',
@@ -1108,7 +1108,7 @@ export const STRINGS_RENE: UiStrings = {
     'Bovenaan staat een tabje voor elke mailbox. Klik erop om te wisselen. Het getal zegt hoeveel nieuwe mail er is.',
   tourTabMenuTitle: 'Rechtermuisknop op een tabje',
   tourTabMenuBody:
-    'Klik met de rechtermuisknop op een tabje. Dan kun je ook de agenda, Drive of contacten openen. Slepen mag ook, dan verschuif je het tabje.',
+    'Klik met de rechtermuisknop op een tabje. Dan zie je wat er nog meer bij hoort: de agenda, en bij je eigen mailboxen ook Drive en contacten. Slepen mag ook, dan verschuif je het tabje.',
   tourAddTitle: 'Mailbox erbij',
   tourAddBody:
     'Met de plus zet je een nieuwe mailbox erbij. Ook een mailbox die iemand met je deelt.',
@@ -1482,7 +1482,7 @@ export const STRINGS_NL: UiStrings = {
     'Elk account en elke gedeelde postbus krijgt een tab. Klik erop om te wisselen; het getal naast een naam is de ongelezen post.',
   tourTabMenuTitle: 'Meer achter elke tab',
   tourTabMenuBody:
-    'Klik met de rechtermuisknop op een tab voor de Agenda, Drive of Contacten van dat account. Versleep een tab om de strook te herschikken.',
+    'Klik met de rechtermuisknop op een tab om te zien wat die verder opent: de Agenda, en bij uw eigen accounts ook Drive en Contacten. Versleep een tab om de strook te herschikken.',
   tourAddTitle: 'Een postbus toevoegen',
   tourAddBody:
     'De plus koppelt een volgend Google-account, of een postbus die iemand met u heeft gedeeld.',
