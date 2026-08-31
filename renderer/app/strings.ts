@@ -303,6 +303,31 @@ export interface UiStrings {
   composePickerFrom: string;
   composePickerEsc: string;
   composePickerCancel: string;
+
+  tourGroup: string;
+  tourReplay: string;
+  tourReplayDescription: string;
+  tourReplayButton: string;
+  tourBack: string;
+  tourNext: string;
+  tourDone: string;
+  tourSkip: string;
+  tourWelcomeTitle: string;
+  tourWelcomeBody: string;
+  tourTabsTitle: string;
+  tourTabsBody: string;
+  tourTabMenuTitle: string;
+  tourTabMenuBody: string;
+  tourAddTitle: string;
+  tourAddBody: string;
+  tourPinnedTitle: string;
+  tourPinnedBody: string;
+  tourMailDropTitle: string;
+  tourMailDropBody: string;
+  tourFeedbackTitle: string;
+  tourFeedbackBody: string;
+  tourGearTitle: string;
+  tourGearBody: string;
 }
 
 
@@ -710,6 +735,39 @@ export const STRINGS_NORMAL: UiStrings = {
   composePickerFrom: 'Send from',
   composePickerEsc: 'Esc closes',
   composePickerCancel: 'Cancel',
+
+  tourGroup: 'Tour',
+  tourReplay: 'Show the tour again',
+  tourReplayDescription: 'Walk past the app’s own features once more.',
+  tourReplayButton: 'Start tour',
+  tourBack: 'Back',
+  tourNext: 'Next',
+  tourDone: 'Done',
+  tourSkip: 'Skip',
+  tourWelcomeTitle: 'Welcome to Gmail Desktop',
+  tourWelcomeBody:
+    'A minute’s look at what this app adds to Gmail. Press Esc to leave at any point.',
+  tourTabsTitle: 'One tab per mailbox',
+  tourTabsBody:
+    'Every account and every shared mailbox gets a tab. Click one to switch to it; the number beside a name is its unread mail.',
+  tourTabMenuTitle: 'More behind every tab',
+  tourTabMenuBody:
+    'Right-click a tab to open that account’s Calendar, Drive or Contacts. Drag a tab sideways to reorder the strip.',
+  tourAddTitle: 'Add a mailbox',
+  tourAddBody:
+    'The plus links another Google account, or a mailbox somebody has shared with you.',
+  tourPinnedTitle: 'Pinned Google apps',
+  tourPinnedBody:
+    'These open in the mailbox you are looking at. Choose which ones sit here under Settings, Google apps.',
+  tourMailDropTitle: 'Drop mail onto the window',
+  tourMailDropBody:
+    'Drag .eml files, or a folder of them, onto this window. The app files them under labels you pick, in several mailboxes at once.',
+  tourFeedbackTitle: 'Report a problem',
+  tourFeedbackBody:
+    'The speech bubble writes to the developer, with the app’s diagnostics attached if you want them.',
+  tourGearTitle: 'Everything else',
+  tourGearBody:
+    'Notifications, downloads, updates and the rest live behind the gear. You can start this tour again from Settings, General.',
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -1033,6 +1091,39 @@ export const STRINGS_RENE: UiStrings = {
   composePickerFrom: 'Van wie moet het komen?',
   composePickerEsc: 'Met Esc ga je weg',
   composePickerCancel: 'Laat maar',
+
+  tourGroup: 'Het rondje',
+  tourReplay: 'Rondje nog eens doen',
+  tourReplayDescription: 'Loop nog een keer met ons mee door de app.',
+  tourReplayButton: 'Start het rondje',
+  tourBack: 'Terug',
+  tourNext: 'Verder',
+  tourDone: 'Klaar',
+  tourSkip: 'Nu niet',
+  tourWelcomeTitle: 'Welkom!',
+  tourWelcomeBody:
+    'We lopen even samen door de app. Het duurt een minuutje. Wil je stoppen? Druk op Esc.',
+  tourTabsTitle: 'Elke mailbox een tabje',
+  tourTabsBody:
+    'Bovenaan staat een tabje voor elke mailbox. Klik erop om te wisselen. Het getal zegt hoeveel nieuwe mail er is.',
+  tourTabMenuTitle: 'Rechtermuisknop op een tabje',
+  tourTabMenuBody:
+    'Klik met de rechtermuisknop op een tabje. Dan kun je ook de agenda, Drive of contacten openen. Slepen mag ook, dan verschuif je het tabje.',
+  tourAddTitle: 'Mailbox erbij',
+  tourAddBody:
+    'Met de plus zet je een nieuwe mailbox erbij. Ook een mailbox die iemand met je deelt.',
+  tourPinnedTitle: 'Snelknoppen',
+  tourPinnedBody:
+    'Deze knoppen horen bij de mailbox die je nu ziet. Welke knoppen hier staan, kies je bij Instellingen, Google-apps.',
+  tourMailDropTitle: 'Mail hierheen slepen',
+  tourMailDropBody:
+    'Sleep mailbestanden op dit venster. De app zet ze dan netjes onder een label. In meerdere mailboxen tegelijk, als je dat wilt.',
+  tourFeedbackTitle: 'Iets kwijt of stuk?',
+  tourFeedbackBody:
+    'Klik op het wolkje. Dan stuur je een berichtje naar de maker van de app.',
+  tourGearTitle: 'De rest zit hier',
+  tourGearBody:
+    'Achter het tandwiel staat alles: meldingen, downloads en updates. Wil je dit rondje nog eens? Dat kan bij Instellingen, Algemeen.',
 };
 
 export const STRINGS_NL: UiStrings = {
@@ -1374,6 +1465,39 @@ export const STRINGS_NL: UiStrings = {
   composePickerFrom: 'Verstuur vanaf',
   composePickerEsc: 'Esc sluit',
   composePickerCancel: 'Annuleren',
+
+  tourGroup: 'Rondleiding',
+  tourReplay: 'Rondleiding opnieuw tonen',
+  tourReplayDescription: 'Loop nog een keer langs de functies van de app.',
+  tourReplayButton: 'Start rondleiding',
+  tourBack: 'Terug',
+  tourNext: 'Volgende',
+  tourDone: 'Gereed',
+  tourSkip: 'Overslaan',
+  tourWelcomeTitle: 'Welkom bij Gmail Desktop',
+  tourWelcomeBody:
+    'Een rondleiding van een minuut langs wat deze app aan Gmail toevoegt. Met Esc stopt u wanneer u wilt.',
+  tourTabsTitle: 'Eén tab per postbus',
+  tourTabsBody:
+    'Elk account en elke gedeelde postbus krijgt een tab. Klik erop om te wisselen; het getal naast een naam is de ongelezen post.',
+  tourTabMenuTitle: 'Meer achter elke tab',
+  tourTabMenuBody:
+    'Klik met de rechtermuisknop op een tab voor de Agenda, Drive of Contacten van dat account. Versleep een tab om de strook te herschikken.',
+  tourAddTitle: 'Een postbus toevoegen',
+  tourAddBody:
+    'De plus koppelt een volgend Google-account, of een postbus die iemand met u heeft gedeeld.',
+  tourPinnedTitle: 'Vastgezette Google-apps',
+  tourPinnedBody:
+    'Deze openen in de postbus die u nu bekijkt. Welke hier staan, kiest u bij Instellingen, Google-apps.',
+  tourMailDropTitle: 'Post op het venster slepen',
+  tourMailDropBody:
+    'Sleep .eml-bestanden, of een map ermee, op dit venster. De app zet ze onder labels die u kiest, in meerdere postbussen tegelijk.',
+  tourFeedbackTitle: 'Een probleem melden',
+  tourFeedbackBody:
+    'De tekstballon schrijft een bericht aan de ontwikkelaar, desgewenst met de diagnostiek van de app erbij.',
+  tourGearTitle: 'Al het overige',
+  tourGearBody:
+    'Meldingen, downloads, updates en de rest zitten achter het tandwiel. Deze rondleiding start u opnieuw bij Instellingen, Algemeen.',
 };
 
 
