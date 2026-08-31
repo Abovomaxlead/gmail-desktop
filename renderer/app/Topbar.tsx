@@ -123,6 +123,7 @@ export function Topbar({
     >
       <div style={AREA} className="flex items-center gap-1 pl-2">
         <div
+          data-tour="tabs"
           className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           style={{
             maxWidth: `calc(100% - ${
@@ -160,6 +161,7 @@ export function Topbar({
 
         <div className="relative shrink-0" style={NO_DRAG}>
           <button
+            data-tour="add"
             onClick={() => void openPlusMenu()}
             title={strings.addAccountTooltip}
             className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
@@ -180,9 +182,10 @@ export function Topbar({
             <span className="min-w-0 truncate">{strings.updateReady}</span>
           </button>
         )}
-        {pinned.map((surface) => (
+        {pinned.map((surface, i) => (
           <button
             key={surface}
+            data-tour={i === 0 ? 'pinned' : undefined}
             onClick={() => active && onOpen(active.key, surface)}
             disabled={!active}
             title={surfaceLabel(surface)}
@@ -199,6 +202,7 @@ export function Topbar({
           </button>
         ))}
         <button
+          data-tour="feedback"
           onClick={onOpenFeedback}
           title={strings.feedbackTooltip}
           aria-label={strings.feedbackTooltip}
@@ -208,6 +212,7 @@ export function Topbar({
           <FeedbackIcon className="h-4 w-4" />
         </button>
         <button
+          data-tour="gear"
           onClick={onOpenSettings}
           title={strings.settingsTooltip}
           style={NO_DRAG}
