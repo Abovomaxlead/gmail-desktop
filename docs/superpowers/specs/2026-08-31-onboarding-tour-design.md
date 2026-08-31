@@ -40,6 +40,12 @@ step points at the gear and stops there.
 - **No step depends on an element that might not be there.** A mailbox with no pinned apps, a
   provisional tab that has not resolved its address yet — the tour drops the step rather than
   pointing at nothing.
+- **No step promises more than the window can deliver.** `tab-menu.ts:28` gates `APP_SURFACES`
+  behind `kind === 'authuser'`, so a delegated tab offers Calendar at most, and a delegated tab
+  without a calendar URL yields no menu at all. The step's copy names Drive and Contacts as
+  belonging to your own accounts rather than to every tab, which is the honest version and costs
+  nothing; the alternative was a second flag on `TourInput`, and a step whose text changes shape
+  is worse than a step that is accurate about both cases.
 - **Nothing is hidden that the user cannot get back.** The Gmail views are hidden for the
   duration and restored on exit, using the same call the settings panel already makes.
 
@@ -142,7 +148,7 @@ Eight steps, in order:
 |----|--------|--------------|
 | `welcome` | none | What this app is, and that the tour takes a minute |
 | `tabs` | `tabs` | One tab per mailbox; click to switch; the number is unread mail |
-| `tab-menu` | `tabs` | Right-click a tab for Calendar, Drive and Contacts; drag to reorder |
+| `tab-menu` | `tabs` | Right-click a tab to see what else it opens — Calendar always, Drive and Contacts on your own accounts; drag to reorder |
 | `add` | `add` | `+` adds another Google account, or a mailbox someone shared with you |
 | `pinned` | `pinned` | These open the active mailbox's Google apps; pin them under Settings |
 | `maildrop` | none | Drag `.eml` files onto the window to file mail into labels, across mailboxes at once |
