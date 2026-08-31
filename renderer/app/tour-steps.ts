@@ -42,11 +42,6 @@ export interface TourStep {
   opensTabMenu: boolean;
 }
 
-export interface TourInput {
-  hasPinned: boolean;
-}
-
-
 //===========================
 // Constants
 //===========================
@@ -143,15 +138,17 @@ const STEPS: readonly TourStep[] = [
 //===========================
 
 /**
- * The steps this window can show, in order
+ * The steps, in order
  *
- * @param input what the window currently has on screen
- * @returns fresh copies of the script with unshowable steps removed
+ * Every step is always shown. The pinned step used to be dropped when the bar had no pinned
+ * Google app, which meant the one feature nobody discovers went unmentioned to exactly the
+ * users who had not discovered it. The bar now borrows an example button for the length of
+ * the tour instead, so there is always something to point at.
+ *
+ * @returns fresh copies of the script
  */
-export function planTour(input: TourInput): TourStep[] {
-  return STEPS.filter((step) => step.anchor !== 'pinned' || input.hasPinned).map((step) => ({
-    ...step,
-  }));
+export function planTour(): TourStep[] {
+  return STEPS.map((step) => ({ ...step }));
 }
 
 /**

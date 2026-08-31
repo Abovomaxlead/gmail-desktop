@@ -167,7 +167,7 @@ interface DesktopBridge {
   unhideAccount(email: string): void;
   onHiddenAccounts(cb: (hidden: HiddenAccount[]) => void): void;
   toggleSettings(open: boolean): void;
-  popupMenu(items: NativeMenuItem[]): Promise<string | null>;
+  popupMenu(items: NativeMenuItem[], anchor?: { x: number; y: number }): Promise<string | null>;
   onSettingsForceClose(cb: () => void): void;
   onSettingsForceOpen(cb: (section?: string) => void): void;
   checkForUpdate(): void;
@@ -296,6 +296,10 @@ const TOUR_DEMO_KEY = 'tour-demo';
 // one of the things the tab step claims and a tab without one would not show it.
 const TOUR_DEMO_UNREAD = 3;
 
+// What the bar borrows when nothing is pinned. Drive is in APP_SURFACES, so it is openable for
+// any own account and its icon is one everybody recognises.
+const TOUR_DEMO_PINNED: readonly Surface[] = ['drive'];
+
 
 //===========================
 // Page
@@ -357,7 +361,8 @@ export default function AppShell() {
   }, []);
 
   const popupMenu = useCallback(
-    async (items: NativeMenuItem[]) => (await window.desktop?.popupMenu(items)) ?? null,
+    async (items: NativeMenuItem[], anchor?: { x: number; y: number }) =>
+      (await window.desktop?.popupMenu(items, anchor)) ?? null,
     [],
   );
 
@@ -482,6 +487,10 @@ export default function AppShell() {
   const touring = tourSteps !== null;
   const barProfiles = barProfilesFor(profiles, touring, S);
   const barUnread = touring ? { ...unread, [TOUR_DEMO_KEY]: TOUR_DEMO_UNREAD } : unread;
+  // Nothing pinned means the pinned step has nothing to point at, so the bar borrows one for
+  // the length of the tour. Drive rather than Calendar: Calendar only appears for a mailbox
+  // that has one, and a stand-in that is itself conditional is no stand-in.
+  const demoPinned: readonly Surface[] = touring && !hasPinnedApps() ? TOUR_DEMO_PINNED : [];
   const stageMailbox =
     (active ? profiles.find((p) => p.key === active.key)?.email : undefined) ??
     profiles[0]?.email ??
@@ -510,7 +519,7 @@ export default function AppShell() {
 
   function startTour() {
     tourStarted.current = true;
-    setTourSteps(planTour({ hasPinned: hasPinnedApps() }));
+    setTourSteps(planTour());
     window.desktop?.setTourActive(true);
   }
 
@@ -527,15 +536,25 @@ export default function AppShell() {
   }
 
   /**
-   * Pops the real OS tab menu for the demo tab, so the right-click step shows the thing
-   * itself rather than a drawing of it
+   * Pops the real OS tab menu under the signed-in mailbox's own tab
    *
-   * Whatever is chosen is dropped on the floor: the tour is a walk, and the demo tab has no
-   * view behind it to switch to.
+   * Under that tab and not at the cursor: the cursor is wherever the mouse happens to rest
+   * when the step arrives, and a menu floating there explains nothing about right-clicking a
+   * tab. It is the real mailbox's own menu too, so what it lists is true of the account the
+   * user actually has. Only when that mailbox has nothing to offer -- a delegated tab with no
+   * calendar yields no menu at all -- does the example tab stand in, so the step still shows
+   * something.
+   *
+   * Whatever is chosen is dropped on the floor: the tour is a walk, not a wizard.
    */
   function showTabMenu() {
-    const demo = demoProfile(S);
-    void popupMenu(planTabMenu(displayName(demo), tabMenuChoices(demo)));
+    const real = profiles.find((p) => !p.provisional) ?? null;
+    const realChoices = real ? tabMenuChoices(real) : [];
+    const [subject, choices] =
+      real && realChoices.length > 0
+        ? ([real, realChoices] as const)
+        : ([demoProfile(S), tabMenuChoices(demoProfile(S))] as const);
+    void popupMenu(planTabMenu(displayName(subject), choices), tabAnchor(subject.key));
   }
 
   return (
@@ -549,6 +568,7 @@ export default function AppShell() {
         settingsOpen={settingsOpen}
         update={update}
         strings={S}
+        demoPinned={demoPinned}
         onOpen={open}
         onPopupMenu={popupMenu}
         onAddAccount={addAccount}
@@ -639,4 +659,20 @@ function demoProfile(S: UiStrings): Profile {
 function barProfilesFor(profiles: Profile[], touring: boolean, S: UiStrings): Profile[] {
   if (!touring || profiles.length >= 2) return profiles;
   return [...profiles, demoProfile(S)];
+}
+
+/**
+ * Where a tab's bottom-left corner is, for a menu that has to sit under it
+ *
+ * In CSS pixels, which is what main converts by the window's zoom factor. Undefined when the
+ * tab is not in the bar, and the menu then falls back to the cursor rather than to a corner.
+ *
+ * @param key the profile key the tab carries in data-tab-key
+ * @returns {{x: number, y: number}|undefined}
+ */
+function tabAnchor(key: string): { x: number; y: number } | undefined {
+  const tab = document.querySelector(`[data-tab-key="${key}"]`);
+  if (!tab) return undefined;
+  const r = tab.getBoundingClientRect();
+  return { x: Math.round(r.left), y: Math.round(r.bottom) };
 }

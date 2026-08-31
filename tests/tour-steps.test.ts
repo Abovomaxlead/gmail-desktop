@@ -7,8 +7,8 @@ import { planTour, anchorSelector, demoLabels } from '../renderer/app/tour-steps
 import { STRINGS_NORMAL, STRINGS_NL, STRINGS_RENE } from '../renderer/app/strings';
 
 describe('planTour', () => {
-  it('runs all nine steps when the mailbox has pinned apps', () => {
-    expect(planTour({ hasPinned: true }).map((s) => s.id)).toEqual([
+  it('runs all nine steps, in order', () => {
+    expect(planTour().map((s) => s.id)).toEqual([
       'welcome',
       'tabs',
       'tab-menu',
@@ -21,38 +21,34 @@ describe('planTour', () => {
     ]);
   });
 
-  it('drops the pinned step when nothing is pinned', () => {
-    expect(planTour({ hasPinned: false }).map((s) => s.id)).toEqual([
-      'welcome',
-      'tabs',
-      'tab-menu',
-      'add',
-      'strip',
-      'maildrop',
-      'feedback',
-      'gear',
-    ]);
+  // The pinned step used to be dropped when the bar had no pinned Google app, which left the
+  // one feature nobody finds unmentioned to exactly the users who had not found it. The bar
+  // borrows an example button for the length of the tour instead, so nothing is conditional
+  // any more and this is what stops the drop from creeping back in.
+  it('drops nothing, whatever the window happens to show', () => {
+    expect(planTour().length).toBe(9);
+    expect(planTour().some((s) => s.id === 'pinned')).toBe(true);
   });
 
   it('gives every step a unique id', () => {
-    const ids = planTour({ hasPinned: true }).map((s) => s.id);
+    const ids = planTour().map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('centres only the welcome step', () => {
-    const steps = planTour({ hasPinned: true });
+    const steps = planTour();
     expect(steps.filter((s) => s.anchor === null).map((s) => s.id)).toEqual(['welcome']);
   });
 
   // Saving mail out has to come before filing it back in: the strip is what produces the
   // files the drop panel then asks about.
   it('shows the strip before the drop panel', () => {
-    const ids = planTour({ hasPinned: true }).map((s) => s.id);
+    const ids = planTour().map((s) => s.id);
     expect(ids.indexOf('strip')).toBeLessThan(ids.indexOf('maildrop'));
   });
 
   it('gives a stage only to the two steps that draw their own anchor', () => {
-    const staged = planTour({ hasPinned: true }).filter((s) => s.stage !== null);
+    const staged = planTour().filter((s) => s.stage !== null);
     expect(staged.map((s) => [s.id, s.stage])).toEqual([
       ['strip', 'strip'],
       ['maildrop', 'label-panel'],
@@ -62,7 +58,7 @@ describe('planTour', () => {
   // A staged step is anchored to something the tour renders itself, so the two have to agree
   // or the card would point at a stage that is not on screen.
   it('anchors every staged step to the stage and nothing else to it', () => {
-    for (const step of planTour({ hasPinned: true })) {
+    for (const step of planTour()) {
       expect(step.anchor === 'stage', `${step.id} anchor`).toBe(step.stage !== null);
     }
   });
@@ -70,12 +66,12 @@ describe('planTour', () => {
   // The OS menu is the one thing a stage cannot imitate, so exactly one step pops it, and it
   // is the step that talks about right-clicking.
   it('pops the OS tab menu from the tab-menu step only', () => {
-    const popping = planTour({ hasPinned: true }).filter((s) => s.opensTabMenu);
+    const popping = planTour().filter((s) => s.opensTabMenu);
     expect(popping.map((s) => s.id)).toEqual(['tab-menu']);
   });
 
   it('names a string that exists for every title and body', () => {
-    for (const step of planTour({ hasPinned: true })) {
+    for (const step of planTour()) {
       expect(typeof STRINGS_NORMAL[step.titleKey], `${step.id} title`).toBe('string');
       expect(typeof STRINGS_NORMAL[step.bodyKey], `${step.id} body`).toBe('string');
     }
@@ -84,8 +80,8 @@ describe('planTour', () => {
   // The script is a module-level constant; handing it out by reference would let one caller
   // rewrite the tour for every later one.
   it('hands back copies rather than the script itself', () => {
-    planTour({ hasPinned: true })[0].id = 'mutated';
-    expect(planTour({ hasPinned: true })[0].id).toBe('welcome');
+    planTour()[0].id = 'mutated';
+    expect(planTour()[0].id).toBe('welcome');
   });
 });
 

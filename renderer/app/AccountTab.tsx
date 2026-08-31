@@ -46,6 +46,7 @@ export function AccountTab({
   return (
     <button
       draggable
+      data-tab-key={profile.key}
       onClick={onOpen}
       onContextMenu={(e) => {
         e.preventDefault();

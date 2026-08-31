@@ -73,7 +73,7 @@ import {
 import { notifyLog } from '../notify/notify-log';
 import { type NotifiedMail } from '../notify/notify-match';
 import { applyTraySetting, refreshTray } from '../menus/tray-setup';
-import { popupNativeMenu } from '../menus/native-menu';
+import { popupNativeMenu, type MenuAnchor } from '../menus/native-menu';
 import { nativeLabels } from '../menus/native-labels';
 import {
   applyAutoUpdateCheck,
@@ -140,10 +140,10 @@ export function registerIpc(): void {
     prefs.setTour({ seen: v });
     pushPrefs();
   });
-  ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[]) => {
+  ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[], anchor?: MenuAnchor) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return null;
-    return popupNativeMenu(win, items);
+    return popupNativeMenu(win, items, anchor);
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_LAUNCH_MINIMIZED, (_e, v: boolean) => setLaunchMinimized(v));

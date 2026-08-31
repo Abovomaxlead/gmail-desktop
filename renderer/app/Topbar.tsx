@@ -62,6 +62,7 @@ export function Topbar({
   settingsOpen,
   update,
   strings,
+  demoPinned,
   onOpen,
   onPopupMenu,
   onAddAccount,
@@ -78,6 +79,8 @@ export function Topbar({
   labelFor(p: Profile): string;
   settingsOpen: boolean;
   update: UpdateStatus;
+  /** Google apps the tour borrows for the bar while nothing real is pinned. */
+  demoPinned: readonly Surface[];
   strings: { feedbackTooltip: string; addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   onOpen(key: string, surface: Surface): void;
   onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
@@ -128,7 +131,7 @@ export function Topbar({
           style={{
             maxWidth: `calc(100% - ${
               (updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE) +
-              pinned.length * PINNED_BUTTON
+              (pinned.length + demoPinned.length) * PINNED_BUTTON
             }px)`,
             ...NO_DRAG,
           }}
@@ -192,6 +195,29 @@ export function Topbar({
             aria-label={surfaceLabel(surface)}
             style={NO_DRAG}
             className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10"
+          >
+            <img
+              src={SURFACE_ICON_DATA_URIS[surface]}
+              alt=""
+              aria-hidden
+              className="h-4 w-4 object-contain"
+            />
+          </button>
+        ))}
+        {/* The tour's stand-in when nothing is pinned. It draws exactly like a real one, and
+            takes the data-tour anchor when there is no real button to carry it. Pointer events
+            are off rather than disabled: disabled would fade it to 40% and misrepresent what a
+            pinned app looks like. */}
+        {demoPinned.map((surface, i) => (
+          <button
+            key={`demo-${surface}`}
+            data-tour={pinned.length === 0 && i === 0 ? 'pinned' : undefined}
+            type="button"
+            tabIndex={-1}
+            aria-hidden
+            title={surfaceLabel(surface)}
+            style={{ ...NO_DRAG, pointerEvents: 'none' }}
+            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md"
           >
             <img
               src={SURFACE_ICON_DATA_URIS[surface]}
