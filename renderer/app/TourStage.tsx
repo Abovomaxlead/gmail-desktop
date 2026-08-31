@@ -65,9 +65,11 @@ export function TourStage({
 }) {
   if (stage === null) return null;
 
+  // data-tour sits on the strip and the panel themselves, never on this box. The box spans the
+  // whole content area, so anchoring to it would make shepherd cut its spotlight around the
+  // entire window and position the card below all of it, off the bottom of the screen.
   return (
     <div
-      data-tour="stage"
       className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center"
       style={{ top: TOPBAR_HEIGHT }}
     >
@@ -90,7 +92,7 @@ function DemoStrip() {
   return (
     <>
       <style>{DROPZONE_CSS + STRIP_OVERRIDE}</style>
-      <div id={DROPZONE_ID} data-state="armed">
+      <div id={DROPZONE_ID} data-tour="stage" data-state="armed">
         {DROPZONE_LABEL}
         <button id={CANCEL_ID} type="button" tabIndex={-1}>
           {CANCEL_LABEL}
@@ -116,6 +118,7 @@ function DemoPanel({ email, S }: { email: string; S: UiStrings }) {
 
   return (
     <div
+      data-tour="stage"
       className="mt-6 flex overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-neutral-900"
       style={{ width: PANEL_WIDTH, height: PANEL_HEIGHT }}
     >
