@@ -3,6 +3,15 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1788180489] — 2026-08-31
+
+### Opgelost
+- **De rondleiding startte niet vanzelf na het inloggen.** Op een verse installatie druk je
+  niet op de plus: de Gmail-view staat al open op een inlogpagina, je logt daar in, en de app
+  vindt dat account zelf. De rondleiding stond te wachten op die plusknop en kwam dus nooit.
+  Hij kijkt nu of deze installatie ooit een postbus heeft gehad, en begint bij de eerste die
+  binnenkomt — hoe je die ook toevoegt.
+
 ## [1.0.0-beta.1788179222] — 2026-08-31
 
 ### Toegevoegd
