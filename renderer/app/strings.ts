@@ -328,6 +328,11 @@ export interface UiStrings {
   tourFeedbackBody: string;
   tourGearTitle: string;
   tourGearBody: string;
+  tourDemoTabName: string;
+  /** A comma-separated list of example label names for the tour's demo panel. */
+  tourDemoLabels: string;
+  tourStripTitle: string;
+  tourStripBody: string;
 }
 
 
@@ -768,6 +773,11 @@ export const STRINGS_NORMAL: UiStrings = {
   tourGearTitle: 'Everything else',
   tourGearBody:
     'Notifications, downloads, updates and the rest live behind the gear. You can start this tour again from Settings, General.',
+  tourDemoTabName: 'Example mailbox',
+  tourDemoLabels: 'Clients,Invoices,Projects,Archive 2026,Newsletters,To do',
+  tourStripTitle: 'Drag mail out of Gmail',
+  tourStripBody:
+    'Pick up a conversation in Gmail and this strip appears across the top. Drop it there and the mail is saved as a file in your mail-drop folder -- and the next step is what puts it back.',
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -1124,6 +1134,11 @@ export const STRINGS_RENE: UiStrings = {
   tourGearTitle: 'De rest zit hier',
   tourGearBody:
     'Achter het tandwiel staat alles: meldingen, downloads en updates. Wil je dit rondje nog eens? Dat kan bij Instellingen, Algemeen.',
+  tourDemoTabName: 'Voorbeeld',
+  tourDemoLabels: 'Klanten,Rekeningen,Klussen,Oud,Nieuwsbrieven,Nog doen',
+  tourStripTitle: 'Mail eruit slepen',
+  tourStripBody:
+    'Pak in Gmail een mailtje op. Dan komt deze balk bovenaan in beeld. Laat het daar los en de mail wordt bewaard als bestand. De volgende stap laat zien hoe je het weer terugzet.',
 };
 
 export const STRINGS_NL: UiStrings = {
@@ -1498,6 +1513,11 @@ export const STRINGS_NL: UiStrings = {
   tourGearTitle: 'Al het overige',
   tourGearBody:
     'Meldingen, downloads, updates en de rest zitten achter het tandwiel. Deze rondleiding start u opnieuw bij Instellingen, Algemeen.',
+  tourDemoTabName: 'Voorbeeldpostbus',
+  tourDemoLabels: 'Klanten,Facturen,Projecten,Archief 2026,Nieuwsbrieven,Te doen',
+  tourStripTitle: 'Mail uit Gmail slepen',
+  tourStripBody:
+    'Pak in Gmail een gesprek op en deze balk verschijnt bovenaan. Laat het daar los en de mail wordt als bestand in uw maildrop-map opgeslagen -- en de volgende stap zet het weer terug.',
 };
 
 
