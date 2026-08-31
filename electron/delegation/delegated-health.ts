@@ -13,6 +13,14 @@
 //
 // Matched on shape, never on words. The page part of a title is translated -- "Inbox",
 // "Postvak IN" -- so only the address segment and the Gmail suffix are read.
+//
+// A wrong title has two causes, though, and only one of them is a rotated id. The other is
+// a view redirected off a url that is still good: signed out, the delegated url answers with
+// a login page, and signing back in continues into the signed-in account's own inbox.
+// Scraping the switcher cannot cure that, since it hands back the same url -- what cures it
+// is sending the view back where it belongs. delegatedRepairFor tells the two apart.
+
+import { viewLeftItsHome } from '../windows/view-home';
 
 
 //===========================
@@ -25,6 +33,9 @@
  * login page and a signed-out account all land there, and scraping the switcher for those
  * would cost a page load for a URL that was never broken. */
 export type UrlVerdict = 'ok' | 'dead' | 'unknown';
+
+/** What to do about a delegated view whose title names another mailbox. */
+export type DelegatedRepair = 'send-home' | 'reread-url';
 
 
 //===========================
@@ -82,4 +93,28 @@ export function deadDelegatedUrls(
     dead.push(view.email);
   }
   return dead;
+}
+
+/**
+ * What to do about a delegated view that is showing another mailbox
+ *
+ * Going home is tried first because it costs one navigation and no page scrape, and it is
+ * the answer whenever the view was redirected off a url that still works. It is tried once
+ * per url: a title that is still wrong afterwards means the url itself is the wrong one, and
+ * only the switcher knows the new one.
+ *
+ * @param view the mailbox's stored url, where its view currently sits, and the url it was
+ *   last sent home to -- null when it never was
+ * @returns 'send-home' only when the view has demonstrably left its stored url and has not
+ *   already been sent back to that same url; 'reread-url' in every other case, including a
+ *   current url that cannot be read
+ */
+export function delegatedRepairFor(view: {
+  mailUrl: string | null;
+  currentUrl: string | null | undefined;
+  sentHomeFor: string | null;
+}): DelegatedRepair {
+  if (!view.mailUrl) return 'reread-url';
+  if (view.sentHomeFor === view.mailUrl) return 'reread-url';
+  return viewLeftItsHome(view.mailUrl, view.currentUrl) ? 'send-home' : 'reread-url';
 }

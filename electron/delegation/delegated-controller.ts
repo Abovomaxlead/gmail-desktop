@@ -16,7 +16,7 @@
 import { requestDelegatedMailboxes } from './delegated-mailboxes';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
 import { canRunDelegatedApiScan } from './delegated-discovery-gate';
-import { deadDelegatedUrls } from './delegated-health';
+import { deadDelegatedUrls, delegatedRepairFor } from './delegated-health';
 import { reconcileDelegations, type RequesterAnswer } from './delegated-reconcile';
 import { pushProfiles } from '../core/broadcast';
 import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
@@ -204,20 +204,27 @@ async function resolveDelegatedUrls(): Promise<void> {
 // value here, so it earns its own scrape.
 const rereadFor = new Map<string, string | null>();
 
+// The same gate for the other repair: which url each mailbox was last sent back to. Going home
+// is tried once per url, so a title that is still wrong afterwards falls through to the scrape
+// instead of sending the view home for ever.
+const sentHomeFor = new Map<string, string | null>();
+
 // A scrape waits on Google's widget frame, which takes seconds, and the sampler keeps ticking
 // while it does. One at a time: two scrapes in flight would ask the same switchers twice.
 let healthCheckInFlight = false;
 
 /**
- * The delegated mail views that are open, with the title each one currently has
+ * The delegated mail views that are open, with the title and the url each one now has
  *
- * Only mailboxes that hold a url: one without a url is not broken, it is undiscovered, and it
- * keeps the row that asks the user to open it once in Gmail.
+ * Both, because a title naming the wrong mailbox does not say which of the two faults it is:
+ * the url is what says whether the view is still where the app put it. Only mailboxes that
+ * hold a url -- one without a url is not broken, it is undiscovered, and it keeps the row
+ * that asks the user to open it once in Gmail.
  *
  * @returns one entry per open delegated mail view
  * @private
  */
-function delegatedViewTitles(): Array<{ email: string; title: string | null }> {
+function delegatedViewStates(): Array<{ email: string; title: string | null; url: string | null }> {
   const live = manager;
   if (!live || !delegated) return [];
   const withUrl = new Set(
@@ -229,30 +236,50 @@ function delegatedViewTitles(): Array<{ email: string; title: string | null }> {
   return profiles
     .filter((p) => p.kind === 'delegated' && withUrl.has(p.email.toLowerCase()))
     .filter((p) => live.hasView(keyOf(p), 'mail'))
-    .map((p) => ({ email: p.email, title: live.titleOf(keyOf(p), 'mail') }));
+    .map((p) => ({
+      email: p.email,
+      title: live.titleOf(keyOf(p), 'mail'),
+      url: live.urlOf(keyOf(p), 'mail'),
+    }));
 }
 
 /**
- * Notices a url that has stopped opening its mailbox, and re-reads the switcher for it
+ * Notices a delegated view showing the wrong mail, and puts it right
  *
  * The signal is the view's own page title: Gmail titles the mailbox on screen, so a delegated
- * view titled after another address is a view looking at the wrong mail -- which is exactly what
- * a rotated id leaves behind, since the old url keeps answering with the signed-in account's own
- * mailbox. See delegated-health.ts for why nothing else in the title is read.
+ * view titled after another address is a view looking at the wrong mail. Two different faults
+ * leave that behind, and delegated-health.ts is where they are told apart -- a rotated id, for
+ * which only the switcher knows the new url, and a view carried off a url that still works,
+ * which is what being signed out does and which costs one navigation to undo.
  *
  * What the scrape then does is unchanged: applySwitcherUrls replaces the url, throws the views
  * away and pushes the profiles, which it already did correctly before any of this.
  */
 export async function checkDelegatedUrlHealth(): Promise<void> {
   if (!delegated || !manager || healthCheckInFlight) return;
-  const dead = deadDelegatedUrls(delegatedViewTitles());
+  const views = delegatedViewStates();
+  const dead = deadDelegatedUrls(views);
   if (dead.length === 0) return;
 
+  // Going home first, because it is the cheap fault and it is free to rule out: only what
+  // going home cannot explain is worth a switcher scrape.
   const held = new Map(delegated.list().map((d) => [d.email.toLowerCase(), d.mailUrl]));
-  const worth = dead.filter((email) => {
+  const worth: string[] = [];
+  for (const email of dead) {
     const key = email.toLowerCase();
-    return held.has(key) && rereadFor.get(key) !== held.get(key);
-  });
+    if (!held.has(key)) continue;
+    const mailUrl = held.get(key) ?? null;
+    const repair = delegatedRepairFor({
+      mailUrl,
+      currentUrl: views.find((v) => v.email.toLowerCase() === key)?.url ?? null,
+      sentHomeFor: sentHomeFor.get(key) ?? null,
+    });
+    if (repair === 'send-home' && sendDelegatedViewHome(email)) {
+      sentHomeFor.set(key, mailUrl);
+      continue;
+    }
+    if (rereadFor.get(key) !== mailUrl) worth.push(email);
+  }
   if (worth.length === 0) return;
 
   for (const email of worth) {
@@ -279,6 +306,22 @@ export async function checkDelegatedUrlHealth(): Promise<void> {
   if (left.length > 0) {
     notifyLog(`[delegated] switcher geeft dezelfde url voor ${left.join(', ')}; niets vervangen`);
   }
+}
+
+/**
+ * Sends one delegated mail view back to the url it was opened with
+ *
+ * @param email the mailbox
+ * @returns true when the view was actually moved; false when there is no view, or when it
+ *   never left after all, in which case the caller falls through to the switcher
+ * @private
+ */
+function sendDelegatedViewHome(email: string): boolean {
+  const key = email.toLowerCase();
+  const profile = profiles.find((p) => p.kind === 'delegated' && p.email.toLowerCase() === key);
+  if (!profile || !manager?.sendHome(keyOf(profile), 'mail')) return false;
+  notifyLog(`[delegated] ${email}: de view stond niet meer op het postvak, teruggestuurd naar de opgeslagen url`);
+  return true;
 }
 
 let healthWatchStarted = false;

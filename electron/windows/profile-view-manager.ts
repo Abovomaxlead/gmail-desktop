@@ -8,6 +8,7 @@
 
 import { BrowserWindow, WebContentsView, type WebContents } from 'electron';
 import { contentBounds } from './layout';
+import { viewLeftItsHome } from './view-home';
 import {
   IPC,
   type NotifyState,
@@ -80,6 +81,9 @@ const POPOUT_WINDOW_WAIT_MS = 2000;
 
 export class ProfileViewManager {
   private views = new Map<string, WebContentsView>();
+  /** The URL each view belongs to. Set by the app and never by the page, so a redirect
+   * the app did not ask for is recognisable as one -- see view-home.ts. */
+  private homeUrls = new Map<string, string>();
   private activeViewKey: string | null = null;
   private notifClickUntil = new Map<string, number>();
   private warming = new Set<string>();
@@ -185,7 +189,9 @@ export class ProfileViewManager {
         );
       }
     });
-    void view.webContents.loadURL(urlOverride ?? SURFACE_CONFIG[surface].url(ref));
+    const home = urlOverride ?? SURFACE_CONFIG[surface].url(ref);
+    this.homeUrls.set(k, home);
+    void view.webContents.loadURL(home);
     view.webContents.on('before-input-event', (_e, input) => this.onInput(acctKey, input as unknown as KeyInput));
     view.webContents.on('did-finish-load', () => {
       view.webContents.setZoomLevel(this.getZoom(acctKey));
@@ -194,6 +200,7 @@ export class ProfileViewManager {
     view.webContents.once('destroyed', () => {
       if (this.views.get(k) !== view) return;
       this.views.delete(k);
+      this.homeUrls.delete(k);
       this.warming.delete(k);
       if (this.activeViewKey === k) this.activeViewKey = null;
       if (this.win.isDestroyed()) return;
@@ -266,6 +273,49 @@ export class ProfileViewManager {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Where a view currently sits
+   *
+   * Beside titleOf because the delegated health watch needs both: the title says which
+   * mailbox is on screen, and this says whether the view is still on the url that was
+   * supposed to put it there.
+   *
+   * @param accountKey
+   * @param surface
+   * @returns the url, or null when there is no live view
+   */
+  urlOf(accountKey: string, surface: Surface): string | null {
+    const view = this.views.get(viewKey(accountKey, surface));
+    if (!view || view.webContents.isDestroyed()) return null;
+    try {
+      return view.webContents.getURL();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Sends a view that was redirected away back to the url it belongs to
+   *
+   * The cure for a delegated mailbox opened while signed out: the url is still the right
+   * one, the view was simply carried off it, and nothing else in the app was watching. A
+   * view that has not moved is left exactly as it is -- reloading one out from under the
+   * user is not a repair.
+   *
+   * @param accountKey
+   * @param surface
+   * @returns true when the view was actually sent back
+   */
+  sendHome(accountKey: string, surface: Surface): boolean {
+    const k = viewKey(accountKey, surface);
+    const wc = this.views.get(k)?.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    const home = this.homeUrls.get(k) ?? null;
+    if (!viewLeftItsHome(home, wc.getURL())) return false;
+    void wc.loadURL(home!);
+    return true;
   }
 
   activeKey(): string | null {
@@ -350,6 +400,7 @@ export class ProfileViewManager {
     this.win.contentView.removeChildView(view);
     view.webContents.close();
     this.views.delete(k);
+    this.homeUrls.delete(k);
     this.warming.delete(k);
     if (this.activeViewKey === k) this.activeViewKey = null;
     if (surface === 'mail') this.onUnread(accountKey, 0);
@@ -390,11 +441,13 @@ export class ProfileViewManager {
    * @param url
    * @private
    */
-  private openInOwningSurface(ref: AccountRef, from: Surface, url: string): void {
+  openInOwningSurface(ref: AccountRef, from: Surface, url: string): void {
     const target = surfaceForUrl(url) ?? from;
     this.ensureView(ref, target, false);
-    const wc = this.views.get(viewKey(accountKey(ref), target))?.webContents;
+    const k = viewKey(accountKey(ref), target);
+    const wc = this.views.get(k)?.webContents;
     if (!wc || wc.isDestroyed()) return;
+    this.homeUrls.set(k, url);
     void wc.loadURL(url);
     this.onActivate(accountKey(ref), target);
   }
@@ -747,15 +800,31 @@ export class ProfileViewManager {
    */
   reloadActive(): void {
     if (!this.activeViewKey) return;
-    const wc = this.views.get(this.activeViewKey)?.webContents;
-    if (!wc || wc.isDestroyed()) return;
-    wc.reload();
+    this.reloadViewKey(this.activeViewKey);
   }
 
   reloadAll(): void {
-    for (const v of this.views.values()) {
-      if (!v.webContents.isDestroyed()) v.webContents.reload();
-    }
+    for (const vk of [...this.views.keys()]) this.reloadViewKey(vk);
+  }
+
+  /**
+   * Reloads one view, sending it back to where it belongs if it is no longer there
+   *
+   * webContents.reload() reloads wherever the page has ended up, which is right for a page
+   * the user navigated and wrong for one Google redirected. A delegated mailbox opened while
+   * signed out lands on a login page and, once the user signs back in, on the signed-in
+   * account's own inbox -- so a plain reload cemented the wrong mailbox in the delegated
+   * view instead of recovering it.
+   *
+   * @param vk the view key
+   * @private
+   */
+  private reloadViewKey(vk: string): void {
+    const wc = this.views.get(vk)?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    const home = this.homeUrls.get(vk) ?? null;
+    if (viewLeftItsHome(home, wc.getURL())) void wc.loadURL(home!);
+    else wc.reload();
   }
 
   toggleDevTools(): void {

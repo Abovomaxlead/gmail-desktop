@@ -11,6 +11,7 @@ import {
   titleMailbox,
   mailUrlVerdict,
   deadDelegatedUrls,
+  delegatedRepairFor,
 } from '../electron/delegation/delegated-health';
 
 describe('titleMailbox', () => {
@@ -123,5 +124,78 @@ describe('deadDelegatedUrls', () => {
         { email: 'support@abovomaxlead.nl', title: wrong },
       ]),
     ).toEqual(['support@abovomaxlead.nl']);
+  });
+});
+
+// A title naming the wrong mailbox has two causes, and only one of them is the rotated id the
+// switcher scrape exists for. The other is a view that was redirected away from a url that is
+// still perfectly good: signed out, the delegated url answers with a login page, and signing
+// back in continues into the signed-in account's own inbox. Scraping cannot cure that -- the
+// switcher hands back the same url and nothing is replaced -- so the two have to be told apart.
+describe('delegatedRepairFor', () => {
+  const HOME = 'https://mail.google.com/mail/u/0/d/AOr0Kc1x9Qm/';
+
+  it('sends a view that was redirected off its mailbox back to it', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: 'https://mail.google.com/mail/u/0/',
+        sentHomeFor: null,
+      }),
+    ).toBe('send-home');
+  });
+
+  it('sends a view sitting on a login page back to its mailbox', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: 'https://accounts.google.com/ServiceLogin?continue=x',
+        sentHomeFor: null,
+      }),
+    ).toBe('send-home');
+  });
+
+  // The rotated id: the view is exactly where it was put and still shows another mailbox, so
+  // the url itself is the thing that is wrong and only the switcher knows the new one.
+  it('re-reads the url for a view still sitting on it', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: `${HOME}#inbox`,
+        sentHomeFor: null,
+      }),
+    ).toBe('reread-url');
+  });
+
+  // Both faces at once: the url rotated while the view was also redirected. Going home is
+  // tried first because it is free, and when the title still says the wrong mailbox the next
+  // sample must fall through to the scrape rather than send it home for ever.
+  it('re-reads the url once going home has been tried for it', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: 'https://mail.google.com/mail/u/0/',
+        sentHomeFor: HOME,
+      }),
+    ).toBe('reread-url');
+  });
+
+  // A url that was replaced since is a different one, so going home is worth trying again.
+  it('sends home again after the url changed', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: 'https://mail.google.com/mail/u/0/',
+        sentHomeFor: 'https://mail.google.com/mail/u/0/d/AOr0KcOLD/',
+      }),
+    ).toBe('send-home');
+  });
+
+  // Where the view is cannot be read, so there is no drift to act on and the scrape is the
+  // only honest answer left.
+  it('re-reads the url when where the view sits is unknown', () => {
+    expect(delegatedRepairFor({ mailUrl: HOME, currentUrl: null, sentHomeFor: null })).toBe(
+      'reread-url',
+    );
   });
 });

@@ -37,8 +37,20 @@ const { FakeWebContentsView } = vi.hoisted(() => {
       this.sent.push({ channel, args });
     }
     setWindowOpenHandler(): void {}
-    loadURL(): Promise<void> {
+    /** Where the page is, so a test can act as a redirect Google performed. */
+    url = '';
+    /** Every deliberate navigation in order, with a reload recorded as 'reload'. */
+    navigations: string[] = [];
+    loadURL(u: string): Promise<void> {
+      this.url = u;
+      this.navigations.push(u);
       return Promise.resolve();
+    }
+    getURL(): string {
+      return this.url;
+    }
+    reload(): void {
+      this.navigations.push('reload');
     }
     setZoomLevel(): void {}
     setAudioMuted(): void {}
@@ -107,6 +119,17 @@ const withUrl: AccountRef = {
   calendarUrl: null,
 };
 const owned: AccountRef = { kind: 'authuser', index: 0 };
+
+/** The fake page behind a view, as the reload tests need to see it. */
+interface FakePage {
+  url: string;
+  navigations: string[];
+}
+
+/** The page of the nth view the manager built. */
+function pageOf(win: ReturnType<typeof fakeWin>, n = 0): FakePage {
+  return (win.contentView.addChildView.mock.calls[n][0] as { webContents: FakePage }).webContents;
+}
 
 describe('ProfileViewManager funnel guard', () => {
   it('ensureView refuses a delegated ref with no mailUrl for mail', () => {
@@ -248,5 +271,115 @@ describe('the pull lock reaches every Gmail view', () => {
     expect(first.webContents.sent.find((s) => s.channel === 'maildrop:save-progress')?.args).toEqual([
       { done: 3, total: 10 },
     ]);
+  });
+});
+
+// A view's identity is the URL it was opened with, and reload used to forget it: reload()
+// reloads wherever the page has since ended up. Signed out, a delegated /d/<id>/ url answers
+// with a login page and, once the user signs back in, continues into the signed-in account's
+// own inbox -- so Ctrl+R cemented the wrong mailbox in the delegated view instead of
+// recovering it. See electron/windows/view-home.ts for what counts as having left home.
+describe('reloading a view that was redirected away', () => {
+
+  it('reloads in place while the view is still on its own mailbox', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQbfWxH';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['reload']);
+  });
+
+  it('sends a delegated view left on the own inbox back to its mailbox', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    // What signing back in leaves behind: the delegated segment is gone.
+    wc.url = 'https://mail.google.com/mail/u/3/';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+
+  it('sends a view sitting on a login page back to its mailbox', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://accounts.google.com/ServiceLogin?continue=https://mail.google.com/';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+
+  // A link the app itself routed into another surface becomes that view's home, so a reload
+  // of an opened document reloads the document and does not jump back to My Drive.
+  it('treats a navigation the app performed as the new home', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'drive');
+    const wc = pageOf(win);
+    m.openInOwningSurface(owned, 'drive', 'https://drive.google.com/file/d/abc/view');
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['reload']);
+  });
+});
+
+// What the delegated health watch needs to put a redirected view right without waiting for the
+// user to press Ctrl+R: the app knows where the view belongs, so it can simply send it back.
+describe('sending a view back where it belongs', () => {
+
+  it('reports where a view currently sits', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    pageOf(win).url = 'https://mail.google.com/mail/u/3/';
+
+    expect(m.urlOf(accountKey(withUrl), 'mail')).toBe('https://mail.google.com/mail/u/3/');
+  });
+
+  it('navigates a drifted view back to the url it was opened with', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/3/';
+    wc.navigations.length = 0;
+
+    expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(true);
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+
+  // Nothing to send back is not a failure to hide: the caller logs off this answer, and a view
+  // that is already home must not be reloaded out from under the user.
+  it('leaves a view that is already home alone', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.navigations.length = 0;
+
+    expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(false);
+    expect(wc.navigations).toEqual([]);
+  });
+
+  it('answers false for a view that does not exist', () => {
+    const win = fakeWin();
+    const m = manager(win);
+
+    expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(false);
+    expect(m.urlOf(accountKey(withUrl), 'mail')).toBeNull();
   });
 });
