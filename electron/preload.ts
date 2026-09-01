@@ -424,7 +424,8 @@ function installDropzone(
   const pullCancellable = (): boolean => saving;
 
   /** How far the pull had got at the last tick, so the line a cancel draws counts the same
-   * conversations the line before it did. Cleared with the rest of the pull's state in reset. */
+   * conversations the line before it did. Fetched conversations only -- see showProgress.
+   * Cleared with the rest of the pull's state in reset. */
   let pullDone = 0;
 
   /** When this page last asked main to stop the pull, or 0 when it has not. Not a plain flag,
@@ -653,7 +654,10 @@ function installDropzone(
 
     showProgress: (p: MailDropSaveProgress) => {
       if (clearTimer) clearTimeout(clearTimer);
-      pullDone = p.done;
+      // Only from a tick that names a total. A total of nothing is the label still being listed,
+      // and what that counts is conversations found, not conversations pulled -- taking it here
+      // would have the cancel line claim thousands were fetched when none had been.
+      if (p.total > 0) pullDone = p.done;
       // A tick this long after a cancel is a pull that never heard it. The button comes back
       // rather than leaving a strip that says the pull was stopped while it counts on. Within
       // the grace window the cancel stands, and the line it drew is left alone: the fetches

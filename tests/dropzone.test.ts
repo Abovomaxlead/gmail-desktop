@@ -943,6 +943,10 @@ describe('savingText', () => {
   it('says it is still looking while the total is unknown', () => {
     expect(savingText(0, 0)).toBe(SEARCHING_TEXT);
   });
+  it('counts what the listing found while the total is still unknown', () => {
+    expect(savingText(500, 0)).toBe('500 gesprekken gevonden…');
+    expect(savingText(1, 0)).toBe('1 gesprek gevonden…');
+  });
   it('counts the conversations pulled so far', () => {
     expect(savingText(0, 10)).toBe('0 van 10 opgehaald');
     expect(savingText(7, 10)).toBe('7 van 10 opgehaald');

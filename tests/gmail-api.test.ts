@@ -15,6 +15,8 @@ import {
   collectThreadMessages,
   parseMessageRaw,
   threadsListUrl,
+  THREADS_PAGE_SIZE,
+  walkThreadPages,
   threadMessagesUrl,
   messageRawUrl,
   messageModifyUrl,
@@ -387,9 +389,10 @@ describe('findLabelId', () => {
 });
 
 describe('threads urls', () => {
-  it('asks for a page of the label', () => {
+  it('asks for a page of the label, at the largest page Gmail allows', () => {
+    expect(THREADS_PAGE_SIZE).toBe(500);
     expect(threadsListUrl('L1')).toBe(
-      'https://gmail.googleapis.com/gmail/v1/users/me/threads?labelIds=L1&maxResults=100',
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads?labelIds=L1&maxResults=500',
     );
   });
 
@@ -412,6 +415,77 @@ describe('threads urls', () => {
   it('escapes an id instead of building a broken url', () => {
     expect(threadMessagesUrl('a/b')).toContain('/threads/a%2Fb?');
     expect(messageRawUrl('a/b')).toContain('/messages/a%2Fb?');
+  });
+});
+
+describe('walkThreadPages', () => {
+  const pager = (pages: string[][]) => {
+    const asked: Array<string | undefined> = [];
+    const read = async (pageToken?: string) => {
+      asked.push(pageToken);
+      const i = pageToken ? Number(pageToken) : 0;
+      const threadIds = pages[i] ?? [];
+      return i + 1 < pages.length ? { threadIds, nextPageToken: String(i + 1) } : { threadIds };
+    };
+    return { asked, read };
+  };
+
+  it('walks every page and keeps the order the pages gave', async () => {
+    const { asked, read } = pager([['t1', 't2'], ['t3'], ['t4']]);
+    expect(await walkThreadPages(50, read)).toEqual({
+      threadIds: ['t1', 't2', 't3', 't4'],
+      capped: false,
+      stopped: false,
+    });
+    expect(asked).toEqual([undefined, '1', '2']);
+  });
+
+  it('keeps a thread once when two pages carry it', async () => {
+    const { read } = pager([['t1', 't2'], ['t2', 't3']]);
+    expect((await walkThreadPages(50, read)).threadIds).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('stops at the cap and says so', async () => {
+    const { asked, read } = pager([['t1', 't2'], ['t3', 't4']]);
+    expect(await walkThreadPages(3, read)).toEqual({
+      threadIds: ['t1', 't2', 't3'],
+      capped: true,
+      stopped: false,
+    });
+    expect(asked).toEqual([undefined, '1']);
+  });
+
+  it('reports the running total after every page', async () => {
+    const { read } = pager([['t1', 't2'], ['t3'], ['t4']]);
+    const seen: number[] = [];
+    await walkThreadPages(50, read, (soFar) => {
+      seen.push(soFar);
+      return true;
+    });
+    expect(seen).toEqual([2, 3, 4]);
+  });
+
+  it('stops paging the moment the caller refuses, and keeps what it had', async () => {
+    const { asked, read } = pager([['t1'], ['t2'], ['t3']]);
+    expect(await walkThreadPages(50, read, (soFar) => soFar < 2)).toEqual({
+      threadIds: ['t1', 't2'],
+      capped: false,
+      stopped: true,
+    });
+    expect(asked).toEqual([undefined, '1']);
+  });
+
+  it('deduplicates without scanning what it already has', async () => {
+    // The walk runs on the main process, so a linear scan per id froze the app for as long as
+    // the listing took. Twenty thousand ids is where that showed: a Set does it in milliseconds.
+    const pages = Array.from({ length: 40 }, (_, i) =>
+      Array.from({ length: 500 }, (_, n) => `t${i * 500 + n}`),
+    );
+    const { read } = pager(pages);
+    const started = Date.now();
+    const walked = await walkThreadPages(50_000, read);
+    expect(walked.threadIds).toHaveLength(20_000);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });
 

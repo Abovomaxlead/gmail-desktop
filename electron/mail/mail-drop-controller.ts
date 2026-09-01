@@ -803,12 +803,18 @@ const THREAD_FETCH_LIMIT = 4;
  * Lists every conversation of a dragged label's tree, without fetching any of them
  *
  * The cheap half of a label drag, and the half a batched job needs on its own: one
- * `threads.list` page is 100 ids for 10 units, so a tree of ten thousand is a hundred pages and
- * a thousand units -- four seconds of the budget, against the minutes fetching them costs. That
+ * `threads.list` page is 500 ids for 10 units, so a tree of ten thousand is twenty pages and two
+ * hundred units -- under a second of the budget, against the minutes fetching them costs. That
  * is what lets a plan know which conversations it is going to pull before it pulls one.
+ *
+ * The walk is gated and counted per page. It used to be neither: a label of thousands is
+ * hundreds of pages waiting on each other, and for the whole of it the strip said "Mail zoeken…"
+ * and Annuleren did nothing, because the gate was only looked at once the listing had finished
+ * on its own. Both drops of 2026-09-01 06:29 were killed with the app rather than cancelled.
  *
  * @param account the mailbox the label was dragged out of
  * @param label the dragged label, whose tree is resolved from the mailbox's own label map
+ * @param found called with the running count as the pages land, for the strip
  * @returns the conversations with the tree labels each of them carries, the members in the
  *   order the tree resolved them, and whether the cap bit -- or null when this mailbox has no
  *   usable token or does not have the label, which is the caller's signal to scrape instead
@@ -817,6 +823,7 @@ const THREAD_FETCH_LIMIT = 4;
 async function listLabelTree(
   account: string,
   label: string,
+  found: (count: number) => void = () => {},
 ): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number } | null> {
   if (!account) return null;
   const withToken = await withMailboxToken(account);
@@ -824,6 +831,8 @@ async function listLabelTree(
 
   const threads: TreeThread[] = [];
   let capped = false;
+  let stopped = false;
+  const started = Date.now();
   try {
     const all = await withToken((token) => fetchUserLabelMap(token));
     const members = labelTreeMembers([...all.keys()], label);
@@ -833,17 +842,43 @@ async function listLabelTree(
     for (const member of members) {
       const labelId = all.get(member);
       if (!labelId) continue;
-      const list = await withToken((token) => listLabelThreadIds(token, labelId, API_MAX_THREADS));
+      const list = await withToken((token) =>
+        // The members before this one are already counted, so the strip reads as one walk over
+        // the tree rather than restarting per sublabel. Answering false is what a cancel comes
+        // out as: mid-walk rather than after the last page of the last member.
+        listLabelThreadIds(token, labelId, API_MAX_THREADS, (soFar) => {
+          found(threads.length + soFar);
+          return !activePull?.stopped();
+        }),
+      );
       const page = list.threadIds.map((threadId) => ({ threadId, subject: '' }));
       const { total } = mergeTreeThreads(threads, member, page, API_MAX_THREADS);
       capped = capped || list.capped;
+      if (list.stopped) {
+        stopped = true;
+        break;
+      }
       if (total >= API_MAX_THREADS) {
         capped = true;
         break;
       }
     }
+    // Not on a walk that was called off: the caller logs that cancel itself, and a second line
+    // saying the label was listed would read as a listing that finished.
+    if (!stopped) {
+      notifyLog(
+        `[maildrop] label "${label}" opgesomd: ${threads.length} gesprekken in ` +
+          `${members.length} label(s), ${Math.round((Date.now() - started) / 100) / 10}s` +
+          `${capped ? ' (afgekapt)' : ''}`,
+      );
+    }
     return { threads, members, capped, cap: API_MAX_THREADS };
-  } catch {
+  } catch (e) {
+    // Named rather than swallowed. This catch is what sends the drag to the scrape, and a log
+    // with nothing in it for the two minutes before a kill is what made this bug guesswork.
+    notifyLog(
+      `[maildrop] label "${label}" niet op te sommen via de API: ${(e as Error).message}`,
+    );
     return null;
   }
 }
@@ -1225,6 +1260,26 @@ function pullReporter(): SaveProgress {
 }
 
 /**
+ * The listing's own reporter, which moves the strip while a label is being paged
+ *
+ * Apart from pullReporter and deliberately so: that one keeps pullDone, which counts
+ * conversations fetched and is the number the cancel line reports. A listing that fed it would
+ * have the strip claim thousands of conversations were pulled when not one had been.
+ *
+ * @returns the callback listLabelTree reports its running count through
+ * @private
+ */
+function listReporter(): (found: number) => void {
+  const mine = activePull;
+  return (found) => {
+    if (mine?.stopped()) return;
+    // Total zero for as long as the walk runs: it is not known until its last page, and the
+    // strip draws the count as found rather than as fetched on exactly that signal.
+    manager?.sendDropProgress({ done: found, total: 0 });
+  };
+}
+
+/**
  * Stops the pull that is running, if there is one
  *
  * Asked for by the strip's Annuleren button and by Escape, over IPC. What has already been
@@ -1356,15 +1411,14 @@ async function pullMailDrop(
   if (payload.label) {
     report(0, 0);
     // Listed before anything is fetched, so the size is known while it is still cheap to know:
-    // a tree of ten thousand costs a thousand units to list and minutes to pull. A listing that
+    // a tree of ten thousand costs two hundred units to list and minutes to pull. A listing that
     // fails answers null and the scrape inside saveLabel carries the drag, as it always has --
     // which also means no job, since nothing scraped can exceed one batch.
-    const listed = await listLabelTree(account, payload.label);
-    // The listing is the one stretch of a label pull with no gate in it -- a tree of ten thousand
-    // is a thousand units and minutes of paging -- so a cancel asked for during it was not looked
-    // at until the fetch below had been started and had answered. Checked here as well, before a
-    // plan is written for a pull nobody wants any more and before the first conversation is
-    // asked for. Nothing has been fetched at this point, so nothing is thrown away.
+    const listed = await listLabelTree(account, payload.label, listReporter());
+    // The walk itself now leaves off between two pages when the gate closes, so this is what a
+    // cancel during the listing arrives at, rather than the place it was first noticed. Nothing
+    // has been fetched at this point, so nothing is thrown away, and no plan is written for a
+    // pull nobody wants any more.
     if (activePull?.stopped()) {
       lastDropSaved = [];
       notifyLog('[maildrop] ophalen geannuleerd tijdens het opsommen van het label');

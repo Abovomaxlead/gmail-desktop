@@ -456,14 +456,19 @@ export function dropOutcome(
  *
  * Conversations, not mails: both pull paths loop over conversations, and how many mails a
  * label holds is not known until every one of them has been fetched. A total of nothing means
- * the label is still being listed, which is the one moment there is nothing to count.
+ * the label is still being listed, and while that walk is running `done` counts what it has
+ * found rather than what has been fetched -- a label of thousands used to leave this line on
+ * its opening three words for minutes, which is what a pull that hung looks like.
  *
- * @param done conversations pulled so far
+ * @param done conversations pulled so far, or found so far while the total is still unknown
  * @param total conversations this pull will fetch, or 0 while that is not known yet
  * @returns the line for the strip
  */
 export function savingText(done: number, total: number): string {
-  if (total <= 0) return SEARCHING_TEXT;
+  if (total <= 0) {
+    if (done < 1) return SEARCHING_TEXT;
+    return `${done} gesprek${done === 1 ? '' : 'ken'} gevonden…`;
+  }
   return `${done} van ${total} opgehaald`;
 }
 

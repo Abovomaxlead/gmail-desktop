@@ -573,8 +573,14 @@ export async function deleteLabel(accessToken: string, labelId: string): Promise
 // Threads
 //===========================
 
+/** The largest page threads.list will answer. It costs the same ten units as a page of a
+ * hundred, so asking for less only buys round trips: listing a label of twenty thousand was two
+ * hundred requests waiting on each other, and the strip said "Mail zoeken…" for every one of
+ * them. messages.list beside it has asked for five hundred all along. */
+export const THREADS_PAGE_SIZE = 500;
+
 export function threadsListUrl(labelId: string, pageToken?: string): string {
-  const q = new URLSearchParams({ labelIds: labelId, maxResults: '100' });
+  const q = new URLSearchParams({ labelIds: labelId, maxResults: String(THREADS_PAGE_SIZE) });
   if (pageToken) q.set('pageToken', pageToken);
   return `${THREADS_URL}?${q.toString()}`;
 }
@@ -602,30 +608,68 @@ export function parseThreadMessageIds(json: unknown): string[] {
 }
 
 /**
+ * Walks pages of thread ids, whatever is answering them
+ *
+ * The page reader is a dependency so a test can check the walk: the paging, the deduplicating,
+ * the cap and being able to stop between pages are where a label of twenty thousand is won or
+ * lost, and none of that needs Gmail.
+ *
+ * @param max
+ * @param readPage answers one page, given the token the page before it handed on
+ * @param onPage the running total after each page; answer false to stop paging, which is how a
+ *   cancelled drag gets out of a listing that would otherwise run to the end of the label
+ * @returns {Promise<{threadIds: string[], capped: boolean, stopped: boolean}>} the ids in the
+ *   order the pages gave them, whether the cap bit, and whether onPage called it off
+ */
+export async function walkThreadPages(
+  max: number,
+  readPage: (pageToken?: string) => Promise<{ threadIds: string[]; nextPageToken?: string }>,
+  onPage?: (soFar: number) => boolean,
+): Promise<{ threadIds: string[]; capped: boolean; stopped: boolean }> {
+  const threadIds: string[] = [];
+  // Beside the array rather than Array.includes per id. This walk runs on the main process, and
+  // a linear scan per id is quadratic in the size of the label: twenty thousand ids came to two
+  // hundred million comparisons, which froze the window for the whole listing.
+  const seen = new Set<string>();
+  let pageToken: string | undefined;
+  do {
+    const page = await readPage(pageToken);
+    for (const id of page.threadIds) {
+      if (threadIds.length >= max) return { threadIds, capped: true, stopped: false };
+      if (seen.has(id)) continue;
+      seen.add(id);
+      threadIds.push(id);
+    }
+    pageToken = page.nextPageToken;
+    if (onPage && onPage(threadIds.length) === false) {
+      return { threadIds, capped: false, stopped: true };
+    }
+  } while (pageToken);
+  return { threadIds, capped: false, stopped: false };
+}
+
+/**
  * Every thread under a label, one page at a time
  *
  * @param accessToken
  * @param labelId
  * @param max
- * @returns {Promise<{threadIds: string[], capped: boolean}>} capped says the label holds
- *   more than the caller asked for
+ * @param onPage the running total after each page; answer false to stop paging
+ * @returns {Promise<{threadIds: string[], capped: boolean, stopped: boolean}>} capped says the
+ *   label holds more than the caller asked for, stopped that onPage called the walk off
  */
 export async function listLabelThreadIds(
   accessToken: string,
   labelId: string,
   max: number,
-): Promise<{ threadIds: string[]; capped: boolean }> {
-  const threadIds: string[] = [];
-  let pageToken: string | undefined;
-  do {
-    const page = parseThreadList(await requestJson(threadsListUrl(labelId, pageToken), accessToken));
-    for (const id of page.threadIds) {
-      if (threadIds.length >= max) return { threadIds, capped: true };
-      if (!threadIds.includes(id)) threadIds.push(id);
-    }
-    pageToken = page.nextPageToken;
-  } while (pageToken);
-  return { threadIds, capped: false };
+  onPage?: (soFar: number) => boolean,
+): Promise<{ threadIds: string[]; capped: boolean; stopped: boolean }> {
+  return await walkThreadPages(
+    max,
+    async (pageToken) =>
+      parseThreadList(await requestJson(threadsListUrl(labelId, pageToken), accessToken)),
+    onPage,
+  );
 }
 
 /**

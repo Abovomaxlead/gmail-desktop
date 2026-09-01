@@ -42,8 +42,8 @@ export const PAGE_SIZE = 50;
  * bites: truncating in silence reads as "everything saved". */
 export const SCRAPE_MAX_THREADS = 2000;
 
-/** A bound on the API path, not a limit anyone should meet. `threads.list` pages 100 ids for 10
- * units, so a full one is 500 pages and 5,000 units just to plan, and copying it would take a
+/** A bound on the API path, not a limit anyone should meet. `threads.list` pages 500 ids for 10
+ * units, so a full one is 100 pages and 1,000 units just to plan, and copying it would take a
  * day. It is here so a runaway page loop cannot allocate without end -- a different job from the
  * scrape's ceiling above, which is why the two are no longer one constant. */
 export const API_MAX_THREADS = 50_000;
