@@ -439,9 +439,9 @@ export const STRINGS_NORMAL: UiStrings = {
   feedbackIntro:
     'Tell us what went wrong or what you are missing. Sending opens a mail from your own mailbox, so you see exactly what goes out before it leaves.',
   feedbackPlaceholder: 'What happened, and what did you expect to happen?',
-  feedbackIncludeDiagnostics: 'Include version and system information',
+  feedbackIncludeDiagnostics: 'Include version, system and logs',
   feedbackIncludeDiagnosticsDescription:
-    'Adds the version, your operating system, how many mailboxes are linked, and the last lines of the update log. It is written into the mail, so you can read it before sending.',
+    'Adds the version, your operating system and how many mailboxes are linked, with the tail of both logs. The full logs go into a file and its folder opens, so you can attach it. Passwords, tokens and the content of your mail are left out of all of it, and everything else you can read before you send.',
   feedbackSend: 'Write feedback mail',
   feedbackNoMailbox: 'Link a mailbox first: the mail is sent from your own Gmail.',
   feedbackTooltip: 'Send feedback',
@@ -812,9 +812,9 @@ export const STRINGS_RENE: UiStrings = {
   feedbackIntro:
     'Ging er iets mis, of mis je iets? Schrijf het hier. Als je op de knop drukt maakt de app een mail vanuit je eigen postbus. Je ziet hem eerst, en jij drukt zelf op verzenden.',
   feedbackPlaceholder: 'Wat ging er mis? En wat had je verwacht?',
-  feedbackIncludeDiagnostics: 'Stuur ook mee welke versie je hebt',
+  feedbackIncludeDiagnostics: 'Stuur ook mee wat de app deed',
   feedbackIncludeDiagnosticsDescription:
-    'Dan komt er onder je bericht te staan welke versie je hebt, wat voor computer, hoeveel postbussen, en wat de app het laatst deed. Het staat gewoon in de mail, dus je kunt het zelf lezen.',
+    'Dan komt er onder je bericht te staan welke versie je hebt, wat voor computer, hoeveel postbussen, en wat de app het laatst deed. Het hele logboek komt in een bestand, en dat mapje gaat open zodat je het aan de mail kunt hangen. Wachtwoorden en wat er in je mail staat gaan niet mee.',
   feedbackSend: 'Maak de mail',
   feedbackNoMailbox: 'Koppel eerst een postbus. De mail gaat vanuit je eigen Gmail.',
   feedbackTooltip: 'Zeg wat je vindt',
@@ -1172,9 +1172,9 @@ export const STRINGS_NL: UiStrings = {
   feedbackIntro:
     'Vertel wat er misging of wat je mist. Verzenden opent een mail vanuit je eigen postbus, dus je ziet precies wat er weggaat voordat je hem verstuurt.',
   feedbackPlaceholder: 'Wat gebeurde er, en wat had je verwacht?',
-  feedbackIncludeDiagnostics: 'Versie- en systeeminformatie meesturen',
+  feedbackIncludeDiagnostics: 'Versie, systeem en logboeken meesturen',
   feedbackIncludeDiagnosticsDescription:
-    'Zet de versie, je besturingssysteem, het aantal gekoppelde postbussen en de laatste regels van het updatelogboek onder je bericht. Het staat in de mail zelf, dus je kunt het nalezen voor je verstuurt.',
+    'Zet de versie, je besturingssysteem, het aantal gekoppelde postbussen en het staartje van beide logboeken onder je bericht. De volledige logboeken komen in een bestand en die map wordt geopend, zodat je het kunt bijvoegen. Wachtwoorden, tokens en de inhoud van je mail blijven er overal uit, en de rest kun je nalezen voor je verstuurt.',
   feedbackSend: 'Feedbackmail opstellen',
   feedbackNoMailbox: 'Koppel eerst een postbus: de mail wordt vanuit je eigen Gmail verstuurd.',
   feedbackTooltip: 'Feedback geven',
