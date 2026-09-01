@@ -75,7 +75,7 @@ vi.mock('../electron/push/mail-sync-controller', () => ({
 }));
 vi.mock('../electron/delegation/delegated-controller', () => ({
   maybeStartDelegatedApiScan: vi.fn(),
-  refreshDelegatedFromApi: vi.fn(),
+  addDelegatedMailboxes: vi.fn(),
 }));
 vi.mock('../electron/auth/oauth-flow', () => ({ connectAccount: vi.fn() }));
 vi.mock('../electron/auth/account-domain', () => ({ isAllowedAccount: () => true }));

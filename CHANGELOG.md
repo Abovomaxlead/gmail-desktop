@@ -6,6 +6,16 @@ to [Semantic Versioning](https://semver.org/).
 ## [Niet uitgebracht]
 
 ### Toegevoegd
+- **Je kiest zelf welke gedeelde postbussen erbij komen.** "Gedelegeerd postvak toevoegen" haalde
+  in één klap alles binnen waar je gemachtigd voor bent — vijf postbussen erbij terwijl je er één
+  wilde, en de enige manier terug was ze stuk voor stuk weer weghalen. De knop opent nu een lijstje
+  met aanvinkvakjes: alleen wat je aanvinkt komt in de balk. Staat er niets in de lijst, dan zegt
+  het venstertje ook waarom — alles staat er al, of het navragen lukte niet.
+- **De app controleert elk uur bij Google of je gedeelde postbussen nog van jou zijn.** Een
+  machtiging die tijdens je werkdag wordt ingetrokken hoefde tot nu toe op een herstart te wachten;
+  nu verdwijnt zo'n postbus binnen het uur uit de balk. Die controle voegt zelf nooit iets toe:
+  een postbus komt alleen in de balk doordat jij hem aanvinkt.
+
 - **Een feedbackmail neemt de laatste regels van álle logboeken mee, niet meer twintig van één.**
   Er ging alleen het staartje van het updatelogboek mee, en juist het logboek waar de app zelf in
   bijhoudt wat hij deed — elk gesleept label, elke kopie, elke melding — bleef achter. Precies dat
@@ -38,6 +48,15 @@ to [Semantic Versioning](https://semver.org/).
   gedrukt. Nu gaat het in vijf keer minder stappen, staat er tijdens het zoeken hoeveel
   gesprekken er tot nu toe gevonden zijn, en stopt Annuleren de zoektocht meteen in plaats van
   pas als hij zichzelf uitgelopen heeft.
+- **Een gedeelde postbus waar je geen toegang meer toe hebt bleef in de balk staan.** De app
+  vroeg bij het opstarten wél welke postbussen van jou zijn, maar mocht er pas eentje weghalen
+  als élk van je eigen accounts die vraag had beantwoord — en een account dat niet aan de
+  koppeling hangt beantwoordt hem nooit. Daarmee kwam die drempel bij vrijwel iedereen nooit in
+  zicht en bleef een ingetrokken machtiging voorgoed als tabje staan, met een view die je eigen
+  postvak liet zien. Nu wordt zo'n postbus er apart nog eens naar gevraagd, en op het antwoord
+  "jij bent geen gemachtigde van dit postvak" verdwijnt hij bij het opstarten uit de balk. Bij
+  een storing, een netwerkfout of een account dat niets kan zeggen blijft hij gewoon staan:
+  weghalen gebeurt alleen op een antwoord, nooit op stilte.
 
 ## [1.0.0-beta.1788180489] — 2026-08-31
 

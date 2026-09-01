@@ -14,6 +14,11 @@
 // The one caller runs after detection has settled -- maybeStartDelegatedApiScan() is called from
 // settleDetection() in accounts/detection-controller.ts -- so "every own account" is the whole
 // list rather than however many had been probed so far.
+//
+// That bar is high enough to be unreachable when an own account has no OAuth token to be asked
+// with, so what this module cannot settle it hands on as `unconfirmed`: delegated-access.ts
+// asks the token endpoint per mailbox, where a refusal names the mailbox instead of leaving it
+// absent from a set.
 
 
 //===========================
@@ -36,6 +41,10 @@ export interface Reconciliation {
   add: string[];
   /** Addresses to drop, in the spelling the store holds them in; empty unless `complete` */
   remove: string[];
+  /** Addresses no answer that arrived named, in the spelling the store holds them in. Equal
+   * to `remove` when `complete`, and otherwise the mailboxes that are unaccounted for rather
+   * than proven gone -- delegated-access.ts is what may still settle those. */
+  unconfirmed: string[];
   /** True only when every own account answered and named something, which is the one case in
    * which an address being absent means it was revoked */
   complete: boolean;
@@ -68,9 +77,11 @@ export function reconcileDelegations(arg: {
   const add = [...named].filter((e) => !held.has(e));
 
   const why = removalReason(answers, answered.length, requesters, named.size);
+  const unconfirmed = stored.filter((e) => !named.has(e.trim().toLowerCase()));
   return {
     add,
-    remove: why === 'reconciled' ? stored.filter((e) => !named.has(e.trim().toLowerCase())) : [],
+    remove: why === 'reconciled' ? unconfirmed : [],
+    unconfirmed,
     complete: why === 'reconciled',
     why,
   };

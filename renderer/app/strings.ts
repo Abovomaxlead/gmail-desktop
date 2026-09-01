@@ -304,6 +304,15 @@ export interface UiStrings {
   composePickerEsc: string;
   composePickerCancel: string;
 
+  delegatedPickerTitle: string;
+  delegatedPickerSubtitle: string;
+  delegatedPickerScanning: string;
+  delegatedPickerEmpty: string;
+  delegatedPickerNoAnswer: string;
+  delegatedPickerAdd: string;
+  delegatedPickerCancel: string;
+  delegatedPickerEsc: string;
+
   tourGroup: string;
   tourReplay: string;
   tourReplayDescription: string;
@@ -741,6 +750,15 @@ export const STRINGS_NORMAL: UiStrings = {
   composePickerEsc: 'Esc closes',
   composePickerCancel: 'Cancel',
 
+  delegatedPickerTitle: 'Add a delegated mailbox',
+  delegatedPickerSubtitle: 'Tick the mailboxes you want in the bar.',
+  delegatedPickerScanning: 'Asking Google…',
+  delegatedPickerEmpty: 'Nothing to add: every mailbox delegated to you is already here.',
+  delegatedPickerNoAnswer: 'Could not ask right now. Check your connection and try again.',
+  delegatedPickerAdd: 'Add',
+  delegatedPickerCancel: 'Cancel',
+  delegatedPickerEsc: 'Esc closes',
+
   tourGroup: 'Tour',
   tourReplay: 'Show the tour again',
   tourReplayDescription: 'Walk past the app’s own features once more.',
@@ -1099,6 +1117,15 @@ export const STRINGS_RENE: UiStrings = {
   composePickerFrom: 'Van wie moet het komen?',
   composePickerEsc: 'Met Esc ga je weg',
   composePickerCancel: 'Laat maar',
+
+  delegatedPickerTitle: 'Doe een gedeelde postbus erbij',
+  delegatedPickerSubtitle: 'Vink aan welke je in de balk wilt.',
+  delegatedPickerScanning: 'Even bij Google kijken…',
+  delegatedPickerEmpty: 'Er is niks meer om erbij te doen; alles wat van jou mag staat er al.',
+  delegatedPickerNoAnswer: 'Kon het even niet navragen. Kijk of je internet het doet en probeer nog eens.',
+  delegatedPickerAdd: 'Doe erbij',
+  delegatedPickerCancel: 'Laat maar',
+  delegatedPickerEsc: 'Met Esc ga je weg',
 
   tourGroup: 'Het rondje',
   tourReplay: 'Rondje nog eens doen',
@@ -1477,6 +1504,15 @@ export const STRINGS_NL: UiStrings = {
   composePickerFrom: 'Verstuur vanaf',
   composePickerEsc: 'Esc sluit',
   composePickerCancel: 'Annuleren',
+
+  delegatedPickerTitle: 'Gedelegeerd postvak toevoegen',
+  delegatedPickerSubtitle: 'Vink aan welke postvakken in de balk moeten komen.',
+  delegatedPickerScanning: 'Bezig met navragen bij Google…',
+  delegatedPickerEmpty: 'Er is niets toe te voegen: elk postvak waar je gemachtigd voor bent staat er al.',
+  delegatedPickerNoAnswer: 'Navragen lukte niet. Controleer je verbinding en probeer het opnieuw.',
+  delegatedPickerAdd: 'Toevoegen',
+  delegatedPickerCancel: 'Annuleren',
+  delegatedPickerEsc: 'Esc sluit',
 
   tourGroup: 'Rondleiding',
   tourReplay: 'Rondleiding opnieuw tonen',

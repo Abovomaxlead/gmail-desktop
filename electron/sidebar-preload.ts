@@ -11,6 +11,7 @@ import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from './auth/oauth-health';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
 import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
+import type { DelegatedPickerAsk } from '../renderer/lib/delegated-picker';
 import type { RecentLabelUse } from '../renderer/app/recent-labels';
 
 
@@ -62,6 +63,11 @@ contextBridge.exposeInMainWorld('desktop', {
   redetect: (): void => ipcRenderer.send(IPC.REDETECT),
   addAccount: (): void => ipcRenderer.send(IPC.ADD_ACCOUNT),
   addDelegated: (): void => ipcRenderer.send(IPC.ADD_DELEGATED),
+  onDelegatedPickerAsk: (cb: (ask: DelegatedPickerAsk) => void): void => {
+    ipcRenderer.on(IPC.DELEGATED_PICK_ASK, (_e, ask) => cb(ask));
+  },
+  pickDelegated: (emails: string[]): void => ipcRenderer.send(IPC.DELEGATED_PICK, { emails }),
+  closeDelegatedPicker: (): void => ipcRenderer.send(IPC.DELEGATED_PICK_CLOSE),
   setColor: (email: string, color: string): void =>
     ipcRenderer.send(IPC.SET_COLOR, { email, color }),
   removeAccount: (email: string): void => ipcRenderer.send(IPC.REMOVE_ACCOUNT, { email }),

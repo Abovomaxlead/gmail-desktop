@@ -35,7 +35,7 @@ import {
 import { refreshNotifyAllowed, playNotificationSound } from '../notify/notify-gating';
 import { showToast } from '../toast/toast-presenter';
 import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
-import { maybeStartDelegatedApiScan, refreshDelegatedFromApi } from '../delegation/delegated-controller';
+import { addDelegatedMailboxes, maybeStartDelegatedApiScan } from '../delegation/delegated-controller';
 import { connectAccount } from '../auth/oauth-flow';
 import { isAllowedAccount } from '../auth/account-domain';
 import { revokeRefreshToken } from '../auth/token-revoke';
@@ -298,7 +298,9 @@ export function unhideAccount(email: string): void {
   if (!entry) return;
   hidden?.remove(entry.email);
   pushHidden();
-  if (entry.kind === 'delegated') void refreshDelegatedFromApi({ asked: true });
+  // Unhiding is a person asking for the row back, which is the one other place a delegated
+  // mailbox may be added; the hourly relay sweep takes it away again if it is not theirs.
+  if (entry.kind === 'delegated') addDelegatedMailboxes([entry.email]);
 }
 
 

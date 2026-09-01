@@ -128,13 +128,25 @@ describe('reconcileDelegations', () => {
       answers: [failed('luca@abovomaxlead.nl')],
       requesters: 1,
     });
-    expect(at).toEqual({ add: [], remove: [], complete: false, why: 'no-answer' });
+    expect(at).toEqual({
+      add: [],
+      remove: [],
+      unconfirmed: ['support@abovomaxlead.nl'],
+      complete: false,
+      why: 'no-answer',
+    });
   });
 
   it('does nothing when there is no own account to ask as', () => {
     expect(
       reconcileDelegations({ stored: ['support@abovomaxlead.nl'], answers: [], requesters: 0 }),
-    ).toEqual({ add: [], remove: [], complete: false, why: 'no-answer' });
+    ).toEqual({
+      add: [],
+      remove: [],
+      unconfirmed: ['support@abovomaxlead.nl'],
+      complete: false,
+      why: 'no-answer',
+    });
   });
 
   // Addresses arrive from two places that spell them differently, so both sides are compared
@@ -158,5 +170,26 @@ describe('reconcileDelegations', () => {
     });
     expect(at.remove).toEqual(['Weg@Abovomaxlead.nl']);
     expect(at.add).toEqual(['bart@abovomaxlead.nl']);
+  });
+
+  // What removal refused to decide is handed on rather than dropped: delegated-access.ts asks
+  // the token endpoint per mailbox, and it needs to know which mailboxes are in question.
+  it('names what no answer accounted for, even when nothing may be removed', () => {
+    const at = reconcileDelegations({
+      stored: ['support@abovomaxlead.nl', 'bart@abovomaxlead.nl'],
+      answers: [ok('luca@abovomaxlead.nl', 'support@abovomaxlead.nl')],
+      requesters: 2,
+    });
+    expect(at.remove).toEqual([]);
+    expect(at.unconfirmed).toEqual(['bart@abovomaxlead.nl']);
+  });
+
+  it('accounts for every mailbox a requester named', () => {
+    const at = reconcileDelegations({
+      stored: ['support@abovomaxlead.nl'],
+      answers: [ok('luca@abovomaxlead.nl', 'support@abovomaxlead.nl'), failed('tweede@abovomaxlead.nl')],
+      requesters: 2,
+    });
+    expect(at.unconfirmed).toEqual([]);
   });
 });

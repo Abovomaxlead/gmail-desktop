@@ -36,7 +36,11 @@ import { pushPrefs, pushProfiles, pushUnread, refreshBadge } from './broadcast';
 import { type LanguagePref } from './locale';
 import { type AppearancePatch, type PrefsStore } from './prefs-store';
 import { addAccount, redetect, removeAccount, unhideAccount } from '../accounts/detection-controller';
-import { refreshDelegatedFromApi } from '../delegation/delegated-controller';
+import {
+  applyDelegatedPick,
+  closeDelegatedPicker,
+  openDelegatedPicker,
+} from '../delegation/delegated-picker';
 import {
   cancelMailDropPull,
   closeDropPreview,
@@ -108,9 +112,11 @@ export function registerIpc(): void {
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
-  ipcMain.on(IPC.ADD_DELEGATED, () => {
-    void refreshDelegatedFromApi({ asked: true });
+  ipcMain.on(IPC.ADD_DELEGATED, () => openDelegatedPicker());
+  ipcMain.on(IPC.DELEGATED_PICK, (_e, arg: { emails: string[] }) => {
+    applyDelegatedPick(Array.isArray(arg?.emails) ? arg.emails : []);
   });
+  ipcMain.on(IPC.DELEGATED_PICK_CLOSE, () => closeDelegatedPicker());
   ipcMain.on(IPC.SET_COLOR, (_e, arg: { email: string; color: string }) => {
     colors!.set(arg.email, arg.color);
     const p = profiles.find((x) => x.email === arg.email);

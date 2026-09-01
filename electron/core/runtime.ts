@@ -81,6 +81,7 @@ export let toasts: ToastController | null = null;
 export let toastWindow: ToastWindow | null = null;
 export let dropOverlay: OverlayView | null = null;
 export let reconnectBanner: OverlayView | null = null;
+export let delegatedPicker: OverlayView | null = null;
 export let pushManager: PushManagerHandle | null = null;
 export const profiles: Profile[] = [];
 export const unread = new UnreadStore();
@@ -153,6 +154,9 @@ export function setDropOverlay(v: OverlayView | null): void {
 export function setReconnectBanner(v: OverlayView | null): void {
   reconnectBanner = v;
 }
+export function setDelegatedPicker(v: OverlayView | null): void {
+  delegatedPicker = v;
+}
 export function setPushManager(v: PushManagerHandle | null): void {
   pushManager = v;
 }
@@ -190,6 +194,7 @@ export function setLastUpdateStatus(v: Record<string, unknown>): void {
 export function raiseOverlays(): void {
   dropOverlay?.raise();
   reconnectBanner?.raise();
+  delegatedPicker?.raise();
 }
 
 export const authRef = (index: number): AccountRef => ({ kind: 'authuser', index });
