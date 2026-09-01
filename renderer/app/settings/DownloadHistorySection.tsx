@@ -34,7 +34,7 @@ const TH = 'px-2 py-2 text-xs font-medium text-neutral-500 dark:text-neutral-400
 // Component
 //===========================
 
-export function DownloadHistorySection({ S }: { S: UiStrings }): JSX.Element {
+export function DownloadHistorySection({ S }: { S: UiStrings }) {
   const [records, setRecords] = useState<DownloadRecord[]>([]);
   const [confirming, setConfirming] = useState(false);
 
