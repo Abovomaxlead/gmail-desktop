@@ -11,7 +11,7 @@
 // report is about. Neither is sent as it was written -- log-redact.ts masks the credentials and
 // the mail content first.
 
-import { app, shell } from 'electron';
+import { app } from 'electron';
 import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
@@ -31,8 +31,9 @@ import { redactLog } from './log-redact';
  * chatter second. Both live in userData beside the stores that write them. */
 const LOG_FILES = ['notify.log', 'update.log'];
 
-/** Beside the logs rather than in them: a folder of its own, so the newest bundle is obvious in
- * a window that holds nothing else and pruning can never touch a log. */
+/** Beside the logs rather than in them: a folder of its own, so pruning can never touch a log
+ * and the path the mail names points at nothing else. Nothing here opens it -- the mail carries
+ * the path and the user attaches the file when they want to. */
 const BUNDLE_DIR = 'feedback';
 
 
@@ -70,9 +71,6 @@ export function openFeedbackCompose(input: {
     includeDiagnostics: input.includeDiagnostics,
   });
   if (!fields) return false;
-  // Opened before the window, so the folder is already up when the user reads the line asking
-  // for the file: an instruction to attach something they have to go and find is one people skip.
-  if (logFile) shell.showItemInFolder(logFile);
   openComposeWindow(index, fields);
   return true;
 }

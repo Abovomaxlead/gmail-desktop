@@ -441,7 +441,7 @@ export const STRINGS_NORMAL: UiStrings = {
   feedbackPlaceholder: 'What happened, and what did you expect to happen?',
   feedbackIncludeDiagnostics: 'Include version, system and logs',
   feedbackIncludeDiagnosticsDescription:
-    'Adds the version, your operating system and how many mailboxes are linked, with the tail of both logs. The full logs go into a file and its folder opens, so you can attach it. Passwords, tokens and the content of your mail are left out of all of it, and everything else you can read before you send.',
+    'Adds the version, your operating system and how many mailboxes are linked, with the tail of both logs. The full logs go into a file, and the mail names where it is so you can attach it. Passwords, tokens and the content of your mail are left out of all of it, and everything else you can read before you send.',
   feedbackSend: 'Write feedback mail',
   feedbackNoMailbox: 'Link a mailbox first: the mail is sent from your own Gmail.',
   feedbackTooltip: 'Send feedback',
@@ -814,7 +814,7 @@ export const STRINGS_RENE: UiStrings = {
   feedbackPlaceholder: 'Wat ging er mis? En wat had je verwacht?',
   feedbackIncludeDiagnostics: 'Stuur ook mee wat de app deed',
   feedbackIncludeDiagnosticsDescription:
-    'Dan komt er onder je bericht te staan welke versie je hebt, wat voor computer, hoeveel postbussen, en wat de app het laatst deed. Het hele logboek komt in een bestand, en dat mapje gaat open zodat je het aan de mail kunt hangen. Wachtwoorden en wat er in je mail staat gaan niet mee.',
+    'Dan komt er onder je bericht te staan welke versie je hebt, wat voor computer, hoeveel postbussen, en wat de app het laatst deed. Het hele logboek komt in een bestand, en in de mail staat waar dat bestand staat, zodat je het eraan kunt hangen. Wachtwoorden en wat er in je mail staat gaan niet mee.',
   feedbackSend: 'Maak de mail',
   feedbackNoMailbox: 'Koppel eerst een postbus. De mail gaat vanuit je eigen Gmail.',
   feedbackTooltip: 'Zeg wat je vindt',
@@ -1174,7 +1174,7 @@ export const STRINGS_NL: UiStrings = {
   feedbackPlaceholder: 'Wat gebeurde er, en wat had je verwacht?',
   feedbackIncludeDiagnostics: 'Versie, systeem en logboeken meesturen',
   feedbackIncludeDiagnosticsDescription:
-    'Zet de versie, je besturingssysteem, het aantal gekoppelde postbussen en het staartje van beide logboeken onder je bericht. De volledige logboeken komen in een bestand en die map wordt geopend, zodat je het kunt bijvoegen. Wachtwoorden, tokens en de inhoud van je mail blijven er overal uit, en de rest kun je nalezen voor je verstuurt.',
+    'Zet de versie, je besturingssysteem, het aantal gekoppelde postbussen en het staartje van beide logboeken onder je bericht. De volledige logboeken komen in een bestand, en de mail noemt het pad ervan, zodat je het kunt bijvoegen. Wachtwoorden, tokens en de inhoud van je mail blijven er overal uit, en de rest kun je nalezen voor je verstuurt.',
   feedbackSend: 'Feedbackmail opstellen',
   feedbackNoMailbox: 'Koppel eerst een postbus: de mail wordt vanuit je eigen Gmail verstuurd.',
   feedbackTooltip: 'Feedback geven',

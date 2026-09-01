@@ -10,7 +10,7 @@ to [Semantic Versioning](https://semver.org/).
   het staartje van het updatelogboek mee, en juist het logboek waar de app zelf in bijhoudt wat
   hij deed — elk gesleept label, elke kopie, elke melding — bleef achter. Precies dat is bij bijna
   elke melding het spoor dat nodig is. Wat er nu gebeurt: beide logboeken komen volledig in één
-  tekstbestand, de map ervan gaat open, en de mail vraagt je dat bestand bij te voegen. In de mail
+  tekstbestand, en de mail noemt het pad ervan en vraagt je dat bestand bij te voegen. In de mail
   zelf staat het staartje van beide, zodat hij ook zonder bijlage te lezen is. Vier ton aan
   logregels in plaats van vijftienhonderd tekens.
 

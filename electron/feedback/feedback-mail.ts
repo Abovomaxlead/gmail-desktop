@@ -86,7 +86,7 @@ const TRUNCATED = '[earlier lines are in the attached file]';
 
 const ATTACH_NOTE = [
   'The full logs do not fit in a mail body -- Gmail refuses a URL this long -- so they were',
-  'written to the file below and its folder was opened. Attach it to this mail before sending.',
+  'written to the file below. Attach it to this mail before sending -- the path is copyable.',
   'Credentials and mail content are already masked in it; everything else is as it was logged.',
 ].join('\n');
 
