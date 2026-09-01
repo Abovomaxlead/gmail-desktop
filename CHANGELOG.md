@@ -5,7 +5,33 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Niet uitgebracht]
 
+### Toegevoegd
+- **Een feedbackmail neemt nu alle logboeken mee, en niet meer twintig regels.** Er ging alleen
+  het staartje van het updatelogboek mee, en juist het logboek waar de app zelf in bijhoudt wat
+  hij deed — elk gesleept label, elke kopie, elke melding — bleef achter. Precies dat is bij bijna
+  elke melding het spoor dat nodig is. Wat er nu gebeurt: beide logboeken komen volledig in één
+  tekstbestand, de map ervan gaat open, en de mail vraagt je dat bestand bij te voegen. In de mail
+  zelf staat het staartje van beide, zodat hij ook zonder bijlage te lezen is. Vier ton aan
+  logregels in plaats van vijftienhonderd tekens.
+
+  **Wachtwoorden en de inhoud van je mail gaan er niet in.** Toegangs- en vernieuwingstokens,
+  clientgeheimen, inlogcodes, de onderwerpregels die in een melding stonden en de namen boven een
+  meldingskaartje worden onleesbaar gemaakt vóórdat er iets wordt weggeschreven — ze staan als
+  `[redacted]` of `[hidden]` in het bestand. Wat blijft staan is waar een fout aan te zien is:
+  welk postvak, welk label, hoeveel, hoe lang, en wat er misging. Bovenaan het bestand staat wat
+  eruit is gehaald, zodat niemand `[hidden]` voor een storing aanziet.
+
+- **Een macOS-installatie kan zichzelf bijwerken.** De mac-build leverde alleen het schijfimage
+  op waar een mens de app uit sleept; het bestand waar de bijwerkcontrole naar kijkt zat er niet
+  bij, dus liep die op elke ronde stuk. Dat bestand staat er nu naast.
+
 ### Opgelost
+- **Een lang bericht in het feedbackvenster kon een Google-foutpagina opleveren in plaats van een
+  mail.** De mail reist als adres naar Gmail, en Google weigert een adres boven de acht kilobyte.
+  Vier duizend getypte tekens werden er in dat adres al meer dan achtduizend, en dan opende er
+  geen mailvenster maar een foutmelding — met je hele bericht weg. Er wordt nu gerekend met de
+  lengte die het adres echt heeft, en jouw tekst gaat vóór het logboek: als er iets moet wijken,
+  wijkt het staartje dat toch al in de bijlage zit.
 - **Een groot label naar het venster slepen leek eindeloos te blijven zoeken.** De balk zei
   minutenlang "Mail zoeken…" en Annuleren deed niets, en dat kwam niet door het ophalen: het
   opsommen van het label was toen nog niet eens klaar. Dat opsommen vroeg Google om honderd
@@ -14,11 +40,6 @@ to [Semantic Versioning](https://semver.org/).
   gedrukt. Nu gaat het in vijf keer minder stappen, staat er tijdens het zoeken hoeveel
   gesprekken er tot nu toe gevonden zijn, en stopt Annuleren de zoektocht meteen in plaats van
   pas als hij zichzelf uitgelopen heeft.
-
-### Toegevoegd
-- **Een macOS-installatie kan zichzelf bijwerken.** De mac-build leverde alleen het schijfimage
-  op waar een mens de app uit sleept; het bestand waar de bijwerkcontrole naar kijkt zat er niet
-  bij, dus liep die op elke ronde stuk. Dat bestand staat er nu naast.
 
 ## [1.0.0-beta.1788180489] — 2026-08-31
 
