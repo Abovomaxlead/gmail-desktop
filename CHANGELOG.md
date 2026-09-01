@@ -6,20 +6,18 @@ to [Semantic Versioning](https://semver.org/).
 ## [Niet uitgebracht]
 
 ### Toegevoegd
-- **Een feedbackmail neemt nu alle logboeken mee, en niet meer twintig regels.** Er ging alleen
-  het staartje van het updatelogboek mee, en juist het logboek waar de app zelf in bijhoudt wat
-  hij deed — elk gesleept label, elke kopie, elke melding — bleef achter. Precies dat is bij bijna
-  elke melding het spoor dat nodig is. Wat er nu gebeurt: beide logboeken komen volledig in één
-  tekstbestand, en de mail noemt het pad ervan en vraagt je dat bestand bij te voegen. In de mail
-  zelf staat het staartje van beide, zodat hij ook zonder bijlage te lezen is. Vier ton aan
-  logregels in plaats van vijftienhonderd tekens.
+- **Een feedbackmail neemt de laatste regels van álle logboeken mee, niet meer twintig van één.**
+  Er ging alleen het staartje van het updatelogboek mee, en juist het logboek waar de app zelf in
+  bijhoudt wat hij deed — elk gesleept label, elke kopie, elke melding — bleef achter. Precies dat
+  is bij bijna elke melding het spoor dat nodig is. Nu gaat van beide zoveel mee als er in een mail
+  past, het laatste eerst, en het staat in de mail zelf: geen bijlage, geen bestand, niets om te
+  zoeken.
 
   **Wachtwoorden en de inhoud van je mail gaan er niet in.** Toegangs- en vernieuwingstokens,
   clientgeheimen, inlogcodes, de onderwerpregels die in een melding stonden en de namen boven een
-  meldingskaartje worden onleesbaar gemaakt vóórdat er iets wordt weggeschreven — ze staan als
-  `[redacted]` of `[hidden]` in het bestand. Wat blijft staan is waar een fout aan te zien is:
-  welk postvak, welk label, hoeveel, hoe lang, en wat er misging. Bovenaan het bestand staat wat
-  eruit is gehaald, zodat niemand `[hidden]` voor een storing aanziet.
+  meldingskaartje worden onleesbaar gemaakt vóórdat er iets de deur uit gaat — ze staan als
+  `[redacted]` of `[hidden]` in de mail. Wat blijft staan is waar een fout aan te zien is: welk
+  postvak, welk label, hoeveel, hoe lang, en wat er misging.
 
 - **Een macOS-installatie kan zichzelf bijwerken.** De mac-build leverde alleen het schijfimage
   op waar een mens de app uit sleept; het bestand waar de bijwerkcontrole naar kijkt zat er niet

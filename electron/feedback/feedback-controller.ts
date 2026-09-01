@@ -1,7 +1,6 @@
 // Everything impure about feedback: what the app knows about itself, the logs it has written,
-// the file they are bundled into and the compose window it all ends up in. The mail is built in
-// feedback-mail.ts and the file in feedback-bundle.ts, which is why there are no decisions left
-// in here.
+// and the compose window it all ends up in. The mail is built in feedback-mail.ts, which is why
+// there are no decisions left in here.
 //
 // The mail is sent from the mailbox the user is looking at. That question is already answered
 // by which tab is open, so unlike a mailto: link this never has to ask.
@@ -12,13 +11,11 @@
 // the mail content first.
 
 import { app } from 'electron';
-import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { release } from 'node:os';
 import { join } from 'node:path';
 import { openComposeWindow } from '../compose/mailto-controller';
 import { activeTab, authIdx, idxOfKey, profiles } from '../core/runtime';
-import { notifyLog } from '../notify/notify-log';
-import { bundleFileName, bundleText, bundlesToDelete } from './feedback-bundle';
 import { feedbackMail, type FeedbackLog } from './feedback-mail';
 import { redactLog } from './log-redact';
 
@@ -30,11 +27,6 @@ import { redactLog } from './log-redact';
 /** In the order the mail spends its budget on them: what the app itself did first, the updater's
  * chatter second. Both live in userData beside the stores that write them. */
 const LOG_FILES = ['notify.log', 'update.log'];
-
-/** Beside the logs rather than in them: a folder of its own, so pruning can never touch a log
- * and the path the mail names points at nothing else. Nothing here opens it -- the mail carries
- * the path and the user attaches the file when they want to. */
-const BUNDLE_DIR = 'feedback';
 
 
 //===========================
@@ -59,7 +51,6 @@ export function openFeedbackCompose(input: {
   const index = composeIndex();
   if (index === null) return false;
   const logs = input.includeDiagnostics ? redactedLogs() : [];
-  const logFile = logs.length > 0 ? writeBundle(logs) : undefined;
   const fields = feedbackMail({
     text: input.text,
     version: app.getVersion(),
@@ -67,7 +58,6 @@ export function openFeedbackCompose(input: {
     osRelease: release(),
     mailboxCount: profiles.length,
     logs,
-    logFile,
     includeDiagnostics: input.includeDiagnostics,
   });
   if (!fields) return false;
@@ -126,52 +116,3 @@ function readLog(name: string): string {
   }
 }
 
-/**
- * Writes the logs to the file the mail asks to have attached
- *
- * @param logs already redacted
- * @returns {string | undefined} the path, or undefined when the file could not be written --
- *   in which case the mail is still worth sending, with the tail it carries itself
- * @private
- */
-function writeBundle(logs: FeedbackLog[]): string | undefined {
-  const when = new Date();
-  const dir = join(app.getPath('userData'), BUNDLE_DIR);
-  const path = join(dir, bundleFileName(when));
-  try {
-    mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      path,
-      bundleText({
-        version: app.getVersion(),
-        platform: process.platform,
-        osRelease: release(),
-        mailboxCount: profiles.length,
-        logs,
-        when,
-      }),
-      'utf8',
-    );
-  } catch (e) {
-    notifyLog(`[feedback] kon het logbestand niet schrijven: ${(e as Error).message}`);
-    return undefined;
-  }
-  prune(dir);
-  return path;
-}
-
-/**
- * Throws away the bundles from earlier reports
- *
- * Wrapped and after the write on purpose: a folder that cannot be read is not a reason to keep
- * the user from reporting a bug.
- *
- * @param dir
- * @private
- */
-function prune(dir: string): void {
-  try {
-    for (const name of bundlesToDelete(readdirSync(dir))) unlinkSync(join(dir, name));
-  } catch {
-  }
-}

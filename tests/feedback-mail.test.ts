@@ -106,7 +106,6 @@ describe('feedbackMail', () => {
         { name: 'notify.log', text: log },
         { name: 'update.log', text: log },
       ],
-      logFile: 'C:\\Users\\someone\\AppData\\Roaming\\app\\feedback\\log.txt',
       includeDiagnostics: true,
     });
     expect(encodedLength(mail?.body ?? '')).toBeLessThanOrEqual(BODY_BUDGET);
@@ -133,7 +132,7 @@ describe('feedbackMail', () => {
     const log = Array.from({ length: 2000 }, (_, i) => `line ${i}`).join('\n');
     const body =
       feedbackMail({ ...INPUT, logs: notify(log), includeDiagnostics: true })?.body ?? '';
-    expect(body).toContain('attached file');
+    expect(body).toContain('left out');
   });
 
   it('does not starve the second log for the first', () => {
@@ -150,17 +149,9 @@ describe('feedbackMail', () => {
     expect(body).toContain('the updater said something');
   });
 
-  it('names the file it wrote, so the user knows what to attach', () => {
-    const path = 'C:\\Users\\someone\\AppData\\Roaming\\Gmail Desktop\\feedback\\log.txt';
-    const body =
-      feedbackMail({ ...INPUT, logFile: path, includeDiagnostics: true })?.body ?? '';
-    expect(body).toContain(path);
-    expect(body).toMatch(/attach it to this mail/i);
-  });
-
-  it('says nothing about a file when there is none', () => {
+  it('never asks for a file, because it does not write one', () => {
     const body = feedbackMail({ ...INPUT, includeDiagnostics: true })?.body ?? '';
-    expect(body).not.toMatch(/attach/i);
+    expect(body).not.toMatch(/attach|bijlage|\.txt/i);
   });
 
   it('leaves the log out entirely when there is none', () => {

@@ -9,9 +9,9 @@
 // a server would have saved.
 //
 // What that costs is a hard ceiling: the body travels to Gmail inside a URL, and Google answers
-// a URL past eight kilobytes with a 400 rather than a compose window. So the whole log cannot
-// go in the mail however much we want it to -- it goes in a file beside it, and what fits here
-// is the tail that makes the mail readable on its own.
+// a URL past eight kilobytes with a 400 rather than a compose window. So what goes along is the
+// end of each log rather than the whole of it -- as many of the last lines as eight kilobytes
+// hold, which is where a report about what just happened is anyway.
 //
 // The diagnostics stay in English whatever language the app is in: they are read by whoever
 // fixes the bug, not by the person reporting it.
@@ -43,9 +43,6 @@ export interface FeedbackInput {
   /** Every log worth sending, most interesting first: they are served in this order and the
    * budget runs out from the back. */
   logs: FeedbackLog[];
-  /** Where the full logs were written, named in the mail so the user can attach it. Absent
-   * when writing the file failed, which is when the tail in the mail is all there is. */
-  logFile?: string;
   includeDiagnostics: boolean;
 }
 
@@ -82,13 +79,7 @@ const SEPARATOR = '--- diagnostics ---';
 // promising two hundred where three arrive reads as a fault in the app.
 const LOG_HEADER = (name: string): string => `${name}, most recent lines:`;
 const SHORTENED = '[message shortened]';
-const TRUNCATED = '[earlier lines are in the attached file]';
-
-const ATTACH_NOTE = [
-  'The full logs do not fit in a mail body -- Gmail refuses a URL this long -- so they were',
-  'written to the file below. Attach it to this mail before sending -- the path is copyable.',
-  'Credentials and mail content are already masked in it; everything else is as it was logged.',
-].join('\n');
+const TRUNCATED = '[earlier lines left out to fit the mail]';
 
 const PLATFORM_NAMES: Record<string, string> = {
   win32: 'Windows',
@@ -141,8 +132,8 @@ export function encodedLength(body: string): number {
  * The message with the diagnostics block under it, inside the budget
  *
  * Spent in order of what a reader cannot do without: the summary line, then the user's own
- * words, then the note naming the attached file, and the log tail gets what is left. The tail is
- * the one part that is also somewhere else, which is why it is the part that gives way.
+ * words, and the log tail gets what is left. The tail is what gives way, because a report with
+ * fewer log lines is still a report and one with the message cut is not.
  *
  * @param input
  * @param message already trimmed
@@ -152,11 +143,7 @@ export function encodedLength(body: string): number {
 function withDiagnostics(input: FeedbackInput, message: string): string {
   const system = `${platformName(input.platform)} ${input.osRelease}`.trim();
   const summary = `${APP_NAME} ${input.version} on ${system}, ${input.mailboxCount} mailboxes`;
-  const note = input.logFile ? `${ATTACH_NOTE}\n${input.logFile}` : '';
-
-  const head = [SEPARATOR, summary];
-  if (note !== '') head.push('', note);
-  const fixed = `\n\n${head.join('\n')}`;
+  const fixed = `\n\n${[SEPARATOR, summary].join('\n')}`;
 
   const body = fit(shorten(message), BODY_BUDGET - encodedLength(fixed)) + fixed;
   const tail = logBlocks(input.logs, BODY_BUDGET - encodedLength(body));
