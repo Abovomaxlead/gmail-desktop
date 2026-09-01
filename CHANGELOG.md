@@ -3,6 +3,23 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Niet uitgebracht]
+
+### Opgelost
+- **Een groot label naar het venster slepen leek eindeloos te blijven zoeken.** De balk zei
+  minutenlang "Mail zoeken…" en Annuleren deed niets, en dat kwam niet door het ophalen: het
+  opsommen van het label was toen nog niet eens klaar. Dat opsommen vroeg Google om honderd
+  gesprekken per keer waar vijfhonderd hetzelfde kost, dus een label van twintigduizend was
+  tweehonderd keer wachten op elkaar, en tussendoor werd niet gekeken of je al op Annuleren had
+  gedrukt. Nu gaat het in vijf keer minder stappen, staat er tijdens het zoeken hoeveel
+  gesprekken er tot nu toe gevonden zijn, en stopt Annuleren de zoektocht meteen in plaats van
+  pas als hij zichzelf uitgelopen heeft.
+
+### Toegevoegd
+- **Een macOS-installatie kan zichzelf bijwerken.** De mac-build leverde alleen het schijfimage
+  op waar een mens de app uit sleept; het bestand waar de bijwerkcontrole naar kijkt zat er niet
+  bij, dus liep die op elke ronde stuk. Dat bestand staat er nu naast.
+
 ## [1.0.0-beta.1788180489] — 2026-08-31
 
 ### Opgelost
