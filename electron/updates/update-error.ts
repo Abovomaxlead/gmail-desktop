@@ -24,6 +24,15 @@ export const UPDATE_ERROR_MAX_CHARS = 300;
 // the log shows "Error: Error: No published versions on GitHub".
 const ERROR_PREFIX = /^(?:Error:\s*)+/;
 
+/** The two ways GitHub answers "there is nothing here to update to". The first is the stable
+ * channel looking at /releases/latest while every release so far is a prerelease -- exactly
+ * what happens when the prerelease switch goes off on a beta build. The second is a repo with
+ * no releases at all. Both arrive as errors from electron-updater although neither is a
+ * failure the user can do anything about, so the controller reports them as a state of their
+ * own instead of as a failed check. */
+export const NO_RELEASE_ERROR =
+  /please ensure a production release exists|no published versions on github/i;
+
 
 //===========================
 // Exported functions

@@ -147,6 +147,8 @@ function updateStatusText(u: UpdateStatus, S: UiStrings): string {
       return S.updAvailable(u.version ?? '');
     case 'not-available':
       return S.updLatest;
+    case 'no-release':
+      return S.updNoRelease(u.currentVersion);
     case 'downloading':
       return S.updDownloading(u.percent ?? 0);
     case 'downloaded':

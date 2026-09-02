@@ -55,6 +55,11 @@ export function updateCheckPopup(status: UpdateStatusLike, L: NativeLabels): Upd
         message: L.updateLatestMessage(status.currentVersion),
         buttons: [L.ok],
       };
+    case 'no-release':
+      return {
+        message: L.updateNoReleaseMessage(status.currentVersion),
+        buttons: [L.ok],
+      };
     case 'error':
       return {
         message: L.updateCheckFailed,

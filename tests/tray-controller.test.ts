@@ -65,6 +65,7 @@ describe('updateItemLabel', () => {
   it('maps each updater state to a label', () => {
     expect(updateItemLabel({ state: 'idle' }, true, L)).toBe('Check for updates');
     expect(updateItemLabel({ state: 'not-available' }, true, L)).toBe('Check for updates');
+    expect(updateItemLabel({ state: 'no-release' }, true, L)).toBe('Check for updates');
     expect(updateItemLabel({ state: 'checking' }, true, L)).toBe('Checking for updates…');
     expect(updateItemLabel({ state: 'available', version: '0.2.0' }, true, L)).toBe('Download update v0.2.0');
     expect(updateItemLabel({ state: 'downloading', percent: 42 }, true, L)).toBe('Downloading update… 42%');

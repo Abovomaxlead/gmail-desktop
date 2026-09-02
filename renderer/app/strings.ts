@@ -247,6 +247,7 @@ export interface UiStrings {
   updChecking: string;
   updAvailable: (version: string) => string;
   updLatest: string;
+  updNoRelease: (version?: string) => string;
   updDownloading: (percent: number) => string;
   updDownloaded: string;
   updError: (message: string) => string;
@@ -682,6 +683,8 @@ export const STRINGS_NORMAL: UiStrings = {
   updChecking: 'Checking for updates…',
   updAvailable: (version) => `Update available: v${version}`,
   updLatest: "You're on the latest version.",
+  updNoRelease: (version) =>
+    `No final version has been released yet, so you stay on${version ? ` ${version}` : ' your current version'}.`,
   updDownloading: (percent) => `Downloading update… ${percent}%`,
   updDownloaded: 'Update downloaded — restarting to install…',
   updError: (message) => `Couldn't check for updates: ${message}`,
@@ -1053,6 +1056,8 @@ export const STRINGS_RENE: UiStrings = {
   updChecking: 'Even kijken…',
   updAvailable: (version) => `Er is iets nieuws: v${version}`,
   updLatest: 'Je hebt al het nieuwste.',
+  updNoRelease: (version) =>
+    `Er is nog niks nieuws${version ? `, je houdt ${version}` : ''}.`,
   updDownloading: (percent) => `Het komt eraan… ${percent}%`,
   updDownloaded: 'Het is er! De app gaat uit en aan…',
   updError: (message) => `Het lukt nu niet: ${message}`,
@@ -1437,6 +1442,8 @@ export const STRINGS_NL: UiStrings = {
   updChecking: 'Controleren op updates…',
   updAvailable: (version) => `Update beschikbaar: v${version}`,
   updLatest: 'Je gebruikt de nieuwste versie.',
+  updNoRelease: (version) =>
+    `Er is nog geen definitieve versie uitgebracht, dus je blijft op${version ? ` ${version}` : ' je huidige versie'}.`,
   updDownloading: (percent) => `Update downloaden… ${percent}%`,
   updDownloaded: 'Update gedownload — de app start opnieuw om te installeren…',
   updError: (message) => `Controleren op updates is mislukt: ${message}`,

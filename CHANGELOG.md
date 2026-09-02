@@ -57,6 +57,14 @@ to [Semantic Versioning](https://semver.org/).
   "jij bent geen gemachtigde van dit postvak" verdwijnt hij bij het opstarten uit de balk. Bij
   een storing, een netwerkfout of een account dat niets kan zeggen blijft hij gewoon staan:
   weghalen gebeurt alleen op een antwoord, nooit op stilte.
+- **"Pre-releaseversies ontvangen" weer uitzetten leverde een rode foutmelding op.** Zonder
+  betaversies kijkt de app naar de laatste definitieve versie, en die is er nog niet: GitHub
+  antwoordt dan met een fout, en die stond voluit in de Updates-instellingen — een adres en
+  "HttpError: 406" over een versie die nooit is uitgebracht. Er is niets stuk en er valt niets
+  opnieuw te proberen, dus staat er nu wat er echt aan de hand is: er is nog geen definitieve
+  versie, dus je blijft op de versie die je hebt. Een echte storing — een mislukte download,
+  een bestand dat niet klopt — blijft wél een foutmelding, en de volledige tekst gaat nog
+  altijd naar het updatelogboek.
 
 ## [1.0.0-beta.1788180489] — 2026-08-31
 

@@ -9,7 +9,11 @@
 // included. What the panel needs is the one line that says what went wrong.
 
 import { describe, it, expect } from 'vitest';
-import { UPDATE_ERROR_MAX_CHARS, updateErrorText } from '../electron/updates/update-error';
+import {
+  NO_RELEASE_ERROR,
+  UPDATE_ERROR_MAX_CHARS,
+  updateErrorText,
+} from '../electron/updates/update-error';
 
 describe('updateErrorText', () => {
   // The two real messages out of update.log, verbatim.
@@ -60,5 +64,29 @@ describe('updateErrorText', () => {
   it('answers with nothing for an empty message', () => {
     expect(updateErrorText('')).toBe('');
     expect(updateErrorText('   \n  \n ')).toBe('');
+  });
+});
+
+// Turning off the prerelease switch on a beta build points the updater at /releases/latest,
+// where a repository that has only ever published prereleases answers with an error. The
+// message below is the one from the report, verbatim.
+describe('NO_RELEASE_ERROR', () => {
+  it('recognises a stable channel with no production release', () => {
+    const raw =
+      'Error: Cannot parse releases feed: Error: Unable to find latest version on GitHub (https://github.com/x/y/releases/latest), please ensure a production release exists: HttpError: 406';
+    expect(NO_RELEASE_ERROR.test(raw)).toBe(true);
+  });
+
+  it('recognises a repository with no releases at all', () => {
+    expect(NO_RELEASE_ERROR.test('Error: Error: No published versions on GitHub')).toBe(true);
+  });
+
+  it('leaves a real failure alone', () => {
+    expect(NO_RELEASE_ERROR.test('sha512 checksum mismatch, expected AAA, got BBB')).toBe(false);
+    expect(
+      NO_RELEASE_ERROR.test(
+        'Cannot find latest.yml in the latest release artifacts (https://github.com/x/y/releases/download/v0.3.1/latest.yml): HttpError: 404',
+      ),
+    ).toBe(false);
   });
 });

@@ -35,7 +35,7 @@ import { prereleaseAllowed } from './update-channel';
 import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
-import { updateErrorText } from './update-error';
+import { NO_RELEASE_ERROR, updateErrorText } from './update-error';
 import { createUpdateLog, type UpdateLogger } from './update-log';
 import { showToast } from '../toast/toast-presenter';
 import { playNotificationSound } from '../notify/notify-gating';
@@ -102,11 +102,7 @@ export function checkForUpdate(opts?: { background?: boolean }): void {
   lastCheckBackground = opts?.background === true;
   if (!app.isPackaged) return sendUpdate({ state: 'dev' });
   sendUpdate({ state: 'checking' });
-  autoUpdater
-    .checkForUpdates()
-    .catch((err) =>
-      sendUpdate({ state: 'error', message: updateErrorText(String(err?.message || err)) }),
-    );
+  autoUpdater.checkForUpdates().catch((err) => reportCheckFailure(String(err?.message || err)));
 }
 
 export function checkForUpdateFromTray(): void {
@@ -177,7 +173,7 @@ export function setupUpdater(): void {
   );
   autoUpdater.on('error', (err) => {
     if (downloadInFlight) return;
-    sendUpdate({ state: 'error', message: updateErrorText(String(err?.message || err)) });
+    reportCheckFailure(String(err?.message || err));
   });
   autoUpdater.on('download-progress', (p) =>
     sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }),
@@ -204,6 +200,27 @@ function sendUpdate(status: Record<string, unknown>): void {
   mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);
   hooks.onStatusChanged();
   maybeShowTrayUpdatePopup();
+}
+
+/**
+ * Publishes the outcome of a check that came back with an error
+ *
+ * A stable channel on a repository whose only releases are prereleases -- the state you land
+ * in the moment the prerelease switch goes off on a beta build -- makes GitHub answer with an
+ * error, and it used to reach the panel as one: a red line naming a URL and an HTTP status
+ * about a release that was never published. There is nothing wrong and nothing to retry, so
+ * it gets a state of its own that says what is actually true, and the raw text still goes to
+ * update.log for anyone reading it.
+ *
+ * @param raw electron-updater's own message
+ * @private
+ */
+function reportCheckFailure(raw: string): void {
+  if (NO_RELEASE_ERROR.test(raw)) {
+    updateLog?.info(`no release to update to: ${updateErrorText(raw)}`);
+    return sendUpdate({ state: 'no-release' });
+  }
+  sendUpdate({ state: 'error', message: updateErrorText(raw) });
 }
 
 /** The answer to a check the user started from the tray. Nothing else pops a dialog: a

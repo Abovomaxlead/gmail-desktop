@@ -30,6 +30,7 @@ export type AttentionUpdateState =
   | 'checking'
   | 'available'
   | 'not-available'
+  | 'no-release'
   | 'downloading'
   | 'downloaded'
   | 'error'
