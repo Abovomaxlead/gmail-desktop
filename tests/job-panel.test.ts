@@ -15,9 +15,9 @@ import {
   jobEndText,
   controlFailureText,
   type EndPhase,
-  type JobEnd,
-  type JobEndOutcome,
 } from '../renderer/app/job-panel';
+import { type JobEnd, type JobEndOutcome } from '../renderer/lib/maildrop-copy';
+import { STRINGS_NL } from '../renderer/app/strings';
 
 const line = (over: Partial<{ batch: number; batches: number; done: number; total: number }> = {}) => ({
   batch: 3,
@@ -28,6 +28,7 @@ const line = (over: Partial<{ batch: number; batches: number; done: number; tota
 });
 
 const end = (over: Partial<JobEnd> = {}): JobEnd => ({
+  jobId: 'job-1',
   outcome: 'completed',
   label: 'Klanten',
   done: 100,
@@ -80,7 +81,7 @@ describe('phaseAfterJobEnd', () => {
   // phase whose close button works. A phase with no exit is the bug this replaces.
   it('always leaves a phase that can be closed', () => {
     for (const outcome of JOB_END_OUTCOMES) {
-      expect(['done', 'stopped']).toContain(phaseAfterJobEnd(end({ outcome })).kind);
+      expect(['done', 'stopped']).toContain(phaseAfterJobEnd(end({ outcome }), STRINGS_NL).kind);
     }
   });
 
@@ -113,7 +114,7 @@ describe('phaseAfterJobEnd', () => {
       stuck: { kind: 'done', error: 'Geen rechten' },
     };
     for (const outcome of JOB_END_OUTCOMES) {
-      const at = phaseAfterJobEnd(end({ outcome, error: 'Geen rechten' }));
+      const at = phaseAfterJobEnd(end({ outcome, error: 'Geen rechten' }), STRINGS_NL);
       expect(at).toEqual(expected[outcome]);
       expect(at.error ?? '').not.toContain('onbekende uitkomst');
     }
@@ -124,7 +125,7 @@ describe('phaseAfterJobEnd', () => {
   // the other, this is the difference between a closable panel and the stranded one 68f1981
   // was written to replace.
   it('still leaves a closable phase for an outcome it has never heard of', () => {
-    const at = phaseAfterJobEnd(end({ outcome: 'abandoned' as JobEndOutcome }));
+    const at = phaseAfterJobEnd(end({ outcome: 'abandoned' as JobEndOutcome }), STRINGS_NL);
     expect(at).toBeDefined();
     expect(['done', 'stopped']).toContain(at.kind);
     expect(at.error).toBeTruthy();
@@ -157,93 +158,55 @@ describe('panelMayWalk', () => {
 // honoured one -- which is what made a stranded panel silent instead of visible.
 describe('controlFailureText', () => {
   it('says nothing when the gate took the action', () => {
-    expect(controlFailureText('stop-keep', { ok: true })).toBeNull();
+    expect(controlFailureText('stop-keep', { ok: true }, STRINGS_NL)).toBeNull();
   });
 
   // The pause fired alongside the stop dialog is refused whenever there is no copy in flight,
   // which is every gap between two batches -- a normal moment, not a failure to report.
   it('says nothing about a pause or resume that had nothing to take it', () => {
-    expect(controlFailureText('pause', { ok: false, error: 'Er wordt niet gekopieerd' })).toBeNull();
-    expect(controlFailureText('resume', { ok: false, error: 'Er wordt niet gekopieerd' })).toBeNull();
+    expect(controlFailureText('pause', { ok: false, error: 'Er wordt niet gekopieerd' }, STRINGS_NL)).toBeNull();
+    expect(controlFailureText('resume', { ok: false, error: 'Er wordt niet gekopieerd' }, STRINGS_NL)).toBeNull();
   });
 
   it('reports a refused stop, with the reason the gate gave', () => {
-    const text = controlFailureText('stop-keep', { ok: false, error: 'Er wordt niet gekopieerd' });
+    const text = controlFailureText('stop-keep', { ok: false, error: 'Er wordt niet gekopieerd' }, STRINGS_NL);
     expect(text).toContain('Er wordt niet gekopieerd');
   });
 
   it('reports a stop that never reached main at all', () => {
-    expect(controlFailureText('stop-rollback-job', undefined)).toBeTruthy();
+    expect(controlFailureText('stop-rollback-job', undefined, STRINGS_NL)).toBeTruthy();
   });
 
   it('names no reason it was not given', () => {
-    expect(controlFailureText('stop-rollback-batch', { ok: false })).toBeTruthy();
+    expect(controlFailureText('stop-rollback-batch', { ok: false }, STRINGS_NL)).toBeTruthy();
   });
 
-  it('reports a finished job as done', () => {
-    expect(phaseAfterJobEnd(end())).toEqual({ kind: 'done' });
-  });
-
-  it('reports a job stopped with its mail left alone as stopped and kept', () => {
-    expect(phaseAfterJobEnd(end({ outcome: 'kept', done: 50 }))).toEqual({
-      kind: 'stopped',
-      mode: 'keep',
-      complete: true,
-    });
-  });
-
-  it('reports an undone job as stopped and rolled back', () => {
-    expect(phaseAfterJobEnd(end({ outcome: 'rolled-back', done: 50 }))).toEqual({
-      kind: 'stopped',
-      mode: 'rollback',
-      complete: true,
-    });
-  });
-
-  // The one that must not read as finished: some mail is still in a mailbox the sweep could not
-  // account for.
-  it('marks a partly undone job as not complete', () => {
-    expect(phaseAfterJobEnd(end({ outcome: 'rolled-back-partial', done: 50 }))).toEqual({
-      kind: 'stopped',
-      mode: 'rollback',
-      complete: false,
-    });
-  });
-
-  // A job left open on a failed batch is not a stop the user asked for, so it ends as a report
-  // carrying the batch's own error rather than as a rollback.
-  it('carries the error of a job stuck on a failed batch', () => {
-    expect(phaseAfterJobEnd(end({ outcome: 'stuck', done: 50, error: 'Geen rechten' }))).toEqual({
-      kind: 'done',
-      error: 'Geen rechten',
-    });
-  });
 });
 
 describe('panelTitle', () => {
   // The complaint this fixes: a four-batch job drew "Kopieer 25 conversaties" three times, each
   // panel describing a batch instead of the job.
   it('names the job while one is walking, not the batch on screen', () => {
-    expect(panelTitle({ items: 25, job: line() })).toBe('Kopieer 100 conversaties');
+    expect(panelTitle({ items: 25, job: line() }, STRINGS_NL)).toBe('Kopieer 100 conversaties');
   });
 
   it('names what was dragged when no job is walking', () => {
-    expect(panelTitle({ items: 25, job: null })).toBe('Kopieer 25 conversaties');
-    expect(panelTitle({ items: 1, job: null })).toBe('Kopieer 1 conversatie');
+    expect(panelTitle({ items: 25, job: null }, STRINGS_NL)).toBe('Kopieer 25 conversaties');
+    expect(panelTitle({ items: 1, job: null }, STRINGS_NL)).toBe('Kopieer 1 conversatie');
   });
 
   it('says a failed drag failed, whatever is walking', () => {
-    expect(panelTitle({ items: 25, job: line(), failed: true })).toBe('Slepen mislukt');
+    expect(panelTitle({ items: 25, job: line(), failed: true }, STRINGS_NL)).toBe('Slepen mislukt');
   });
 
   it('counts a one-conversation job in the singular too', () => {
-    expect(panelTitle({ items: 1, job: line({ total: 1, done: 0 }) })).toBe('Kopieer 1 conversatie');
+    expect(panelTitle({ items: 1, job: line({ total: 1, done: 0 }) }, STRINGS_NL)).toBe('Kopieer 1 conversatie');
   });
 });
 
 describe('panelBody', () => {
   it('says where the job is filing and how far it has got', () => {
-    expect(panelBody({ job: line(), targets: ['support@example.com'] })).toEqual({
+    expect(panelBody({ job: line(), targets: ['support@example.com'] }, STRINGS_NL)).toEqual({
       into: 'Wordt gekopieerd naar support@example.com',
       progress: 'Batch 3 van 4 — 62 van 100 gekopieerd',
     });
@@ -251,50 +214,50 @@ describe('panelBody', () => {
 
   it('names every mailbox a job files into', () => {
     expect(
-      panelBody({ job: line(), targets: ['support@example.com', 'info@example.com'] }).into,
+      panelBody({ job: line(), targets: ['support@example.com', 'info@example.com'] }, STRINGS_NL).into,
     ).toBe('Wordt gekopieerd naar support@example.com en info@example.com');
   });
 
   // Between the driver taking over and the first progress of the next batch there is a moment
   // with no numbers yet. The panel still has to say something.
   it('leaves the progress line out until there are numbers', () => {
-    expect(panelBody({ job: null, targets: ['support@example.com'] })).toEqual({
+    expect(panelBody({ job: null, targets: ['support@example.com'] }, STRINGS_NL)).toEqual({
       into: 'Wordt gekopieerd naar support@example.com',
       progress: '',
     });
   });
 
   it('says nothing about mailboxes it was not told about', () => {
-    expect(panelBody({ job: line(), targets: [] }).into).toBe('');
+    expect(panelBody({ job: line(), targets: [] }, STRINGS_NL).into).toBe('');
   });
 });
 
 describe('jobEndText', () => {
   it('closes a finished job with what it copied', () => {
-    expect(jobEndText(end())).toBe('Klus afgerond — 100 van 100 conversaties gekopieerd');
+    expect(jobEndText(end(), STRINGS_NL)).toBe('Klus afgerond — 100 van 100 conversaties gekopieerd');
   });
 
   it('closes a stopped job with how far it got', () => {
-    expect(jobEndText(end({ outcome: 'kept', done: 50, copiedBatches: 2 }))).toBe(
+    expect(jobEndText(end({ outcome: 'kept', done: 50, copiedBatches: 2 }), STRINGS_NL)).toBe(
       'Klus gestopt — 50 van 100 conversaties blijven gekopieerd',
     );
   });
 
   it('closes an undone job by saying it was undone', () => {
-    expect(jobEndText(end({ outcome: 'rolled-back', done: 50, copiedBatches: 2 }))).toBe(
+    expect(jobEndText(end({ outcome: 'rolled-back', done: 50, copiedBatches: 2 }), STRINGS_NL)).toBe(
       'Klus gestopt en ongedaan gemaakt',
     );
   });
 
   it('does not call a partly undone job undone', () => {
-    expect(jobEndText(end({ outcome: 'rolled-back-partial', done: 50, copiedBatches: 2 }))).toBe(
+    expect(jobEndText(end({ outcome: 'rolled-back-partial', done: 50, copiedBatches: 2 }), STRINGS_NL)).toBe(
       'Klus gestopt, ongedaan maken niet overal gelukt',
     );
   });
 
   it('closes a stuck job on its batch, since that is what has to be answered for', () => {
     expect(
-      jobEndText(end({ outcome: 'stuck', done: 50, copiedBatches: 2, error: 'Geen rechten' })),
+      jobEndText(end({ outcome: 'stuck', done: 50, copiedBatches: 2, error: 'Geen rechten' }), STRINGS_NL),
     ).toBe('Klus gestopt op batch 3 van 4 — Geen rechten');
   });
 
@@ -312,6 +275,7 @@ describe('jobEndText', () => {
     for (const outcome of JOB_END_OUTCOMES) {
       const text = jobEndText(
         end({ outcome, done: 50, copiedBatches: 2, batches: 4, error: 'Geen rechten' }),
+        STRINGS_NL,
       );
       expect(text).toBe(expected[outcome]);
       expect(text).not.toContain('onbekende uitkomst');
@@ -323,14 +287,14 @@ describe('jobEndText', () => {
   // and the renderer are separate builds, so an outcome this compiler never saw is exactly the
   // case that reaches here.
   it('still says something for an outcome it has never heard of', () => {
-    const text = jobEndText(end({ outcome: 'abandoned' as JobEndOutcome }));
+    const text = jobEndText(end({ outcome: 'abandoned' as JobEndOutcome }), STRINGS_NL);
     expect(typeof text).toBe('string');
     expect(text).toBeTruthy();
     expect(text).toContain('abandoned');
   });
 
   it('still says something when the outcome is missing altogether', () => {
-    const text = jobEndText({ ...end(), outcome: undefined as unknown as JobEndOutcome });
+    const text = jobEndText({ ...end(), outcome: undefined as unknown as JobEndOutcome }, STRINGS_NL);
     expect(typeof text).toBe('string');
     expect(text).toBeTruthy();
   });

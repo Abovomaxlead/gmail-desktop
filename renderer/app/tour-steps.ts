@@ -199,10 +199,8 @@ const STEPS: readonly TourStep[] = [
 /**
  * The steps, in order
  *
- * Every step is always shown. The pinned step used to be dropped when the bar had no pinned
- * Google app, which meant the one feature nobody discovers went unmentioned to exactly the
- * users who had not discovered it. The bar now borrows an example button for the length of
- * the tour instead, so there is always something to point at.
+ * Every step is always shown; the bar borrows an example pinned app for the length of the
+ * tour, so the pinned step always has something to point at.
  *
  * @returns fresh copies of the script
  */

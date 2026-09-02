@@ -1,48 +1,33 @@
 // Keeping the mailboxes current over the Gmail API: the history cursor, the five-minute
-// sweep, the verification codes copied out of arriving mail, and the relay push that is
-// switched off but still wired.
+// sweep, and the verification codes copied out of arriving mail.
 //
-// Two sources could announce new mail and only one may -- with the relay off, that is the
-// page. The API side keeps running either way, since it is how a code gets copied and how
-// the cursor stays fresh.
+// For an own account the page announces new mail and the API does not: the sweep is there
+// so a code gets copied and the cursor stays fresh, and it owns the unread count because
+// threadsUnread counts the whole mailbox while the page title counts one tab.
 //
-// A delegated mailbox is the exception, and it is not an exception to that rule but a case
-// of it. Gmail raises no desktop notification in a delegated view at all: notify.log holds
-// weeks of "notification shim installed" for those views and not one "Gmail raised a
-// notification", across fifteen moments where their unread count rose while the app ran. So
-// for those mailboxes the page is not a quiet source, it is no source, and the API sweep
-// below is the only one that can speak. It runs against a relay-minted token and touches no
-// own account.
+// A delegated mailbox is the exception. Gmail raises no desktop notification in a delegated
+// view at all: notify.log holds weeks of "notification shim installed" for those views and
+// not one "Gmail raised a notification", across fifteen moments where their unread count
+// rose while the app ran. So for those mailboxes the page is not a quiet source, it is no
+// source, and the API sweep below is the only one that can speak. It runs against a
+// relay-minted token and touches no own account.
 
 import { clipboard } from 'electron';
 import {
-  coverage,
   history,
   messageIndex,
-  pushManager,
   oauthTokens,
   prefs,
   profiles,
-  setPushManager,
   syncRunners,
   currentLocale,
 } from '../core/runtime';
-import { accessTokenFor, forceRefresh } from '../auth/oauth-flow';
-import { delegatedTokenUrl, oauthConfig, pushConfig } from '../auth/oauth-config';
+import { delegatedTokenUrl } from '../auth/oauth-config';
 import { withDelegatedToken, withTokenFor } from '../auth/mailbox-token';
-import {
-  checkOAuthHealth,
-  clearPushRefusal,
-  clearRefreshFailure,
-  markRefreshFailed,
-  notePushRefused,
-  scheduleOAuthHealthCheck,
-} from '../auth/oauth-health-check';
 import { hasScopes } from '../auth/google-oauth';
 import {
   hiddenNotificationText,
   playNotificationSound,
-  refreshNotifyAllowed,
   reportApiUnread,
 } from '../notify/notify-gating';
 import {
@@ -65,11 +50,9 @@ import {
   fetchProfileHistoryId,
   markMessageRead,
   trashMessage,
-  watchMailbox,
   GmailHttpError,
   type MessageMeta,
 } from '../gmail/gmail-api';
-import { startPushManager } from './push-manager';
 import { createSyncRunner } from './push-sync';
 
 
@@ -80,15 +63,14 @@ import { createSyncRunner } from './push-sync';
 /**
  * Raises the card for one mail the API turned up
  *
- * Whether the API may speak for this mailbox at all is the caller's question -- for an own
- * account that is push coverage, for a delegated mailbox it is that nothing else can.
+ * Only a delegated mailbox gets here: nothing else can announce its mail, while an own
+ * account is announced by the Gmail page itself.
  *
  * @param email
  * @param meta
- * @param source what the log line should call this
  * @private
  */
-function notifyNewMail(email: string, meta: MessageMeta, source: string): void {
+function notifyNewMail(email: string, meta: MessageMeta): void {
   if (!prefs) return;
   const account = toastAccountFor(email);
   if (!account) return;
@@ -98,7 +80,7 @@ function notifyNewMail(email: string, meta: MessageMeta, source: string): void {
   const hidden = hiddenNotificationText(p);
   const L = nativeLabels(currentLocale(), p.reneMode === true);
 
-  notifyLog(`[notify] raise ${source} ${email} thread=${meta.threadId}`);
+  notifyLog(`[notify] raise delegated ${email} thread=${meta.threadId}`);
   showToast({
     kind: 'mail',
     title: hidden.hiddenSender ?? (displayName(meta.from) || email),
@@ -127,7 +109,7 @@ async function handleVerificationCode(
     const raw = await withToken((token) => fetchMessageRaw(token, meta.id));
     if (!raw) return;
     const code = findVerificationCode(
-      { subject: meta.subject, body: extractPlainText(raw.toString('utf8')), from: meta.from },
+      { subject: meta.subject, body: extractPlainText(raw.toString('utf8')) },
       vc.confidence,
     );
     if (!code) return;
@@ -141,7 +123,7 @@ async function handleVerificationCode(
     if (vc.markRead) await withToken((token) => markMessageRead(token, meta.id));
     if (vc.deleteAfter) await withToken((token) => trashMessage(token, meta.id));
   } catch (e) {
-    console.warn(`[codes] kon geen code afhandelen voor ${email}:`, e);
+    console.warn(`[codes] could not handle a code for ${email}:`, e);
   }
 }
 
@@ -184,24 +166,21 @@ export function syncRunnerFor(email: string): { run(): Promise<void> } | null {
       get: () => history!.get(email),
       set: (id) => history!.set(email, id),
     },
-    coveredSince: () => coverage.since(email) ?? apiSyncSince.get(email) ?? null,
+    coveredSince: () => apiSyncSince.get(email) ?? null,
     isExpiredCursor: (e) => e instanceof GmailHttpError && e.status === 404,
     onOutcome: (outcome) => {
       reportApiUnread(email, outcome.unread);
-
-      if (RELAY_PUSH_ENABLED && coverage.has(email)) {
-        for (const meta of outcome.notify) notifyNewMail(email, meta, 'push');
-      }
       for (const meta of outcome.notify) void handleVerificationCode(email, meta, withToken);
       rememberArrivals(email, outcome.notify);
     },
-    onError: (e) => console.warn(`[sync] sync mislukte voor ${email}:`, e),
+    onError: (e) => console.warn(`[sync] sync failed for ${email}:`, e),
   });
   syncRunners.set(email, runner);
   return runner;
 }
 
-function pushableEmails(): string[] {
+// The own accounts the API may be asked about: signed in, with a token wide enough.
+function ownAccounts(): string[] {
   if (!oauthTokens) return [];
   return profiles
     .filter((p) => p.kind === 'authuser')
@@ -212,25 +191,41 @@ function pushableEmails(): string[] {
     });
 }
 
-const RELAY_PUSH_ENABLED: boolean = false;
-
+// When the sweep of each own account began. Mail already sitting there is not news, so this
+// is what keeps the first sweep from copying a code out of a week-old message.
 const apiSyncSince = new Map<string, number>();
 
 const API_SYNC_MS = 5 * 60_000;
 let apiSyncTimer: ReturnType<typeof setInterval> | null = null;
 
 function startApiSync(): void {
-  const wanted = new Set(pushableEmails());
+  const wanted = new Set(ownAccounts());
   for (const email of apiSyncSince.keys()) if (!wanted.has(email)) apiSyncSince.delete(email);
   for (const email of wanted) {
     if (apiSyncSince.has(email)) continue;
     apiSyncSince.set(email, Date.now());
     void syncRunnerFor(email)?.run();
   }
+  stopApiSyncWhenEmpty();
   if (apiSyncTimer || wanted.size === 0) return;
   apiSyncTimer = setInterval(() => {
     for (const email of apiSyncSince.keys()) void syncRunnerFor(email)?.run();
   }, API_SYNC_MS);
+}
+
+/**
+ * Stops the five-minute sweep once no own account is left to sweep
+ *
+ * The last account leaving takes the clock with it, or it keeps ticking over an empty map
+ * for the rest of the session -- and a later account would find a timer that is already
+ * "started" and never be swept at all.
+ *
+ * @private
+ */
+function stopApiSyncWhenEmpty(): void {
+  if (apiSyncSince.size > 0 || !apiSyncTimer) return;
+  clearInterval(apiSyncTimer);
+  apiSyncTimer = null;
 }
 
 
@@ -284,7 +279,9 @@ function delegatedMailboxes(): string[] {
     // whole thing exists to end, so it may not be silent about being silent.
     if (!noRelaySaid) {
       noRelaySaid = true;
-      notifyLog(`[notify] geen relay ingesteld; ${rows.length} gedelegeerd(e) postvak(ken) kunnen niet melden`);
+      notifyLog(
+        `[notify] no relay configured; ${rows.length} delegated mailbox(es) cannot announce anything`,
+      );
     }
     return [];
   }
@@ -295,9 +292,9 @@ function delegatedMailboxes(): string[] {
  * The runner that watches one delegated mailbox
  *
  * Everything is the own-account runner except three things: the token comes from the relay,
- * the unread count is not asked for -- the page title already carries it and reportApiUnread
- * would refuse it anyway -- and a notification needs no push coverage, because for this
- * mailbox there is nothing else that could announce the same mail.
+ * the unread count is not asked for -- the page title already carries it -- and this runner
+ * raises the cards itself, because for this mailbox there is nothing else that could
+ * announce the same mail.
  *
  * @param email
  * @returns the runner, kept in syncRunners like every other, or null with no history store
@@ -323,7 +320,7 @@ function delegatedSyncRunnerFor(email: string): { run(): Promise<void> } | null 
     coveredSince: () => delegatedSince.get(email) ?? null,
     isExpiredCursor: (e) => e instanceof GmailHttpError && e.status === 404,
     onOutcome: (outcome) => {
-      for (const meta of outcome.notify) notifyNewMail(email, meta, 'delegated');
+      for (const meta of outcome.notify) notifyNewMail(email, meta);
       if (outcome.notify.length > 0) delegatedComplaint.delete(email);
     },
     onError: (e) => complainAbout(email, e),
@@ -347,7 +344,7 @@ function complainAbout(email: string, e: unknown): void {
   const reason = e instanceof Error ? e.message : String(e);
   if (delegatedComplaint.get(email) === reason) return;
   delegatedComplaint.set(email, reason);
-  notifyLog(`[notify] gedelegeerd postvak ${email} kon niet gelezen worden: ${reason}`);
+  notifyLog(`[notify] delegated mailbox ${email} could not be read: ${reason}`);
 }
 
 /**
@@ -366,7 +363,7 @@ function startDelegatedSync(): void {
     if (delegatedSince.has(email)) continue;
     delegatedSince.set(email, Date.now());
     notifyLog(
-      `[notify] gedelegeerd postvak ${email} wordt nu elke ${DELEGATED_SYNC_MS / 1000} seconden gelezen`,
+      `[notify] delegated mailbox ${email} is now read every ${DELEGATED_SYNC_MS / 1000} seconds`,
     );
     void delegatedSyncRunnerFor(email)?.run();
   }
@@ -385,6 +382,7 @@ export function stopMailboxSync(email: string): void {
   syncRunners.delete(email);
   delegatedSince.delete(email);
   delegatedComplaint.delete(email);
+  apiSyncSince.delete(email);
   // The last mailbox leaving takes the clock with it, or it keeps ticking over an empty map
   // for the rest of the session -- and a later mailbox would find a timer that is already
   // "started" and never be swept at all.
@@ -392,6 +390,7 @@ export function stopMailboxSync(email: string): void {
     clearInterval(delegatedTimer);
     delegatedTimer = null;
   }
+  stopApiSyncWhenEmpty();
 }
 
 
@@ -402,55 +401,4 @@ export function stopMailboxSync(email: string): void {
 export function startMailSync(): void {
   startApiSync();
   startDelegatedSync();
-  if (!RELAY_PUSH_ENABLED) return;
-  startRelayPush();
-}
-
-function startRelayPush(): void {
-  if (pushManager) {
-    pushManager.refresh();
-    return;
-  }
-  const config = pushConfig();
-  if (!config) return;
-  const cfg = oauthConfig();
-  if (!cfg || !oauthTokens) return;
-
-  const started = startPushManager({
-    config,
-    accounts: pushableEmails,
-    accessToken: (email) => accessTokenFor(cfg, oauthTokens!, email),
-    refreshToken: async (email) => {
-      const fresh = await forceRefresh(cfg, oauthTokens!, email);
-      if (fresh) clearRefreshFailure(email);
-      else markRefreshFailed(email);
-      return fresh;
-    },
-    armWatch: async (email) => {
-      const token = await accessTokenFor(cfg, oauthTokens!, email);
-      if (!token) return false;
-      try {
-        return (await watchMailbox(token, config.pushTopic)) !== null;
-      } catch (e) {
-        console.warn(`[push] watch mislukte voor ${email}:`, e);
-        return false;
-      }
-    },
-    onSync: (email) => void syncRunnerFor(email)?.run(),
-    onCoverage: (email, covered) => {
-      if (covered) {
-        coverage.cover(email);
-        if (clearPushRefusal(email)) scheduleOAuthHealthCheck();
-      } else coverage.drop(email);
-      refreshNotifyAllowed();
-    },
-    onFatal: (email, code) => {
-      console.warn(`[push] push definitief uit voor ${email} (code ${code})`);
-      if (code === 4401) {
-        notePushRefused(email);
-        void checkOAuthHealth();
-      }
-    },
-  });
-  setPushManager(started);
 }

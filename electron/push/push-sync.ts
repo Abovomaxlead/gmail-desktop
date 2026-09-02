@@ -83,8 +83,9 @@ export function createSyncRunner(deps: SyncDeps): { run(): Promise<void> } {
   /**
    * Walks every history page and reports what deserves a notification
    *
-   * The cursor only advances past the last page: moving it halfway and then failing
-   * would lose that mail for good.
+   * The cursor only advances when the whole pass succeeded: moving it past a page or a
+   * message that failed would lose that mail for good, because no later sync would ever
+   * look before the cursor again.
    *
    * @private
    */
@@ -110,18 +111,20 @@ export function createSyncRunner(deps: SyncDeps): { run(): Promise<void> } {
 
     const since = deps.coveredSince();
     const notify: MessageMeta[] = [];
+    let incomplete = false;
     for (const id of notifiableIds(added)) {
       let meta: MessageMeta | null;
       try {
         meta = await deps.client.messageMeta(id);
       } catch (e) {
+        incomplete = true;
         deps.onError?.(e);
         continue;
       }
       if (meta && shouldNotify(meta.internalDate, since)) notify.push(meta);
     }
 
-    deps.cursor.set(latest);
+    if (!incomplete) deps.cursor.set(latest);
     deps.onOutcome({ notify, unread: await unread(), rebaselined: false });
   };
 

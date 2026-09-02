@@ -25,6 +25,7 @@ import { titleShowsSubject } from '../notify/notify-match';
 import type { KeyInput } from '../menus/shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, surfacesForRef, type Surface } from '../../renderer/lib/surfaces';
 import { accountKey, type AccountRef } from '../accounts/account-ref';
+import { SESSION_PARTITION } from '../core/session-partition';
 
 export type { Surface };
 
@@ -46,8 +47,6 @@ export interface Profile {
   name: string;
   avatarUrl: string;
   color: string;
-  order?: number;
-  label?: string;
 }
 
 /** What the mail view reports about itself between tries: where it thinks it is, what it
@@ -62,8 +61,6 @@ interface PopoutProbe {
 //===========================
 // Constants
 //===========================
-
-const SESSION_PARTITION = 'persist:google';
 
 const viewKey = (acctKey: string, surface: Surface) => `${acctKey}:${surface}`;
 const acctKeyOfViewKey = (vk: string) => vk.slice(0, vk.lastIndexOf(':'));
@@ -162,18 +159,29 @@ export class ProfileViewManager {
     view.webContents.on('ipc-message', (_e, channel, ...args) => {
       if (surface === 'mail') {
         if (channel === IPC.UNREAD_UPDATE) this.onUnread(acctKey, Number(args[0]) || 0);
-        else if (channel === IPC.ACCOUNT_IDENTITY) this.onIdentity(acctKey, args[0]);
-        else if (channel === IPC.MAIL_DROP) this.onMailDrop(acctKey, args[0] as MailDropPayload);
-        else if (channel === IPC.MAIL_DROP_ALLOWED_GET) {
-          const allowed = this.mayDragToSave(acctKey);
-
-          if (allowed === null) return;
-
-          if (!allowed && !this.dropRefused.has(k)) {
-            this.dropRefused.add(k);
-            console.log(`[maildrop] geen dropzone voor ${acctKey}: buiten het werkdomein`);
+        else if (channel === IPC.ACCOUNT_IDENTITY) {
+          const identity = args[0] as
+            | Partial<{ email: unknown; name: unknown; avatarUrl: unknown }>
+            | undefined;
+          if (
+            typeof identity?.email === 'string' &&
+            typeof identity.name === 'string' &&
+            typeof identity.avatarUrl === 'string'
+          ) {
+            this.onIdentity(acctKey, identity as { email: string; name: string; avatarUrl: string });
           }
-          view.webContents.send(IPC.MAIL_DROP_ALLOWED, allowed);
+        } else if (channel === IPC.MAIL_DROP) {
+          const payload = args[0] as Partial<MailDropPayload> | undefined;
+          if (
+            payload &&
+            Array.isArray(payload.items) &&
+            typeof payload.authuser === 'string' &&
+            typeof payload.ik === 'string'
+          ) {
+            this.onMailDrop(acctKey, payload as MailDropPayload);
+          }
+        } else if (channel === IPC.MAIL_DROP_ALLOWED_GET) {
+          this.pushMailDropAllowed(acctKey);
         }
       }
       if (channel === IPC.NOTIFICATION_ACTIVATE) {
@@ -503,7 +511,7 @@ export class ProfileViewManager {
     // sending the view somewhere else is exactly what makes an anchor still looking for the
     // last conversation wrong, and it would otherwise unfold what it finds when it arrives.
     const run = this.claimMailView(k);
-    void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`);
+    void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`).catch(() => {});
     if (!messageId) return;
     void this.anchorMailMessage(wc, accountKey, messageId, () => this.anchorRun.get(k) !== run);
   }
@@ -602,7 +610,7 @@ export class ProfileViewManager {
    * @param accountKey
    * @param threadId
    * @param subject what the title should show once the thread is really on screen
-   * @returns {Promise<boolean>} true once the button is clicked, false if it never appears
+   * @returns true once the button is clicked, false if it never appears
    *   — the caller then opens a thread window of its own. The view is restored either way.
    */
   async popOutThread(
@@ -653,7 +661,7 @@ export class ProfileViewManager {
    * The hash the view is on
    *
    * @param wc
-   * @returns {Promise<string>} '' when it has none or cannot be asked
+   * @returns '' when it has none or cannot be asked
    * @private
    */
   private async readHash(wc: WebContents): Promise<string> {
@@ -699,7 +707,7 @@ export class ProfileViewManager {
    * @param wc
    * @param shows reads the title — the one thing that changes only when the conversation is
    *   really on screen
-   * @returns {Promise<boolean>} false when the button never appeared, and the caller opens
+   * @returns false when the button never appeared, and the caller opens
    *   its own window on the right thread — a plainer window on the right mail, which beats
    *   Gmail's own on the wrong one
    * @private
@@ -760,11 +768,33 @@ export class ProfileViewManager {
   }
 
   /**
+   * Pushes the current drag-to-save answer to an account's mail view
+   *
+   * The page only asks a bounded number of times after it loads, so an account that
+   * registers only after that window closed would otherwise never learn the answer -- this
+   * is the push side that reaches it once the account exists.
+   *
+   * @param accountKey
+   */
+  pushMailDropAllowed(accountKey: string): void {
+    const allowed = this.mayDragToSave(accountKey);
+    if (allowed === null) return;
+    const k = viewKey(accountKey, 'mail');
+    if (!allowed && !this.dropRefused.has(k)) {
+      this.dropRefused.add(k);
+      console.log(`[maildrop] no dropzone for ${accountKey}: outside the work domain`);
+    }
+    const wc = this.views.get(k)?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    wc.send(IPC.MAIL_DROP_ALLOWED, allowed);
+  }
+
+  /**
    * Runs something against a page nobody sees, then throws the page away
    *
    * @param url
    * @param fn
-   * @returns {Promise<T>} whatever fn answered
+   * @returns whatever fn answered
    */
   async withHiddenView<T>(
     url: string,
@@ -886,7 +916,7 @@ export class ProfileViewManager {
    *
    * @param accountKey
    * @param scrapeJs runs inside the switcher frame
-   * @returns {Promise<Array<{email: string, href: string}>>} empty when the frame never
+   * @returns empty when the frame never
    *   appeared
    */
   async scrapeSwitcher(accountKey: string, scrapeJs: string): Promise<Array<{ email: string; href: string }>> {
@@ -929,7 +959,7 @@ export class ProfileViewManager {
  * @param done
  * @param timeoutMs
  * @param stepMs
- * @returns {Promise<void>} which says nothing about which of the two ended the wait
+ * @returns which says nothing about which of the two ended the wait
  * @private
  */
 async function waitUntil(done: () => boolean, timeoutMs: number, stepMs = 50): Promise<void> {

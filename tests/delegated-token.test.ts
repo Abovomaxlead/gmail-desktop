@@ -43,12 +43,12 @@ describe('the cache', () => {
 });
 
 describe('when to ask with another of the user\'s accounts', () => {
-  // 403 means this person is not a delegate of that mailbox, which says nothing about the
-  // next person. Everything else says something about the request or the relay, and trying
-  // again would multiply one failure by the number of accounts and report the last.
-  it('retries only a delegation refusal', () => {
+  // A refusal that names this requester -- their own token (401), or their lack of the
+  // delegation (403) -- says nothing about the next own account, so the walk continues.
+  // Only a refusal that is not about any one requester (0, 5xx) ends it.
+  it('retries on a refusal specific to the requester just asked', () => {
     expect(shouldTryAnotherRequester(403)).toBe(true);
-    expect(shouldTryAnotherRequester(401)).toBe(false);
+    expect(shouldTryAnotherRequester(401)).toBe(true);
     expect(shouldTryAnotherRequester(400)).toBe(false);
     expect(shouldTryAnotherRequester(502)).toBe(false);
     expect(shouldTryAnotherRequester(500)).toBe(false);

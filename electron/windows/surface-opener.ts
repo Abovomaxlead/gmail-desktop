@@ -8,6 +8,7 @@
 import { BrowserWindow, dialog, shell } from 'electron';
 import { pushPrefs } from '../core/broadcast';
 import { accountKey, type AccountRef } from '../accounts/account-ref';
+import { SESSION_PARTITION } from '../core/session-partition';
 import { activeView, currentLocale, mainWindow, prefs, profiles } from '../core/runtime';
 import { showAccount } from './view-surfaces';
 import { hiddenNotificationText, playNotificationSound, resetSoundThrottle } from '../notify/notify-gating';
@@ -79,7 +80,7 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
       g?.showAccountColor !== false && profiles.find((p) => p.email === email)?.color
         ? profiles.find((p) => p.email === email)!.color
         : '#ffffff',
-    webPreferences: { partition: 'persist:google', contextIsolation: true },
+    webPreferences: { partition: SESSION_PARTITION, contextIsolation: true },
   });
   win.on('page-title-updated', (e) => {
     if (showLabel) e.preventDefault();
@@ -120,6 +121,6 @@ export function openExternalGuarded(url: string): void {
     }
     void shell.openExternal(url);
   };
-  if (parent) void dialog.showMessageBox(parent, box).then(done);
-  else void dialog.showMessageBox(box).then(done);
+  if (parent) void dialog.showMessageBox(parent, box).then(done).catch(() => {});
+  else void dialog.showMessageBox(box).then(done).catch(() => {});
 }

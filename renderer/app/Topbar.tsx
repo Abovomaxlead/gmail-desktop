@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { AccountTab } from './AccountTab';
 import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { planPlusMenu, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
@@ -9,8 +9,8 @@ import { TOPBAR_HEIGHT } from '../lib/topbar';
 import { accountCountVisible } from '../lib/badge-visibility';
 import { pinnedSurfacesFor, surfaceLabel } from '../lib/google-apps';
 import { openableSurfaces } from '../lib/surfaces';
-import { playSound } from '../lib/notification-sound';
 import { SURFACE_ICON_DATA_URIS } from '../lib/surface-icon-data';
+import type { UiStrings } from './strings';
 import type { Profile, Surface, UpdateStatus, Prefs } from './page';
 
 // The bar is the window's own title bar, which sets two rules for this file. The empty
@@ -61,7 +61,7 @@ export function Topbar({
   labelFor,
   settingsOpen,
   update,
-  strings,
+  S,
   demoPinned,
   onOpen,
   onPopupMenu,
@@ -81,7 +81,7 @@ export function Topbar({
   update: UpdateStatus;
   /** Google apps the tour borrows for the bar while nothing real is pinned. */
   demoPinned: readonly Surface[];
-  strings: { feedbackTooltip: string; addAccountTooltip: string; addAccountLabel: string; addDelegatedLabel: string; settingsTooltip: string; updateReady: string; delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
+  S: UiStrings;
   onOpen(key: string, surface: Surface): void;
   onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
   onAddAccount(): void;
@@ -98,14 +98,8 @@ export function Topbar({
     ? pinnedSurfacesFor(prefs?.googleApps.pinned ?? [], openableSurfaces(activeProfile))
     : [];
 
-  useEffect(() => {
-    window.desktop?.onPlayNotificationSound(({ name, volume }) => {
-      playSound(name, volume);
-    });
-  }, []);
-
   async function openPlusMenu(): Promise<void> {
-    const picked = await onPopupMenu(planPlusMenu({ strings }));
+    const picked = await onPopupMenu(planPlusMenu({ strings: S }));
     if (picked === PLUS_ADD_ACCOUNT) return onAddAccount();
     if (picked === PLUS_ADD_DELEGATED) return onAddDelegated();
   }
@@ -149,7 +143,7 @@ export function Topbar({
               active={active?.key === p.key}
               activeSurface={active?.key === p.key ? active.surface : null}
               dragging={dragEmail === p.email}
-              strings={strings}
+              strings={S}
               onOpen={() => onOpen(p.key, 'mail')}
               onMenu={() => void openTabMenu(p)}
               onDragStart={() => setDragEmail(p.email)}
@@ -166,7 +160,7 @@ export function Topbar({
           <button
             data-tour="add"
             onClick={() => void openPlusMenu()}
-            title={strings.addAccountTooltip}
+            title={S.addAccountTooltip}
             className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
           >
             <PlusIcon className="h-4 w-4" />
@@ -178,11 +172,11 @@ export function Topbar({
         {updateReady && (
           <button
             onClick={onInstallUpdate}
-            title={strings.updateReady}
+            title={S.updateReady}
             style={{ maxWidth: UPDATE_BUTTON, ...NO_DRAG }}
             className="flex shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1 text-[12px] font-medium text-white transition hover:bg-blue-700"
           >
-            <span className="min-w-0 truncate">{strings.updateReady}</span>
+            <span className="min-w-0 truncate">{S.updateReady}</span>
           </button>
         )}
         {pinned.map((surface, i) => (
@@ -230,8 +224,8 @@ export function Topbar({
         <button
           data-tour="feedback"
           onClick={onOpenFeedback}
-          title={strings.feedbackTooltip}
-          aria-label={strings.feedbackTooltip}
+          title={S.feedbackTooltip}
+          aria-label={S.feedbackTooltip}
           style={NO_DRAG}
           className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
         >
@@ -240,7 +234,7 @@ export function Topbar({
         <button
           data-tour="gear"
           onClick={onOpenSettings}
-          title={strings.settingsTooltip}
+          title={S.settingsTooltip}
           style={NO_DRAG}
           className={`mr-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition ${
             settingsOpen

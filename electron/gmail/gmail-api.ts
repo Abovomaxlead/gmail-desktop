@@ -140,7 +140,6 @@ export const INSERT_URL =
 export const THREADS_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/threads';
 export const MESSAGES_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages';
 
-export const WATCH_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/watch';
 export const STOP_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/stop';
 export const PROFILE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
 export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/history';
@@ -319,10 +318,6 @@ export function parseUnreadThreads(json: unknown): number | null {
 
 export async function fetchLabels(accessToken: string): Promise<GmailLabel[]> {
   return parseLabels(await requestJson(LABELS_URL, accessToken));
-}
-
-export async function fetchLabelId(accessToken: string, name: string): Promise<string | null> {
-  return findLabelId(parseAllLabels(await requestJson(LABELS_URL, accessToken)), name);
 }
 
 export async function fetchInboxUnread(accessToken: string): Promise<number | null> {
@@ -673,56 +668,21 @@ export async function listLabelThreadIds(
 }
 
 /**
- * Reads every message of a thread
+ * Reads the source of every message in a thread
  *
- * The network is a dependency so a test can check the list keeps its shape: dropping an
- * unreadable message is what once made a short copy look like a complete one. The order is
- * mapLimit's, which is the order of the ids and not the order the answers arrive in.
- *
- * @param ids
- * @param read
- * @param limit how many messages to read at once
- * @returns {Promise<ThreadMessage[]>} one entry per id, in the thread's own order, and a
- *   message that could not be read stays in as an error
+ * @param accessToken
+ * @param threadId
+ * @returns {Promise<ThreadMessage[]>} one entry per message of the thread, in the thread's own
+ *   order, and a message that could not be read stays in as an error
  */
-export async function collectThreadMessages(
-  ids: string[],
-  read: (id: string) => Promise<Buffer | null>,
-  limit = MESSAGE_FETCH_LIMIT,
-): Promise<ThreadMessage[]> {
-  return await mapLimit(ids, limit, async (id) => {
-    try {
-      const raw = await read(id);
-      return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
-    } catch (e) {
-      return { id, error: `Ophalen mislukt (${(e as Error).message})` };
-    }
-  });
-}
-
 export async function fetchThreadMessages(
   accessToken: string,
   threadId: string,
 ): Promise<ThreadMessage[]> {
   const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
-  const oneByOne = () =>
-    collectThreadMessages(ids, async (id) =>
-      parseMessageRaw(await requestJson(messageRawUrl(id), accessToken)),
-    );
-
   // The sources of a conversation are the bulk of a drag: one batch instead of one request per
   // message is where the waiting goes. Small groups, because a part here is a whole mail.
-  let answers: Array<unknown | null>;
-  try {
-    answers = await requestBatch(ids.map(messageRawUrl), accessToken, RAW_BATCH_LIMIT);
-  } catch (e) {
-    notifyLog(`[gmail] batch mislukt, bericht voor bericht: ${(e as Error).message}`);
-    return await oneByOne();
-  }
-  if (batchLooksBroken(answers)) {
-    notifyLog('[gmail] batch gaf niets bruikbaars, bericht voor bericht');
-    return await oneByOne();
-  }
+  const answers = await batchedOrOneByOne(ids.map(messageRawUrl), accessToken, RAW_BATCH_LIMIT);
   return ids.map((id, i) => {
     const raw = parseMessageRaw(answers[i]);
     return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
@@ -888,13 +848,26 @@ export async function fetchMessageMeta(
 }
 
 /**
+ * A Message-ID without the angle brackets it is usually written with
+ *
+ * Querying and matching have to agree on this exactly: a query built on one form and an answer
+ * matched on another silently finds nothing.
+ *
+ * @param messageId the RFC822 Message-ID, brackets or not
+ * @returns the bare id, empty when there was nothing usable
+ */
+export function bareMessageId(messageId: string): string {
+  return (messageId ?? '').trim().replace(/^<+|>+$/g, '');
+}
+
+/**
  * The search that finds one message across mailboxes
  *
  * @param messageId the RFC822 Message-ID, the only id stable across mailboxes
  * @returns the query
  */
 export function messageIdQuery(messageId: string): string {
-  return `rfc822msgid:${(messageId ?? '').trim().replace(/^<+|>+$/g, '')}`;
+  return `rfc822msgid:${bareMessageId(messageId)}`;
 }
 
 /**
@@ -905,7 +878,7 @@ export function messageIdQuery(messageId: string): string {
  */
 export function batchedMessageIdQuery(messageIds: string[]): string {
   return messageIds
-    .map((id) => (id ?? '').trim().replace(/^<+|>+$/g, ''))
+    .map(bareMessageId)
     .filter((id) => id.length > 0)
     .map((id) => `rfc822msgid:${id}`)
     .join(' OR ');
@@ -969,42 +942,6 @@ export function parseMessageIdAndLabels(
   return null;
 }
 
-export function searchInLabelUrl(messageId: string, labelId: string): string {
-  const q = new URLSearchParams({
-    q: messageIdQuery(messageId),
-    labelIds: labelId,
-    maxResults: '1',
-  });
-  return `${MESSAGES_URL}?${q.toString()}`;
-}
-
-export function parseHasMessage(json: unknown): boolean {
-  const raw = (json as { messages?: unknown })?.messages;
-  return Array.isArray(raw) && raw.length > 0;
-}
-
-/**
- * Whether a label already holds this message
- *
- * Nothing calls this since the check at Kopieer started asking labelsHoldingMany the wider
- * question a mailbox at a time. Kept while the batched query has not been proven against real
- * Gmail: this is the path that worked, one request per label per message, and it is what to come
- * back to if that turns out not to hold.
- *
- * @param accessToken
- * @param messageId the RFC822 Message-ID
- * @param labelId
- * @returns {Promise<boolean>} false without a Message-ID, since nothing can be matched
- */
-export async function messageExistsInLabel(
-  accessToken: string,
-  messageId: string,
-  labelId: string,
-): Promise<boolean> {
-  if (!(messageId ?? '').trim()) return false;
-  return parseHasMessage(await requestJson(searchInLabelUrl(messageId, labelId), accessToken));
-}
-
 // two calls per mailbox rather than one per label: find the message, then read what it is
 // filed under, since "already there under another label" is exactly what a second copy is
 //
@@ -1061,18 +998,6 @@ export function parseMessageLabelIds(json: unknown): string[] {
 }
 
 /**
- * Which labels of a mailbox already hold this message
- *
- * Every match, not the first one: a mailbox can hold one Message-ID as two messages -- one
- * that arrived and one that was copied in -- and then the labels of the first say nothing
- * about the second. Asking whether a given label holds the mail has to come out the same
- * either way, and only the union does that.
- *
- * @param accessToken
- * @param messageId the RFC822 Message-ID
- * @returns {Promise<string[]>} empty when the mailbox does not have it at all
- */
-/**
  * A Message-ID this mailbox is certainly findable by, to prove a batched query parsed
  *
  * Taken from the inbox on purpose: a default Gmail search leaves spam and trash out, so a
@@ -1109,21 +1034,20 @@ export function scanFromBatch(
   hits: Array<{ messageId: string; labelIds: string[] }>,
   canary: string,
 ): { trusted: boolean; found: Array<{ messageId: string; labelIds: string[] }> } {
-  const bare = (id: string) => (id ?? '').trim().replace(/^<+|>+$/g, '');
   const byId = new Map<string, string[]>();
   for (const h of hits) {
-    const key = bare(h.messageId);
+    const key = bareMessageId(h.messageId);
     const known = byId.get(key) ?? [];
     for (const labelId of h.labelIds) if (!known.includes(labelId)) known.push(labelId);
     byId.set(key, known);
   }
 
-  const proof = bare(canary);
+  const proof = bareMessageId(canary);
   if (!proof || !byId.has(proof)) return { trusted: false, found: [] };
 
   return {
     trusted: true,
-    found: asked.map((id) => ({ messageId: id, labelIds: byId.get(bare(id)) ?? [] })),
+    found: asked.map((id) => ({ messageId: id, labelIds: byId.get(bareMessageId(id)) ?? [] })),
   };
 }
 
@@ -1172,6 +1096,18 @@ export async function labelsHoldingMany(
   return perChunk.flat();
 }
 
+/**
+ * Which labels of a mailbox already hold this message
+ *
+ * Every match, not the first one: a mailbox can hold one Message-ID as two messages -- one
+ * that arrived and one that was copied in -- and then the labels of the first say nothing
+ * about the second. Asking whether a given label holds the mail has to come out the same
+ * either way, and only the union does that.
+ *
+ * @param accessToken
+ * @param messageId the RFC822 Message-ID
+ * @returns {Promise<string[]>} empty when the mailbox does not have it at all
+ */
 export async function labelsHoldingMessage(
   accessToken: string,
   messageId: string,
@@ -1193,21 +1129,6 @@ export async function labelsHoldingMessage(
 //===========================
 // Watch and history
 //===========================
-
-export function watchBody(topicName: string): string {
-  return JSON.stringify({
-    topicName,
-    labelIds: ['INBOX'],
-    labelFilterBehavior: 'include',
-  });
-}
-
-export function parseWatch(json: unknown): { historyId: string; expiration: number } | null {
-  const raw = json as { historyId?: unknown; expiration?: unknown };
-  const historyId = stringFrom(raw?.historyId);
-  if (!historyId) return null;
-  return { historyId, expiration: numberFrom(raw?.expiration) ?? 0 };
-}
 
 export function parseProfileHistoryId(json: unknown): string | null {
   return stringFrom((json as { historyId?: unknown })?.historyId);
@@ -1252,27 +1173,6 @@ export function parseHistoryPage(json: unknown): HistoryPage {
   const next = stringFrom(raw?.nextPageToken);
   if (next) page.nextPageToken = next;
   return page;
-}
-
-/**
- * Asks Gmail to push what arrives in the inbox to a Pub/Sub topic
- *
- * @param accessToken
- * @param topicName
- * @returns {Promise<{historyId: string, expiration: number}|null>} where to start reading
- *   history from, and when the watch has to be renewed
- */
-export async function watchMailbox(
-  accessToken: string,
-  topicName: string,
-): Promise<{ historyId: string; expiration: number } | null> {
-  return parseWatch(
-    await requestJson(WATCH_URL, accessToken, {
-      method: 'POST',
-      contentType: 'application/json',
-      body: Buffer.from(watchBody(topicName), 'utf8'),
-    }),
-  );
 }
 
 export async function stopWatch(accessToken: string): Promise<void> {
@@ -1398,33 +1298,6 @@ export async function insertMessage(
     signal,
   );
   return { id: parseInsertedId(json), threadId: parseInsertedThreadId(json) };
-}
-
-/**
- * Every Gmail id currently matching this RFC822 Message-ID in a mailbox
- *
- * What reconciling a severed insert starts from: searchAnywhereUrl and parseMessageIds,
- * already used for the duplicate check, answered directly rather than folded into a wider
- * question the way labelsHoldingMessage does.
- *
- * @param accessToken
- * @param messageId the RFC822 Message-ID
- * @returns the ids, empty when the mailbox holds none
- */
-export async function searchAnywhere(accessToken: string, messageId: string): Promise<string[]> {
-  if (!(messageId ?? '').trim()) return [];
-  return parseMessageIds(await requestJson(searchAnywhereUrl(messageId), accessToken));
-}
-
-/**
- * The labels one found message carries
- *
- * @param accessToken
- * @param gmailId Gmail's own id, not the RFC822 one
- * @returns the label ids
- */
-export async function fetchMessageLabelIds(accessToken: string, gmailId: string): Promise<string[]> {
-  return parseMessageLabelIds(await requestJson(messageLabelsUrl(gmailId), accessToken));
 }
 
 
@@ -1613,15 +1486,6 @@ async function requestJson(
 }
 
 /**
- * One attempt at a request
- *
- * @param url
- * @param accessToken
- * @param init a body turns the call into a POST of that content type
- * @returns {Promise<unknown>} the parsed answer
- * @private
- */
-/**
  * Sends a set of reads as one request and hands back the answers
  *
  * The quota is booked per inner call, because that is how Gmail counts a batch. So this saves
@@ -1703,11 +1567,11 @@ export async function batchedOrOneByOne(
   try {
     answers = await requestBatch(urls, accessToken, limit);
   } catch (e) {
-    notifyLog(`[gmail] batch mislukt, één voor één: ${(e as Error).message}`);
+    notifyLog(`[gmail] batch failed, falling back one by one: ${(e as Error).message}`);
     return await oneByOne();
   }
   if (batchLooksBroken(answers)) {
-    notifyLog('[gmail] batch gaf niets bruikbaars, één voor één');
+    notifyLog('[gmail] batch answered nothing usable, falling back one by one');
     return await oneByOne();
   }
   return answers;
@@ -1778,6 +1642,16 @@ async function attemptMultipart(
   });
 }
 
+/**
+ * One attempt at a request
+ *
+ * @param url
+ * @param accessToken
+ * @param init a body turns the call into a POST of that content type
+ * @param signal aborted to sever the request while it is on the wire
+ * @returns {Promise<unknown>} the parsed answer
+ * @private
+ */
 async function attemptJson(
   url: string,
   accessToken: string,
@@ -1797,9 +1671,12 @@ async function attemptJson(
       req.setHeader(name, value);
     }
 
+    // Through `fail` like every other exit, or the abort listener added below stays on a
+    // signal that lives as long as the whole copy run: one leaked closure per timed-out
+    // upload, and on stop() an abort fires them all at already-settled promises.
     const timer = setTimeout(() => {
       req.abort();
-      reject(new GmailTimeoutError('geen antwoord van Google (time-out)'));
+      fail(new GmailTimeoutError('geen antwoord van Google (time-out)'));
     }, init ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     const settle = <T>(fn: (v: T) => void) => (v: T) => {
       clearTimeout(timer);

@@ -77,4 +77,54 @@ describe('UnreadStore', () => {
       expect(totalUnread(s.snapshot())).toBe(0);
     });
   });
+
+  // Two sources, five minutes apart. The badge went stale for own accounts when the sweep was
+  // allowed to write over a title that had just moved: read the inbox, and the old number came
+  // back at the next sweep and stayed until the one after it.
+  describe('who owns an account', () => {
+    it('fills in an account the page has said nothing about', () => {
+      const s = new UnreadStore();
+      expect(s.reportFromApi('u0', 4)).toBe(true);
+      expect(s.snapshot().u0).toBe(4);
+      expect(s.ownedByPage('u0')).toBe(false);
+    });
+
+    it('refuses to write over a page that has spoken', () => {
+      const s = new UnreadStore();
+      s.report('u0', 1);
+      expect(s.reportFromApi('u0', 9)).toBe(false);
+      expect(s.snapshot().u0).toBe(1);
+      expect(s.ownedByPage('u0')).toBe(true);
+    });
+
+    it('keeps the page in charge after it reported an empty inbox', () => {
+      const s = new UnreadStore();
+      s.reportFromApi('u0', 4);
+      s.report('u0', 0);
+      expect(s.reportFromApi('u0', 4)).toBe(false);
+      expect('u0' in s.snapshot()).toBe(false);
+    });
+
+    it('lets the API back in once the account is forgotten', () => {
+      const s = new UnreadStore();
+      s.report('u0', 1);
+      s.forget('u0');
+      expect(s.reportFromApi('u0', 9)).toBe(true);
+      expect(s.snapshot().u0).toBe(9);
+    });
+
+    it('lets the API back in for an account retain dropped', () => {
+      const s = new UnreadStore();
+      s.report('u0', 1);
+      s.retain([]);
+      expect(s.reportFromApi('u0', 9)).toBe(true);
+    });
+
+    it('keeps the two accounts apart', () => {
+      const s = new UnreadStore();
+      s.report('u0', 1);
+      expect(s.reportFromApi('u1', 5)).toBe(true);
+      expect(s.snapshot()).toEqual({ u0: 1, u1: 5 });
+    });
+  });
 });

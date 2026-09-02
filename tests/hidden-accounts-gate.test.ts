@@ -42,6 +42,7 @@ vi.mock('../electron/core/runtime', () => ({
     ensureView: (ref: { index: number }) => state.ensured.push(ref.index),
     discardView: (key: string) => state.discarded.push(key),
     activeKey: () => 'u0',
+    pushMailDropAllowed: vi.fn(),
   },
   oauthTokens: { get: () => undefined, remove: vi.fn() },
   prefs: { getAll: () => ({ reneMode: false }) },

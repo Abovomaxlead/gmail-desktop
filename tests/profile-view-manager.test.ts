@@ -14,6 +14,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { AccountRef } from '../renderer/lib/account-ref';
+import type { Profile } from '../electron/windows/profile-view-manager';
 
 const { FakeWebContentsView } = vi.hoisted(() => {
   class FakeWebContents {
@@ -73,13 +74,23 @@ const { FakeWebContentsView } = vi.hoisted(() => {
   return { FakeWebContentsView };
 });
 
+const { showAccountSpy } = vi.hoisted(() => ({ showAccountSpy: vi.fn() }));
+
 vi.mock('electron', () => ({
   WebContentsView: FakeWebContentsView,
   shell: { openExternal: () => {} },
 }));
+vi.mock('../electron/windows/view-surfaces', () => ({ showAccount: showAccountSpy }));
+// window-chrome.ts pulls this in for the 'compose' shortcut only; the real module reads
+// app.getAppPath() at import time, which the minimal electron mock above does not provide.
+vi.mock('../electron/compose/mailto-controller', () => ({ openComposeWindow: () => {} }));
 
 const { ProfileViewManager } = await import('../electron/windows/profile-view-manager');
 const { accountKey } = await import('../renderer/lib/account-ref');
+// Loaded after the mocks above are registered: window-chrome.ts imports 'electron' too, and
+// runtime.ts's mutable profiles/prefs bindings are what the shortcut-order test drives directly.
+const { handleInput } = await import('../electron/windows/window-chrome');
+const { profiles: runtimeProfiles, setPrefs } = await import('../electron/core/runtime');
 
 function fakeWin() {
   return {
@@ -228,6 +239,122 @@ describe('who may offer drag-to-save', () => {
     email = 'someone@work.nl';
     view.webContents.emit('ipc-message', {}, 'maildrop:allowed-get');
     expect(sent()).toEqual([{ channel: 'maildrop:allowed', args: [true] }]);
+  });
+});
+
+// The page runs with contextIsolation disabled, so an ipc-message payload is attacker
+// input to main, not typed data. onIdentity does `identity.email` and onMailDrop casts
+// straight to MailDropPayload, so a shape the real Gmail page never sends must be dropped
+// before it reaches either callback rather than handed over unchecked.
+describe('page-sent identity and drop payloads are shape-checked', () => {
+  function managerWithCallbacks(
+    win: ReturnType<typeof fakeWin>,
+    overrides: { onIdentity?: (...args: unknown[]) => void; onMailDrop?: (...args: unknown[]) => void } = {},
+  ) {
+    return new ProfileViewManager(
+      win as never,
+      'preload.js',
+      () => {},
+      () => {},
+      overrides.onIdentity ?? (() => {}),
+      () => {},
+      () => 0,
+      () => false,
+      () => 'app',
+      () => 1,
+      overrides.onMailDrop ?? (() => {}),
+    );
+  }
+
+  it('drops an ACCOUNT_IDENTITY message with no argument', () => {
+    const win = fakeWin();
+    const onIdentity = vi.fn();
+    const m = managerWithCallbacks(win, { onIdentity });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    view.webContents.emit('ipc-message', {}, 'account:identity');
+    expect(onIdentity).not.toHaveBeenCalled();
+  });
+
+  it('forwards a well-shaped ACCOUNT_IDENTITY message', () => {
+    const win = fakeWin();
+    const onIdentity = vi.fn();
+    const m = managerWithCallbacks(win, { onIdentity });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    const identity = { email: 'a@work.nl', name: 'A', avatarUrl: '' };
+    view.webContents.emit('ipc-message', {}, 'account:identity', identity);
+    expect(onIdentity).toHaveBeenCalledWith(accountKey(owned), identity);
+  });
+
+  it('drops a MAIL_DROP message with the wrong shape', () => {
+    const win = fakeWin();
+    const onMailDrop = vi.fn();
+    const m = managerWithCallbacks(win, { onMailDrop });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    view.webContents.emit('ipc-message', {}, 'mail:drop', { items: 'not-an-array' });
+    expect(onMailDrop).not.toHaveBeenCalled();
+  });
+
+  it('forwards a well-shaped MAIL_DROP message', () => {
+    const win = fakeWin();
+    const onMailDrop = vi.fn();
+    const m = managerWithCallbacks(win, { onMailDrop });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    const payload = { items: [], authuser: '0', ik: 'abc' };
+    view.webContents.emit('ipc-message', {}, 'mail:drop', payload);
+    expect(onMailDrop).toHaveBeenCalledWith(accountKey(owned), payload);
+  });
+});
+
+// The bug this guards against: Ctrl+2 used to sort by the raw authuser detection index
+// (window-chrome.ts read a Profile.order field nothing ever assigned), so a drag-reorder
+// in the tab bar had no effect on which account a shortcut picked. The fix reads the same
+// prefs order the tab bar itself is decorated from.
+describe('Ctrl+number follows the tab bar order, not detection order', () => {
+  it('picks the account at the prefs-ordered position after a drag-reorder', () => {
+    const alice: Profile = {
+      ref: { kind: 'authuser', index: 0 },
+      kind: 'authuser',
+      email: 'alice@work.nl',
+      name: 'Alice',
+      avatarUrl: '',
+      color: '#fff',
+    };
+    const bob: Profile = {
+      ref: { kind: 'authuser', index: 1 },
+      kind: 'authuser',
+      email: 'bob@work.nl',
+      name: 'Bob',
+      avatarUrl: '',
+      color: '#000',
+    };
+    // Detected in this order (alice first), then dragged so bob leads the tab bar.
+    runtimeProfiles.push(alice, bob);
+    const orderByEmail: Record<string, number> = { 'bob@work.nl': 0, 'alice@work.nl': 1 };
+    setPrefs({
+      getAccount: (email: string) => ({ order: orderByEmail[email] }),
+    } as never);
+
+    try {
+      showAccountSpy.mockClear();
+      handleInput({ type: 'keyDown', control: true, meta: false, shift: false, alt: false, key: '2' });
+      // The second tab bar position is order:1, which is alice, not bob (authIdx 1).
+      expect(showAccountSpy).toHaveBeenCalledWith(alice.ref, 'mail');
+    } finally {
+      runtimeProfiles.length = 0;
+      setPrefs(null);
+    }
   });
 });
 

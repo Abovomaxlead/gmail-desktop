@@ -24,20 +24,17 @@
 // like the browser: the hash lands at once, and the title follows when Gmail arrives.
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { SURFACE_CONFIG } from '../renderer/lib/surfaces';
 import type { AccountRef } from '../renderer/lib/account-ref';
+
 
 describe('the mail view keeps its visibility signal', () => {
   // Turning throttling off for mail looks like the fix for "no notification while the
   // window is covered" and is the opposite: it also pins the Page Visibility API at
   // "visible", and Gmail only notifies when it believes you are not looking. Tried once,
   // and every notification in the app stopped. This test is the note that says so.
-  it('leaves mail throttled, whatever it costs in liveliness', () => {
-    expect(SURFACE_CONFIG.mail.backgroundThrottling).toBe(true);
-  });
-
-  it('leaves calendar unthrottled, since a reminder falls due unwatched', () => {
-    expect(SURFACE_CONFIG.calendar.backgroundThrottling).toBe(false);
+  it('creates the mail view throttled, whatever it costs in liveliness', () => {
+    openMailView();
+    expect(lastView().options.webPreferences?.backgroundThrottling).toBe(true);
   });
 });
 
@@ -123,7 +120,9 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
   class FakeWebContentsView {
     webContents = new FakeWebContents();
     visible = false;
-    constructor() {
+    options: { webPreferences?: { backgroundThrottling?: boolean } };
+    constructor(options: { webPreferences?: { backgroundThrottling?: boolean } } = {}) {
+      this.options = options;
       views.push(this);
     }
     setVisible(v: boolean): void {
@@ -164,6 +163,10 @@ function openMailView() {
   );
   m.show(owned, 'mail');
   return { m, wc: views[views.length - 1].webContents };
+}
+
+function lastView(): InstanceType<typeof FakeWebContentsView> {
+  return views[views.length - 1];
 }
 
 beforeEach(() => {

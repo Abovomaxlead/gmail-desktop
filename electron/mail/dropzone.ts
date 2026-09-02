@@ -8,6 +8,8 @@
 // Everything matches on structure, role/aria-* and hrefs, never on visible text or Gmail's
 // obfuscated class names.
 
+import { NOTHING_SAVED } from '../../renderer/lib/drop-outcome';
+
 
 //===========================
 // Types
@@ -135,7 +137,9 @@ export const DROPZONE_LABEL = 'Sleep hier om de mail op te slaan';
 
 export const NO_SUBJECT = '(geen onderwerp)';
 
-export const NOTHING_SAVED = 'Niets opgeslagen';
+// The line itself lives in renderer/lib/drop-outcome.ts, where the modal's own reason list
+// reads it too; re-exported here so this file stays the one import a Gmail view needs.
+export { NOTHING_SAVED };
 
 export const DRAG_THRESHOLD = 15;
 
@@ -245,18 +249,6 @@ export function pressFromDragTarget(el: DragNode | null): DragPress {
   return NONE;
 }
 
-/**
- * Finds the conversation a drag started on
- *
- * @param el the element under the cursor when the press began
- * @returns the thread id, or null when the press did not name one row -- which a caller that
- *   has another gesture to offer the press to must read through pressFromDragTarget instead,
- *   since null here covers both a refusal and a press on nothing
- */
-export function threadIdFromDragTarget(el: DragNode | null): string | null {
-  const press = pressFromDragTarget(el);
-  return press.kind === 'row' ? press.threadId : null;
-}
 
 /**
  * Finds the message of a conversation a drag started on
@@ -658,4 +650,16 @@ function rowRefOf(el: { getAttribute(name: string): string | null }): MessageRef
   const legacyId = el.getAttribute(ROW_MESSAGE_ID_ATTR) ?? '';
   if (!legacyId && !permId) return null;
   return { ...(legacyId ? { legacyId } : {}), ...(permId ? { permId } : {}) };
+}
+
+/**
+ * Finds the conversation a drag started on
+ *
+ * @param el the element under the cursor when the press began
+ * @returns the thread id, or null when the press did not name one row
+ * @private
+ */
+function threadIdFromDragTarget(el: DragNode | null): string | null {
+  const press = pressFromDragTarget(el);
+  return press.kind === 'row' ? press.threadId : null;
 }

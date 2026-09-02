@@ -6,9 +6,14 @@ import { attachExternalLinkHandling } from '../system/external-links';
 import { anchorMessage } from '../gmail/message-anchor';
 import { notifyLog } from '../notify/notify-log';
 import { composeUrl } from './compose-url';
+import { SESSION_PARTITION } from '../core/session-partition';
+import {  } from '../core/runtime';
 import type { MailtoFields } from '../mail/mailto';
 
-const SESSION_PARTITION = 'persist:google';
+
+//===========================
+// Exported functions
+//===========================
 
 /**
  * Opens Gmail's standalone compose window

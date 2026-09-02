@@ -17,10 +17,11 @@
 // ids the original one planned. One line per batch rather than one line for all of them keeps a
 // ten-thousand-thread plan off a single megabyte-long line.
 
-import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readCopyJournal } from './copy-journal';
 import type { CopyRunId } from './copy-run-types';
+import type { JobLine } from '../../renderer/lib/maildrop-copy';
+import { appendJsonLine, jsonLines, parsedFilesWithSuffix, readParsed } from './jsonl-store';
 import type { TreeThread } from './label-drop';
 import type { CopyTarget } from './mail-copy';
 
@@ -128,8 +129,6 @@ interface JobDoneLine {
   outcome: JobOutcome;
 }
 
-type JobLine = JobHeaderLine | JobBatchLine | JobChoicesLine | JobStateLine | JobDoneLine;
-
 
 //===========================
 // Constants
@@ -149,23 +148,6 @@ const SUFFIX = '.job.jsonl';
 //===========================
 // Exported functions
 //===========================
-
-/**
- * Cuts a planned conversation list into the batches it will be pulled in
- *
- * @param threads in the order the collection produced them, already deduplicated across the
- *   tree's labels
- * @param batchSize
- * @returns one slice per batch, the last one short rather than padded, and nothing at all for
- *   an empty list
- */
-export function sliceIntoBatches(threads: TreeThread[], batchSize: number): TreeThread[][] {
-  const out: TreeThread[][] = [];
-  for (let at = 0; at < threads.length; at += batchSize) {
-    out.push(threads.slice(at, at + batchSize));
-  }
-  return out;
-}
 
 /**
  * Whether a listed label is big enough to be worth a plan
@@ -213,16 +195,16 @@ export function jobPath(root: string, jobId: string): string {
  *
  * @param root the drop folder
  * @param header everything decided before the first batch is pulled
- * @param batches the slices, from sliceIntoBatches
+ * @param batches the slices, from chunk
  */
 export function startLabelJob(
   root: string,
   header: Omit<LabelJob, 'choices' | 'batches' | 'outcome'>,
   batches: TreeThread[][],
 ): void {
-  writeLine(root, header.jobId, { type: 'header', ...header });
+  appendJsonLine(jobPath(root, header.jobId), { type: 'header', ...header });
   for (const [index, threads] of batches.entries()) {
-    writeLine(root, header.jobId, { type: 'batch', index, threads });
+    appendJsonLine(jobPath(root, header.jobId), { type: 'batch', index, threads });
   }
 }
 
@@ -234,7 +216,7 @@ export function startLabelJob(
  * @param choices
  */
 export function recordJobChoices(root: string, jobId: string, choices: JobChoices): void {
-  writeLine(root, jobId, { type: 'choices', choices });
+  appendJsonLine(jobPath(root, jobId), { type: 'choices', choices });
 }
 
 /**
@@ -257,7 +239,7 @@ export function recordJobBatchState(
   at: Omit<JobStateLine, 'type'>,
 ): void {
   const mailboxes = at.mailboxes ?? (at.runId ? mailboxesOfRun(root, at.runId) : undefined);
-  writeLine(root, jobId, { type: 'state', ...at, ...(mailboxes ? { mailboxes } : {}) });
+  appendJsonLine(jobPath(root, jobId), { type: 'state', ...at, ...(mailboxes ? { mailboxes } : {}) });
 }
 
 /**
@@ -272,7 +254,7 @@ export function recordJobBatchState(
  * @param outcome
  */
 export function finishLabelJob(root: string, jobId: string, outcome: JobOutcome): void {
-  writeLine(root, jobId, { type: 'done', outcome });
+  appendJsonLine(jobPath(root, jobId), { type: 'done', outcome });
 }
 
 /**
@@ -283,13 +265,7 @@ export function finishLabelJob(root: string, jobId: string, outcome: JobOutcome)
  * @returns the plan, or null when this job never started one
  */
 export function readLabelJob(root: string, jobId: string): LabelJob | null {
-  let raw: string;
-  try {
-    raw = readFileSync(jobPath(root, jobId), 'utf8');
-  } catch {
-    return null;
-  }
-  return parseLabelJob(raw);
+  return readParsed(jobPath(root, jobId), parseLabelJob);
 }
 
 /**
@@ -309,14 +285,7 @@ export function parseLabelJob(raw: string): LabelJob | null {
   let choices: JobChoices | null = null;
   let outcome: JobOutcome | null = null;
 
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
+  for (const parsed of jsonLines(raw)) {
     const type = (parsed as { type?: unknown })?.type;
     if (type === 'header' && !header) header = parsed as JobHeaderLine;
     else if (type === 'batch') {
@@ -380,24 +349,7 @@ export function parseLabelJob(raw: string): LabelJob | null {
  * @returns each unfinished job, in the order its file was found
  */
 export function findUnfinishedJobs(root: string): LabelJob[] {
-  let names: string[];
-  try {
-    names = readdirSync(root).filter((n) => n.endsWith(SUFFIX));
-  } catch {
-    return [];
-  }
-  const open: LabelJob[] = [];
-  for (const name of names) {
-    let raw: string;
-    try {
-      raw = readFileSync(join(root, name), 'utf8');
-    } catch {
-      continue;
-    }
-    const job = parseLabelJob(raw);
-    if (job && !job.outcome) open.push(job);
-  }
-  return open;
+  return parsedFilesWithSuffix(root, SUFFIX, parseLabelJob).filter((job) => !job.outcome);
 }
 
 /**
@@ -446,15 +398,7 @@ export function nextBatch(job: LabelJob): JobBatch | null {
  * @returns the batch under way or at fault (one-based, because it is read out to a person), how
  *   many there are, and the conversations behind and in total
  */
-export function jobProgress(
-  job: LabelJob,
-  running?: RunningBatchProgress,
-): {
-  batch: number;
-  batches: number;
-  done: number;
-  total: number;
-} {
+export function jobProgress(job: LabelJob, running?: RunningBatchProgress): JobLine {
   const at = nextBatch(job);
   const done = job.batches.reduce((sum, b) => sum + batchConversations(job, b, at, running), 0);
   return {
@@ -603,7 +547,3 @@ function conversationsFrom(inserts: number, targets: number, slice: number): num
   return Math.min(Math.floor(Math.max(0, inserts) / targets), slice);
 }
 
-function writeLine(root: string, jobId: string, line: JobLine): void {
-  mkdirSync(root, { recursive: true });
-  appendFileSync(jobPath(root, jobId), JSON.stringify(line) + '\n', 'utf8');
-}

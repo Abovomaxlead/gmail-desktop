@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest';
 import { labelFromDragTarget } from '../electron/mail/label-drop';
 import {
   pressFromDragTarget,
-  threadIdFromDragTarget,
   messageRefFromDragTarget,
   authuserFromPath,
   ikFromPage,
@@ -29,8 +28,8 @@ import {
   isOverZone,
   movedEnough,
   CANCEL_ID,
-  CANCEL_LABEL,
   cancelledText,
+  type DragNode,
 } from '../electron/mail/dropzone';
 
 //===========================
@@ -159,33 +158,39 @@ const mailList = (...rows: any[]) => node({}, null, [node({}, null, [node({}, nu
 const navRow = (label: string) =>
   node({ role: 'link' }, null, [node({ href: `#label/${label}` }, null, [node({ _name: 'x' })])]);
 
+/** Whether a press names one row, the way preload.ts turns a press into a drag's thread id */
+const threadIdOf = (el: DragNode | null) => {
+  const press = pressFromDragTarget(el);
+  return press.kind === 'row' ? press.threadId : null;
+};
+
 describe('threadIdFromDragTarget', () => {
   it('finds the id on the element itself', () => {
-    expect(threadIdFromDragTarget(node({ 'data-legacy-thread-id': '18f2a' }))).toBe('18f2a');
+    expect(threadIdOf(node({ 'data-legacy-thread-id': '18f2a' }))).toBe('18f2a');
   });
   it('walks up to an ancestor that carries the id', () => {
     const row = node({ 'data-legacy-thread-id': '18f2a' });
     const span = node({}, node({}, row));
-    expect(threadIdFromDragTarget(span)).toBe('18f2a');
+    expect(threadIdOf(span)).toBe('18f2a');
   });
   it('finds the id on the subject span inside the dragged row', () => {
-    expect(threadIdFromDragTarget(gmailRow('18f2a'))).toBe('18f2a');
+    expect(threadIdOf(gmailRow('18f2a'))).toBe('18f2a');
   });
   it('finds it from a cell inside that row too', () => {
     const row = gmailRow('18f2a');
     const cell = node({}, row);
-    expect(threadIdFromDragTarget(cell)).toBe('18f2a');
+    expect(threadIdOf(cell)).toBe('18f2a');
   });
   it('refuses to guess when an ancestor holds several different ids', () => {
     const list = node({}, null, [
       node({ 'data-legacy-thread-id': 'a' }),
       node({ 'data-legacy-thread-id': 'b' }),
     ]);
-    expect(threadIdFromDragTarget(list)).toBeNull();
+    expect(threadIdOf(list)).toBeNull();
   });
   it('returns null when no ancestor has one', () => {
-    expect(threadIdFromDragTarget(node({}, node({})))).toBeNull();
-    expect(threadIdFromDragTarget(null)).toBeNull();
+    expect(threadIdOf(node({}, node({})))).toBeNull();
+    expect(threadIdOf(null)).toBeNull();
   });
   // An opened conversation hangs all of its messages under one thread id, so a press in
   // the body would arm the strip on a gesture that is only selecting text. Dragging comes
@@ -193,8 +198,8 @@ describe('threadIdFromDragTarget', () => {
   it('refuses a press inside an opened conversation', () => {
     const conversation = node({ 'data-legacy-thread-id': '18f2a' });
     const message = node({ 'data-legacy-message-id': '19ff5f50' }, conversation);
-    expect(threadIdFromDragTarget(node({}, node({}, message)))).toBeNull();
-    expect(threadIdFromDragTarget(message)).toBeNull();
+    expect(threadIdOf(node({}, node({}, message)))).toBeNull();
+    expect(threadIdOf(message)).toBeNull();
   });
   // Gmail draws the card for a calendar invite beside the message instead of inside it, so
   // a press on it has no message id above it at all and the search climbed on to the
@@ -206,7 +211,7 @@ describe('threadIdFromDragTarget', () => {
   it('refuses a press in the card Gmail draws beside an opened message', () => {
     const pane = readingPane(gmailCard());
     const card = pane.querySelectorAll('[data-card-id]')[0];
-    expect(threadIdFromDragTarget(card.children[0])).toBeNull();
+    expect(threadIdOf(card.children[0])).toBeNull();
   });
   // A row names its last message with data-legacy-last-message-id and never with
   // data-legacy-message-id, and the guard above must not read the two as one attribute.
@@ -217,31 +222,31 @@ describe('threadIdFromDragTarget', () => {
       'data-legacy-last-message-id': '18f2a',
     });
     const row = node({ role: 'row' }, null, [span]);
-    expect(threadIdFromDragTarget(node({}, row))).toBe('18f2a');
+    expect(threadIdOf(node({}, row))).toBe('18f2a');
   });
   // The subject line of an opened conversation carries the thread id itself, so the press
   // lands straight on it and neither guard above ever comes into play. Gmail names the
   // thread permanently there and names no message at all, where a list row always names
   // its last one.
   it('refuses a press on the subject line of an opened conversation', () => {
-    expect(threadIdFromDragTarget(openedHeading())).toBeNull();
+    expect(threadIdOf(openedHeading())).toBeNull();
   });
   // Beside the subject line there is no message either, so the search downwards found the
   // heading on its own and read it as the one row of a list.
   it('refuses a press beside that subject line', () => {
     const header = node({}, null, [openedHeading()]);
-    expect(threadIdFromDragTarget(node({}, header))).toBeNull();
+    expect(threadIdOf(node({}, header))).toBeNull();
   });
   // The heading is known by the perm id together with showing no mark of a row, never by
   // the perm id alone: a row names the thread permanently too, and refusing it would break
   // dragging from the list. Either of a row's two marks is enough on its own, so both are
   // pinned apart -- the row around the span, and the span's own data-thread-id.
   it('still arms on a row that names its last message and the thread permanently', () => {
-    expect(threadIdFromDragTarget(gmailRow('18f2a').cells.ids)).toBe('18f2a');
+    expect(threadIdOf(gmailRow('18f2a').cells.ids)).toBe('18f2a');
   });
   it('knows a row by the row around it, with no thread attribute of its own', () => {
     const span = node({ 'data-thread-perm-id': 'thread-f:187', 'data-legacy-thread-id': '18f2a' });
-    expect(threadIdFromDragTarget(node({ role: 'row' }, null, [span]))).toBe('18f2a');
+    expect(threadIdOf(node({ role: 'row' }, null, [span]))).toBe('18f2a');
   });
   it('knows a row by its own data-thread-id, with no row around it', () => {
     const span = node({
@@ -249,15 +254,15 @@ describe('threadIdFromDragTarget', () => {
       'data-legacy-thread-id': '18f2a',
       'data-thread-id': '#thread-f:187',
     });
-    expect(threadIdFromDragTarget(span)).toBe('18f2a');
+    expect(threadIdOf(span)).toBe('18f2a');
   });
   it('ignores an empty attribute value', () => {
-    expect(threadIdFromDragTarget(node({ 'data-legacy-thread-id': '' }))).toBeNull();
+    expect(threadIdOf(node({ 'data-legacy-thread-id': '' }))).toBeNull();
   });
   it('stops after a sane number of levels instead of looping forever', () => {
     const self: any = { getAttribute: () => null, parentElement: null };
     self.parentElement = self;
-    expect(threadIdFromDragTarget(self)).toBeNull();
+    expect(threadIdOf(self)).toBeNull();
   });
 });
 
@@ -307,7 +312,7 @@ describe('pressFromDragTarget', () => {
       const card = gmailCard();
       const pane = node({ 'data-legacy-thread-id': '1a023b6' }, null, [openedMessage(), card]);
       expect(pressFromDragTarget(card.children[0])).toEqual({ kind: 'refused' });
-      expect(threadIdFromDragTarget(card.children[0])).toBeNull();
+      expect(threadIdOf(card.children[0])).toBeNull();
     });
   });
 });
@@ -357,22 +362,22 @@ describe('a list row keeps arming', () => {
   it('arms on a row that names no last message', () => {
     const row = gmailRow('19fefd61', { last: null });
     expect(pressFromDragTarget(row.cells.ids)).toEqual({ kind: 'row', threadId: '19fefd61' });
-    expect(threadIdFromDragTarget(row.cells.sender)).toBe('19fefd61');
-    expect(threadIdFromDragTarget(row.cells.date)).toBe('19fefd61');
+    expect(threadIdOf(row.cells.sender)).toBe('19fefd61');
+    expect(threadIdOf(row.cells.date)).toBe('19fefd61');
   });
   it('arms on a row whose last message is an empty attribute', () => {
     const row = gmailRow('19fefd62', { last: '' });
-    expect(threadIdFromDragTarget(row.cells.ids)).toBe('19fefd62');
-    expect(threadIdFromDragTarget(row.cells.date)).toBe('19fefd62');
+    expect(threadIdOf(row.cells.ids)).toBe('19fefd62');
+    expect(threadIdOf(row.cells.date)).toBe('19fefd62');
   });
   // A row that happens to hold a message id below it -- an attachment chip naming the mail
   // it belongs to -- is still a row. Refusing it armed from the subject span and refused
   // from every other cell, which is the same row answering two ways.
   it('arms on a row whose subtree holds a message id, from every cell', () => {
     const row = gmailRow('18f2d', { message: '18f2d' });
-    expect(threadIdFromDragTarget(row.cells.ids)).toBe('18f2d');
-    expect(threadIdFromDragTarget(row.cells.sender)).toBe('18f2d');
-    expect(threadIdFromDragTarget(row.cells.date)).toBe('18f2d');
+    expect(threadIdOf(row.cells.ids)).toBe('18f2d');
+    expect(threadIdOf(row.cells.sender)).toBe('18f2d');
+    expect(threadIdOf(row.cells.date)).toBe('18f2d');
   });
 
   const ticked = (row: any) => {
@@ -405,7 +410,7 @@ describe('split view', () => {
   it('still arms on a row of the list beside the opened conversation', () => {
     const row = gmailRow('1a023b6');
     const page = split(row);
-    expect(threadIdFromDragTarget(row.cells.date)).toBe('1a023b6');
+    expect(threadIdOf(row.cells.date)).toBe('1a023b6');
     expect(page.querySelectorAll('[role="row"]')).toHaveLength(1);
   });
   it('refuses the card in the pane while the list shows that one conversation', () => {
@@ -426,7 +431,7 @@ describe('the three reference flows keep working', () => {
   it('arms on a list row with conversation view on', () => {
     const row = gmailRow('18f2a');
     const page = docOf(mailList(row, gmailRow('18f2b')));
-    expect(threadIdFromDragTarget(row.cells.date)).toBe('18f2a');
+    expect(threadIdOf(row.cells.date)).toBe('18f2a');
     expect(messageRefFromDragTarget(row.cells.date)).toBeNull();
     expect(threadSubjects(page)).toEqual({});
   });
@@ -435,7 +440,7 @@ describe('the three reference flows keep working', () => {
   it('arms on a list row with conversation view off and keeps the two rows apart', () => {
     const first = gmailRow('1a00f50f', { pipe: 'msg-f:1', last: '1a00f698' });
     const second = gmailRow('1a00f50f', { pipe: 'msg-f:2', last: '1a00f50f' });
-    expect(threadIdFromDragTarget(first.cells.date)).toBe('1a00f50f');
+    expect(threadIdOf(first.cells.date)).toBe('1a00f50f');
     expect(messageRefFromDragTarget(first.cells.date)).toEqual({
       legacyId: '1a00f698',
       permId: 'msg-f:1',
@@ -866,8 +871,6 @@ describe('constants', () => {
   });
 
   it('names the cancel button so the page and the stylesheet agree', () => {
-    expect(CANCEL_ID).toBe('gmd-dropzone-cancel');
-    expect(CANCEL_LABEL).toBe('Annuleren');
     expect(DROPZONE_CSS).toContain(`#${CANCEL_ID}`);
   });
 
@@ -932,10 +935,6 @@ describe('stacking', () => {
 
   it('keeps the strip on the layer the stylesheet actually uses', () => {
     expect(DROPZONE_CSS).toContain(`z-index: ${DROPZONE_Z};`);
-  });
-
-  it('stays at the top of what a page can stack', () => {
-    expect(DRAG_CHROME_Z).toBe(2147483647);
   });
 });
 

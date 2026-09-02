@@ -15,10 +15,10 @@ const L = trayLabels('en', false);
 
 describe('shouldHideOnClose', () => {
   it('hides to tray during a normal close', () => {
-    expect(shouldHideOnClose({ isQuitting: false, platform: 'linux' })).toBe(true);
+    expect(shouldHideOnClose({ isQuitting: false })).toBe(true);
   });
   it('does not hide when the app is quitting', () => {
-    expect(shouldHideOnClose({ isQuitting: true, platform: 'linux' })).toBe(false);
+    expect(shouldHideOnClose({ isQuitting: true })).toBe(false);
   });
 });
 

@@ -4,11 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SettingsPanel } from './SettingsPanel';
 import { Topbar } from './Topbar';
 import type {
-  MailDropItem,
   MailDropCopyProgress,
   MailDropCopyResult,
   MailDropCopyMode,
   MailDropExisting,
+  MailDropPreview,
 } from './MailDropModal';
 import { getStrings, type UiStrings } from './strings';
 import { TourGuide } from './TourGuide';
@@ -18,8 +18,8 @@ import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { openableSurfaces, type Surface } from '../lib/surfaces';
 import { googleAppTarget, pinnedSurfacesFor } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
-import type { ChangelogVersion } from './changelog-types';
-import type { ReconnectAccount } from './reconnect-text';
+import type { ChangelogVersion } from '../lib/changelog-types';
+import type { ReconnectAccount } from '../lib/reconnect';
 import type { OAuthStatusReport } from '../lib/oauth-status';
 import type { HiddenAccount } from '../lib/hidden-accounts';
 import type { RecentLabelUse } from './recent-labels';
@@ -28,6 +28,9 @@ import type { DelegatedPickerAsk } from '../lib/delegated-picker';
 import type { SettingsSection } from './settings/nav';
 import type { MailDropFolderStatus } from '../../electron/core/ipc';
 import type { ToastAction, ToastState } from '../lib/toast';
+import type { PendingJob, PendingOrphan } from '../lib/maildrop-copy';
+import type { LabelPurgeCount, LabelPurgeResult } from '../lib/label-purge';
+import { playSound } from '../lib/notification-sound';
 
 // The page that carries the bar and the settings panel: all state and all IPC live
 // here, the drawing lives in Topbar and SettingsPanel. The Prefs, UpdateState and
@@ -203,6 +206,8 @@ interface DesktopBridge {
     allowPrerelease?: boolean;
   }): void;
   setAdvanced(patch: { hardwareAcceleration?: boolean; lowMemory?: boolean }): void;
+  countLabelPurge(email: string, label: string): Promise<LabelPurgeCount | { error: string }>;
+  runLabelPurge(handle: string, labels: string[]): Promise<LabelPurgeResult>;
   setTourActive(active: boolean): void;
   isFirstRun(): Promise<boolean>;
   setTourSeen(v: boolean): void;
@@ -245,10 +250,9 @@ interface DesktopBridge {
   setNotificationOpen(v: 'app' | 'window'): void;
   setReneMode(v: boolean): void;
   requestDefaultMail(): void;
-  isOverlay: boolean;
-  onMailDropPreview(cb: (arg: { items: MailDropItem[]; tree?: unknown }) => void): void;
+  onMailDropPreview(cb: (arg: MailDropPreview) => void): void;
   closeMailDropPreview(): void;
-  getMailDropPreview(): Promise<{ items: MailDropItem[]; tree?: unknown }>;
+  getMailDropPreview(): Promise<MailDropPreview>;
   getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
   getRecentLabels(): Promise<RecentLabelUse[]>;
   getMailDropExisting(): Promise<MailDropExisting>;
@@ -258,6 +262,13 @@ interface DesktopBridge {
     mode?: MailDropCopyMode,
   ): Promise<MailDropCopyResult>;
   onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;
+  controlMailDropCopy(
+    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',
+  ): Promise<{ ok: boolean; error?: string }>;
+  getPendingOrphan(): Promise<PendingOrphan | null>;
+  decideOrphanRun(runId: string, mode: 'keep' | 'rollback'): Promise<{ ok: boolean }>;
+  getPendingJob(): Promise<PendingJob | null>;
+  decideJobRun(jobId: string, choice: 'continue' | 'keep' | 'rollback'): Promise<{ ok: boolean }>;
   onReconnectList(cb: (arg: { accounts: ReconnectAccount[] }) => void): void;
   getReconnectList(): Promise<{ accounts: ReconnectAccount[] }>;
   reconnectOAuth(email: string): Promise<{ ok: boolean; error?: string }>;
@@ -298,9 +309,8 @@ declare global {
 // address, so nothing it pushes will ever collide, and open() can refuse this one by name.
 const TOUR_DEMO_KEY = 'tour-demo';
 
-// The example tab carries a count so it reads as a real tab beside the real ones. It used to
-// be here to back the tab step's claim about what the number means; that claim is gone from
-// the copy, and looking like the genuine article is reason enough on its own.
+// The example tab carries a count so it reads as a real tab beside the real ones: looking like
+// the genuine article is what makes the steps about tabs land.
 const TOUR_DEMO_UNREAD = 3;
 
 // What the bar borrows when nothing is pinned. Drive is in APP_SURFACES, so it is openable for
@@ -365,6 +375,7 @@ export default function AppShell() {
     bridge.onUpdateStatus(setUpdate);
     bridge.onPrefsChanged((p) => setPrefs(p as Prefs));
     bridge.onDefaultMailStatus(setIsDefaultMail);
+    bridge.onPlayNotificationSound(({ name, volume }) => playSound(name, volume));
     // On a fresh install nobody presses the plus button: the Gmail view is already open on a
     // sign-in page, you sign in there, and detection pushes the account like any other. So the
     // tour cannot hang off addAccount alone -- it also arms when main says this launch found no
@@ -438,12 +449,12 @@ export default function AppShell() {
     if (!profiles.some((p) => !p.provisional)) return;
     if (settingsOpen) closeSettings();
     startTour();
-  }, [tourArmed, profiles, prefs, settingsOpen, active]);
+  }, [tourArmed, profiles, prefs, settingsOpen]);
 
   function open(key: string, surface: Surface) {
     // The tour's example tab has no view behind it, and ensureView would throw on its index
     if (key === TOUR_DEMO_KEY) return;
-    if (settingsOpen) setSettingsOpen(false);
+    if (settingsOpen) closeSettings();
     const row = profiles.find((p) => p.key === key);
     if (row?.provisional) {
       setPendingEmail(row.email.toLowerCase());
@@ -461,21 +472,17 @@ export default function AppShell() {
     window.desktop?.switchSurface(key, surface);
   }
   function addAccount() {
-    if (settingsOpen) setSettingsOpen(false);
+    if (settingsOpen) closeSettings();
     armTour();
     window.desktop?.addAccount();
   }
   function addDelegated() {
-    if (settingsOpen) setSettingsOpen(false);
+    if (settingsOpen) closeSettings();
     armTour();
-    // Nothing to track here any more. This used to raise a "looking…" state that a
-    // suggestion message cleared; discovery now asks the relay and whatever it finds arrives
-    // through onProfilesChanged like any other account, so the tab appearing in the bar is
-    // the feedback.
     window.desktop?.addDelegated();
   }
   function redetect() {
-    if (settingsOpen) setSettingsOpen(false);
+    if (settingsOpen) closeSettings();
     window.desktop?.redetect();
   }
   function openSettings() {
@@ -613,7 +620,7 @@ export default function AppShell() {
         labelFor={displayName}
         settingsOpen={settingsOpen}
         update={update}
-        strings={S}
+        S={S}
         demoPinned={demoPinned}
         onOpen={open}
         onPopupMenu={popupMenu}

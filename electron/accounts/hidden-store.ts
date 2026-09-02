@@ -68,7 +68,6 @@ export class HiddenStore {
    * Whether this mailbox is one the user waved away
    *
    * @param email in whatever case the caller happens to hold it
-   * @returns {boolean}
    */
   has(email: string): boolean {
     const key = email.trim().toLowerCase();

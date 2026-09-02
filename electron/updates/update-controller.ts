@@ -30,7 +30,8 @@ import {
   setLastUpdateStatus,
 } from '../core/runtime';
 import { nativeLabels } from '../menus/native-labels';
-import { parseChangelog, type ChangelogVersion } from './changelog';
+import { parseChangelog } from './changelog';
+import type { ChangelogVersion } from '../../renderer/lib/changelog-types';
 import { prereleaseAllowed } from './update-channel';
 import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
@@ -87,8 +88,8 @@ export function setUpdateHooks(h: UpdateHooks): void {
 /**
  * The release notes the settings panel shows
  *
- * @returns {ChangelogVersion[]} empty when the file is missing, which it is in a checkout
- *   that has never been packaged
+ * @returns empty when the file is missing, which it is in a checkout that has never been
+ *   packaged
  */
 export function loadChangelog(): ChangelogVersion[] {
   try {
@@ -194,7 +195,7 @@ export function setupUpdater(): void {
 // Helper functions
 //===========================
 
-/** The one place the update state is written and published. */
+/** The one place the update state is written and published */
 function sendUpdate(status: Record<string, unknown>): void {
   setLastUpdateStatus({ ...status, currentVersion: app.getVersion() });
   mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);

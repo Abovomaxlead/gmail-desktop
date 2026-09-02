@@ -93,7 +93,7 @@ export async function mailboxToken(email: string): Promise<DelegatedTokenOutcome
   return token ? { ok: true, token } : { ok: false, error: 'Verbinding verlopen' };
 }
 
-export async function freshTokenAfter401(email: string): Promise<string | null> {
+async function freshTokenAfter401(email: string): Promise<string | null> {
   if (isDelegatedMailbox(email)) {
     forgetDelegatedToken(email);
     const again = await delegatedTokenFor(email);

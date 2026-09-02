@@ -3,7 +3,7 @@
 // else: Rene mode first, then the locale. Returning one frozen object per variant keeps
 // the Rene comparison in the tests an identity check.
 
-import type { Locale } from '../core/locale';
+import { pickVariant, type Locale } from '../core/locale';
 
 
 //===========================
@@ -146,6 +146,5 @@ const RENE: NativeLabels = Object.freeze({
  * @returns {NativeLabels} the same frozen object every time, so a test can compare identity
  */
 export function nativeLabels(locale: Locale, reneMode: boolean): NativeLabels {
-  if (reneMode) return RENE;
-  return locale === 'nl' ? NL : EN;
+  return pickVariant(locale, reneMode, { en: EN, nl: NL, rene: RENE });
 }

@@ -16,7 +16,6 @@ import { GoogleAppsSection } from './settings/GoogleAppsSection';
 import { LabelCleanupSection } from './settings/LabelCleanupSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { PhishingSection } from './settings/PhishingSection';
-import { EmptyNote, Section } from './settings/Section';
 import { SettingsShell } from './settings/SettingsShell';
 import { UpdatesSection } from './settings/UpdatesSection';
 import { VerificationCodesSection } from './settings/VerificationCodesSection';
@@ -93,7 +92,9 @@ export function SettingsPanel({
 
   const rene = prefs?.reneMode === true;
   const S = getStrings(prefs?.locale ?? 'en', rene);
-  const uiLang: 'en' | 'nl' = rene ? 'nl' : 'en';
+  // The release notes follow the interface: a Dutch reader gets the Dutch-tagged entries, and
+  // Rene mode is Dutch whatever the locale says.
+  const uiLang: 'en' | 'nl' = prefs?.locale === 'nl' || rene ? 'nl' : 'en';
 
   const seqProgress = useRef(0);
   useEffect(() => {
@@ -196,12 +197,6 @@ export function SettingsPanel({
             return <WhatsNewSection S={S} uiLang={uiLang} />;
           case 'about':
             return <AboutSection S={S} update={update} />;
-          default:
-            return (
-              <Section title={sectionLabel(section, S)}>
-                <EmptyNote>{S.sectionEmpty}</EmptyNote>
-              </Section>
-            );
         }
       })()}
     </SettingsShell>

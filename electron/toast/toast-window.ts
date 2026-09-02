@@ -1,3 +1,10 @@
+// The window the stack is drawn in: building it, keeping it out of the way of the pointer,
+// sizing it to what the page measured, and throwing it away when it stops painting.
+//
+// It owns the proof of life. A page that never reports a size is indistinguishable from one
+// that reports an empty stack, so isBroken() and the rebuild budget are the only things that
+// can tell a stack nobody sees from one nobody was given.
+
 import { BrowserWindow, screen } from 'electron';
 import { containsPoint, exceedsWorkArea, toastWindowBounds, type ToastRect } from './toast-layout';
 import { notifyLog } from '../notify/notify-log';
@@ -138,6 +145,18 @@ export class ToastWindow {
    */
   isBroken(): boolean {
     return this.destroyed || this.broken;
+  }
+
+  /**
+   * Whether the page has measured itself since this window was built
+   *
+   * False for a window that has not painted yet, including a freshly rebuilt one: the page is
+   * new and nothing on the stack has reached a screen through it.
+   *
+   * @returns true once a size report has arrived
+   */
+  hasPainted(): boolean {
+    return this.lastSize !== null;
   }
 
   /**

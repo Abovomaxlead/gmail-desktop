@@ -13,10 +13,9 @@
 // it before claiming each item and ends that worker for good on 'stop' -- so a cancelled pull
 // leaves its loop where it stands rather than being unwound by a thrown error.
 //
-// What is already on the wire when stop() is called would otherwise run to its own end, and a
-// cancel would be as slow as the slowest conversation still being fetched. signal() is what severs
-// it: aborted the instant stop() is called, and always the same object, so a listener attached at
-// the start of the pull still fires however late the stop arrives.
+// Requests already on the wire when stop() is called run to their own end -- nothing severs
+// a fetch in flight. A cancel is only as quick as wait() refusing to claim new work, and the
+// count already fetched by then is still reported by the line the drop lock closes with.
 
 
 //===========================
@@ -36,8 +35,6 @@ export interface PullControl {
   stop(): void;
   /** Whether a stop has been asked for */
   stopped(): boolean;
-  /** Aborted the instant stop() is called. The same object for the life of this control. */
-  signal(): AbortSignal;
 }
 
 
@@ -57,19 +54,14 @@ export interface PullControl {
  */
 export function createPullControl(): PullControl {
   let stopping = false;
-  const abort = new AbortController();
 
   return {
     wait: () => Promise.resolve(stopping ? 'stop' : 'continue'),
     stopped: () => stopping,
-    signal: () => abort.signal,
     stop(): void {
-      // Guarded rather than left to AbortController's own idempotence, so that "stopping is
-      // one-way" is stated here and not inferred from what abort() happens to do twice.
+      // Guarded so that "stopping is one-way" is stated here rather than left implicit.
       if (stopping) return;
       stopping = true;
-      // Cooperative gating stops new work; this cuts what is already running.
-      abort.abort();
     },
   };
 }

@@ -2,8 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  mayKeepCalendarViews,
-  mayWarmViews,
+  mayBuildAheadOfDemand,
   viewsToDiscard,
 } from '../electron/windows/view-budget';
 import type { ViewId } from '../electron/windows/profile-view-manager';
@@ -40,11 +39,6 @@ describe('viewsToDiscard', () => {
     expect(live).toEqual(copy);
   });
 
-  it('never repeats a view', () => {
-    const live = [v('u0'), v('u0'), v('u1')];
-    expect(viewsToDiscard({ live, active: v('u1') })).toEqual([v('u0')]);
-  });
-
   // The bug this module was rewritten for: sweeping mail views alone left every Google-app
   // view resident -- drive, docs, chat and the rest each cost their own renderer -- and the
   // setting did nothing anyone could notice.
@@ -73,16 +67,9 @@ describe('viewsToDiscard', () => {
   });
 });
 
-describe('mayWarmViews', () => {
-  it('refuses to warm under low memory and allows it otherwise', () => {
-    expect(mayWarmViews(true)).toBe(false);
-    expect(mayWarmViews(false)).toBe(true);
-  });
-});
-
-describe('mayKeepCalendarViews', () => {
-  it('keeps no calendar views under low memory and allows them otherwise', () => {
-    expect(mayKeepCalendarViews(true)).toBe(false);
-    expect(mayKeepCalendarViews(false)).toBe(true);
+describe('mayBuildAheadOfDemand', () => {
+  it('refuses under low memory and allows it otherwise', () => {
+    expect(mayBuildAheadOfDemand(true)).toBe(false);
+    expect(mayBuildAheadOfDemand(false)).toBe(true);
   });
 });

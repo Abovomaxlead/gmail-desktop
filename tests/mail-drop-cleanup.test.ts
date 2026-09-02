@@ -17,58 +17,57 @@ import {
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse('2026-08-18T12:00:00.000Z');
 
-const dir = (name: string, mtimeMs = now): DropEntry => ({ name, isDirectory: true, mtimeMs });
-const file = (name: string, mtimeMs = now): DropEntry => ({ name, isDirectory: false, mtimeMs });
+const entry = (name: string, mtimeMs = now): DropEntry => ({ name, mtimeMs });
 
 describe('expiredEntries', () => {
   it('removes a folder whose stamp is older than the term', () => {
-    expect(expiredEntries([dir('2026-08-14_0930_Jan_de_Vries_Offerte')], now)).toEqual([
+    expect(expiredEntries([entry('2026-08-14_0930_Jan_de_Vries_Offerte')], now)).toEqual([
       '2026-08-14_0930_Jan_de_Vries_Offerte',
     ]);
   });
   it('keeps a folder dropped today', () => {
-    expect(expiredEntries([dir('2026-08-18_0930_Jan_de_Vries_Offerte')], now)).toEqual([]);
+    expect(expiredEntries([entry('2026-08-18_0930_Jan_de_Vries_Offerte')], now)).toEqual([]);
   });
   it('keeps one that is a day short of the term', () => {
-    expect(expiredEntries([dir('2026-08-16_1200_x_y')], now)).toEqual([]);
+    expect(expiredEntries([entry('2026-08-16_1200_x_y')], now)).toEqual([]);
   });
   it('removes one that reaches the term exactly', () => {
-    expect(expiredEntries([dir('2026-08-15_1200_x_y')], now)).toEqual(['2026-08-15_1200_x_y']);
+    expect(expiredEntries([entry('2026-08-15_1200_x_y')], now)).toEqual(['2026-08-15_1200_x_y']);
   });
   it('reads the stamp of a label folder and of a suffixed folder alike', () => {
     expect(
-      expiredEntries([dir('2026-08-14_0930_label_Klanten'), dir('2026-08-14_0930_x_y-2')], now),
+      expiredEntries([entry('2026-08-14_0930_label_Klanten'), entry('2026-08-14_0930_x_y-2')], now),
     ).toEqual(['2026-08-14_0930_label_Klanten', '2026-08-14_0930_x_y-2']);
   });
 
   // The stamp beats the mtime: copying a folder onto the share touches the file's own time,
   // and the drop moment is what the term is about.
   it('trusts the stamp over a fresh mtime', () => {
-    expect(expiredEntries([dir('2026-08-10_0800_x_y', now)], now)).toEqual([
+    expect(expiredEntries([entry('2026-08-10_0800_x_y', now)], now)).toEqual([
       '2026-08-10_0800_x_y',
     ]);
   });
   it('falls back to the mtime for a name that carries no stamp', () => {
     expect(
-      expiredEntries([file('diagnose-om-19f5582305cc4871.html', now - 5 * DAY)], now),
+      expiredEntries([entry('diagnose-om-19f5582305cc4871.html', now - 5 * DAY)], now),
     ).toEqual(['diagnose-om-19f5582305cc4871.html']);
-    expect(expiredEntries([file('diagnose-om-19f5582305cc4871.html', now)], now)).toEqual([]);
+    expect(expiredEntries([entry('diagnose-om-19f5582305cc4871.html', now)], now)).toEqual([]);
   });
 
   it('never removes the log, however old it is', () => {
-    expect(expiredEntries([file(LOG_NAME, now - 400 * DAY)], now)).toEqual([]);
+    expect(expiredEntries([entry(LOG_NAME, now - 400 * DAY)], now)).toEqual([]);
   });
   it('is empty for an empty folder', () => {
     expect(expiredEntries([], now)).toEqual([]);
   });
   it('keeps the order it was given', () => {
     expect(
-      expiredEntries([dir('2026-08-10_0800_b_b'), file(LOG_NAME), dir('2026-08-11_0800_a_a')], now),
+      expiredEntries([entry('2026-08-10_0800_b_b'), entry(LOG_NAME), entry('2026-08-11_0800_a_a')], now),
     ).toEqual(['2026-08-10_0800_b_b', '2026-08-11_0800_a_a']);
   });
   it('honours a term other than the default', () => {
-    expect(expiredEntries([dir('2026-08-17_1200_x_y')], now, 1)).toEqual(['2026-08-17_1200_x_y']);
-    expect(expiredEntries([dir('2026-08-17_1200_x_y')], now, KEEP_DAYS)).toEqual([]);
+    expect(expiredEntries([entry('2026-08-17_1200_x_y')], now, 1)).toEqual(['2026-08-17_1200_x_y']);
+    expect(expiredEntries([entry('2026-08-17_1200_x_y')], now, KEEP_DAYS)).toEqual([]);
   });
 });
 

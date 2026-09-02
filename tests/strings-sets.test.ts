@@ -82,6 +82,9 @@ const SAME_IN_BOTH = new Set([
   'navFeedback',
   'navUpdates',
   'labelCleanupLabel',
+  'mdRecent',
+  'mdTreeLabelCount',
+  'mdPhaseWorking',
   'updates',
   'dhBytes',
   'volumeLabel',
@@ -95,6 +98,12 @@ function nlOf(key: string): string | null {
 
 function enOf(key: string): string | null {
   return render((STRINGS_NORMAL as unknown as Record<string, unknown>)[key]);
+}
+
+// The allowlist above holds for Rene mode too: it is Dutch, only plainer.
+
+function reneOf(key: string): string | null {
+  return render((STRINGS_RENE as unknown as Record<string, unknown>)[key]);
 }
 
 describe('STRINGS_NL', () => {
@@ -126,6 +135,21 @@ describe('STRINGS_NL', () => {
   });
 });
 
+// Rene mode is Dutch too, so a value still in English there is the same defect the sweep
+// above catches for STRINGS_NL -- and the only reader who cannot work around it.
+describe('STRINGS_RENE', () => {
+  it('translates every value that is not deliberately shared with English', () => {
+    const leftovers: string[] = [];
+    for (const key of Object.keys(STRINGS_NORMAL)) {
+      if (SAME_IN_BOTH.has(key)) continue;
+      const rene = reneOf(key);
+      const en = enOf(key);
+      if (rene !== null && en !== null && rene === en) leftovers.push(key);
+    }
+    expect(leftovers, `still English: ${leftovers.join(', ')}`).toEqual([]);
+  });
+});
+
 // The two map-backed members are the one place a Dutch UI can silently fall back to
 // English: they are functions, so the leftover-English test cannot render them, and the
 // map tests above compare the maps rather than which map these two read. Call them.
@@ -151,6 +175,7 @@ describe('the category and colour maps', () => {
   it('translate every category', () => {
     for (const key of Object.keys(CATEGORY_NORMAL)) {
       expect(CATEGORY_NL[key], `category ${key}`).not.toBe(CATEGORY_NORMAL[key]);
+      expect(CATEGORY_RENE[key], `rene category ${key}`).not.toBe(CATEGORY_NORMAL[key]);
     }
   });
 });

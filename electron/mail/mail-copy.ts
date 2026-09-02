@@ -111,11 +111,16 @@ export interface MailboxCopyLog {
   stopped: number;
 }
 
+/** What became of one file in one mailbox. 'stopped' is not a failure: it covers a file the
+ * gate refused before it started and one a cancel severed mid-flight alike -- the run ended,
+ * the file did not fail. */
+export type CopyOutcomeKind = 'copied' | 'skipped' | 'failed' | 'stopped';
+
 /** One file's outcome, as far as tallying needs to know -- matches mail-drop-controller.ts's
  * own CopyOutcome without importing it, so this file stays free of that module's types. */
 export interface CopyOutcomeTally {
-  copied?: true;
-  skipped?: true;
+  kind: CopyOutcomeKind;
+  /** The message of a 'failed' file, and of nothing else */
   error?: string;
 }
 
@@ -387,17 +392,17 @@ export function countExisting(hits: Array<{ email: string; labelId: string }>): 
  * @returns the line, without the `[maildrop]` prefix the caller adds
  */
 export function copyLogLine(m: MailboxCopyLog): string {
-  const kind = m.delegated ? 'gedelegeerd' : 'eigen';
+  const kind = m.delegated ? 'delegated' : 'own';
   const total = m.inserts.reduce((s, ms) => s + ms, 0);
   const spread =
     m.inserts.length > 0
-      ? ` (mediaan ${duration(middle(m.inserts))}, traagste ${duration(Math.max(...m.inserts))})`
+      ? ` (median ${duration(middle(m.inserts))}, slowest ${duration(Math.max(...m.inserts))})`
       : '';
   const counts = [
-    `${m.copied} gekopieerd`,
-    `${m.skipped} overgeslagen`,
-    `${m.failed} mislukt`,
-    `${m.stopped} afgebroken`,
+    `${m.copied} copied`,
+    `${m.skipped} skipped`,
+    `${m.failed} failed`,
+    `${m.stopped} stopped`,
   ].join(', ');
   return (
     `copy ${m.email} (${kind}): token ${duration(m.tokenMs)}, ` +
@@ -408,37 +413,32 @@ export function copyLogLine(m: MailboxCopyLog): string {
 /**
  * Counts what a mailbox's files actually came to, one outcome at a time
  *
- * Never derived by subtraction. A file the gate refused before it started leaves no outcome
- * at all; a cancel that severed one mid-flight leaves an outcome with neither `copied`,
- * `skipped` nor `error` set (mail-drop-controller.ts's copyOneFile, deliberately -- it is
- * not a failure). Both are `stopped`, and only a real `error` is ever `failed`, so the two
- * can never be read as one number pretending to be the other.
+ * Never derived by subtraction: every file names its own category, and a missing entry is a
+ * file whose thread group or mailbox never started at all, which is the fourth category
+ * rather than the absence of the other three.
  *
- * @param outcomes one per file, in the order of the drag; a missing entry is a file whose
- *   own thread group or mailbox never started at all
+ * @param outcomes one per file, in the order of the drag; a missing entry counts as stopped
  * @returns the tally
  */
 export function tallyOutcomes(outcomes: Array<CopyOutcomeTally | undefined>): CopyTally {
-  let copied = 0;
-  let skipped = 0;
-  let failed = 0;
-  let stopped = 0;
-  let lastError: string | undefined;
+  const tally: CopyTally = { copied: 0, skipped: 0, failed: 0, stopped: 0, lastError: undefined };
   for (const outcome of outcomes) {
-    if (!outcome) {
-      stopped += 1;
-    } else if (outcome.copied) {
-      copied += 1;
-    } else if (outcome.skipped) {
-      skipped += 1;
-    } else if (outcome.error) {
-      failed += 1;
-      lastError = outcome.error;
-    } else {
-      stopped += 1;
+    switch (outcome?.kind ?? 'stopped') {
+      case 'copied':
+        tally.copied += 1;
+        break;
+      case 'skipped':
+        tally.skipped += 1;
+        break;
+      case 'failed':
+        tally.failed += 1;
+        if (outcome?.error) tally.lastError = outcome.error;
+        break;
+      default:
+        tally.stopped += 1;
     }
   }
-  return { copied, skipped, failed, stopped, lastError };
+  return tally;
 }
 
 /**
@@ -449,8 +449,8 @@ export function tallyOutcomes(outcomes: Array<CopyOutcomeTally | undefined>): Co
  */
 export function checkLogLine(t: { checks: number; reused: number; asked: number; ms: number }): string {
   return (
-    `dubbelencheck: ${t.checks} vragen, ${t.reused} uit de scan, ` +
-    `${t.asked} opnieuw gevraagd, ${duration(t.ms)}`
+    `duplicate check: ${t.checks} questions, ${t.reused} from the scan, ` +
+    `${t.asked} asked again, ${duration(t.ms)}`
   );
 }
 

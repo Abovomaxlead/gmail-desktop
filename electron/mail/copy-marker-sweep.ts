@@ -17,6 +17,7 @@
 // the next resumed sweep rather than claim it clean.
 
 import { BATCH_MODIFY_LIMIT } from '../gmail/gmail-api';
+import { chunk } from './chunk';
 
 
 //===========================
@@ -156,7 +157,7 @@ async function modifyInChunks(
   action: SweepAction,
   modify: SweepDeps['modify'],
 ): Promise<void> {
-  for (let at = 0; at < ids.length; at += BATCH_MODIFY_LIMIT) {
-    await modify(accessToken, ids.slice(at, at + BATCH_MODIFY_LIMIT), action);
+  for (const part of chunk(ids, BATCH_MODIFY_LIMIT)) {
+    await modify(accessToken, part, action);
   }
 }

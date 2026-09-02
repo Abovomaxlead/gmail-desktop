@@ -29,7 +29,6 @@ vi.mock('electron', () => ({ shell: { openPath: vi.fn(), showItemInFolder: vi.fn
 vi.mock('../electron/core/runtime', () => ({
   authRef: (index: number) => ({ kind: 'authuser', index }),
   idxOfKey: (key: string) => (key === 'u0' ? 0 : null),
-  isQuitting: false,
   keyOf: (p: { ref: { index: number } }) => `u${p.ref.index}`,
   mainWindow: {
     isDestroyed: () => false,
@@ -47,7 +46,6 @@ vi.mock('../electron/core/runtime', () => ({
   },
   prefs: { getAll: () => ({ notificationOpen: state.notificationOpen }) },
   profiles: [{ email: 'luca@example.com', ref: { kind: 'authuser', index: 0 } }],
-  setDetectionStarted: vi.fn(),
   setSettingsPanelOpen: vi.fn(),
   settingsPanelOpen: false,
 }));

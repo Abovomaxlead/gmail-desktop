@@ -1,10 +1,9 @@
 // Building the main window and everything hung off it: the view manager, the toast stack,
 // and the handlers that keep them in step with the window's life.
 //
-// This runs more than once -- a notification click after the window closed rebuilds it, and
-// so does 'activate' on macOS. Everything it creates is published to the runtime rather than
-// held here, and every callback below reads the live binding, so a second window replaces
-// what they see. The locals are for this pass only.
+// createWindow runs exactly once per process: the main window is never destroyed while the
+// app lives, so nothing here rebuilds it. Everything it creates is published to the runtime
+// rather than held here, and every callback below reads the live binding.
 //
 // One ordering matters: the toast controller is built after the window it belongs to and
 // torn down with it.
@@ -19,7 +18,6 @@ import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from '../core/rene';
 import { PrefsStore } from '../core/prefs-store';
 import {
   accountCacheLoaded,
-  coverage,
   currentLocale,
   detectionStarted,
   idxOfKey,
@@ -93,31 +91,7 @@ import type { KeyInput } from '../menus/shortcuts';
 
 
 //===========================
-// Module state
-//===========================
-
-/** Only the first window of the session honours 'start minimised'; one rebuilt by a
- * notification click is being opened on purpose. */
-let firstWindow = true;
-
-
-//===========================
 // Exported functions
-//===========================
-
-function watchPreloadForReload(): void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    watch(PRELOAD_PATH, () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => manager?.reloadAll(), 250);
-    });
-  } catch {
-  }
-}
-
-//===========================
-// The main window
 //===========================
 
 export function createWindow(): void {
@@ -155,8 +129,7 @@ export function createWindow(): void {
   });
   setMainWindow(win);
   if (stored.maximized) win.maximize();
-  if (firstWindow && store.getAll().launchMinimized) win.minimize();
-  firstWindow = false;
+  if (store.getAll().launchMinimized) win.minimize();
   win.on('show', refreshBadge);
   win.on('restore', refreshBadge);
 
@@ -191,8 +164,9 @@ export function createWindow(): void {
     win,
     PRELOAD_PATH,
     (accountKey, count) => {
-      const email = profiles.find((p) => keyOf(p) === accountKey)?.email;
-      if (email && coverage.has(email)) return;
+      // The page title is the authority while a view is up: it moves the moment mail is read,
+      // where the API sweep is five minutes behind. reportApiUnread only fills in an account
+      // this has never spoken for.
       unread.report(accountKey, count);
       pushUnread();
       refreshBadge();
@@ -215,7 +189,7 @@ export function createWindow(): void {
     },
     () => prefs?.getAll().notificationOpen ?? 'app',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
-    (acctKey, payload) => void handleMailDrop(acctKey, payload),
+    (acctKey, payload) => void handleMailDrop(acctKey, payload).catch(() => {}),
     () => raiseOverlays(),
 
     (acctKey) => {
@@ -282,7 +256,7 @@ export function createWindow(): void {
   });
 
   win.on('close', (e) => {
-    if (shouldHideOnClose({ isQuitting, platform: process.platform })) {
+    if (shouldHideOnClose({ isQuitting })) {
       e.preventDefault();
       mainWindow?.hide();
     }
@@ -339,5 +313,21 @@ function reportTokenProtection(result: ProtectResult): void {
   }
   if (result === 'unreadable') {
     notifyLog('[oauth] the token file was sealed elsewhere; the accounts need linking again');
+  }
+}
+
+/**
+ * Reloads every view when the preload script on disk changes, for local development
+ *
+ * @private
+ */
+function watchPreloadForReload(): void {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    watch(PRELOAD_PATH, () => {
+      clearTimeout(timer ?? undefined);
+      timer = setTimeout(() => manager?.reloadAll(), 250);
+    });
+  } catch {
   }
 }

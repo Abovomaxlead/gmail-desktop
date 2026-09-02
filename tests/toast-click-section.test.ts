@@ -11,17 +11,13 @@
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-const state = vi.hoisted(() => ({
-  openSettingsPanel: vi.fn(),
-  reopenWindow: vi.fn(),
-}));
+const state = vi.hoisted(() => ({ openSettingsPanel: vi.fn() }));
 
 vi.mock('electron', () => ({ shell: { openPath: vi.fn(), showItemInFolder: vi.fn() } }));
 
 vi.mock('../electron/core/runtime', () => ({
   authRef: (index: number) => ({ kind: 'authuser', index }),
   idxOfKey: () => null,
-  isQuitting: false,
   keyOf: (p: { ref: { index: number } }) => `u${p.ref.index}`,
   mainWindow: {
     isDestroyed: () => false,
@@ -34,7 +30,6 @@ vi.mock('../electron/core/runtime', () => ({
   manager: {},
   prefs: { getAll: () => ({ notificationOpen: 'inline' }) },
   profiles: [],
-  setDetectionStarted: vi.fn(),
   setSettingsPanelOpen: vi.fn(),
   settingsPanelOpen: false,
 }));
@@ -59,10 +54,7 @@ const { activateToast, setToastActivationHooks } = await import(
 
 beforeEach(() => {
   state.openSettingsPanel.mockClear();
-  setToastActivationHooks({
-    reopenWindow: state.reopenWindow,
-    openSettingsPanel: state.openSettingsPanel,
-  });
+  setToastActivationHooks({ openSettingsPanel: state.openSettingsPanel });
 });
 
 const card = (kind: string) =>

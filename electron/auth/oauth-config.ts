@@ -1,5 +1,5 @@
-// The one config file everything Google-facing is read from: the OAuth credentials, the push
-// settings, and the two relay URLs.
+// The one config file everything Google-facing is read from: the OAuth credentials and the
+// two relay URLs.
 //
 // Every reader goes through oauthConfigText, so the app cannot link against one project and
 // subscribe for notifications against another. Nothing is cached, because the file can be
@@ -12,20 +12,11 @@ import { chooseRelayUrl } from '../delegation/relay-url';
 import { readBundledOAuthConfig } from './oauth-bundled';
 import { chooseOAuthConfigText } from './oauth-source';
 import type { OAuthConfig } from './google-oauth';
-import { parsePushConfig, type PushConfig } from '../push/push-config';
 
 
 //===========================
 // Exported functions
 //===========================
-
-export function oauthConfigText(): string | null {
-  return chooseOAuthConfigText(
-    readIfPresent(OAUTH_CONFIG_PATH),
-    readIfPresent(backupPath(OAUTH_CONFIG_PATH)),
-    readBundledOAuthConfig(),
-  );
-}
 
 export function oauthConfig(): OAuthConfig | null {
   const text = oauthConfigText();
@@ -40,15 +31,6 @@ export function oauthConfig(): OAuthConfig | null {
   return null;
 }
 
-export function pushConfig(): PushConfig | null {
-  const text = oauthConfigText();
-  try {
-    return parsePushConfig(text === null ? null : JSON.parse(text), process.env);
-  } catch {
-    return parsePushConfig(null, process.env);
-  }
-}
-
 export function delegatedTokenUrl(): string | null {
   return relayUrlFromConfig(process.env.GMAIL_DELEGATED_TOKEN_URL, 'delegatedTokenUrl');
 }
@@ -61,6 +43,14 @@ export function delegatedMailboxesUrl(): string | null {
 //===========================
 // Helper functions
 //===========================
+
+function oauthConfigText(): string | null {
+  return chooseOAuthConfigText(
+    readIfPresent(OAUTH_CONFIG_PATH),
+    readIfPresent(backupPath(OAUTH_CONFIG_PATH)),
+    readBundledOAuthConfig(),
+  );
+}
 
 function readIfPresent(path: string): string | null {
   try {

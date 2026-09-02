@@ -61,11 +61,6 @@ export function dismissToast(stack: ToastStack, id: string): ToastStack {
   return { toasts, summary: null };
 }
 
-/** Clears everything, cards or summary alike. */
-export function dismissAll(_stack: ToastStack): ToastStack {
-  return EMPTY_STACK;
-}
-
 /**
  * Drops the cards that have reached their expiry
  *

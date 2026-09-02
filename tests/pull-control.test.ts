@@ -1,7 +1,7 @@
 // The gate that lets a pull be cancelled. Smaller than the copy's own gate on purpose: a pull
 // has sent nothing to Google, so there is nothing to undo and no stop mode to choose between.
-// What is proved here is that stopping is one-way, that it reaches a loop through the same
-// shouldWait shape mapLimit already takes, and that it cuts a fetch that is already on the wire.
+// What is proved here is that stopping is one-way and that it reaches a loop through the same
+// shouldWait shape mapLimit already takes.
 
 import { describe, it, expect } from 'vitest';
 import { createPullControl } from '../electron/mail/pull-control';
@@ -28,23 +28,6 @@ describe('createPullControl', () => {
     control.stop();
     control.stop();
     expect(control.stopped()).toBe(true);
-  });
-
-  // The gate only keeps new work from starting. A fetch already on the wire is cut by the
-  // signal, which is what keeps a cancel from waiting on the slowest conversation.
-  it('aborts its signal on the stop, so a fetch in flight is severed', () => {
-    const control = createPullControl();
-    expect(control.signal().aborted).toBe(false);
-    control.stop();
-    expect(control.signal().aborted).toBe(true);
-  });
-
-  it('hands out the same signal every time, so a listener attached first still fires', () => {
-    const control = createPullControl();
-    const signal = control.signal();
-    expect(control.signal()).toBe(signal);
-    control.stop();
-    expect(signal.aborted).toBe(true);
   });
 
   // The shape mapLimit takes (concurrency.ts: shouldWait?: () => Promise<'continue' | 'stop'>),

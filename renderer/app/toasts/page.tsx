@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent,
   type ReactNode,
 } from 'react';
 import { getStrings } from '../strings';
@@ -66,16 +67,7 @@ export default function ToastsPage() {
   }, []);
 
   useEffect(() => {
-    console.log(`[toasts] mounted, bridge=${Boolean(window.desktop)}`);
-  }, []);
-
-  useEffect(() => {
     window.desktop?.onToastState((next) => {
-      console.log(
-        `[toasts] state received: ${next.toasts.length} card(s)` +
-          `${next.summary ? ` + summary of ${next.summary.count}` : ''}`,
-      );
-
       if (next.toasts.length === 0 && next.summary === null) {
         hoveredRef.current = false;
         setHoveredId(null);
@@ -92,7 +84,6 @@ export default function ToastsPage() {
       setHoveredId(null);
     });
 
-    console.log('[toasts] listening, asking main for the stack');
     window.desktop?.toastReady();
   }, []);
 
@@ -102,18 +93,13 @@ export default function ToastsPage() {
 
   useEffect(() => {
     const el = wrapRef.current;
-    if (!el) {
-      const cards = state ? state.toasts.length : 0;
-      if (cards > 0 || state?.summary) console.log('[toasts] nothing to measure yet');
-      return;
-    }
+    if (!el) return;
     const report = (): void => {
       const box = el.getBoundingClientRect();
       const size = {
         width: Math.ceil(box.width),
         height: Math.ceil(box.height) + ROUNDING_SLACK,
       };
-      console.log(`[toasts] measured ${size.width}x${size.height}, reporting`);
       window.desktop?.reportToastSize(size);
       // The stack just changed height, so a card may have slid under or out from under a
       // pointer that never moved -- the same reason the state effect asks again.
@@ -240,6 +226,15 @@ function ToastCard({
     [toast.id],
   );
 
+  // The actions are spans because a <button> cannot nest inside the card's own activation
+  // button, so the key half of a button has to be written out.
+  const keyRun = (action: ToastAction) => (e: KeyboardEvent<HTMLSpanElement>) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    run(action);
+  };
+
   const showActions = hasActions && hovered;
 
   return (
@@ -280,6 +275,7 @@ function ToastCard({
                     e.stopPropagation();
                     run('archive');
                   }}
+                  onKeyDown={keyRun('archive')}
                 >
                   {archiveLabel}
                 </span>
@@ -291,6 +287,7 @@ function ToastCard({
                     e.stopPropagation();
                     run('read');
                   }}
+                  onKeyDown={keyRun('read')}
                 >
                   {readLabel}
                 </span>

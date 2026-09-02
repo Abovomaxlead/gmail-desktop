@@ -17,11 +17,17 @@ import type { ToastWindow } from '../electron/toast/toast-window';
 import type { Toast } from '../renderer/lib/toast';
 
 function fakeWindow(overrides: Partial<ToastWindow> = {}): ToastWindow {
+  // Painting is stateful in the real window: lastSize is set by applySize and cleared by a
+  // rebuild, and the controller's blackout is keyed on exactly that.
+  let painted = false;
   return {
     send: () => undefined,
     setInteractive: () => undefined,
     wouldOverflow: () => false,
-    applySize: () => undefined,
+    applySize: () => {
+      painted = true;
+    },
+    hasPainted: () => painted,
     reposition: () => undefined,
     hide: () => undefined,
     destroy: () => undefined,
@@ -357,6 +363,32 @@ describe('ToastController — nothing fades before it has been seen', () => {
     vi.advanceTimersByTime(TOAST_LIFETIME_MS + 1000);
 
     expect(ids(h.discarded)).toEqual(['src-1']);
+  });
+
+  // The window dies, the presenter rebuilds it, and the next card lands on a stack that is
+  // not empty. Keyed on emptiness alone the blackout never starts, and both cards are
+  // expired against a page that has painted nothing since the rebuild.
+  it('does not fade a card that arrived after the window was rebuilt under it', () => {
+    vi.useFakeTimers();
+    let painted = false;
+    const h = harness(
+      fakeWindow({
+        applySize: () => {
+          painted = true;
+        },
+        hasPainted: () => painted,
+      }),
+    );
+    h.controller.show(mailInput(1, false));
+    h.controller.applySize(380, 92);
+
+    painted = false;
+    h.setNow(1000);
+    h.controller.show(mailInput(2, false));
+
+    h.setNow(TOAST_LIFETIME_MS * 2);
+    vi.advanceTimersByTime(TOAST_LIFETIME_MS * 2);
+    expect(h.discarded).toEqual([]);
   });
 });
 

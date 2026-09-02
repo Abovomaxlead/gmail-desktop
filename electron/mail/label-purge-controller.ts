@@ -18,10 +18,10 @@ import {
   fetchUserLabelMap,
 } from '../gmail/gmail-api';
 import { notifyLog } from '../notify/notify-log';
+import { chunk } from './chunk';
 import { labelTreeMembers } from './label-tree';
 import {
   PURGE_LIST_MAX,
-  chunkIds,
   createPurgeStore,
   type CountedLabel,
   type PurgeCount,
@@ -93,7 +93,7 @@ export async function countLabelForPurge(
 
     const count = store.put({ email, label, byLabel, capped });
     notifyLog(
-      `[opruimen] ${email} label "${label}": ${count.total} bericht(en) over ${count.labels.length} label(s)${capped ? ', afgekapt' : ''}`,
+      `[cleanup] ${email} label "${label}": ${count.total} message(s) across ${count.labels.length} label(s)${capped ? ', truncated' : ''}`,
     );
     return count;
   } catch (e) {
@@ -123,19 +123,19 @@ export async function purgeCountedLabel(handle: string, labels: string[]): Promi
   if (!withToken) return { trashed: 0, failed: ids.length, error: `Geen toegang tot ${email}` };
 
   let trashed = 0;
-  const chunks = chunkIds(ids, BATCH_MODIFY_LIMIT);
-  for (const [at, chunk] of chunks.entries()) {
+  const chunks = chunk(ids, BATCH_MODIFY_LIMIT);
+  for (const [at, part] of chunks.entries()) {
     try {
-      await withToken((token) => batchModifyMessages(token, chunk, { addLabelIds: ['TRASH'] }));
-      trashed += chunk.length;
+      await withToken((token) => batchModifyMessages(token, part, { addLabelIds: ['TRASH'] }));
+      trashed += part.length;
     } catch (e) {
       const failed = ids.length - trashed;
       notifyLog(
-        `[opruimen] ${email}: blok ${at + 1} van ${chunks.length} geweigerd, ${trashed} weg, ${failed} niet: ${(e as Error).message}`,
+        `[cleanup] ${email}: block ${at + 1} of ${chunks.length} refused, ${trashed} gone, ${failed} not: ${(e as Error).message}`,
       );
       return { trashed, failed, error: (e as Error).message };
     }
   }
-  notifyLog(`[opruimen] ${email}: ${trashed} bericht(en) naar de prullenbak`);
+  notifyLog(`[cleanup] ${email}: ${trashed} message(s) to the trash`);
   return { trashed, failed: 0 };
 }

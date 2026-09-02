@@ -65,6 +65,54 @@ to [Semantic Versioning](https://semver.org/).
   versie, dus je blijft op de versie die je hebt. Een echte storing — een mislukte download,
   een bestand dat niet klopt — blijft wél een foutmelding, en de volledige tekst gaat nog
   altijd naar het updatelogboek.
+- **De maildrop-lijst is niet langer alleen Nederlands.** Het venster dat opengaat als je mail
+  uit Gmail sleept had zijn teksten in de code staan, dus stond het in het Nederlands terwijl de
+  rest van de app Engels was. Het leest nu dezelfde taalinstelling als de instellingen en de
+  meldingen, in alle drie de schrijfwijzen. Hetzelfde gold voor drie regels in "Labels opruimen",
+  waaronder de knop die mail naar de prullenbak verplaatst.
+- **Instellingen sluiten via "Accounts opnieuw zoeken", de plusknop of een gedeeld postvak
+  toevoegen liet een leeg venster achter.** Vier van de vijf manieren om het paneel te sluiten
+  vertelden dat niet aan de app zelf, dus bleven de Gmail-views verborgen: je zag de balk boven
+  een lege ruimte tot er iets anders een view opende. Ook de rondleiding kwam daardoor op een
+  verborgen Gmail uit.
+- **Een kopieeropdracht die zijn rollback-journaal niet kon wegschrijven liep vast en liet
+  labels achter.** Van alle schrijfacties was dit de enige zonder opvang, en juist deze legt vast
+  wat er teruggedraaid moet worden. Ging hij mis — een netwerkschijf die even weg is — dan dacht
+  de app de rest van de sessie dat er nog een kopie liep, deed pauze en stop niets, en bleven er
+  onzichtbare hulplabels in je postvakken staan die nooit meer opgeruimd werden. Nu wordt de
+  kopie geweigerd vóórdat er iets verstuurd is, worden de hulplabels meteen weer weggehaald, en
+  zegt het venster waarom.
+- **Een mailtje kon ongemerkt verdwijnen als Google er even niet bij kon.** Bij het ophalen van
+  nieuwe mail werd de leeswijzer ook doorgeschoven als één bericht niet gelezen kon worden — dat
+  bericht kwam daarna nooit meer langs, dus voor een gedeeld postvak kwam er ook geen melding
+  van. De leeswijzer blijft nu staan tot de hele ronde gelukt is.
+- **Ctrl+1 tot 9 sprong naar het verkeerde account.** De sneltoetsen volgden de volgorde waarin
+  de app je accounts had gevonden, niet de volgorde van je tabjes; had je een tabje versleept,
+  dan kwam je bij een ander postvak uit dan je aanwees. Ze volgen nu de balk.
+- **Een account toevoegen zonder internet liet een blanco vlak over het venster achter.** Het
+  toestemmingsscherm van Google wachtte op een antwoord dat bij een mislukte verbinding nooit
+  komt, en dat vlak ging alleen weg door de app af te sluiten. Nu stopt het met een melding.
+- **Een gedeeld postvak werd overgeslagen als jouw eigen eerste account net was verlopen.** De
+  app vraagt bij Google namens elk van je accounts, maar stopte al na het eerste dat "nee" zei —
+  ook als dat "nee" niets met het postvak te maken had. Alle accounts worden nu langsgegaan.
+- **Een account verwijderen kon halverwege blijven steken.** Sloeg de app tussendoor iets niet op
+  — volle of geblokkeerde schijf — dan bleef het account gewoon in de balk staan, zonder melding.
+  Zo'n mislukte opslag stopt de rest van de opruiming niet meer.
+- **Downloadmeldingen negeerden "niet storen" en stille uren, geluid inclusief.** Een download
+  die klaar was terwijl je meldingen uit had, verscheen alsnog met een geluidje. Nu geldt voor
+  downloads dezelfde regel als voor mail.
+- **Slepen naar het bureaublad werkte niet op een postvak dat langzaam opstartte.** De pagina
+  vroeg vijftien keer of het mocht en gaf het daarna op; een account dat pas later klaar was,
+  kreeg de sleepstrook nooit. De app geeft nu zelf antwoord zodra het account bekend is.
+- **Sneller en zuiniger op de achtergrond.** Je voorkeuren werden bij elk gebruik opnieuw van
+  schijf gelezen en nagekeken — bij een melding of een badge-update tientallen keren per minuut;
+  ze staan nu één keer in het geheugen. De rapportagetimers liepen in elk Google-tabblad terwijl
+  alleen Gmail ze gebruikt, en de zoekopdracht achter je ongelezenteller werd honderd keer te
+  duur ingeboekt, waardoor een kopieeropdracht er een halve seconde op wachtte.
+- **Ongeveer achthonderd regels code eruit.** De relay-push die al uitgeschakeld was, de
+  "venster opnieuw opbouwen"-paden die nooit konden lopen, dubbele lijsten en meetellers, en de
+  tests die alleen die dode code nog aanraakten. Voor jou verandert er niets; voor ons betekent
+  het dat wat er staat ook echt gebruikt wordt.
 
 ## [1.0.0-beta.1788180489] — 2026-08-31
 

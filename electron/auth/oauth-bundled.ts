@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const BUNDLED_OAUTH_CONFIG_PATH = join(__dirname, '..', 'assets', 'oauth-defaults.json');
+const BUNDLED_OAUTH_CONFIG_PATH = join(__dirname, '..', 'assets', 'oauth-defaults.json');
 
 /**
  * Reads the config shipped inside the app

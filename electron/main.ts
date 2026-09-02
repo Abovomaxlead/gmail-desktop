@@ -5,13 +5,13 @@
 // Ordering that breaks if moved: disableHardwareAcceleration and the WSL rendering switch
 // must run before 'ready', which is what the throwaway PrefsStore is for; 'session-created'
 // and the context menu must be registered before createWindow; the nativeTheme listener
-// belongs here, since createWindow runs again and would leak one each time.
+// belongs here because it also refreshes the toast stack, which createWindow builds.
 //
 // The hooks. Four modules take a dependency pointing back up the stack, and each is wired
 // here rather than imported, because importing it would close a loop. All four are set
 // before createWindow, so nothing fires against the no-op defaults they start with.
 
-import { app, BrowserWindow, protocol, net, session, Menu, screen, nativeTheme } from 'electron';
+import { app, protocol, net, session, Menu, screen, nativeTheme } from 'electron';
 import { join } from 'node:path';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -19,14 +19,14 @@ import { RENDERER_DIST } from './core/paths';
 import { PrefsStore } from './core/prefs-store';
 import { registerIpc } from './core/ipc-handlers';
 import { setOnProfilesPushed } from './core/broadcast';
+import { pickVariant } from './core/locale';
 import {
   currentLocale,
   mainWindow,
   prefs,
   messageIndex,
-  pushManager,
   setIsQuitting,
-  setPendingMailto,
+  pendingMailtos,
   toasts,
 } from './core/runtime';
 import { createWindow, openSettingsPanel } from './windows/main-window';
@@ -126,7 +126,6 @@ function wireModules(): void {
   });
   setNotifyGatingHooks({ onDndCleared: () => refreshTray() });
   setToastActivationHooks({
-    reopenWindow: () => createWindow(),
     openSettingsPanel: (section) => openSettingsPanel(section),
   });
   setTrayHooks({
@@ -151,10 +150,13 @@ app.whenReady().then(() => {
   if (!gotTheLock) return;
   Menu.setApplicationMenu(null);
   app.on('web-contents-created', (_e, wc) => {
-    attachContextMenu(wc, () => {
-      if (prefs?.getAll().reneMode) return LABELS_RENE;
-      return currentLocale() === 'nl' ? LABELS_NL : LABELS_NORMAL;
-    });
+    attachContextMenu(wc, () =>
+      pickVariant(currentLocale(), prefs?.getAll().reneMode === true, {
+        en: LABELS_NORMAL,
+        nl: LABELS_NL,
+        rene: LABELS_RENE,
+      }),
+    );
   });
   app.on('session-created', (s) => attachSessionHandlers(s));
   attachSessionHandlers(session.defaultSession);
@@ -173,7 +175,7 @@ app.whenReady().then(() => {
 
   void ensureMailClientRegistered();
   const initialMailto = extractMailtoFromArgv(process.argv);
-  if (initialMailto) setPendingMailto(initialMailto);
+  if (initialMailto) pendingMailtos.push(initialMailto);
   startNotifyTimer();
   // After createWindow, which is what builds the prefs store the folder is read from.
   startMailDropCleanup(() => mailDropFolder());
@@ -182,22 +184,34 @@ app.whenReady().then(() => {
   // is left for the mail-drop window to ask about the next time it opens. If the oauth store
   // is not ready yet this early, its mailboxes simply fail to open and are picked up again on
   // the next start -- this never blocks startup on it.
-  void resumeOrphanedCopyRuns().catch((e) => notifyLog(`[maildrop] hervatten mislukt: ${e}`));
+  void resumeOrphanedCopyRuns().catch((e) => notifyLog(`[maildrop] resuming failed: ${e}`));
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
   applyTraySetting();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
   setupUpdater();
   applyAutoUpdateCheck();
 });
 
 app.on('window-all-closed', () => {
 });
-app.on('before-quit', () => {
+
+// Set the moment the flush starts, so a second quit while it is in flight does not start a
+// second one or cancel the exit that follows it.
+let quitFlushStarted = false;
+
+app.on('before-quit', (event) => {
+  if (quitFlushStarted) return;
+  quitFlushStarted = true;
+  event.preventDefault();
   setIsQuitting(true);
-  pushManager?.stop();
-  // The index writes on a short delay to stay off the main thread, so quitting straight after a
-  // drag would otherwise throw away what that drag just learned.
-  void messageIndex?.flush(Date.now());
+  void (async () => {
+    // Awaited so the write a drag just triggered lands on disk before the process is gone --
+    // Electron otherwise tears the app down while the writes are still in flight. A throwing
+    // flush must not block quitting.
+    try {
+      await messageIndex?.flush(Date.now());
+    } catch (e) {
+      console.warn(`[index] flush failed while quitting: ${e}`);
+    }
+    app.exit();
+  })();
 });

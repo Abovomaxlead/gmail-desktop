@@ -1,14 +1,13 @@
-// The contextBridge surface of the sidebar page. That same page also runs as the
-// modal overlay, told apart by the --gmd-overlay argument main sets on that view
-// only. Preference patches are typed unknown on purpose: main revalidates them with
-// the same readers it uses for the file on disk, so a wrong value falls back to a
-// default there instead of being caught here. The renderer holds the real types.
+// The contextBridge surface of the sidebar page, which also runs as the modal overlay.
+// Preference patches are typed unknown on purpose: main revalidates them with the same
+// readers it uses for the file on disk, so a wrong value falls back to a default there
+// instead of being caught here. The renderer holds the real types.
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type MailDropFolderStatus } from './core/ipc';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
-import type { ReconnectAccount } from './auth/oauth-health';
+import type { ReconnectAccount } from '../renderer/lib/reconnect';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
 import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
 import type { DelegatedPickerAsk } from '../renderer/lib/delegated-picker';
@@ -36,9 +35,6 @@ interface Profile {
 // Constants
 //===========================
 
-// the same page runs as the modal overlay, told apart by the argument main sets on that
-// view only
-const isOverlay = process.argv.includes('--gmd-overlay');
 
 
 //===========================
@@ -46,7 +42,6 @@ const isOverlay = process.argv.includes('--gmd-overlay');
 //===========================
 
 contextBridge.exposeInMainWorld('desktop', {
-  isOverlay,
   onProfilesChanged: (cb: (profiles: Profile[]) => void): void => {
     ipcRenderer.on(IPC.PROFILES_CHANGED, (_e, profiles) => cb(profiles));
   },
@@ -154,12 +149,11 @@ contextBridge.exposeInMainWorld('desktop', {
   setNotificationOpen: (v: 'app' | 'window'): void => ipcRenderer.send(IPC.SET_NOTIFICATION_OPEN, v),
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
   requestDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
-  onMailDropPreview: (cb: (arg: { items: unknown[]; tree?: unknown }) => void): void => {
+  onMailDropPreview: (cb: (arg: unknown) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
   },
   closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
-  getMailDropPreview: (): Promise<{ items: unknown[]; tree?: unknown }> =>
-    ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
+  getMailDropPreview: (): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
   getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
   getRecentLabels: (): Promise<RecentLabelUse[]> => ipcRenderer.invoke(IPC.MAIL_DROP_RECENT_GET),
   getMailDropExisting: (): Promise<{

@@ -261,24 +261,84 @@ function stringList(v: unknown): string[] {
   return out;
 }
 
+/**
+ * Validates one hand-edited account record, keeping only fields with the right type
+ *
+ * @param v
+ * @returns a safe AccountPref, or undefined when v is not an object to salvage fields from
+ * @private
+ */
+function accountPref(v: unknown): AccountPref | undefined {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const r = v as Record<string, unknown>;
+  const out: AccountPref = {};
+  if (typeof r.order === 'number') out.order = r.order;
+  if (typeof r.label === 'string') out.label = r.label;
+  if (typeof r.zoom === 'number') out.zoom = r.zoom;
+  if (typeof r.notify === 'boolean') out.notify = r.notify;
+  if (typeof r.calendarNotify === 'boolean') out.calendarNotify = r.calendarNotify;
+  if (typeof r.badgeCount === 'boolean') out.badgeCount = r.badgeCount;
+  if (typeof r.notifySound === 'boolean') out.notifySound = r.notifySound;
+  if (typeof r.notifyPersist === 'boolean') out.notifyPersist = r.notifyPersist;
+  return out;
+}
+
+/**
+ * Validates every entry of a hand-edited `accounts` object, dropping ones that are not
+ * objects at all
+ *
+ * @param v
+ * @returns a safe accounts record, empty when v itself is unusable
+ * @private
+ */
+function accountsRecord(v: unknown): Record<string, AccountPref> {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out: Record<string, AccountPref> = {};
+  for (const [email, entry] of Object.entries(v as Record<string, unknown>)) {
+    const account = accountPref(entry);
+    if (account) out[email] = account;
+  }
+  return out;
+}
+
 
 //===========================
 // Store
 //===========================
 
 export class PrefsStore {
+  private cache: Prefs | null = null;
+
   constructor(private readonly filePath: string) {}
 
   /**
    * Reads every preference, filling in a default for anything unusable
    *
+   * Cached after the first read and refreshed by every write, so the many reads between one
+   * settings change and the next cost nothing; the result is frozen so a caller cannot mutate
+   * the cache through it by accident.
+   *
    * @returns a complete Prefs, never a partial one
    */
   getAll(): Prefs {
+    if (this.cache) return this.cache;
+    this.cache = this.readFromDisk();
+    return this.cache;
+  }
+
+  /**
+   * Reads and validates the file from disk, bypassing the cache
+   *
+   * @returns a complete Prefs, never a partial one
+   * @private
+   */
+  private readFromDisk(): Prefs {
     try {
       const raw = readJsonFile(this.filePath) as Record<string, any>;
-      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return structuredClone(DEFAULT_PREFS);
-      return {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+        return Object.freeze(structuredClone(DEFAULT_PREFS));
+      }
+      const prefs: Prefs = {
         window: { ...DEFAULT_PREFS.window, ...(raw.window ?? {}) },
         autoStart: typeof raw.autoStart === 'boolean' ? raw.autoStart : DEFAULT_PREFS.autoStart,
         launchMinimized:
@@ -301,9 +361,7 @@ export class PrefsStore {
           volume: unitRange(raw.notifications?.volume, 1),
           googleApps: bool(raw.notifications?.googleApps, true),
         },
-        accounts: raw.accounts && typeof raw.accounts === 'object' && !Array.isArray(raw.accounts)
-          ? raw.accounts
-          : {},
+        accounts: accountsRecord(raw.accounts),
         mailDrop: {
           folder: typeof raw.mailDrop?.folder === 'string' ? raw.mailDrop.folder : '',
         },
@@ -360,19 +418,21 @@ export class PrefsStore {
         tour: { seen: bool(raw.tour?.seen, false) },
         reneMode: typeof raw.reneMode === 'boolean' ? raw.reneMode : false,
       };
+      return Object.freeze(prefs);
     } catch {
-      return structuredClone(DEFAULT_PREFS);
+      return Object.freeze(structuredClone(DEFAULT_PREFS));
     }
   }
 
   /**
-   * Writes the whole preferences file
+   * Writes the whole preferences file and refreshes the cache to match
    *
    * @param prefs
    * @private
    */
   private write(prefs: Prefs): void {
     writeJsonFile(this.filePath, prefs);
+    this.cache = Object.freeze(prefs);
   }
 
   setWindow(w: WindowPrefs): void {
@@ -475,14 +535,14 @@ export class PrefsStore {
    * Patches one account's preferences
    *
    * @param email
-   * @param partial an empty label removes the key, so the address shows again
+   * @param partial an empty label removes the key, and so does an explicit `label: undefined`,
+   *   so the address shows again either way
    */
   setAccount(email: string, partial: Partial<AccountPref>): void {
     const prefs = this.getAll();
     const next = { ...(prefs.accounts[email] ?? {}), ...partial };
-    if (partial.label === '' || partial.label === undefined && 'label' in partial) delete next.label;
-    prefs.accounts = { ...prefs.accounts, [email]: next };
-    this.write(prefs);
+    if (partial.label === '' || (partial.label === undefined && 'label' in partial)) delete next.label;
+    this.write({ ...prefs, accounts: { ...prefs.accounts, [email]: next } });
   }
   /**
    * Stores the tab order as one order number per account
@@ -491,9 +551,10 @@ export class PrefsStore {
    */
   setOrder(emailsInOrder: string[]): void {
     const prefs = this.getAll();
+    const accounts = { ...prefs.accounts };
     emailsInOrder.forEach((email, i) => {
-      prefs.accounts = { ...prefs.accounts, [email]: { ...(prefs.accounts[email] ?? {}), order: i } };
+      accounts[email] = { ...(accounts[email] ?? {}), order: i };
     });
-    this.write(prefs);
+    this.write({ ...prefs, accounts });
   }
 }

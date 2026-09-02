@@ -48,6 +48,27 @@ describe('redactLogLine — credentials', () => {
       '[gmail] insert failed, code=404',
     );
   });
+
+  it('masks the credential parameters of a presigned S3 release URL, keeping the rest of it readable', () => {
+    const url =
+      'https://github-releases.githubusercontent.com/123/abc?' +
+      'X-Amz-Algorithm=AWS4-HMAC-SHA256&' +
+      'X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20260101%2Fus-east-1%2Fs3%2Faws4_request&' +
+      'X-Amz-Date=20260101T000000Z&' +
+      'X-Amz-Expires=300&' +
+      'X-Amz-SignedHeaders=host&' +
+      'X-Amz-Signature=abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567&' +
+      'X-Amz-Security-Token=FwoGZXIvYXdzEBMEXAMPLE%2Fsecuritytoken%2Fvalue1234567890';
+    const line = redactLogLine(`[update] latest.yml 404 for ${url}`);
+    expect(line).not.toContain('AKIAIOSFODNN7EXAMPLE');
+    expect(line).not.toContain('abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567');
+    expect(line).not.toContain('securitytoken');
+    expect(line).toContain('X-Amz-Algorithm=AWS4-HMAC-SHA256');
+    expect(line).toContain('X-Amz-Expires=300');
+    expect(line).toContain(`X-Amz-Credential=${REDACTED}`);
+    expect(line).toContain(`X-Amz-Signature=${REDACTED}`);
+    expect(line).toContain(`X-Amz-Security-Token=${REDACTED}`);
+  });
 });
 
 describe('redactLogLine — mail content', () => {
@@ -130,7 +151,7 @@ describe('redactLog — records that run over several lines', () => {
     const log = [
       '2026-09-01T08:00:00.000Z [toast] stack draws "Jan"',
       '2026-09-01T08:00:01.000Z [maildrop] label "Klanten/2026" gelezen',
-      '2026-09-01T08:00:02.000Z [opruimen] label "Archief" leeggemaakt',
+      '2026-09-01T08:00:02.000Z [cleanup] label "Archief" leeggemaakt',
     ].join('\n');
     const out = redactLog(log).split('\n');
     expect(out[1]).toContain('"Klanten/2026"');

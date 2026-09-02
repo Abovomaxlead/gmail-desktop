@@ -13,7 +13,7 @@ import { refreshNotifyAllowed } from '../notify/notify-gating';
 import { flushPendingMailto } from '../compose/mailto-controller';
 import { wantsCalendarView } from '../notify/notification-policy';
 import { WarmupTracker } from './view-warmup';
-import { mayKeepCalendarViews, mayWarmViews, viewsToDiscard } from './view-budget';
+import { mayBuildAheadOfDemand, viewsToDiscard } from './view-budget';
 import type { AccountRef } from '../accounts/account-ref';
 import type { Profile, Surface } from './profile-view-manager';
 
@@ -38,11 +38,16 @@ export function showAccount(ref: AccountRef, surface: Surface): void {
   flushPendingMailto();
 }
 
-/** Builds a mail view off-screen so it is ready the first time it is switched to. Skipped
- * for a view already showing, and for one already warming. */
+/**
+ * Builds a mail view off-screen so it is ready the first time it is switched to
+ *
+ * Skipped for a view already showing, and for one already warming.
+ *
+ * @param profile
+ */
 export function warmAccount(profile: Profile): void {
   if (!manager) return;
-  if (!mayWarmViews(lowMemory())) return;
+  if (!mayBuildAheadOfDemand(lowMemory())) return;
   const key = keyOf(profile);
   if (manager.isShowing(key, 'mail')) return;
   if (!warmup.begin(key, Date.now())) return;
@@ -50,13 +55,16 @@ export function warmAccount(profile: Profile): void {
   if (!warmupTimer) warmupTimer = setInterval(tickWarmup, 1000);
 }
 
-/** Adds a calendar view for every account that wants one and drops the rest. A calendar
- * currently on screen is left alone, however the setting reads. */
+/**
+ * Adds a calendar view for every account that wants one and drops the rest
+ *
+ * A calendar currently on screen is left alone, however the setting reads.
+ */
 export function syncCalendarViews(): void {
   if (!prefs || !manager) return;
   for (const profile of profiles) {
     const enabled =
-      mayKeepCalendarViews(lowMemory()) &&
+      mayBuildAheadOfDemand(lowMemory()) &&
       wantsCalendarView(prefs.getAll(), profile.email, profile.ref);
     if (enabled) {
       manager.ensureView(profile.ref, 'calendar', false);
@@ -110,7 +118,11 @@ export function trimViewsToVisible(): void {
 // Helper functions
 //===========================
 
-/** @returns true when the user asked for the smaller memory footprint @private */
+/**
+ * Whether the user asked for the smaller memory footprint
+ *
+ * @private
+ */
 function lowMemory(): boolean {
   return prefs?.getAll().advanced.lowMemory === true;
 }

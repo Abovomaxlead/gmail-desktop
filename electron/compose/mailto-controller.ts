@@ -1,8 +1,9 @@
 // Opening a compose window, and deciding which account it should be from.
 //
-// A mailto: link can arrive before there is anything to compose with, so one is held until
-// a mail view is actually showing; showAccount releases it. With more than one account
-// signed in the user is asked, in a window created per ask and destroyed on settle.
+// A mailto: link can arrive before there is anything to compose with, so those are queued
+// until a mail view is actually showing; showAccount releases them in arrival order. With
+// more than one account signed in the user is asked, in a window created per ask and
+// destroyed on settle.
 
 import { IPC } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
@@ -12,10 +13,9 @@ import {
   currentLocale,
   mainWindow,
   manager,
-  pendingMailto,
+  pendingMailtos,
   prefs,
   profiles,
-  setPendingMailto,
 } from '../core/runtime';
 import { nativeLabels } from '../menus/native-labels';
 import { parseMailto, type MailtoFields } from '../mail/mailto';
@@ -65,17 +65,58 @@ export function settleComposeAsk(index: number | null): void {
   composePicker.settle(index);
 }
 
-export function closeComposeAccountWindow(): void {
+export async function dispatchMailto(mailtoUrl: string): Promise<void> {
+  const fields = parseMailto(mailtoUrl);
+  if (!fields) return;
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
+    mainWindow.focus();
+  }
+  const ready = manager?.activeKey() != null && profiles.some((p) => p.ref.kind === 'authuser');
+  if (!ready) {
+    pendingMailtos.push(mailtoUrl);
+    return;
+  }
+  const index = await chooseComposeAccount(fields, mailtoUrl);
+  if (index == null) return;
+  openComposeWindow(index, fields);
+}
+
+export function flushPendingMailto(): void {
+  if (pendingMailtos.length === 0) return;
+  if (manager?.activeKey() == null) return;
+  const queued = pendingMailtos.splice(0, pendingMailtos.length);
+  for (const url of queued) {
+    void dispatchMailto(url).catch((e) => console.warn(`[mailto] dispatch failed: ${e}`));
+  }
+}
+
+export function openComposeWindow(index: number, fields?: MailtoFields): void {
+  const title = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true).composeTitle;
+  openCompose(index, title, fields);
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Closes the compose account window, if one is open
+ *
+ * @private
+ */
+function closeComposeAccountWindow(): void {
   const win = composeAccountWindow;
   composeAccountWindow = null;
   if (win && !win.isDestroyed()) win.destroy();
 }
 
 function showComposeAccountWindow(ask: ComposeAccountAsk): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
   closeComposeAccountWindow();
   const win = openComposeAccountWindow(
-    mainWindow,
+    mainWindow!,
     SIDEBAR_PRELOAD_PATH,
     DEV_URL ? `${DEV_URL}/compose-account` : 'app://bundle/compose-account.html',
     ask.accounts.length,
@@ -113,35 +154,4 @@ function chooseComposeAccount(fields: MailtoFields, mailtoUrl: string): Promise<
   };
 
   return composePicker.ask(ask, mailtoUrl);
-}
-
-export async function dispatchMailto(mailtoUrl: string): Promise<void> {
-  const fields = parseMailto(mailtoUrl);
-  if (!fields) return;
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
-  }
-  const ready = manager?.activeKey() != null && profiles.some((p) => p.ref.kind === 'authuser');
-  if (!ready) {
-    setPendingMailto(mailtoUrl);
-    return;
-  }
-  const index = await chooseComposeAccount(fields, mailtoUrl);
-  if (index == null) return;
-  openComposeWindow(index, fields);
-}
-
-export function flushPendingMailto(): void {
-  if (!pendingMailto) return;
-  if (manager?.activeKey() == null) return;
-  const url = pendingMailto;
-  setPendingMailto(null);
-  void dispatchMailto(url);
-}
-
-export function openComposeWindow(index: number, fields?: MailtoFields): void {
-  const title = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true).composeTitle;
-  openCompose(index, title, fields);
 }

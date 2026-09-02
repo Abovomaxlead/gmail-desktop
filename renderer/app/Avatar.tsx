@@ -7,7 +7,7 @@
 // falls back to the letter. That flag is per avatar rather than per list, which is what lets
 // a list of accounts keep no bookkeeping of its own.
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 
 //===========================
@@ -51,6 +51,9 @@ export function Avatar({
   fallback?: ReactNode;
 }) {
   const [broken, setBroken] = useState(false);
+  // A URL that changes is a different picture, and one transient 404 must not leave the letter
+  // in place for the rest of the session: the rows are keyed by address, not by URL.
+  useEffect(() => setBroken(false), [url]);
   return (
     <span
       aria-hidden

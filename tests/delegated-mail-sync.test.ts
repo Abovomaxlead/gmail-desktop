@@ -24,13 +24,11 @@ const state = vi.hoisted(() => ({
 vi.mock('electron', () => ({ clipboard: { writeText: vi.fn() } }));
 
 vi.mock('../electron/core/runtime', () => ({
-  coverage: { has: () => false, since: () => null, forget: vi.fn() },
   history: {
     get: (email: string) => state.cursors.get(email),
     set: (email: string, id: string) => state.cursors.set(email, id),
   },
   messageIndex: null,
-  pushManager: null,
   oauthTokens: null,
   prefs: {
     getAll: () => ({
@@ -48,15 +46,12 @@ vi.mock('../electron/core/runtime', () => ({
     }),
   },
   profiles: [{ kind: 'delegated', email: 'support@example.nl', ref: { kind: 'delegated' } }],
-  setPushManager: vi.fn(),
   syncRunners: new Map(),
   currentLocale: () => 'nl',
 }));
 
 vi.mock('../electron/auth/oauth-config', () => ({
   delegatedTokenUrl: () => state.relayUrl,
-  oauthConfig: () => null,
-  pushConfig: () => null,
 }));
 
 vi.mock('../electron/auth/mailbox-token', () => ({
@@ -69,22 +64,11 @@ vi.mock('../electron/auth/mailbox-token', () => ({
     },
 }));
 
-vi.mock('../electron/auth/oauth-flow', () => ({ accessTokenFor: vi.fn(), forceRefresh: vi.fn() }));
-vi.mock('../electron/auth/oauth-health-check', () => ({
-  checkOAuthHealth: vi.fn(),
-  clearPushRefusal: vi.fn(),
-  clearRefreshFailure: vi.fn(),
-  markRefreshFailed: vi.fn(),
-  notePushRefused: vi.fn(),
-  scheduleOAuthHealthCheck: vi.fn(),
-}));
 vi.mock('../electron/auth/google-oauth', () => ({ hasScopes: () => false }));
-vi.mock('../electron/push/push-manager', () => ({ startPushManager: vi.fn() }));
 
 vi.mock('../electron/notify/notify-gating', () => ({
   hiddenNotificationText: () => ({}),
   playNotificationSound: vi.fn(),
-  refreshNotifyAllowed: vi.fn(),
   reportApiUnread: vi.fn(),
 }));
 vi.mock('../electron/notify/notify-log', () => ({
@@ -121,7 +105,6 @@ vi.mock('../electron/gmail/gmail-api', async (importOriginal) => {
     fetchMessageRaw: vi.fn(),
     markMessageRead: vi.fn(),
     trashMessage: vi.fn(),
-    watchMailbox: vi.fn(),
   };
 });
 
@@ -227,8 +210,8 @@ describe('a relay that will not hand over a token', () => {
   it('writes down the reason it gave', async () => {
     state.tokenError = 'Geen van je accounts heeft toegang tot dit postvak';
     await watchFrom();
-    expect(state.logs.filter((l) => l.includes('kon niet gelezen worden'))).toEqual([
-      '[notify] gedelegeerd postvak support@example.nl kon niet gelezen worden: Geen van je accounts heeft toegang tot dit postvak',
+    expect(state.logs.filter((l) => l.includes('could not be read'))).toEqual([
+      '[notify] delegated mailbox support@example.nl could not be read: Geen van je accounts heeft toegang tot dit postvak',
     ]);
   });
 
@@ -236,7 +219,7 @@ describe('a relay that will not hand over a token', () => {
     state.tokenError = 'Relay niet bereikbaar';
     await watchFrom();
     await vi.advanceTimersByTimeAsync(SYNC_MS * 5);
-    expect(state.logs.filter((l) => l.includes('kon niet gelezen worden'))).toHaveLength(1);
+    expect(state.logs.filter((l) => l.includes('could not be read'))).toHaveLength(1);
   });
 });
 
@@ -249,7 +232,7 @@ describe('a machine with no relay at all', () => {
     await vi.advanceTimersByTimeAsync(SYNC_MS * 3);
 
     expect(state.logs).toEqual([
-      '[notify] geen relay ingesteld; 1 gedelegeerd(e) postvak(ken) kunnen niet melden',
+      '[notify] no relay configured; 1 delegated mailbox(es) cannot announce anything',
     ]);
     expect(state.toasts).toEqual([]);
   });

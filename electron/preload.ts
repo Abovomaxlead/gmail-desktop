@@ -386,7 +386,7 @@ function installDropzone(
   };
   attach();
   new MutationObserver(attach).observe(host, { childList: true });
-  console.info('[gmail-desktop] dropzone geïnstalleerd in', host.tagName);
+  console.info('[gmail-desktop] dropzone installed in', host.tagName);
 
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
   let saving = false;
@@ -770,13 +770,14 @@ if (typeof document !== 'undefined') {
 
   const start = () => {
     report();
-    const titleEl = document.querySelector('title');
-    if (titleEl) {
-      new MutationObserver(report).observe(titleEl, { childList: true });
-    }
-    setInterval(report, 5000);
 
     if (location.hostname === 'mail.google.com') {
+      const titleEl = document.querySelector('title');
+      if (titleEl) {
+        new MutationObserver(report).observe(titleEl, { childList: true });
+      }
+      setInterval(report, 5000);
+
       let answered = false;
       ipcRenderer.on(IPC.MAIL_DROP_ALLOWED, (_e: unknown, allowed: boolean) => {
         if (answered) return;
@@ -804,19 +805,19 @@ if (typeof document !== 'undefined') {
         setTimeout(ask, 1000);
       };
       ask();
-    }
 
-    let identityTries = 0;
-    const identityTimer = setInterval(() => {
-      identityTries += 1;
-      const identity = extractIdentity(document);
-      if (identity) {
-        ipcRenderer.send(IPC.ACCOUNT_IDENTITY, identity);
-        clearInterval(identityTimer);
-      } else if (identityTries >= 15) {
-        clearInterval(identityTimer);
-      }
-    }, 1000);
+      let identityTries = 0;
+      const identityTimer = setInterval(() => {
+        identityTries += 1;
+        const identity = extractIdentity(document);
+        if (identity) {
+          ipcRenderer.send(IPC.ACCOUNT_IDENTITY, identity);
+          clearInterval(identityTimer);
+        } else if (identityTries >= 15) {
+          clearInterval(identityTimer);
+        }
+      }, 1000);
+    }
   };
 
   if (document.readyState === 'loading') {

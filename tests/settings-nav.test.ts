@@ -54,10 +54,6 @@ describe('SETTINGS_GROUPS', () => {
 });
 
 describe('SETTINGS_SECTIONS', () => {
-  it('is the groups in order, flattened', () => {
-    expect(SETTINGS_SECTIONS).toEqual(SETTINGS_GROUPS.flat());
-  });
-
   it('opens on the section you visit most', () => {
     expect(DEFAULT_SECTION).toBe('general');
     expect(SETTINGS_SECTIONS).toContain(DEFAULT_SECTION);

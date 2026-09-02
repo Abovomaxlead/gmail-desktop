@@ -1,10 +1,9 @@
 // Decides which of the messages Gmail's history reports deserve a notification. Deduped,
 // since one message can appear in several records, and left in Gmail's arrival order.
-// PROMOTIONS and SOCIAL never notify; PERSONAL, UPDATES and FORUMS do.
 //
-// The whole rule is one comparison: notify only mail that arrived while push covered this
-// account. That keeps the startup backlog quiet, lets a short break catch up, and leaves a
-// handover gap quiet because the webview already reported it.
+// The whole rule is one comparison: notify only mail that arrived while this account was
+// being watched. That keeps the startup backlog quiet, lets a short break catch up, and
+// leaves a handover gap quiet because the webview already reported it.
 
 import type { HistoryMessage } from './gmail-api';
 

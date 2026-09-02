@@ -7,6 +7,7 @@
 import type { MessageRef } from '../mail/dropzone';
 import type { CopyResult } from '../mail/mail-copy';
 import type { CopyStopMode, RollbackOutcome } from '../mail/copy-run-types';
+import type { ByMailbox, JobLine } from '../../renderer/lib/maildrop-copy';
 
 
 //===========================
@@ -155,11 +156,9 @@ export interface MailDropPreviewItem {
 
 /** What a dragged label turned out to carry: the label itself and every label nested under it,
  * with how many conversations each holds. Absent for a drag that was not a label drag, which
- * is what tells the picker to draw its ordinary ticking screen. */
-export interface MailDropTree {
-  dragged: string;
-  members: Array<{ name: string; threads: number }>;
-}
+ * is what tells the picker to draw its ordinary ticking screen. Declared in
+ * renderer/lib/maildrop-copy.ts, where the picker reads the same shape. */
+export type { MailDropTree } from '../../renderer/lib/maildrop-copy';
 
 export type {
   CopyTarget as MailDropCopyTarget,
@@ -180,11 +179,11 @@ export interface MailDropCopyProgress {
   done: number;
   total: number;
   paused?: boolean;
-  byMailbox?: { email: string; copied: number }[];
+  byMailbox?: ByMailbox[];
   /** Present only while a batched job is running. `done` and `total` above count the batch on
    * screen; these count the whole job, in conversations, so a bar that fills five times still
    * reads as one piece of work. */
-  job?: { batch: number; batches: number; done: number; total: number };
+  job?: JobLine;
 }
 
 /** What the paused dialog may ask the copy in flight to do. The two stop actions used to be
@@ -207,7 +206,7 @@ export interface MailDropCopyStoppedResult {
   stopped: true;
   mode: CopyStopMode;
   copied: number;
-  byMailbox: { email: string; copied: number }[];
+  byMailbox: ByMailbox[];
   /** Only set for mode 'rollback' */
   rollback?: RollbackOutcome;
   /** Set when the stop itself could not be completed safely -- the closing journal line
@@ -218,14 +217,6 @@ export interface MailDropCopyStoppedResult {
   /** Something else did not itself succeed -- the audit log, most often -- even though the
    * stop did. Never what decides whether this is a clean stop; `error` is what does that. */
   warnings?: string[];
-}
-
-/** A run this app never heard the end of, waiting for the same keep-or-rollback answer a live
- * run's stop dialog already asks -- surfaced when the mail-drop window opens, since nothing
- * else in this app can put a question in front of the user on its own. */
-export interface MailDropPendingOrphan {
-  runId: string;
-  byMailbox: { email: string; inserted: number }[];
 }
 
 /** A copy that fully succeeded, but where writing the record of that success did not fully

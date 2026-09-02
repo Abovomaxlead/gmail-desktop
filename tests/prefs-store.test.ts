@@ -48,6 +48,28 @@ describe('PrefsStore', () => {
     expect(new PrefsStore(file).getAccount('a@b.com').badgeCount).toBe(false);
   });
 
+  // Proves the cache rather than the file: with no cache, two calls to getAll() each build
+  // and return a fresh object, so this fails even though both would be deeply equal.
+  it('returns the same object from a second read, without re-reading the file', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    expect(store.getAll()).toBe(store.getAll());
+  });
+
+  it('drops a hand-edited account entry that is not an object', () => {
+    writeFileSync(file, JSON.stringify({ accounts: { 'a@b.com': 5 } }), 'utf8');
+    expect(new PrefsStore(file).getAccount('a@b.com')).toEqual({});
+  });
+
+  it('keeps the valid fields of a hand-edited account and drops the malformed ones', () => {
+    writeFileSync(
+      file,
+      JSON.stringify({ accounts: { 'a@b.com': { zoom: 'big', notify: true } } }),
+      'utf8',
+    );
+    expect(new PrefsStore(file).getAccount('a@b.com')).toEqual({ notify: true });
+  });
+
   // A corrupt file used to mean defaults, which is how an update cost people their
   // settings. It now means the backup, and only a corrupt backup as well means defaults.
   it('tolerates a corrupt file by reading the backup beside it', () => {

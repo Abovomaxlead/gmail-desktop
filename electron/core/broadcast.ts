@@ -12,7 +12,6 @@ import {
   authIdx,
   cachedAccounts,
   colors,
-  coverage,
   currentLocale,
   hidden,
   keyOf,
@@ -80,7 +79,12 @@ export function setOnProfilesPushed(fn: () => void): void {
   onProfilesPushed = fn;
 }
 
-export const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
+/**
+ * The row key for an account still seeded from cache, not yet confirmed by detection
+ *
+ * @private
+ */
+const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
 export function pushProfiles(): void {
   const rows = decorate([...profiles]);
@@ -201,12 +205,12 @@ function saveAccountCache(rows: TabRow[]): void {
  * @private
  */
 function traceBadge(total: number, counts: Record<string, number>, excluded: Set<string>): void {
-  const live = new Map(profiles.map((p) => [keyOf(p), p.email]));
+  const live = new Map(profiles.map((p) => [keyOf(p), p]));
   const parts = Object.entries(counts).map(([key, n]) => {
-    const email = live.get(key);
-    if (!email) return `${key}=${n}(orphan)`;
-    const source = coverage.has(email) ? 'api' : 'title';
-    return `${key}=${n}(${email},${source}${excluded.has(key) ? ',excluded' : ''})`;
+    const profile = live.get(key);
+    if (!profile) return `${key}=${n}(orphan)`;
+    const source = unread.ownedByPage(key) ? 'title' : 'api';
+    return `${key}=${n}(${profile.email},${source}${excluded.has(key) ? ',excluded' : ''})`;
   });
   const line = `[badge] total=${total} ${parts.join(' ') || '(nothing counted)'}`;
   if (line === lastBadgeTrace) return;

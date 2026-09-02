@@ -53,6 +53,14 @@ const SECRET_SHAPES: RegExp[] = [
   /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g,
 ];
 
+/** A GitHub release asset is served from a presigned S3 URL: the signing credential lives in
+ * the query string itself, not behind a header. `X-Amz-Credential`, `X-Amz-Security-Token`
+ * and `X-Amz-Signature` are masked by parameter name, with the value running to the next `&`
+ * because it is percent-encoded and does not fit the generic secret-key value shape above. The
+ * other `X-Amz-*` parameters (algorithm, date, expiry, signed headers) are not secrets and are
+ * left alone, so the rest of the URL still reads as a URL. */
+const AMZ_QUERY_SECRETS = /\b(X-Amz-(?:Credential|Security-Token|Signature))=[^&\s"']*/gi;
+
 /** What Gmail put in the notification, which is the mail's own first line. Quoted by the logger
  * with JSON.stringify, so the closing quote is the one that is not escaped. */
 const SUBJECT = /\bsubject=(?:"(?:[^"\\]|\\.)*"|[^\s]+)/gi;
@@ -83,6 +91,7 @@ const RECORD_HEAD = /^(?:\S+\s+)?\[[a-z-]+[^\]]*\]/i;
  */
 export function redactLogLine(line: string, quoted: boolean = false): string {
   let out = line.replace(SECRET_KEYS, (_m, key: string, sep: string) => `${key}${sep}${REDACTED}`);
+  out = out.replace(AMZ_QUERY_SECRETS, (_m, key: string) => `${key}=${REDACTED}`);
   for (const shape of SECRET_SHAPES) out = out.replace(shape, REDACTED);
   out = out.replace(SUBJECT, `subject="${HIDDEN}"`);
   if (quoted || TOAST_LINE.test(out)) out = out.replace(QUOTED, `"${HIDDEN}"`);

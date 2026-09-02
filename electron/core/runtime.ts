@@ -4,7 +4,7 @@
 // nothing outside this file may replace.
 //
 // The rule that matters: read these when you need them, never capture them at construction.
-// Nearly all of it is born in createWindow(), which runs again after the window closes.
+// Nearly all of it is born once in createWindow(), when the app starts.
 
 import { app } from 'electron';
 import type { BrowserWindow } from 'electron';
@@ -13,7 +13,6 @@ import { colorForIndex } from '../accounts/palette';
 import { resolveLocale, type Locale } from './locale';
 import { SURFACES } from '../../renderer/lib/surfaces';
 import { UnreadStore } from '../unread/unread-store';
-import { PushCoverage } from '../push/push-coverage';
 import type { ProfileViewManager, Profile, Surface } from '../windows/profile-view-manager';
 import type { ColorStore } from '../accounts/color-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
@@ -28,7 +27,7 @@ import type { AccountCacheStore, CachedAccount } from '../accounts/account-cache
 import type { OverlayView } from '../windows/overlay-view';
 import type { ToastController } from '../toast/toast-controller';
 import type { ToastWindow } from '../toast/toast-window';
-import type { ReconnectAccount } from '../auth/oauth-health';
+import type { ReconnectAccount } from '../../renderer/lib/reconnect';
 import type { AccountOAuthStatus } from '../../renderer/lib/oauth-status';
 
 
@@ -36,21 +35,10 @@ import type { AccountOAuthStatus } from '../../renderer/lib/oauth-status';
 // Types
 //===========================
 
-export interface PushManagerHandle {
-  stop(): void;
-  refresh(): void;
-}
-
 export interface SyncRunner {
   run(): Promise<void>;
 }
 
-
-//===========================
-// Constants
-//===========================
-
-export const SESSION_PARTITION = 'persist:google';
 
 
 //===========================
@@ -67,8 +55,8 @@ export let recentLabels: RecentLabelStore | null = null;
 export let oauthTokens: OAuthStore | null = null;
 export let history: HistoryStore | null = null;
 
-/** Shared on purpose: the store keeps the whole index in memory and writes all of it, so a
- * second instance would overwrite what the first remembered. */
+/** The one instance for the process's whole life: it keeps the whole index in memory and
+ * writes all of it on flush, so there is never a second one to reconcile with. */
 export let messageIndex: MessageIndexStore | null = null;
 export let downloadHistory: DownloadHistoryStore | null = null;
 export let accountCache: AccountCacheStore | null = null;
@@ -82,10 +70,8 @@ export let toastWindow: ToastWindow | null = null;
 export let dropOverlay: OverlayView | null = null;
 export let reconnectBanner: OverlayView | null = null;
 export let delegatedPicker: OverlayView | null = null;
-export let pushManager: PushManagerHandle | null = null;
 export const profiles: Profile[] = [];
 export const unread = new UnreadStore();
-export const coverage = new PushCoverage();
 export const syncRunners = new Map<string, SyncRunner>();
 export let cachedAccounts: CachedAccount[] = [];
 export let accountCacheLoaded = false;
@@ -95,7 +81,9 @@ export let settingsPanelOpen = false;
 export let detectionStarted = false;
 export let reconnectAccounts: ReconnectAccount[] = [];
 export let oauthStatuses: AccountOAuthStatus[] = [];
-export let pendingMailto: string | null = null;
+// A queue, not a slot: a cold start with a mailto: in argv followed by a second-instance
+// mailto: before detection finishes must not lose the first one.
+export const pendingMailtos: string[] = [];
 export let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 
 
@@ -157,9 +145,6 @@ export function setReconnectBanner(v: OverlayView | null): void {
 export function setDelegatedPicker(v: OverlayView | null): void {
   delegatedPicker = v;
 }
-export function setPushManager(v: PushManagerHandle | null): void {
-  pushManager = v;
-}
 export function setCachedAccounts(v: CachedAccount[]): void {
   cachedAccounts = v;
 }
@@ -183,9 +168,6 @@ export function setReconnectAccounts(v: ReconnectAccount[]): void {
 }
 export function setOauthStatuses(v: AccountOAuthStatus[]): void {
   oauthStatuses = v;
-}
-export function setPendingMailto(v: string | null): void {
-  pendingMailto = v;
 }
 export function setLastUpdateStatus(v: Record<string, unknown>): void {
   lastUpdateStatus = v;

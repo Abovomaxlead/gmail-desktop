@@ -1,15 +1,10 @@
 // Text for the reconnect notice, kept pure so a test can hold it to account: the notice
 // cannot be dismissed, so an untrue sentence stays on screen until the next release.
 //
-// 'expired' means the token is gone and moving mail stops; 'push' means only notifications
-// and the unread counter are down. A mixed list may only say what is true for every account.
+// Every account in the list is there for the same reason -- its token is gone -- so the
+// wording only has to answer how many of them there are.
 
-export type ReconnectReason = 'expired' | 'push';
-
-export interface ReconnectAccount {
-  email: string;
-  reason: ReconnectReason;
-}
+import type { ReconnectAccount } from '../lib/reconnect';
 
 export interface ReconnectHeading {
   title: string;
@@ -20,27 +15,16 @@ export interface ReconnectHeading {
  * The two lines the reconnect notice shows
  *
  * @param accounts
- * @returns {ReconnectHeading} wording a mixed list can carry: it may only say what is true
- *   for every account in it
+ * @returns {ReconnectHeading} both lines empty for an empty list, which is the one case with
+ *   nothing true to say -- the notice itself draws nothing until the first list arrives
  */
 export function reconnectHeading(accounts: ReconnectAccount[]): ReconnectHeading {
+  if (accounts.length === 0) return { title: '', sub: '' };
   const many = accounts.length > 1;
-  if (accounts.every((a) => a.reason === 'push')) {
-    return {
-      title: many ? `${accounts.length} accounts opnieuw toestaan` : 'Meldingen staan stil',
-      sub: 'Sta opnieuw toe om meldingen en de ongelezen-teller te krijgen.',
-    };
-  }
-  if (accounts.every((a) => a.reason === 'expired')) {
-    return {
-      title: many ? `${accounts.length} accounts opnieuw verbinden` : 'Verbinding met Gmail verlopen',
-      sub: many
-        ? 'Zonder verbinding kan er geen mail verplaatst worden.'
-        : 'Verbind opnieuw om mail te kunnen verplaatsen.',
-    };
-  }
   return {
-    title: `${accounts.length} accounts opnieuw verbinden`,
-    sub: 'Verbind opnieuw voor het verplaatsen van mail en voor meldingen.',
+    title: many ? `${accounts.length} accounts opnieuw verbinden` : 'Verbinding met Gmail verlopen',
+    sub: many
+      ? 'Zonder verbinding kan er geen mail verplaatst worden.'
+      : 'Verbind opnieuw om mail te kunnen verplaatsen.',
   };
 }

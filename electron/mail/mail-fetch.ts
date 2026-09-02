@@ -172,6 +172,9 @@ export async function fetchThreadEmls(
       const sub = (await get(ses, omUrl({ ...p, permMsgId }))).body.toString('utf8');
       for (const l of parseOriginalLinks(sub, p.authuser)) if (!links.includes(l)) links.push(l);
     } catch {
+      // One message of the conversation that could not be reached leaves the rest fetchable:
+      // the links already found still stand, and a message with no link is reported per message
+      // by the loop below rather than failing the whole thread here
     }
   }
   const messages: FetchedMessage[] = [];

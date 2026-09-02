@@ -1,52 +1,16 @@
 // One panel for a whole job, not one result panel per batch.
 //
-// A job of four batches used to draw four panels: the driver showed each batch it was about to
-// copy, the window came back to the front in whatever phase the previous batch had left it in,
-// and every one of them described a batch -- "Kopieer 25 conversaties", "25 berichten
-// gekopieerd" -- while the user was watching one piece of work of a hundred.
-//
-// The rules that carry risk live here rather than in the page: whether an arriving preview may
-// return the panel to its picking phase (the one that landed 717 mails twice on 2026-08-26),
-// and what phase a job's end leaves the panel in (a phase with no exit is the bug this
-// replaces). Kept as a plain module for the same reason mailbox-rail.ts and drop-outcome.ts
-// are: it is the part worth asserting without React.
+// The rules that carry risk live here rather than in the page -- whether an arriving preview may
+// return the panel to its picking phase, and what phase a job's end leaves the panel in -- kept
+// as a plain module so it can be asserted without React.
+
+import { type UiStrings } from './strings';
+import { type JobLine, type JobEnd, type JobEndOutcome } from '../lib/maildrop-copy';
 
 
 //===========================
 // Types
 //===========================
-
-/** How far a job has got, as the copy progress reports it. Both numbers are conversations, the
- * unit `job.total` speaks -- see jobProgress in electron/mail/label-job.ts. */
-export interface JobLine {
-  batch: number;
-  batches: number;
-  done: number;
-  total: number;
-}
-
-/** What main sends with a driven batch: which label is walking, and where it is being filed.
- * The numbers travel separately, in JobLine, because they change while this does not. */
-export interface JobPanel {
-  label: string;
-  targets: string[];
-}
-
-/** What became of a job, sent once when its walk is over. The outcomes are the job plan's own
- * vocabulary (JobOutcome in electron/mail/label-job.ts) plus 'stuck' for a job left open on a
- * failed batch, which is not an outcome the plan file ever gets. */
-export interface JobEnd {
-  outcome: JobEndOutcome;
-  label: string;
-  /** Conversations copied across the whole job */
-  done: number;
-  total: number;
-  batches: number;
-  copiedBatches: number;
-  targets: string[];
-  /** The failed batch's own error, for 'stuck' */
-  error?: string;
-}
 
 /** The little these rules need to know about the panel's phase: what kind it is, and whether the
  * report it is showing is a job's own. The page's whole Phase union satisfies it, and so does a
@@ -64,13 +28,6 @@ export type JobControlAction =
   | 'stop-keep'
   | 'stop-rollback-batch'
   | 'stop-rollback-job';
-
-export type JobEndOutcome =
-  | 'completed'
-  | 'kept'
-  | 'rolled-back'
-  | 'rolled-back-partial'
-  | 'stuck';
 
 /** Where a job's end leaves the panel. Never a phase of its own: 'done' and 'stopped' are the
  * two the close button already works in. */
@@ -148,34 +105,28 @@ export function panelBelongsToJob(cur: PhaseAt): boolean {
  * including a job stuck on a failed batch.
  *
  * @param end what main sent when the walk finished
+ * @param S the active string set
  * @returns the phase, with the mode and completeness the stopped report reads
  */
-export function phaseAfterJobEnd(end: JobEnd): EndPhase {
+export function phaseAfterJobEnd(end: JobEnd, S: UiStrings): EndPhase {
   switch (end.outcome) {
     case 'completed':
       return { kind: 'done' };
     case 'stuck':
-      return { kind: 'done', error: end.error ?? 'De klus is gestopt op een batch die mislukte' };
+      return { kind: 'done', error: end.error ?? S.mdJobStuckDefault };
     case 'kept':
       return { kind: 'stopped', mode: 'keep', complete: true };
     case 'rolled-back':
       return { kind: 'stopped', mode: 'rollback', complete: true };
     case 'rolled-back-partial':
       return { kind: 'stopped', mode: 'rollback', complete: false };
-    // Two belts, and they fail at different moments. The `never` assignment is the compile-time
-    // one: with every member of JobEndOutcome answered above, `end.outcome` narrows to `never`
-    // here, so a sixth member makes this line fail to compile in this function. It was claimed
-    // in a comment before and written nowhere, and a probe that adds a sixth outcome then broke
-    // the build in jobEndText instead -- the sibling, by accident of that one having no default
-    // -- while this switch quietly absorbed the new outcome and called it unknown.
-    //
-    // The return under it is the runtime belt, for an outcome that never went through this
-    // compiler at all: main and the renderer are separate builds, and the page reads .kind off
-    // this straight away, so `undefined` here is the stranded panel this module exists to
-    // prevent.
+    // Two belts. The `never` assignment is the compile-time one: with every member of
+    // JobEndOutcome answered above, `end.outcome` narrows to `never` here, so a sixth member
+    // fails to compile in this function. The return under it is the runtime belt, for an outcome
+    // that never went through this compiler at all -- main and the renderer are separate builds.
     default: {
       const unhandled: never = end.outcome;
-      return { kind: 'done', error: unknownOutcome(unhandled) };
+      return { kind: 'done', error: unknownOutcome(unhandled, S) };
     }
   }
 }
@@ -203,41 +154,42 @@ export function panelMayWalk(cur: PhaseAt): boolean {
  *
  * @param arg the conversations on screen, the job line if there is one, and whether the drag
  *   itself failed
+ * @param S the active string set
  * @returns the heading, ready to draw
  */
-export function panelTitle(arg: { items: number; job: JobLine | null; failed?: boolean }): string {
-  if (arg.failed) return 'Slepen mislukt';
+export function panelTitle(
+  arg: { items: number; job: JobLine | null; failed?: boolean },
+  S: UiStrings,
+): string {
+  if (arg.failed) return S.mdDragFailed;
   const n = arg.job ? arg.job.total : arg.items;
-  return n === 1 ? 'Kopieer 1 conversatie' : `Kopieer ${n} conversaties`;
+  return S.mdCopyTitle(n);
 }
 
 /**
  * The two lines under the title while a job walks
  *
  * @param arg the job line, and the mailboxes the job files into
+ * @param S the active string set
  * @returns where it is filing and how far it has got, either of them empty when it is not known
  *   yet -- there is a moment between the driver taking over and the next batch's first progress
  *   where the numbers do not exist
  */
-export function panelBody(arg: { job: JobLine | null; targets: string[] }): {
+export function panelBody(
+  arg: { job: JobLine | null; targets: string[] },
+  S: UiStrings,
+): {
   into: string;
   progress: string;
 } {
   const { job, targets } = arg;
   return {
-    into: targets.length === 0 ? '' : `Wordt gekopieerd naar ${joinNames(targets)}`,
-    progress: job
-      ? `Batch ${job.batch} van ${job.batches} — ${job.done} van ${job.total} gekopieerd`
-      : '',
+    into: targets.length === 0 ? '' : S.mdCopyingTo(joinNames(targets, S)),
+    progress: job ? S.mdJobProgress(job.batch, job.batches, job.done, job.total) : '',
   };
 }
 
-// Every control call used to be fired and forgotten -- five `void controlCopy(...)` call sites
-// -- so a stop the gate refused looked exactly like one it took: the dialog closed, nothing
-// happened, and the panel went on saying the job was running. That silence is what turned a
-// stranded walk into something only a log file could explain.
-//
-// A refused pause is the exception and has to stay silent. The stop dialog pauses and opens in
+// A refused pause is the exception and has to stay silent: the stop dialog pauses and opens in
 // the same click, and between two batches there is no copy in flight to take that pause -- a
 // normal moment in every job, not a failure worth a red line.
 
@@ -246,44 +198,45 @@ export function panelBody(arg: { job: JobLine | null; targets: string[] }): {
  *
  * @param action what was asked
  * @param result what main answered, or undefined when the call never got there
+ * @param S the active string set
  * @returns the line to show, or null when there is nothing worth reporting
  */
 export function controlFailureText(
   action: JobControlAction,
   result: { ok: boolean; error?: string } | undefined | null,
+  S: UiStrings,
 ): string | null {
   if (result?.ok) return null;
   if (action === 'pause' || action === 'resume') return null;
-  const why = result?.error ?? 'de kopieeractie reageerde niet';
-  return `Stoppen is niet gelukt — ${why}`;
+  const why = result?.error ?? S.mdControlNoAnswer;
+  return S.mdStopFailed(why);
 }
 
 /**
  * The line the panel closes a job with
  *
  * @param end
+ * @param S the active string set
  * @returns one sentence, in the same voice the batch reports use
  */
-export function jobEndText(end: JobEnd): string {
+export function jobEndText(end: JobEnd, S: UiStrings): string {
   switch (end.outcome) {
     case 'completed':
-      return `Klus afgerond — ${end.done} van ${end.total} conversaties gekopieerd`;
+      return S.mdJobDone(end.done, end.total);
     case 'kept':
-      return `Klus gestopt — ${end.done} van ${end.total} conversaties blijven gekopieerd`;
+      return S.mdJobStoppedKept(end.done, end.total);
     case 'rolled-back':
-      return 'Klus gestopt en ongedaan gemaakt';
+      return S.mdJobRolledBack;
     case 'rolled-back-partial':
-      return 'Klus gestopt, ongedaan maken niet overal gelukt';
+      return S.mdJobRolledBackPartial;
     case 'stuck':
-      return `Klus gestopt op batch ${end.copiedBatches + 1} van ${end.batches}${
-        end.error ? ` — ${end.error}` : ''
-      }`;
+      return S.mdJobStuck(end.copiedBatches + 1, end.batches, end.error ?? '');
     // The same two belts as phaseAfterJobEnd, for the same reason and with the same words: this
     // is the panel's closing line and the page draws it in three places, so a switch that fell
     // through returned undefined and drew an empty line where the job's result belongs.
     default: {
       const unhandled: never = end.outcome;
-      return unknownOutcome(unhandled);
+      return unknownOutcome(unhandled, S);
     }
   }
 }
@@ -301,22 +254,24 @@ export function jobEndText(end: JobEnd): string {
  * hands over. So the fallback cannot be reached from a switch that still has a case missing.
  *
  * @param outcome what arrived, which the compiler believes cannot exist
+ * @param S the active string set
  * @returns the sentence, naming the outcome so a screenshot or a log says which one it was
  * @private
  */
-function unknownOutcome(outcome: never): string {
-  return `De klus eindigde op een onbekende uitkomst (${String(outcome)})`;
+function unknownOutcome(outcome: never, S: UiStrings): string {
+  return S.mdJobUnknownOutcome(String(outcome));
 }
 
 /**
  * Mailbox addresses as a person reads them out
  *
  * @param names
- * @returns comma-separated with 'en' before the last, which is how the rest of this panel
- *   already writes a list
+ * @param S the active string set
+ * @returns comma-separated with the locale's own word for 'and' before the last, which is how
+ *   the rest of this panel already writes a list
  * @private
  */
-function joinNames(names: string[]): string {
+function joinNames(names: string[], S: UiStrings): string {
   if (names.length <= 1) return names.join('');
-  return `${names.slice(0, -1).join(', ')} en ${names[names.length - 1]}`;
+  return `${names.slice(0, -1).join(', ')} ${S.mdListAnd} ${names[names.length - 1]}`;
 }

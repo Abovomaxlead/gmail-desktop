@@ -8,7 +8,6 @@ import { createCopyRunControl } from '../electron/mail/copy-control';
 describe('createCopyRunControl', () => {
   it('starts running, so a fresh wait resolves at once', async () => {
     const control = createCopyRunControl();
-    expect(control.state()).toBe('running');
     await expect(control.wait()).resolves.toBe('continue');
   });
 
@@ -50,7 +49,6 @@ describe('createCopyRunControl', () => {
     control.stop('rollback');
     expect(await Promise.all(waiters)).toEqual(['stop', 'stop']);
     expect(control.stopMode()).toBe('rollback');
-    expect(control.state()).toBe('stopping');
   });
 
   it('answers stop straight away once stopping, even to a caller that never paused', async () => {
@@ -59,17 +57,17 @@ describe('createCopyRunControl', () => {
     await expect(control.wait()).resolves.toBe('stop');
   });
 
-  it('ignores a pause once stopping, so a late pause cannot walk the stop back', () => {
+  it('ignores a pause once stopping, so a late pause cannot walk the stop back', async () => {
     const control = createCopyRunControl();
     control.stop('keep');
     control.pause();
-    expect(control.state()).toBe('stopping');
+    await expect(control.wait()).resolves.toBe('stop');
   });
 
-  it('ignores a resume that was not preceded by a pause', () => {
+  it('ignores a resume that was not preceded by a pause', async () => {
     const control = createCopyRunControl();
     control.resume();
-    expect(control.state()).toBe('running');
+    await expect(control.wait()).resolves.toBe('continue');
   });
 
   it('keeps the first stop mode once a run is already stopping', async () => {
@@ -79,11 +77,20 @@ describe('createCopyRunControl', () => {
     expect(control.stopMode()).toBe('keep');
   });
 
-  it('treats a second pause as a no-op rather than losing the paused state', () => {
+  it('treats a second pause as a no-op rather than losing the paused state', async () => {
     const control = createCopyRunControl();
     control.pause();
     control.pause();
-    expect(control.state()).toBe('paused');
+    let answered = false;
+    const waiting = control.wait().then((v) => {
+      answered = true;
+      return v;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(answered).toBe(false);
+    control.resume();
+    expect(await waiting).toBe('continue');
   });
 
   // Pause and stop can arrive back to back before any worker has even called wait() once --
@@ -92,16 +99,15 @@ describe('createCopyRunControl', () => {
     const control = createCopyRunControl();
     control.pause();
     control.stop('rollback');
-    expect(control.state()).toBe('stopping');
     expect(control.stopMode()).toBe('rollback');
     await expect(control.wait()).resolves.toBe('stop');
   });
 
-  it('ignores a resume while stopping, the same as it ignores one while running', () => {
+  it('ignores a resume while stopping, the same as it ignores one while running', async () => {
     const control = createCopyRunControl();
     control.stop('keep');
     control.resume();
-    expect(control.state()).toBe('stopping');
+    await expect(control.wait()).resolves.toBe('stop');
     expect(control.stopMode()).toBe('keep');
   });
 
@@ -112,7 +118,6 @@ describe('createCopyRunControl', () => {
     control.stop('keep');
     control.stop('keep');
     expect(await Promise.all(waiters)).toEqual(['stop', 'stop']);
-    expect(control.state()).toBe('stopping');
     expect(control.stopMode()).toBe('keep');
   });
 

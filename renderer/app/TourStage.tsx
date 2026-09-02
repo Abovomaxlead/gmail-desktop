@@ -122,9 +122,10 @@ function DemoPanel({ email, S }: { email: string; S: UiStrings }) {
       className="mt-6 flex overflow-hidden rounded-2xl border border-black/10 bg-white shadow-2xl dark:border-white/10 dark:bg-neutral-900"
       style={{ width: PANEL_WIDTH, height: PANEL_HEIGHT }}
     >
-      <MailboxRail rows={rows} active={email} onSelect={noop} />
+      <MailboxRail rows={rows} active={email} onSelect={noop} S={S} />
       <LabelPane
         account={account}
+        shown={labels}
         search=""
         recent={[]}
         picked={picked}
@@ -134,6 +135,7 @@ function DemoPanel({ email, S }: { email: string; S: UiStrings }) {
         onFlatMode={noop}
         countExisting={zero}
         onToggle={noop}
+        S={S}
       />
     </div>
   );

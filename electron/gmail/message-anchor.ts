@@ -68,10 +68,6 @@ const MESSAGE_BODY_SELECTOR = '.a3s, .ii';
  * reading. */
 const FOLDED_MAX_HEIGHT = 120;
 
-/** A list row is not a message. Gmail hangs the id of the mail an attachment belongs to on
- * the chip drawn in the row, so the inbox holds a match for the very message being looked
- * for — and clicking it opens the attachment instead of the mail. mail/dropzone.ts narrowed
- * `isOpenedConversation` for the same reason; this is the same rule, read upwards. */
 /** How far up a hidden block to look for the row that reveals it. Gmail folds the middle of
  * a long conversation into a bundle and puts `display:none` on every message in it, so the
  * message a card names measures nothing at all there — the one place this fails silently if
@@ -137,6 +133,9 @@ export function messageAnchorScript(
     }
     return null;
   };
+  // A list row is not a message. Gmail hangs the id of the mail an attachment belongs to on
+  // the chip drawn in the row, so the inbox holds a match for the very message being looked
+  // for -- and clicking it opens the attachment instead of the mail.
   const inRow = (start) =>
     up(start, 30, (cur) =>
       attr(cur, 'role') === 'row' || attr(cur, 'data-legacy-last-message-id') ? true : null,

@@ -2,23 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import type { UiStrings } from '../strings';
+import type { LabelPurgeCount } from '../../lib/label-purge';
 import { Section, SettingsGroup } from './Section';
 import { ACCENT_BUTTON, CHECKBOX, FIELD, HINT, WARN_HINT } from './tokens';
-
-interface PurgeLabel {
-  name: string;
-  labelId: string;
-  messages: number;
-}
-
-interface Counted {
-  handle: string;
-  email: string;
-  label: string;
-  labels: PurgeLabel[];
-  total: number;
-  capped: boolean;
-}
 
 interface Mailbox {
   email: string;
@@ -36,7 +22,7 @@ export function LabelCleanupSection({ S }: { S: UiStrings }) {
   const [boxes, setBoxes] = useState<Mailbox[]>([]);
   const [email, setEmail] = useState('');
   const [label, setLabel] = useState('');
-  const [counted, setCounted] = useState<Counted | null>(null);
+  const [counted, setCounted] = useState<LabelPurgeCount | null>(null);
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<'' | 'counting' | 'purging'>('');
   const [said, setSaid] = useState('');
@@ -61,37 +47,39 @@ export function LabelCleanupSection({ S }: { S: UiStrings }) {
   };
 
   const count = async () => {
+    const bridge = window.desktop;
+    if (!bridge) return;
     setBusy('counting');
     setSaid('');
-    const answer = await (window.desktop as unknown as {
-      countLabelPurge: (e: string, l: string) => Promise<Counted | { error: string }>;
-    }).countLabelPurge(email, label);
-    setBusy('');
-    if ('error' in answer) {
-      setSaid(answer.error);
-      return;
+    try {
+      const answer = await bridge.countLabelPurge(email, label);
+      if ('error' in answer) {
+        setSaid(answer.error);
+        return;
+      }
+      setCounted(answer);
+      setTicked(Object.fromEntries(answer.labels.map((l) => [l.name, true])));
+    } finally {
+      setBusy('');
     }
-    setCounted(answer);
-    setTicked(Object.fromEntries(answer.labels.map((l) => [l.name, true])));
   };
 
   const purge = async () => {
-    if (!counted) return;
+    const bridge = window.desktop;
+    if (!bridge || !counted) return;
     setBusy('purging');
     const names = counted.labels.filter((l) => ticked[l.name]).map((l) => l.name);
-    const outcome = await (window.desktop as unknown as {
-      runLabelPurge: (
-        h: string,
-        l: string[],
-      ) => Promise<{ trashed: number; failed: number; error?: string }>;
-    }).runLabelPurge(counted.handle, names);
-    setBusy('');
-    setCounted(null);
-    setSaid(
-      outcome.error
-        ? `${outcome.trashed} verplaatst, ${outcome.failed} niet: ${outcome.error}`
-        : `${outcome.trashed} bericht(en) naar de prullenbak.`,
-    );
+    try {
+      const outcome = await bridge.runLabelPurge(counted.handle, names);
+      setCounted(null);
+      setSaid(
+        outcome.error
+          ? S.labelCleanupPartial(outcome.trashed, outcome.failed, outcome.error)
+          : S.labelCleanupMoved(outcome.trashed),
+      );
+    } finally {
+      setBusy('');
+    }
   };
 
   const chosen = counted?.labels.filter((l) => ticked[l.name]) ?? [];
@@ -172,7 +160,7 @@ export function LabelCleanupSection({ S }: { S: UiStrings }) {
                       />
                       <span className="font-medium">{l.name}</span>
                       <span className={HINT}>
-                        {l.messages.toLocaleString(S.numberLocale)} bericht(en)
+                        {S.labelCleanupPerLabel(l.messages.toLocaleString(S.numberLocale))}
                       </span>
                     </label>
                   </li>
@@ -186,7 +174,7 @@ export function LabelCleanupSection({ S }: { S: UiStrings }) {
                 disabled={total === 0 || busy !== ''}
                 className="mt-4 self-start rounded-lg px-3 py-1.5 text-[13px] font-medium text-amber-600 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none dark:text-amber-500"
               >
-                Verplaats {total.toLocaleString(S.numberLocale)} berichten naar de prullenbak
+                {S.labelCleanupTrashButton(total.toLocaleString(S.numberLocale))}
               </button>
               <p className={`mt-2 ${HINT}`}>{S.labelCleanupTrashNote}</p>
             </>

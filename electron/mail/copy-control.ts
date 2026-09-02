@@ -23,11 +23,9 @@ import type { CopyStopMode } from './copy-run-types';
 // Types
 //===========================
 
-export type CopyGateState = 'running' | 'paused' | 'stopping';
+type CopyGateState = 'running' | 'paused' | 'stopping';
 
 export interface CopyRunControl {
-  /** Whether new work may currently start */
-  state(): CopyGateState;
   /** How a stop was asked for, once one has been; null before that */
   stopMode(): CopyStopMode | null;
   /**
@@ -72,7 +70,6 @@ export function createCopyRunControl(): CopyRunControl {
   };
 
   return {
-    state: () => state,
     stopMode: () => mode,
     signal: () => abort.signal,
     wait(): Promise<'continue' | 'stop'> {

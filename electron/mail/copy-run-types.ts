@@ -19,6 +19,8 @@
 // hand-made a label with the same name, no run's journal names its id, so nothing this app
 // does can ever act on it.
 
+import type { RollbackMailboxOutcome } from '../../renderer/lib/maildrop-copy';
+
 
 //===========================
 // Types
@@ -65,25 +67,15 @@ export interface CreatedLabel {
   name: string;
 }
 
-/** What became of one mailbox in a marker sweep. Kept per mailbox rather than per message
- * because permission is a property of the mailbox: a delegated target the relay cannot open
- * fails for all of its messages at once, and that is what the user has to be told. */
-export interface RollbackMailboxOutcome {
-  email: string;
-  /** Every message id the sweep confirmed it acted on, across every round it took. */
-  swept: string[];
-  /** False when the retry budget ran out while the marker still listed something. Left for
-   * the next resumed sweep -- never reported as failed, and never as done, since nothing here
-   * says the mail is not simply lagging behind Gmail's own index. */
-  converged: boolean;
-  /** Set when the mailbox itself refused outright, so the caller never confuses "this will
-   * finish once we look again" with "this mailbox cannot be reached at all". */
-  refused?: 'permission' | 'auth';
-  /** The refusal's own message, alongside `refused`. */
-  reason?: string;
-}
+/** What became of one mailbox in a marker sweep. Declared in renderer/lib/maildrop-copy.ts,
+ * where the stop dialog reads the same shape: kept per mailbox rather than per message because
+ * permission is a property of the mailbox -- a delegated target the relay cannot open fails for
+ * all of its messages at once, and that is what the user has to be told. */
+export type { RollbackMailboxOutcome };
 
-/** The whole sweep pass, mailbox by mailbox */
+/** The whole sweep pass, mailbox by mailbox. Wider than the renderer's own RollbackOutcome by
+ * `runId`: main sweeps by the run's marker and the id is what it acts on, while the dialog only
+ * ever draws the mailboxes of the run it was opened for. */
 export interface RollbackOutcome {
   runId: CopyRunId;
   mailboxes: RollbackMailboxOutcome[];

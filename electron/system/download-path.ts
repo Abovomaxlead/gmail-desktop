@@ -10,10 +10,6 @@
 // Exported functions
 //===========================
 
-// Known double extensions stay together — "archief.tar.gz (1)", not "archief.tar (1).gz",
-// which would also change the file's type in Windows' eyes — and a name starting with a dot
-// is a name, not an extension (".gitignore").
-
 /**
  * Splits a filename into its base and extension
  *

@@ -10,31 +10,11 @@ import { IPC, type MailDropCopyControlAction, type MailDropCopyTarget } from './
 import type { CopyStopMode } from '../mail/copy-run-types';
 import { writeFileAtomic } from './json-store';
 import { OAUTH_CONFIG_PATH } from './paths';
-import {
-  activeTab,
-  colors,
-  currentLocale,
-  downloadHistory,
-  hidden,
-  mainWindow,
-  manager,
-  oauthStatuses,
-  oauthTokens,
-  prefs,
-  profiles,
-  keyOf,
-  recentLabels,
-  reconnectAccounts,
-  setSettingsPanelOpen,
-  settingsPanelOpen,
-  startedWithoutAccounts,
-  toastWindow,
-  toasts,
-  SESSION_PARTITION,
-} from './runtime';
+import { SESSION_PARTITION } from './session-partition';
+import { activeTab, colors, currentLocale, downloadHistory, hidden, mainWindow, manager, oauthStatuses, oauthTokens, prefs, profiles, keyOf, recentLabels, reconnectAccounts, setSettingsPanelOpen, settingsPanelOpen, startedWithoutAccounts, toastWindow, toasts } from './runtime';
 import { pushPrefs, pushProfiles, pushUnread, refreshBadge } from './broadcast';
 import { type LanguagePref } from './locale';
-import { type AppearancePatch, type PrefsStore } from './prefs-store';
+import { type AccountPref, type AppearancePatch, type PrefsStore } from './prefs-store';
 import { addAccount, redetect, removeAccount, unhideAccount } from '../accounts/detection-controller';
 import {
   applyDelegatedPick,
@@ -88,7 +68,7 @@ import {
   installUpdate,
   loadChangelog,
 } from '../updates/update-controller';
-import { checkOAuthHealth, clearPushRefusal, clearRefreshFailure } from '../auth/oauth-health-check';
+import { checkOAuthHealth, clearRefreshFailure } from '../auth/oauth-health-check';
 import { oauthConfig } from '../auth/oauth-config';
 import { connectAccount } from '../auth/oauth-flow';
 import { checkOAuthConfigFile } from '../auth/oauth-config-file';
@@ -380,7 +360,6 @@ export function registerIpc(): void {
     const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
     if (!result.ok) return result;
     clearRefreshFailure(arg.email);
-    clearPushRefusal(arg.email);
     void checkOAuthHealth();
     startMailSync();
     return { ok: true };
@@ -399,7 +378,7 @@ export function registerIpc(): void {
     // In the log as well as on the page: the page says it while it is open, and this is the
     // record of when the mail started leaving the machine again.
     if (picked.remote) {
-      notifyLog(`[maildrop] gekozen map staat op een netwerk- of synclocatie: ${picked.folder}`);
+      notifyLog(`[maildrop] chosen folder is on a network or sync location: ${picked.folder}`);
     }
     return picked;
   });
@@ -411,14 +390,19 @@ export function registerIpc(): void {
     }
     void shell.openPath(dir);
   });
-  ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }) => {
-    const patch: Record<string, unknown> = {};
-    if ('label' in arg) patch.label = arg.label;
-    if ('notify' in arg) patch.notify = arg.notify;
-    if ('calendarNotify' in arg) patch.calendarNotify = arg.calendarNotify;
-    if ('badgeCount' in arg) patch.badgeCount = arg.badgeCount;
-    if ('notifySound' in arg) patch.notifySound = arg.notifySound;
-    if ('notifyPersist' in arg) patch.notifyPersist = arg.notifyPersist;
+  const ACCOUNT_PREF_KEYS = [
+    'label',
+    'notify',
+    'calendarNotify',
+    'badgeCount',
+    'notifySound',
+    'notifyPersist',
+  ] as const;
+  ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string } & Partial<AccountPref>) => {
+    const patch: Partial<AccountPref> = {};
+    for (const key of ACCOUNT_PREF_KEYS) {
+      if (key in arg) (patch as Record<string, unknown>)[key] = arg[key];
+    }
     prefs!.setAccount(arg.email, patch);
     pushProfiles();
     pushPrefs();

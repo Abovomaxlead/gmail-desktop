@@ -2,7 +2,7 @@
 // native-labels.ts: Rene mode first, then the locale, one frozen object per variant so
 // the Rene comparison in the tests stays an identity check.
 
-import type { Locale } from '../core/locale';
+import { pickVariant, type Locale } from '../core/locale';
 
 
 //===========================
@@ -115,6 +115,5 @@ const RENE: TrayLabels = Object.freeze({
  * @returns {TrayLabels} the same frozen object every time, so a test can compare identity
  */
 export function trayLabels(locale: Locale, reneMode: boolean): TrayLabels {
-  if (reneMode) return RENE;
-  return locale === 'nl' ? NL : EN;
+  return pickVariant(locale, reneMode, { en: EN, nl: NL, rene: RENE });
 }

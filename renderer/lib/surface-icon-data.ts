@@ -4,10 +4,9 @@
 
 import { APP_ICON_DATA_URIS } from './app-icon-data';
 import { CALENDAR_ICON_DATA_URI } from './calendar-icon-data';
-import { APP_SURFACES, type Surface } from './surfaces';
+import { type Surface } from './surfaces';
 
 export const SURFACE_ICON_DATA_URIS: Partial<Record<Surface, string>> = {
-  mail: APP_ICON_DATA_URIS.mail,
+  ...APP_ICON_DATA_URIS,
   calendar: CALENDAR_ICON_DATA_URI,
-  ...Object.fromEntries(APP_SURFACES.map((s) => [s, APP_ICON_DATA_URIS[s]])),
 };

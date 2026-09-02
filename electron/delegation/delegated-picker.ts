@@ -39,20 +39,22 @@ export function openDelegatedPicker(): void {
       IPC.DELEGATED_PICK_ASK,
       undefined,
       // Takes the keyboard: Esc closes the panel and the rows are tickable with the keyboard,
-      // neither of which reaches a view that was never focused.
+      // neither of which reaches a view that was never focused
       true,
     );
   setDelegatedPicker(overlay);
   overlay.open(ask({ scanning: true, candidates: [], answered: false }));
 
-  void discoverDelegatedMailboxes().then(({ candidates, answered }) => {
-    notifyLog(
-      `[delegated] gevraagd om toe te voegen: ${candidates.length} kandida(a)t(en)${answered ? '' : ', relay gaf geen antwoord'}`,
-    );
-    // A panel the user closed while the relay was thinking stays closed.
-    if (!overlay.isOpen()) return;
-    overlay.update(ask({ scanning: false, candidates, answered }));
-  });
+  void discoverDelegatedMailboxes()
+    .then(({ candidates, answered }) => {
+      notifyLog(
+        `[delegated] asked to add: ${candidates.length} candidate(s)${answered ? '' : ', relay gave no answer'}`,
+      );
+      // A panel the user closed while the relay was thinking stays closed
+      if (!overlay.isOpen()) return;
+      overlay.update(ask({ scanning: false, candidates, answered }));
+    })
+    .catch(() => undefined);
 }
 
 export function closeDelegatedPicker(): void {

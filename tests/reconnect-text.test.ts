@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest';
 import { reconnectHeading } from '../renderer/app/reconnect-text';
 
 const expired = (email: string) => ({ email, reason: 'expired' as const });
-const push = (email: string) => ({ email, reason: 'push' as const });
 
 describe('reconnectHeading', () => {
   it('says the connection expired when that is what happened', () => {
@@ -14,26 +13,15 @@ describe('reconnectHeading', () => {
     expect(h.sub).toContain('verplaatsen');
   });
 
-  it('does not claim anything expired when only push needs permission', () => {
-    const h = reconnectHeading([push('a@x.nl')]);
-    expect(h.title).not.toContain('verlopen');
-    expect(h.sub).not.toContain('verplaatsen');
-    expect(h.sub.toLowerCase()).toContain('meldingen');
-  });
-
   it('scales to more than one account without changing what it claims', () => {
-    expect(reconnectHeading([push('a@x.nl'), push('b@x.nl')]).sub.toLowerCase()).toContain(
-      'meldingen',
-    );
-    expect(reconnectHeading([expired('a@x.nl'), expired('b@x.nl')]).title).toBe(
-      '2 accounts opnieuw verbinden',
-    );
+    const h = reconnectHeading([expired('a@x.nl'), expired('b@x.nl')]);
+    expect(h.title).toBe('2 accounts opnieuw verbinden');
+    expect(h.sub).toContain('verplaatst');
   });
 
-  it('only says what holds for every account in a mixed list', () => {
-    const h = reconnectHeading([expired('a@x.nl'), push('b@x.nl')]);
-    expect(h.title).toBe('2 accounts opnieuw verbinden');
-    expect(h.sub).toContain('verplaatsen');
-    expect(h.sub.toLowerCase()).toContain('meldingen');
+  // The card is drawn from whatever the list says, so a heading for nobody would be a claim
+  // about an account that is not there.
+  it('says nothing at all when there is no account yet', () => {
+    expect(reconnectHeading([])).toEqual({ title: '', sub: '' });
   });
 });

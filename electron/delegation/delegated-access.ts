@@ -35,10 +35,17 @@ export type AccessVerdict = 'granted' | 'revoked' | 'unknown';
 // Constants
 //===========================
 
-// The relay's "this requester is not a delegate of that mailbox". Every other status is about
-// the ask rather than about the delegation: 0 never reached the relay, 401 is the requester's
-// own token, 5xx is the relay itself.
-const NOT_A_DELEGATE = 403;
+// The relay's "this requester is not a delegate of that mailbox" -- proof about the
+// delegation record itself, reused by delegated-token.ts to decide when trying another
+// requester is pointless.
+export const NOT_A_DELEGATE = 403;
+
+// The requester's own credential was rejected -- a property of that account, not of the
+// delegation record, so it says nothing about mailboxes other requesters might still reach.
+export const REQUESTER_TOKEN_INVALID = 401;
+
+// Everything else -- 0 (never reached the relay), 5xx (the relay itself) -- is doubt about
+// the ask, not evidence about any one requester or the delegation.
 
 
 //===========================

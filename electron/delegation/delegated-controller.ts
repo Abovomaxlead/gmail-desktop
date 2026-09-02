@@ -85,7 +85,9 @@ function delegatedProfileFor(d: StoredDelegate): Profile {
     kind: 'delegated',
     email: d.email,
     mailUrl: d.mailUrl,
-    calendarUrl: d.calendarUrl,
+    // renderer/lib/surfaces.ts still gates the delegated calendar surface on this field; the
+    // store never captures a calendar url, so it is always null here.
+    calendarUrl: null,
   };
   return {
     ref,
@@ -150,7 +152,7 @@ async function refreshDelegatedUrls(): Promise<void> {
   // like one that started clean -- the health watch below is what still catches that case.
   if (entries.length < withUrl) {
     notifyLog(
-      `[delegated] switcher gaf ${entries.length} postvak(ken) terug voor ${withUrl} met een url; genegeerd`,
+      `[delegated] switcher returned ${entries.length} mailbox(es) for ${withUrl} that have a url; ignored`,
     );
     return;
   }
@@ -167,7 +169,7 @@ function applySwitcherUrls(entries: Array<{ email: string; mailUrl: string }>): 
     delegated.upsert({ ...d, mailUrl: fresh });
     // That it changed, never what it changed to: the opaque id is account data, and the log is
     // read by whoever is debugging rather than by the person whose mailbox it is.
-    notifyLog(`[delegated] ${d.email}: nieuwe url uit de switcher${d.mailUrl === null ? ' (had er geen)' : ''}`);
+    notifyLog(`[delegated] ${d.email}: new url from the switcher${d.mailUrl === null ? ' (had none)' : ''}`);
     const p = profiles.find((x) => x.kind === 'delegated' && x.email.toLowerCase() === d.email.toLowerCase());
     if (p && p.ref.kind === 'delegated') {
       for (const s of SURFACES) manager.discardView(keyOf(p), s);
@@ -201,10 +203,10 @@ async function scrapeSwitchersUntil(outstanding: () => string[], why: string): P
     applySwitcherUrls(await scanSwitcherEntries(keyOf(own)));
     const left = outstanding();
     if (left.length === 0) {
-      notifyLog(`[delegated] ${why}: elk postvak heeft weer een url`);
+      notifyLog(`[delegated] ${why}: every mailbox has a url again`);
       return;
     }
-    notifyLog(`[delegated] ${why}: nog niet opgelost na ${own.email}: ${left.join(', ')}`);
+    notifyLog(`[delegated] ${why}: still unresolved after ${own.email}: ${left.join(', ')}`);
   }
 }
 
@@ -216,7 +218,7 @@ async function scrapeSwitchersUntil(outstanding: () => string[], why: string): P
  * @private
  */
 async function resolveDelegatedUrls(): Promise<void> {
-  await scrapeSwitchersUntil(delegatedWithoutUrl, 'nieuw ontdekt');
+  await scrapeSwitchersUntil(delegatedWithoutUrl, 'newly discovered');
 }
 
 // Which url each mailbox had when the switcher was last re-read for it, so one dead url costs
@@ -274,8 +276,10 @@ function delegatedViewStates(): Array<{ email: string; title: string | null; url
  *
  * What the scrape then does is unchanged: applySwitcherUrls replaces the url, throws the views
  * away and pushes the profiles, which it already did correctly before any of this.
+ *
+ * @private
  */
-export async function checkDelegatedUrlHealth(): Promise<void> {
+async function checkDelegatedUrlHealth(): Promise<void> {
   if (!delegated || !manager || healthCheckInFlight) return;
   const views = delegatedViewStates();
   const dead = deadDelegatedUrls(views);
@@ -305,7 +309,7 @@ export async function checkDelegatedUrlHealth(): Promise<void> {
   for (const email of worth) {
     const key = email.toLowerCase();
     rereadFor.set(key, held.get(key) ?? null);
-    notifyLog(`[delegated] ${email}: de opgeslagen url opent een ander postvak, switcher wordt opnieuw gelezen`);
+    notifyLog(`[delegated] ${email}: the stored url opens another mailbox, re-reading the switcher`);
   }
 
   // Outstanding for as long as the url is still the one that was found dead: applySwitcherUrls
@@ -316,7 +320,7 @@ export async function checkDelegatedUrlHealth(): Promise<void> {
   };
   healthCheckInFlight = true;
   try {
-    await scrapeSwitchersUntil(stillDead, 'url dood');
+    await scrapeSwitchersUntil(stillDead, 'url dead');
   } finally {
     healthCheckInFlight = false;
   }
@@ -324,7 +328,7 @@ export async function checkDelegatedUrlHealth(): Promise<void> {
   // user simply navigated a delegated view somewhere else, and that mailbox is not broken at all.
   const left = stillDead();
   if (left.length > 0) {
-    notifyLog(`[delegated] switcher geeft dezelfde url voor ${left.join(', ')}; niets vervangen`);
+    notifyLog(`[delegated] switcher gives the same url for ${left.join(', ')}; nothing replaced`);
   }
 }
 
@@ -340,7 +344,7 @@ function sendDelegatedViewHome(email: string): boolean {
   const key = email.toLowerCase();
   const profile = profiles.find((p) => p.kind === 'delegated' && p.email.toLowerCase() === key);
   if (!profile || !manager?.sendHome(keyOf(profile), 'mail')) return false;
-  notifyLog(`[delegated] ${email}: de view stond niet meer op het postvak, teruggestuurd naar de opgeslagen url`);
+  notifyLog(`[delegated] ${email}: the view had left the mailbox, sent back to the stored url`);
   return true;
 }
 
@@ -353,8 +357,10 @@ let healthWatchStarted = false;
  * the cheap half; the switcher is only read when a title says a url is dead. A view opened for
  * the first time an hour into the session is judged on the first sample after it loads, which is
  * why this samples rather than checking once at startup.
+ *
+ * @private
  */
-export function startDelegatedHealthWatch(): void {
+function startDelegatedHealthWatch(): void {
   if (healthWatchStarted) return;
   healthWatchStarted = true;
   setInterval(() => void checkDelegatedUrlHealth(), HEALTH_SAMPLE_MS).unref?.();
@@ -366,8 +372,10 @@ export function startDelegatedHealthWatch(): void {
  * Runs by itself: once detection has settled and every hour after that. Adding is not its
  * business -- a mailbox appears in the sidebar because somebody picked it out of the list the
  * button shows, never because a background sweep found it.
+ *
+ * @private
  */
-export async function syncDelegatedFromRelay(): Promise<void> {
+async function syncDelegatedFromRelay(): Promise<void> {
   if (!delegated) return;
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens) return;
@@ -449,12 +457,12 @@ export function addDelegatedMailboxes(emails: string[]): void {
   if (fresh.length === 0) return;
 
   for (const email of fresh) {
-    delegated.upsert({ email, mailUrl: null, calendarUrl: null });
+    delegated.upsert({ email, mailUrl: null });
     if (hidden?.has(email)) hidden.remove(email);
   }
   pushHidden();
   loadDelegatedProfiles();
-  notifyLog(`[delegated] ${fresh.length} postvak(ken) toegevoegd: ${fresh.join(', ')}`);
+  notifyLog(`[delegated] ${fresh.length} mailbox(es) added: ${fresh.join(', ')}`);
   void resolveDelegatedUrls();
 }
 
@@ -482,7 +490,7 @@ async function askEveryRequester(
     if (!token) continue;
     const res = await requestDelegatedMailboxes({ url, requesterToken: token });
     if (!res.ok) {
-      notifyLog(`[delegated] relay weigerde de lijst via ${requester.email}: ${res.error}`);
+      notifyLog(`[delegated] relay refused the list via ${requester.email}: ${res.error}`);
       answers.push({ ok: false, email: requester.email, error: res.error });
       continue;
     }
@@ -523,7 +531,7 @@ async function mailboxRevoked(
   }
   const verdict = accessVerdict(attempts);
   if (verdict === 'unknown') {
-    notifyLog(`[delegated] ${email}: geen uitsluitsel over de toegang; blijft staan`);
+    notifyLog(`[delegated] ${email}: no verdict on the access; kept`);
   }
   return verdict === 'revoked';
 }
@@ -541,7 +549,8 @@ async function mailboxRevoked(
 function forgetDelegated(email: string, hiddenHere: Set<string>): void {
   if (hiddenHere.has(email.toLowerCase())) {
     hidden?.remove(email);
-    notifyLog(`[delegated] ${email} is niet meer gedelegeerd; stond verborgen, nu vergeten`);
+    pushHidden();
+    notifyLog(`[delegated] ${email} is no longer delegated; was hidden, now forgotten`);
     return;
   }
   dropDelegated(email);
@@ -570,7 +579,7 @@ function dropDelegated(email: string): void {
   }
   rereadFor.delete(email.toLowerCase());
   stopMailboxSync(email);
-  notifyLog(`[delegated] ${email} is niet meer gedelegeerd; rij en views weg`);
+  notifyLog(`[delegated] ${email} is no longer delegated; row and views gone`);
   pushProfiles();
   syncCalendarViews();
 }

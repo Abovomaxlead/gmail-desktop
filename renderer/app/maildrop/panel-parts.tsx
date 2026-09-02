@@ -1,8 +1,9 @@
 'use client';
 
 import { labelKind, type LabelKind } from '../label-kind';
-import { filterLabels } from '../label-search';
 import { type MailboxRow } from '../mailbox-rail';
+import { type MailDropTree } from '../../lib/maildrop-copy';
+import { type UiStrings } from '../strings';
 
 
 //===========================
@@ -17,12 +18,6 @@ export interface AccountLabels {
   email: string;
   labels: Label[];
   error?: string;
-}
-
-/** What a dragged label turned out to carry. Mirrors MailDropTree in electron/core/ipc.ts. */
-export interface DropTree {
-  dragged: string;
-  members: Array<{ name: string; threads: number }>;
 }
 
 
@@ -53,19 +48,22 @@ export const TOP_LEVEL = '\u0000bovenin';
  * @param rows
  * @param active the mailbox the pane is showing
  * @param onSelect
+ * @param S the active string set
  */
 export function MailboxRail({
   rows,
   active,
   onSelect,
+  S,
 }: {
   rows: MailboxRow[];
   active: string;
   onSelect: (email: string) => void;
+  S: UiStrings;
 }) {
   return (
     <nav
-      aria-label="Postvakken"
+      aria-label={S.mdMailboxRail}
       className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-black/10 p-2 dark:border-white/10"
     >
       {rows.map((row) => {
@@ -121,14 +119,16 @@ export function MailboxRail({
 }
 
 /**
- * One mailbox's labels to tick, narrowed by what is in the search box
+ * One mailbox's labels to tick, already narrowed by the page's own search pass
  *
  * Two modes in one pane, because they answer the same question -- where does this mail go. With
  * a tree the answer is one place, so the labels turn from tickboxes into a single choice and
- * `Bovenin` joins them as a place of its own; without one, nothing about the pane changes.
+ * the top-level place joins them as a place of its own; without one, nothing about the pane
+ * changes.
  *
  * @param account
- * @param search
+ * @param shown the account's labels already narrowed by the page's search pass
+ * @param search whether a search is active, which is what hides the recent-labels shortcuts
  * @param recent the labels today's copies went into for this mailbox, newest first
  * @param picked the labels ticked for this account, or its one chosen destination
  * @param disabled while a copy is running
@@ -138,9 +138,11 @@ export function MailboxRail({
  * @param onFlatMode told true when the structure is switched off
  * @param countExisting how much of the drag a label already holds
  * @param onToggle
+ * @param S the active string set
  */
 export function LabelPane({
   account,
+  shown,
   search,
   recent,
   picked,
@@ -150,22 +152,24 @@ export function LabelPane({
   onFlatMode,
   countExisting,
   onToggle,
+  S,
 }: {
   account: AccountLabels;
+  shown: Label[];
   search: string;
   recent: Label[];
   picked: string[];
   disabled: boolean;
-  tree: DropTree | null;
+  tree: MailDropTree | null;
   treeOffered: boolean;
   onFlatMode: (off: boolean) => void;
   countExisting: (labelId: string) => number;
   onToggle: (labelId: string) => void;
+  S: UiStrings;
 }) {
-  const shown = filterLabels(account.labels, search, picked);
   const single = tree !== null;
   const places: Array<{ id: string; name: string }> = single
-    ? [{ id: TOP_LEVEL, name: 'Bovenin' }, ...shown]
+    ? [{ id: TOP_LEVEL, name: S.mdTopLevel }, ...shown]
     : shown;
   // Only above an empty box. Once something is typed the list is the answer to that, and a
   // shortcut standing in front of it is one more thing to read past.
@@ -188,23 +192,23 @@ export function LabelPane({
               onChange={(e) => onFlatMode(!e.target.checked)}
               className="h-3.5 w-3.5 shrink-0 accent-blue-600"
             />
-            Structuur overnemen
+            {S.mdKeepStructure}
           </label>
         )}
       </div>
-      {tree && <TreeOutline tree={tree} />}
+      {tree && <TreeOutline tree={tree} S={S} />}
       {account.error ? (
         <span className="px-4 py-3 text-xs text-red-600 dark:text-red-500">{account.error}</span>
       ) : account.labels.length === 0 && !single ? (
-        <span className="px-4 py-3 text-xs text-neutral-400">Geen labels</span>
+        <span className="px-4 py-3 text-xs text-neutral-400">{S.mdNoLabels}</span>
       ) : places.length === 0 ? (
-        <span className="px-4 py-3 text-xs text-neutral-400">Geen label gevonden</span>
+        <span className="px-4 py-3 text-xs text-neutral-400">{S.mdNoLabelFound}</span>
       ) : (
         <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
           {shortcuts.length > 0 && (
             <>
               <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-                Recent
+                {S.mdRecent}
               </p>
               {shortcuts.map((label) => (
                 <PlaceRow
@@ -215,6 +219,7 @@ export function LabelPane({
                   disabled={disabled}
                   already={countExisting(label.id)}
                   onToggle={() => onToggle(label.id)}
+                  S={S}
                 />
               ))}
               <div className="my-1.5 border-t border-black/5 dark:border-white/10" />
@@ -222,7 +227,7 @@ export function LabelPane({
           )}
           {single && (
             <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-              Plaats onder
+              {S.mdPlaceUnder}
             </p>
           )}
           {places.map((label) => (
@@ -236,6 +241,7 @@ export function LabelPane({
               // about to be created: neither can hold anything yet.
               already={label.id === TOP_LEVEL ? 0 : countExisting(label.id)}
               onToggle={() => onToggle(label.id)}
+              S={S}
             />
           ))}
         </div>
@@ -256,6 +262,7 @@ export function LabelPane({
  * @param disabled while a copy is running
  * @param already how much of the drag this label holds already
  * @param onToggle
+ * @param S the active string set
  */
 export function PlaceRow({
   label,
@@ -264,6 +271,7 @@ export function PlaceRow({
   disabled,
   already,
   onToggle,
+  S,
 }: {
   label: { id: string; name: string };
   on: boolean;
@@ -271,6 +279,7 @@ export function PlaceRow({
   disabled: boolean;
   already: number;
   onToggle: () => void;
+  S: UiStrings;
 }) {
   return (
     <label
@@ -287,13 +296,13 @@ export function PlaceRow({
         onChange={onToggle}
         className="h-4 w-4 shrink-0 accent-blue-600"
       />
-      {label.id === TOP_LEVEL ? <TopLevelIcon /> : <LabelIcon id={label.id} />}
+      {label.id === TOP_LEVEL ? <TopLevelIcon /> : <LabelIcon id={label.id} S={S} />}
       <span className="truncate" title={label.name}>
         {label.name}
       </span>
       {already > 0 && (
         <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
-          {already === 1 ? 'Bericht bestaat al in label' : `${already} berichten bestaan al in label`}
+          {S.mdAlreadyInLabel(already)}
         </span>
       )}
     </label>
@@ -307,12 +316,13 @@ export function PlaceRow({
  * see becomes visible while the drag can still be cancelled.
  *
  * @param tree
+ * @param S the active string set
  */
-export function TreeOutline({ tree }: { tree: DropTree }) {
+export function TreeOutline({ tree, S }: { tree: MailDropTree; S: UiStrings }) {
   return (
     <div className="max-h-32 shrink-0 overflow-y-auto border-b border-black/5 bg-black/[0.02] px-4 py-2 dark:border-white/10 dark:bg-white/[0.03]">
       <p className="pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
-        {tree.members.length === 1 ? '1 label' : `${tree.members.length} labels`}
+        {S.mdTreeLabelCount(tree.members.length)}
       </p>
       {tree.members.map((m) => {
         const depth = m.name.split('/').length - tree.dragged.split('/').length;
@@ -333,7 +343,7 @@ export function TreeOutline({ tree }: { tree: DropTree }) {
   );
 }
 
-/** The mark beside `Bovenin`, which is a place rather than a label */
+/** The mark beside the top-level place, which stands for a place rather than a label */
 export function TopLevelIcon() {
   return (
     <svg viewBox="0 0 16 16" aria-hidden className="h-4 w-4 shrink-0 text-neutral-400">
@@ -348,8 +358,22 @@ export function TopLevelIcon() {
   );
 }
 
-export function LabelIcon({ id, className = '' }: { id: string; className?: string }) {
+export function LabelIcon({
+  id,
+  S,
+  className = '',
+}: {
+  id: string;
+  S: UiStrings;
+  className?: string;
+}) {
   const kind = labelKind(id);
+  const kindTitle: Record<LabelKind, string> = {
+    inbox: S.mdKindInbox,
+    starred: S.mdKindStarred,
+    important: S.mdKindImportant,
+    user: S.mdKindUser,
+  };
   return (
     <svg
       viewBox="0 0 24 24"
@@ -358,7 +382,7 @@ export function LabelIcon({ id, className = '' }: { id: string; className?: stri
       className={`${ICON_COLOR[kind]} ${className}`}
       style={{ height: 15, width: 15, flexShrink: 0 }}
     >
-      <title>{KIND_TITLE[kind]}</title>
+      <title>{kindTitle[kind]}</title>
       <path d={ICON_PATH[kind]} />
     </svg>
   );
@@ -383,11 +407,4 @@ const ICON_COLOR: Record<LabelKind, string> = {
   starred: 'text-amber-500 dark:text-amber-400',
   important: 'text-orange-500 dark:text-orange-400',
   user: 'text-neutral-400 dark:text-neutral-500',
-};
-
-const KIND_TITLE: Record<LabelKind, string> = {
-  inbox: 'Postvak',
-  starred: 'Met ster',
-  important: 'Belangrijk',
-  user: 'Eigen label',
 };

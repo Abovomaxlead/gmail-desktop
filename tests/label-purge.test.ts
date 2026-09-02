@@ -1,14 +1,10 @@
-// The count-then-purge handle, and the chunking that carries it out. Pure, so none of this
-// needs Electron or a network: the safety property this feature rests on is that a purge can
-// only ever act on ids somebody was shown, and that is decided here.
+// The count-then-purge handle: a count remembers its ids and answers a handle, the purge takes
+// the handle and nothing else. Pure, so none of this needs Electron or a network: the safety
+// property this feature rests on is that a purge can only ever act on ids somebody was shown,
+// and that is decided here.
 
 import { describe, it, expect } from 'vitest';
-import {
-  PURGE_LIST_MAX,
-  chunkIds,
-  createPurgeStore,
-  type CountedLabel,
-} from '../electron/mail/label-purge';
+import { PURGE_LIST_MAX, createPurgeStore, type CountedLabel } from '../electron/mail/label-purge';
 
 const ids = (n: number, from = 0) => Array.from({ length: n }, (_, i) => `m${i + from}`);
 
@@ -22,29 +18,6 @@ const counted = (): CountedLabel[] => [
   { name: 'test', labelId: 'Label_1', ids: ids(3) },
   { name: 'test/test123', labelId: 'Label_2', ids: ids(2, 3) },
 ];
-
-describe('chunkIds', () => {
-  it('cuts an exact multiple into equal chunks', () => {
-    expect(chunkIds(ids(6), 3).map((c) => c.length)).toEqual([3, 3]);
-  });
-
-  it('leaves the last chunk short rather than padding it', () => {
-    expect(chunkIds(ids(7), 3).map((c) => c.length)).toEqual([3, 3, 1]);
-  });
-
-  it('answers one chunk for a single id', () => {
-    expect(chunkIds(['m0'], 1000)).toEqual([['m0']]);
-  });
-
-  it('answers nothing at all for nothing at all', () => {
-    expect(chunkIds([], 1000)).toEqual([]);
-  });
-
-  it('keeps every id exactly once, in order', () => {
-    const all = ids(10);
-    expect(chunkIds(all, 4).flat()).toEqual(all);
-  });
-});
 
 describe('the purge store', () => {
   it('answers a count per label and a total', () => {

@@ -240,10 +240,11 @@ export class MessageIndexStore {
   /**
    * Asks for what has been remembered to be written
    *
-   * Off the main thread and not straight away, on purpose. This file runs to megabytes, and a
-   * copy asks for a write once per mailbox while the uploads are going — the same blocking
-   * write that was taken off the mail drop itself. So the request is coalesced: the first one
-   * sets a timer, the ones that follow ride along with it, and one write covers them all.
+   * Off the main thread and not straight away, on purpose. This file runs to megabytes, and
+   * the copy asks for a write once per landed insert while the existing-mail scan asks for
+   * one per mailbox as each answers -- the same blocking write that was taken off the mail
+   * drop itself. So the request is coalesced: the first one sets a timer, the ones that
+   * follow ride along with it, and one whole-file write covers them all.
    *
    * @param now
    */
@@ -272,7 +273,7 @@ export class MessageIndexStore {
       await mkdir(dirname(this.filePath), { recursive: true });
       await writeFile(this.filePath, JSON.stringify(toRecords(index)), 'utf8');
     } catch (e) {
-      console.warn('[index] kon de index niet opslaan:', e);
+      console.warn('[index] could not save the index:', e);
     }
   }
 

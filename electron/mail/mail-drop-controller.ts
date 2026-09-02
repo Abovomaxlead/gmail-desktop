@@ -33,19 +33,10 @@ import type {
   MailDropTree,
 } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
-import {
-  SESSION_PARTITION,
-  dropOverlay,
-  recentLabels,
-  keyOf,
-  mainWindow,
-  manager,
-  oauthTokens,
-  prefs,
-  profiles,
-  messageIndex,
-  setDropOverlay,
-} from '../core/runtime';
+import { SESSION_PARTITION } from '../core/session-partition';
+import { currentLocale, dropOverlay, recentLabels, keyOf, mainWindow, manager, oauthTokens, prefs, profiles, messageIndex, setDropOverlay } from '../core/runtime';
+import type { Locale } from '../core/locale';
+import type { JobPanel, PendingJob, PendingOrphan } from '../../renderer/lib/maildrop-copy';
 import { createUploadBudget, mapLimit, memoise, type UploadBudget } from '../core/concurrency';
 import { OverlayView } from '../windows/overlay-view';
 import type { Profile } from '../windows/profile-view-manager';
@@ -97,6 +88,7 @@ import {
   tallyOutcomes,
   threadGroups,
   type CopyMode,
+  type CopyOutcomeKind,
   type ResolvedTreeLabels,
   type DuplicateHit,
   type ExistingResult,
@@ -128,7 +120,6 @@ import {
   readLabelJob,
   recordJobBatchState,
   recordJobChoices,
-  sliceIntoBatches,
   startLabelJob,
   type JobOutcome,
   type LabelJob,
@@ -160,6 +151,7 @@ import {
 } from './dropzone';
 import { createPullControl, type PullControl } from './pull-control';
 import { DROP_LOCK_MS, createDropLock } from './drop-lock';
+import { chunk } from './chunk';
 import { defaultMailFolder, looksRemoteFolder } from './mail-folder';
 import { createCopyRunControl, type CopyRunControl } from './copy-control';
 import {
@@ -172,10 +164,13 @@ import {
   recordCopyJournalLabel,
   startCopyJournal,
   withWarnings,
+  type CopyJournalOutcome,
   type CopyJournalRead,
+  type CopyJournalRemainder,
 } from './copy-journal';
 import { deleteCreatedLabels, sweepRunMarkers as runSweep } from './copy-marker-run-sweep';
 import type {
+  CopyJournalEntry,
   CopyRunId,
   CopyStopMode,
   CreatedLabel,
@@ -221,18 +216,12 @@ interface SavedRef {
   sourceLabels: string[];
 }
 
-/** What the panel needs to draw one continuous job: which label is walking, and where it is
- * being filed. The numbers travel separately, in `job`, because they change while this does not.
- * Mirrors JobPanel in renderer/app/job-panel.ts, which the renderer cannot import from here. */
-interface JobPanelInfo {
-  label: string;
-  targets: string[];
-}
-
 /** What became of a job, sent once when its walk is over. The plan's own outcome vocabulary plus
  * 'stuck', which is not an outcome the plan file ever gets: a job stopped on a failed batch is
- * left open on purpose, so the next start can offer to continue it. Mirrors JobEnd in
- * renderer/app/job-panel.ts. */
+ * left open on purpose, so the next start can offer to continue it.
+ *
+ * Deliberately not renderer/lib/maildrop-copy.ts's own JobEnd: that one requires a `jobId` this
+ * side has never sent, and a job end is addressed to the one panel that is watching. */
 interface JobEndInfo {
   outcome: JobOutcome | 'stuck';
   label: string;
@@ -246,7 +235,7 @@ interface JobEndInfo {
 
 /** The progress payload widened with the two things one continuous job panel needs. Kept local
  * rather than added to core/ipc.ts's mirror, the same way the picker page widens its own copy. */
-type PanelProgress = MailDropCopyProgress & { panel?: JobPanelInfo; jobEnd?: JobEndInfo };
+type PanelProgress = MailDropCopyProgress & { panel?: JobPanel; jobEnd?: JobEndInfo };
 
 
 //===========================
@@ -265,11 +254,9 @@ let lastDropSource = '';
  * drag's tree. */
 let lastDropTree: MailDropTree | null = null;
 
-/** `scanned` is kept alongside `hits` for exactly one reason: proving, per mailbox and per
- * message, that this run's own scan found zero copies there before it inserted anything --
- * see absenceKey and where it is read in copyToMailboxes. */
-let lastScan: { key: string; hits: DuplicateHit[]; scanned: Map<string, MailboxScan> } | null =
-  null;
+/** What the last duplicate scan found, stamped with the choice it answered, so a second attempt
+ * against the same targets does not ask Gmail the same question again. */
+let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
 
 /** What the picker's own scan found, kept for the check at Kopieer, which asks a narrower
  * question about the same mail. Stamped with the drag it belongs to, so the next drag
@@ -396,7 +383,7 @@ async function threadMessagesViaApi(email: string, threadId: string): Promise<Ap
     return { kind: 'messages', messages: await withToken((token) => fetchThreadMessages(token, threadId)) };
   } catch (e) {
     const error = (e as Error).message || 'onbekende fout';
-    console.warn(`[maildrop] API-ophalen mislukte voor ${email} ${threadId}:`, e);
+    console.warn(`[maildrop] API fetch failed for ${email} ${threadId}:`, e);
     return { kind: 'failed', error };
   }
 }
@@ -438,11 +425,9 @@ async function saveOneThread(
   cache: ThreadReadCache = new Map(),
 ): Promise<{ count: number; error?: string; saved: SavedRef[] }> {
   const failed = (error: string) => {
-    try {
-      appendLog(root, [{ ts, account, threadId, error }]);
-    } catch {
-    }
-    return { count: 0, error, saved: [] };
+    const logError = attemptWrite(() => appendLog(root, [{ ts, account, threadId, error }]));
+    if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
+    return { count: 0, error: withLogTrouble(error, logError), saved: [] };
   };
 
   // Before the fetch, since there is nothing to choose from once it lands: the newest
@@ -450,7 +435,7 @@ async function saveOneThread(
   // read. Saying so beats saving the wrong mail, and "2 van 3 opgeslagen" is what the strip
   // then shows.
   if (messageUnknown) {
-    notifyLog(`[maildrop] ${threadId}: rij geweigerd, het bericht was niet te lezen`);
+    notifyLog(`[maildrop] ${threadId}: row refused, its message could not be read`);
     return failed('Kon niet zien welk bericht deze rij is');
   }
 
@@ -468,7 +453,7 @@ async function saveOneThread(
     let result;
     try {
       result = await fetchThreadEmls(
-        session.fromPartition('persist:google'),
+        session.fromPartition(SESSION_PARTITION),
         { threadId, authuser, ik },
         message?.permId,
       );
@@ -479,25 +464,29 @@ async function saveOneThread(
     pageHtml = result.page;
   }
   if (fetched.length === 0 && pageHtml) {
-
     if (viaApi.kind === 'failed') {
       return failed(`Ophalen via de API mislukt (${viaApi.error})`);
     }
-    const result = { page: pageHtml };
-    const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
-    const kortEnDuidelijk = uitleg.length > 0 && uitleg.length <= 300;
-    if (!kortEnDuidelijk) {
+    const explanation = htmlToText(pageHtml.html).replace(/\s+/g, ' ').trim();
+    const shortAndClear = explanation.length > 0 && explanation.length <= 300;
+    if (!shortAndClear) {
       const dump = join(root, `diagnose-om-${threadId}.html`);
+      let kept = true;
       try {
         mkdirSync(root, { recursive: true });
-        writeFileSync(dump, result.page.html, 'utf8');
+        writeFileSync(dump, pageHtml.html, 'utf8');
       } catch {
+        // The dump is a diagnostic aid, so a folder that refuses it must not replace Gmail's own
+        // failure -- but the line below may then not claim the page was kept
+        kept = false;
       }
       return failed(
-        `Geen origineel gevonden (HTTP ${result.page.status}, ${result.page.html.length} tekens — pagina bewaard als ${dump})`,
+        `Geen origineel gevonden (HTTP ${pageHtml.status}, ${pageHtml.html.length} tekens${
+          kept ? ` — pagina bewaard als ${dump}` : ''
+        })`,
       );
     }
-    return failed(`Gmail: ${uitleg}`);
+    return failed(`Gmail: ${explanation}`);
   }
 
   // Parsed once per conversation when it came over the API: every row used to turn all of the
@@ -534,7 +523,7 @@ async function saveOneThread(
   // so beats handing over a mail nobody pointed at.
   if (message && !dragged) {
     notifyLog(
-      `[maildrop] ${threadId}: gesleept bericht niet in de conversatie gevonden (${all.length} opgehaald)`,
+      `[maildrop] ${threadId}: dragged message not found in the conversation (${all.length} fetched)`,
     );
     return failed('Het gesleepte bericht zat niet in de opgehaalde conversatie');
   }
@@ -545,7 +534,7 @@ async function saveOneThread(
     // the newest message save the same mail twice, and the old line could not say that.
     const which = chosen?.permMsgId ?? chosen?.id ?? chosen?.headers.messageId ?? 'onbekend';
     notifyLog(
-      `[maildrop] ${threadId}: ${all.length} berichten, alleen ${dragged ? 'het gesleepte' : 'het laatste'} bewaard (${which})`,
+      `[maildrop] ${threadId}: ${all.length} messages, only ${dragged ? 'the dragged one' : 'the last one'} kept (${which})`,
     );
   }
 
@@ -569,30 +558,13 @@ async function saveOneThread(
     file: files[i],
     bytes: m.raw.length,
   }));
-  try {
-    appendLog(root, [...records, ...failedRecords]);
-  } catch {
-  }
+  const logError = attemptWrite(() => appendLog(root, [...records, ...failedRecords]));
+  if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
   return {
     count: ok.length,
     saved: savedRefs(root, files, ok, threadId),
+    ...(logError ? { error: `Logboek niet bijgeschreven: ${logError}` } : {}),
   };
-}
-
-function savedRefs(
-  root: string,
-  files: string[],
-  messages: SavedMessage[],
-  threadId: string,
-  sourceLabels: string[] = [],
-): SavedRef[] {
-  return messages.map((m, i) => ({
-    file: join(root, files[i]),
-    messageId: m.headers.messageId,
-    subject: m.headers.subject || NO_SUBJECT,
-    threadId,
-    sourceLabels,
-  }));
 }
 
 /**
@@ -600,13 +572,13 @@ function savedRefs(
  *
  * @param targets
  * @param saved
- * @param onProgress
+ * @param onProgress moved on per mailbox, including one that could not be asked at all -- the
+ *   bar counts checks rather than answers, so skipping it left the phase short of its own total
  * @param tally filled in for the log: how much of the check the picker's scan had already
  *   answered
- * @returns the hits, and everything this pass actually learned live from Gmail per mailbox --
- *   `scanned`, which copyToMailboxes reads to prove absence per mail per mailbox for a
- *   cancel's reconciliation pass. A missing key there means "not looked up", an empty list
- *   means "looked up, found nothing" (MailboxScan's own contract); only the second is proof.
+ * @param resolved per mailbox what a dragged tree resolved to
+ * @returns the messages that are already there, one entry per mailbox per label
+ * @private
  */
 async function findDuplicates(
   targets: MailDropCopyTarget[],
@@ -614,7 +586,7 @@ async function findDuplicates(
   onProgress: (done: number, total: number) => void,
   tally?: { checks: number; reused: number; asked: number },
   resolved: ResolvedTreeLabels = new Map(),
-): Promise<{ hits: DuplicateHit[]; scanned: Map<string, MailboxScan> }> {
+): Promise<DuplicateHit[]> {
   const checks = duplicateChecks(targets, saved, resolved);
 
   // The scan behind the picker asked the wider question — which labels hold this message —
@@ -623,7 +595,6 @@ async function findDuplicates(
   const scan = lastExisting?.serial === dropSerial ? lastExisting.byEmail : null;
   const answers = checks.map((check) => scanAnswer(scan, check));
   const open = checks.filter((_, i) => answers[i] === null);
-  const scanned = new Map<string, MailboxScan>(scan ?? undefined);
 
   let done = checks.length - open.length;
   if (tally) {
@@ -643,47 +614,35 @@ async function findDuplicates(
     // out of it. Same shape the picker's own scan produces, so scanAnswer reads both.
     const fresh = new Map<string, MailboxScan>();
     await mapLimit([...new Set(open.map((c) => c.email))], EXISTING_SCAN_CONCURRENCY, async (email) => {
+      const mine = open.filter((c) => c.email === email);
       const token = tokens.get(email);
-      if (!token) return;
-      const ids = [...new Set(open.filter((c) => c.email === email).map((c) => c.messageId))];
+      if (!token) {
+        // Counted before the return: the total is checks, not answers, so a mailbox nobody could
+        // ask still has to move the bar or "Controleren" never reaches its own end
+        done += mine.length;
+        onProgress(done, checks.length);
+        return;
+      }
+      const ids = [...new Set(mine.map((c) => c.messageId))];
       try {
         const canary = await mailboxCanary(token).catch(() => '');
         const found = await labelsHoldingMany(token, ids, canary);
         fresh.set(email, new Map(found.map((m) => [m.messageId, m.labelIds])));
       } catch (e) {
-        console.warn(`[maildrop] kon ${email} niet nakijken bij Kopieer:`, e);
+        console.warn(`[maildrop] could not check ${email} for duplicates at copy time:`, e);
       }
-      done += open.filter((c) => c.email === email).length;
+      done += mine.length;
       onProgress(done, checks.length);
     });
-    for (const [email, m] of fresh) scanned.set(email, m);
 
     // A mailbox that could not be asked answers false, which is what the per-check version did
     // when its request threw: better to copy a mail twice than to skip one that is not there.
-    // That fallback only decides whether to insert -- it must never be read as proof of
-    // absence, which is exactly why `scanned` only ever holds what `fresh` actually answered.
     for (const [i, answer] of answers.entries()) {
       if (answer === null) answers[i] = scanAnswer(fresh, checks[i]) ?? false;
     }
   }
 
-  return { hits: checks.filter((_, i) => answers[i] === true), scanned };
-}
-
-function scanKey(targets: MailDropCopyTarget[]): string {
-  return `${dropSerial}|${JSON.stringify(targets)}`;
-}
-
-/**
- * The lookup key for what one mailbox's scan proved about one message
- *
- * @param email
- * @param messageId the RFC822 Message-ID
- * @returns the two joined by NUL, which no address or Message-ID can contain
- * @private
- */
-function absenceKey(email: string, messageId: string): string {
-  return `${email}\0${messageId}`;
+  return checks.filter((_, i) => answers[i] === true);
 }
 
 /**
@@ -698,6 +657,9 @@ function absenceKey(email: string, messageId: string): string {
  */
 function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // The two the page cannot ask for itself, the same way delegated-picker.ts completes its own
+  // payload: the panel draws its text from these.
+  const forThePage = { locale: currentLocale(), reneMode: prefs?.getAll().reneMode === true };
   if (driven) {
     // Sent, never opened. open() re-attaches the view on top of everything attached since, so a
     // batch finishing threw the panel back in front of whatever the user was doing -- three times
@@ -710,6 +672,7 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
       driven: true,
       panel: jobPanelInfo(),
       job: activeJob ? jobProgress(activeJob.job) : undefined,
+      ...forThePage,
     });
     return;
   }
@@ -727,7 +690,7 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
     );
   setDropOverlay(overlay);
   lastDropPreview = items;
-  overlay.open({ items, tree: lastDropTree, driven });
+  overlay.open({ items, tree: lastDropTree, driven, ...forThePage });
 }
 
 
@@ -771,7 +734,7 @@ async function collectLabelThreads(
         // still has rows worth saving, and the log says the count is a floor.
         if (!settled) {
           notifyLog(
-            `[maildrop] label "${member}" pagina ${page}: lijst stond niet stil, ${pageThreads.length} rijen genomen`,
+            `[maildrop] label "${member}" page ${page}: list would not settle, took ${pageThreads.length} rows`,
           );
         }
         firstOfPrevious = pageThreads[0].threadId;
@@ -795,8 +758,9 @@ interface CollectedThread {
   error?: string;
 }
 
-// Four rather than five, because the messages inside a conversation are now fetched
-// alongside each other too and it is the product of the two that meets Gmail's quota
+// How many conversations of a dragged label are fetched at once. Lower than a plain drag's
+// limit because the messages inside each conversation are fetched alongside each other as well,
+// and it is the product of the two that has to stay inside Gmail's quota.
 const THREAD_FETCH_LIMIT = 4;
 
 /**
@@ -867,18 +831,16 @@ async function listLabelTree(
     // saying the label was listed would read as a listing that finished.
     if (!stopped) {
       notifyLog(
-        `[maildrop] label "${label}" opgesomd: ${threads.length} gesprekken in ` +
+        `[maildrop] label "${label}" listed: ${threads.length} conversations in ` +
           `${members.length} label(s), ${Math.round((Date.now() - started) / 100) / 10}s` +
-          `${capped ? ' (afgekapt)' : ''}`,
+          `${capped ? ' (truncated)' : ''}`,
       );
     }
     return { threads, members, capped, cap: API_MAX_THREADS };
   } catch (e) {
     // Named rather than swallowed. This catch is what sends the drag to the scrape, and a log
     // with nothing in it for the two minutes before a kill is what made this bug guesswork.
-    notifyLog(
-      `[maildrop] label "${label}" niet op te sommen via de API: ${(e as Error).message}`,
-    );
+    notifyLog(`[maildrop] label "${label}" could not be listed over the API: ${(e as Error).message}`);
     return null;
   }
 }
@@ -937,29 +899,6 @@ async function fetchThreadSlice(
   return collected.filter((c) => c !== undefined);
 }
 
-/**
- * How many conversations each label of the tree turned out to hold
- *
- * Counted off what was actually collected rather than off the listing, so the number the
- * picker shows is the number that will be copied. A label with none is still in the list: an
- * empty sublabel is created too, and leaving it out would make the picker promise a shape it
- * is not going to build.
- *
- * @param members every label of the tree, parents first
- * @param collected
- * @returns one entry per member, in the members' own order
- * @private
- */
-function memberCounts(
-  members: string[],
-  collected: CollectedThread[],
-): Array<{ name: string; threads: number }> {
-  return members.map((name) => ({
-    name,
-    threads: collected.filter((c) => c.thread.labels.includes(name)).length,
-  }));
-}
-
 async function saveLabel(
   ts: string,
   account: string,
@@ -980,27 +919,43 @@ async function saveLabel(
 ): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
   const empty = () => {
     const error = `Geen mail gevonden in label "${label}"`;
-    try {
-      appendLog(root, [{ ts, account, threadId: '', label, error }]);
-    } catch {
-    }
-    return { items: [{ threadId: '', subject: label, saved: 0, error }], saved: [], rows: [] };
+    const logError = attemptWrite(() =>
+      appendLog(root, [{ ts, account, threadId: '', label, error }]),
+    );
+    if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
+    return {
+      items: [{ threadId: '', subject: label, saved: 0, error: withLogTrouble(error, logError) }],
+      saved: [],
+      rows: [],
+    };
   };
 
   const toFetch = slice ?? listed?.threads ?? null;
+  const fetched = toFetch === null ? null : await fetchThreadSlice(account, toFetch, report);
+  // A job's batch owns one slice of the label and the page route below can only read a label
+  // whole, so a batch whose token has gone is a failed batch rather than a pull of everything.
+  if (slice && fetched === null) {
+    const error = `Geen toegang tot het postvak van deze batch (${account})`;
+    const logError = attemptWrite(() =>
+      appendLog(root, [{ ts, account, threadId: '', label, error }]),
+    );
+    if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
+    notifyLog(`[maildrop] batch of label "${label}" failed: no usable token for ${account}`);
+    return {
+      items: [{ threadId: '', subject: label, saved: 0, error: withLogTrouble(error, logError) }],
+      saved: [],
+      rows: [],
+    };
+  }
   const viaApi =
-    toFetch === null
+    fetched === null
       ? null
-      : await fetchThreadSlice(account, toFetch, report).then((collected) =>
-          collected === null
-            ? null
-            : {
-                collected,
-                members: listed?.members ?? lastDropTree?.members.map((m) => m.name) ?? [label],
-                capped: listed?.capped ?? false,
-                cap: listed?.cap ?? API_MAX_THREADS,
-              },
-        );
+      : {
+          collected: fetched,
+          members: listed?.members ?? lastDropTree?.members.map((m) => m.name) ?? [label],
+          capped: listed?.capped ?? false,
+          cap: listed?.cap ?? API_MAX_THREADS,
+        };
   let collected: CollectedThread[];
   let capped: boolean;
   let members: string[];
@@ -1010,7 +965,7 @@ async function saveLabel(
 
   if (viaApi) {
     notifyLog(
-      `[maildrop] label "${label}" via de API: ${viaApi.members.length} label(s), ${viaApi.collected.length} gesprekken`,
+      `[maildrop] label "${label}" over the API: ${viaApi.members.length} label(s), ${viaApi.collected.length} conversations`,
     );
     if (viaApi.collected.length === 0) return empty();
     collected = viaApi.collected;
@@ -1018,9 +973,12 @@ async function saveLabel(
     members = viaApi.members;
     cap = viaApi.cap;
   } else {
+    // Only ever a pull that owns the whole label. A batch is refused above precisely because
+    // this path ignores `slice` and would fetch every conversation of the label instead.
+    if (slice) throw new Error('interne fout: een batch mag nooit van de pagina worden gelezen');
     const scraped = await collectLabelThreads(authuser, label);
     notifyLog(
-      `[maildrop] label "${label}" van de pagina gelezen: ${scraped.members.length} label(s), ${scraped.threads.length} gesprekken`,
+      `[maildrop] label "${label}" read from the page: ${scraped.members.length} label(s), ${scraped.threads.length} conversations`,
     );
     if (scraped.threads.length === 0) return empty();
     capped = scraped.capped;
@@ -1041,11 +999,14 @@ async function saveLabel(
           if (f.raw) messages.push({ raw: f.raw, headers: parseHeaders(f.raw.toString('utf8')) });
         }
         if (messages.length === 0) {
-          const uitleg = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
+          const explanation = htmlToText(result.page.html).replace(/\s+/g, ' ').trim();
           collected.push({
             thread,
             messages: [],
-            error: uitleg && uitleg.length <= 300 ? `Gmail: ${uitleg}` : 'Geen origineel gevonden',
+            error:
+              explanation && explanation.length <= 300
+                ? `Gmail: ${explanation}`
+                : 'Geen origineel gevonden',
           });
         } else {
           collected.push({ thread, messages });
@@ -1117,10 +1078,8 @@ async function saveLabel(
       error: `Afgekapt op ${cap} gesprekken; het label bevat er meer`,
     });
   }
-  try {
-    appendLog(root, records);
-  } catch {
-  }
+  const logError = attemptWrite(() => appendLog(root, records));
+  if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
 
   const items = collected.map((c) => ({
     threadId: c.thread.threadId,
@@ -1134,6 +1093,16 @@ async function saveLabel(
       subject: `Afgekapt op ${cap} gesprekken`,
       saved: 0,
       error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
+    });
+  }
+  // Carried to the strip and the list rather than swallowed: log.jsonl is the only record of
+  // what was ever saved, and a label drag onto an offline share used to report nothing at all.
+  if (logError) {
+    items.push({
+      threadId: '',
+      subject: 'Niet in het logboek gezet',
+      saved: 0,
+      error: `Logboek niet bijgeschreven: ${logError}`,
     });
   }
   // Per thread rather than over the flat list: files runs across every conversation in the
@@ -1157,10 +1126,11 @@ async function saveLabel(
   return { items, saved, rows: collected.map((c) => c.messages.length) };
 }
 
-// How many dragged conversations are fetched at once. Times MESSAGE_FETCH_LIMIT for the
-// messages inside each of them, so the whole drag stays around twelve requests in flight.
-// Nests inside MESSAGE_FETCH_LIMIT, so a drag has up to this many conversations times that
-// many messages in flight. The budget in quota.ts is what keeps the rate inside Gmail.
+// How many dragged conversations are fetched at once. The messages inside each of them are
+// fetched alongside each other too, under MESSAGE_FETCH_LIMIT (gmail-api.ts), so one drag has
+// up to six times that many requests in flight. What keeps the rate inside Gmail's allowance is
+// the budget in quota.ts rather than this number; this one bounds how much of a drag is in
+// memory at once.
 const DRAG_THREAD_LIMIT = 6;
 
 /**
@@ -1191,7 +1161,7 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
   const busy = pullRefusal(jobDriving);
   if (busy) {
     manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error: busy });
-    notifyLog('[maildrop] sleep geweigerd: er loopt een klus die zelf mail kopieert');
+    notifyLog('[maildrop] drag refused: a job is already copying mail itself');
     return;
   }
 
@@ -1200,7 +1170,7 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
     // The views are locked already; this answers the drag that got in just before the lock
     // reached its page.
     manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error: BUSY_TEXT });
-    notifyLog('[maildrop] tweede sleep geweigerd, er wordt al mail opgehaald');
+    notifyLog('[maildrop] second drag refused, mail is already being fetched');
     return;
   }
   manager?.sendDropLock({ locked: true });
@@ -1233,53 +1203,6 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
 }
 
 /**
- * The progress callback every pull path hands down, which also remembers how far it got
- *
- * One function rather than the same arrow in three places, because the count it keeps is what
- * the cancel line reports and that has to be the same number the strip was last shown.
- *
- * @returns the callback saveLabel and the row loop report through
- * @private
- */
-function pullReporter(): SaveProgress {
-  // The gate of the pull this reporter belongs to, taken now rather than read per call: both
-  // callers set activePull before they ask for one, and a report arriving late must answer for
-  // its own pull and not for whichever one is running by then.
-  const mine = activePull;
-  return (done, total) => {
-    pullDone = done;
-    // Kept counting, but no longer shown. The requests already on the wire go on landing for as
-    // long as they take -- mapLimit only refuses to claim the next item, and nothing severs a
-    // fetch in flight -- and every one of them used to push the strip's count one higher after
-    // Annuleren was pressed. A line that goes on climbing is exactly what a swallowed click looks
-    // like, which is why the button was pressed again. The count itself is still kept, because
-    // the line the lock closes with reports how far the pull actually got.
-    if (mine?.stopped()) return;
-    manager?.sendDropProgress({ done, total });
-  };
-}
-
-/**
- * The listing's own reporter, which moves the strip while a label is being paged
- *
- * Apart from pullReporter and deliberately so: that one keeps pullDone, which counts
- * conversations fetched and is the number the cancel line reports. A listing that fed it would
- * have the strip claim thousands of conversations were pulled when not one had been.
- *
- * @returns the callback listLabelTree reports its running count through
- * @private
- */
-function listReporter(): (found: number) => void {
-  const mine = activePull;
-  return (found) => {
-    if (mine?.stopped()) return;
-    // Total zero for as long as the walk runs: it is not known until its last page, and the
-    // strip draws the count as found rather than as fetched on exactly that signal.
-    manager?.sendDropProgress({ done: found, total: 0 });
-  };
-}
-
-/**
  * Stops the pull that is running, if there is one
  *
  * Asked for by the strip's Annuleren button and by Escape, over IPC. What has already been
@@ -1294,10 +1217,10 @@ function listReporter(): (found: number) => void {
 export function cancelMailDropPull(): void {
   if (!activePull || activePull.stopped()) return;
   activePull.stop();
-  notifyLog(`[maildrop] ophalen geannuleerd na ${pullDone} gesprek(ken)`);
+  notifyLog(`[maildrop] fetch cancelled after ${pullDone} conversation(s)`);
   if (activeJob && jobDriving) {
     jobStopWanted = 'keep';
-    notifyLog('[maildrop] de klus stopt hierop; wat al gekopieerd is blijft staan');
+    notifyLog('[maildrop] the job stops with it; what has been copied stays');
   }
 }
 
@@ -1324,13 +1247,13 @@ async function planJob(
   // not leave, so the old job is ended properly first. Its copy is not touched: activeRun
   // answers for that, and what has landed stays landed.
   if (activeJob) {
-    notifyLog(`[maildrop] klus voor "${activeJob.job.label}" losgelaten voor een nieuwe sleep`);
+    notifyLog(`[maildrop] job for "${activeJob.job.label}" let go for a new drag`);
     endWalkedJob(activeJob.job, 'stuck', 'Er werd opnieuw gesleept, dus de klus is losgelaten');
   }
   activeJob = null;
   if (!listed || !needsJob(listed.threads, JOB_BATCH_THREADS)) return null;
 
-  const batches = sliceIntoBatches(listed.threads, JOB_BATCH_THREADS);
+  const batches = chunk(listed.threads, JOB_BATCH_THREADS);
   const jobId = randomUUID();
   const header = {
     jobId,
@@ -1350,7 +1273,7 @@ async function planJob(
     // A plan that cannot be written is not a reason to refuse the drag -- it is a reason to make
     // it an ordinary one. The label is then capped at a batch, and the truncation is reported
     // the way every other cap already is.
-    notifyLog(`[maildrop] kon het plan voor "${label}" niet wegschrijven: ${(e as Error).message}`);
+    notifyLog(`[maildrop] could not write the plan for "${label}": ${(e as Error).message}`);
     return batches[0];
   }
   // Read back rather than assembled in memory, so what the driver walks is what is on disk. A
@@ -1359,12 +1282,12 @@ async function planJob(
   // cannot be advanced or resumed either.
   const planned = readLabelJob(root, jobId);
   if (!planned) {
-    notifyLog(`[maildrop] plan voor "${label}" niet terug te lezen; als gewone sleep behandeld`);
+    notifyLog(`[maildrop] plan for "${label}" could not be read back; treated as an ordinary drag`);
     return batches[0];
   }
   activeJob = { job: planned, root };
   notifyLog(
-    `[maildrop] label "${label}": ${listed.threads.length} gesprekken, ${batches.length} batches van ${JOB_BATCH_THREADS}`,
+    `[maildrop] label "${label}": ${listed.threads.length} conversations, ${batches.length} batches of ${JOB_BATCH_THREADS}`,
   );
   return batches[0];
 }
@@ -1395,15 +1318,16 @@ async function pullMailDrop(
   lastDropTree = null;
   if (!payload.ik) {
     const error = 'Kon Gmail-token niet lezen';
-    try {
-      appendLog(root, items.map(({ threadId }) => ({ ts, account, threadId, error })));
-    } catch {
-    }
-    manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error });
+    const logError = attemptWrite(() =>
+      appendLog(root, items.map(({ threadId }) => ({ ts, account, threadId, error }))),
+    );
+    if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
+    const shown = withLogTrouble(error, logError);
+    manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error: shown });
     openDropPreview(
       items.length > 0
-        ? items.map((i) => ({ ...i, saved: 0, error }))
-        : [{ threadId: '', subject: payload.label ?? '', saved: 0, error }],
+        ? items.map((i) => ({ ...i, saved: 0, error: shown }))
+        : [{ threadId: '', subject: payload.label ?? '', saved: 0, error: shown }],
     );
     return;
   }
@@ -1421,7 +1345,7 @@ async function pullMailDrop(
     // pull nobody wants any more.
     if (activePull?.stopped()) {
       lastDropSaved = [];
-      notifyLog('[maildrop] ophalen geannuleerd tijdens het opsommen van het label');
+      notifyLog('[maildrop] fetch cancelled while the label was being listed');
       return;
     }
     const slice = await planJob(root, account, payload.label, listed);
@@ -1516,13 +1440,17 @@ async function pullMailDrop(
 export function dropPreviewItems(): {
   items: MailDropPreviewItem[];
   tree: MailDropTree | null;
-  panel?: JobPanelInfo;
+  locale: Locale;
+  reneMode: boolean;
+  panel?: JobPanel;
   job?: MailDropCopyProgress['job'];
 } {
   const panel = jobPanelInfo();
   return {
     items: lastDropPreview,
     tree: lastDropTree,
+    locale: currentLocale(),
+    reneMode: prefs?.getAll().reneMode === true,
     ...(panel && activeJob ? { panel, job: jobProgress(activeJob.job) } : {}),
   };
 }
@@ -1553,7 +1481,7 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
       const refused = e instanceof GmailHttpError && (e.status === 401 || e.status === 403);
       if (e instanceof GmailHttpError) {
         console.warn(
-          `[labels] ${email} (${isDelegatedMailbox(email) ? 'gedelegeerd' : 'eigen'}) HTTP ${e.status}: ${e.message}`,
+          `[labels] ${email} (${isDelegatedMailbox(email) ? 'delegated' : 'own'}) HTTP ${e.status}: ${e.message}`,
         );
       }
 
@@ -1573,7 +1501,7 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
         } catch (e2) {
 
           if (e2 instanceof GmailHttpError && (e2.status === 401 || e2.status === 403)) {
-            console.warn(`[labels] ${email} ook na een verse token HTTP ${e2.status}: ${e2.message}`);
+            console.warn(`[labels] ${email} HTTP ${e2.status} even after a fresh token: ${e2.message}`);
             return { email, labels: [], error: mailboxRefusedText(email) };
           }
           return { email, labels: [], error: (e2 as Error).message };
@@ -1590,10 +1518,9 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
 }
 
 // Above this the picker says nothing about duplicates at all, so it is set above the most a
-// single pull can produce -- which is one batch of a job, or a scrape's own ceiling for a label
-// small enough not to be one. It used to be ten, which meant a drag of a hundred rows was
-// reported on for none of them. What made this affordable is the batched query -- ten
-// Message-IDs per search instead of one -- and that the scan runs from the drop rather than from
+// single pull can produce -- one batch of a job, or a scrape's own ceiling for a label small
+// enough not to be one. What makes a limit this high affordable is the batched query, ten
+// Message-IDs per search instead of one, and that the scan runs from the drop rather than from
 // the click, so its cost is paid while the window is still drawing.
 const EXISTING_SCAN_LIMIT = Math.max(JOB_BATCH_THREADS, SCRAPE_MAX_THREADS);
 
@@ -1640,7 +1567,7 @@ export function startExistingScan(): void {
   const targetable = copyTargetEmails(profiles, lastDropSource);
   const tooBig = files.length > EXISTING_SCAN_LIMIT;
   if (tooBig) {
-    notifyLog(`[maildrop] ${files.length} mails is te veel om op dubbelen te controleren`);
+    notifyLog(`[maildrop] ${files.length} mails is too many to check for duplicates`);
   }
   const state = {
     serial: dropSerial,
@@ -1689,7 +1616,7 @@ export function startExistingScan(): void {
       }
       messageIndex?.save(Date.now());
     } catch (e) {
-      console.warn(`[maildrop] kon ${email} niet controleren op dubbelen:`, e);
+      console.warn(`[maildrop] could not check ${email} for duplicates:`, e);
       answered({ email, found: null, error: 'Kon niet controleren' });
     }
   });
@@ -1715,10 +1642,8 @@ const COPY_BYTES_IN_FLIGHT = 64 * 1024 * 1024;
 // insert costs 25 of 250 units, so ten a second, and reaching ten a second while one insert takes
 // 2.8 seconds needs about thirty in flight. Tried, and it came out 2.2x SLOWER -- the old quota
 // window handed out a second's worth in one burst, Gmail answered 429, and the retry backoff cost
-// more than the concurrency won. quota.ts paces smoothly now, so that failure mode is gone, but
-// twelve is as far as this goes until a live run says otherwise. It is already better than the
-// eight it replaces on both counts measured: 4.3 a second into the delegated mailbox against
-// 2.75, and the full ten into an own account against 7.12.
+// more than the concurrency won. quota.ts paces smoothly now, so that failure mode is gone, and
+// twenty-four is as far as this goes until a live run says otherwise.
 const COPY_IN_FLIGHT = 24;
 
 // How many mailboxes are worked at once. Each is a different Gmail user with a quota of its own.
@@ -1730,8 +1655,10 @@ const PER_MAILBOX_MAX = 12;
  * happens, so log.jsonl reads in the order of the drag and not in the order the uploads
  * finished. */
 interface CopyOutcome {
-  copied?: true;
-  skipped?: true;
+  /** Which of the four things became of this file. 'stopped' is the run ending rather than the
+   * file failing, which is why it is a name here and not the absence of the other three. */
+  kind: CopyOutcomeKind;
+  /** The message of a 'failed' file, and of nothing else */
   error?: string;
   record?: LogRecord;
 }
@@ -1762,9 +1689,6 @@ async function copyToMailbox(arg: {
   wait: () => Promise<'continue' | 'stop'>;
   /** Aborted the moment the run is told to stop, to sever whatever is already on the wire */
   signal: AbortSignal;
-  /** Whether this run's own scan found this mailbox holding zero copies of a given
-   * Message-ID before anything was inserted -- keyed by absenceKey. Empty in 'all' mode. */
-  provedAbsent: Set<string>;
   /** Per mailbox, per Message-ID the labels a dragged tree resolved to. Empty for a flat
    * drag, where the labels are the target's own ticked ones. */
   resolved: ResolvedTreeLabels;
@@ -1823,7 +1747,6 @@ async function copyToMailbox(arg: {
             journalRoot: arg.journalRoot,
             wait: arg.wait,
             signal: arg.signal,
-            provedAbsent: arg.provedAbsent,
             resolved: arg.resolved,
             markerLabelId: arg.markerLabelId,
           });
@@ -1832,7 +1755,7 @@ async function copyToMailbox(arg: {
           // it runs.
           if (uploadMs !== undefined) arg.onInsert?.(uploadMs);
           outcomes[at] = outcome;
-          onDone(outcome.copied === true);
+          onDone(outcome.kind === 'copied');
           return { threadId: threadId ?? undefined };
         },
         arg.groupLimit,
@@ -1863,7 +1786,6 @@ async function copyOneFile(arg: {
   journalRoot: string;
   wait: () => Promise<'continue' | 'stop'>;
   signal: AbortSignal;
-  provedAbsent: Set<string>;
   /** Per mailbox, per Message-ID the labels a dragged tree resolved to. Empty for a flat
    * drag, where the labels are the target's own ticked ones. */
   resolved: ResolvedTreeLabels;
@@ -1874,20 +1796,22 @@ async function copyOneFile(arg: {
 
   const wanted = labelsForMessage(target, messageId, arg.resolved);
   const labelIds = labelsStillNeeded(index, target.email, wanted, messageId);
-  if (labelIds.length === 0) return { outcome: { skipped: true } };
+  if (labelIds.length === 0) return { outcome: { kind: 'skipped' } };
 
   // Checked before the budget is ever asked for room: a file paused here has reserved
   // nothing, so it costs the mailboxes still running nothing either. Checking after
   // budget.run had already claimed had started would hold that room hostage for as long as
   // the pause lasts.
-  if ((await arg.wait()) === 'stop') return { outcome: {} };
+  if ((await arg.wait()) === 'stop') return { outcome: { kind: 'stopped' } };
 
   // Asked before the file is read, so the room is reserved before the memory is taken rather
-  // than after. A file whose size cannot be read reserves nothing and takes its chances.
+  // than after
   let size = 0;
   try {
     size = (await stat(file)).size;
   } catch {
+    // A file whose size cannot be read reserves nothing and takes its chances: refusing to copy
+    // a mail over a failed stat is worse than uploading it outside the budget
   }
 
   return await arg.budget.run(size, async () => {
@@ -1897,7 +1821,13 @@ async function copyOneFile(arg: {
       raw = await readFile(file);
     } catch {
       const error = `Kan ${file} niet lezen`;
-      return { outcome: { error, record: { ts, account: target.email, threadId: '', file, error } } };
+      return {
+        outcome: {
+          kind: 'failed',
+          error,
+          record: { ts, account: target.email, threadId: '', file, error },
+        },
+      };
     }
 
     try {
@@ -1915,7 +1845,7 @@ async function copyOneFile(arg: {
         inserted = await insert(used, landedIn);
       } catch (e) {
         if (e instanceof GmailHttpError && e.status === 400 && landedIn) {
-          console.warn(`[maildrop] ${file} paste niet in thread ${landedIn}, los ingevoegd`);
+          console.warn(`[maildrop] ${file} does not fit in thread ${landedIn}, inserted on its own`);
           inserted = await insert(used);
         } else {
           if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
@@ -1925,8 +1855,13 @@ async function copyOneFile(arg: {
         }
       }
       // The one thing about a duplicate this app can know for certain: it put it there. Free,
-      // exact, and it is the mail the next drag is most likely to ask about.
-      if (messageIndex) remember(messageIndex.load(), messageId, target.email, labelIds, Date.now());
+      // exact, and it is the mail the next drag is most likely to ask about. Asked to be written
+      // as well, per insert and coalesced by the store's own debounce -- without that this whole
+      // copy only reached disk through the quit flush.
+      if (messageIndex) {
+        remember(messageIndex.load(), messageId, target.email, labelIds, Date.now());
+        messageIndex.save(Date.now());
+      }
       // Gmail's own id, not the Message-ID header above: this is the only key a later
       // rollback may trash by, since a header can also match mail that was already there.
       if (inserted.id) {
@@ -1944,12 +1879,12 @@ async function copyOneFile(arg: {
           labelIds,
         });
         if (journalError) {
-          notifyLog(`[maildrop] kon een regel niet aan de rollback-journal toevoegen: ${journalError}`);
+          notifyLog(`[maildrop] could not append a line to the rollback journal: ${journalError}`);
         }
       }
       return {
         outcome: {
-          copied: true,
+          kind: 'copied',
           record: {
             ts,
             account: target.email,
@@ -1965,18 +1900,18 @@ async function copyOneFile(arg: {
     } catch (e) {
       if (e instanceof GmailCancelledError) {
         // Deliberate, not a failure: this upload was severed because the run was told to
-        // stop, not because Gmail refused it. Reported as neither copied nor an error --
-        // exactly the shape a gate-refused file already answers with, below. Nothing needs
-        // recording here any more: if this insert landed before the socket was cut, it landed
-        // with the marker already on it (insertLabelIds above), so the run's own end-of-run
-        // sweep finds it by label membership. There is no ambiguous state left to reconcile.
-        return { outcome: {}, uploadMs: Date.now() - from };
+        // stop, not because Gmail refused it. Nothing needs recording here any more -- if this
+        // insert landed before the socket was cut, it landed with the marker already on it
+        // (insertLabelIds above), so the run's own end-of-run sweep finds it by label
+        // membership. There is no ambiguous state left to reconcile.
+        return { outcome: { kind: 'stopped' }, uploadMs: Date.now() - from };
       }
       const error = (e as Error).message;
       // Timed as well: an upload that was refused still spent its time on the wire, and leaving
       // it out would flatter the figure.
       return {
         outcome: {
+          kind: 'failed',
           error,
           record: {
             ts,
@@ -2003,41 +1938,6 @@ interface TreePlanning {
   resolved: ResolvedTreeLabels;
   /** Per mailbox why it could not be planned at all */
   errors: Map<string, string>;
-}
-
-/**
- * The label a chosen id belongs to
- *
- * @param existing name to id, as the mailbox answered it
- * @param labelId
- * @returns the name, or null when the mailbox no longer has that label
- * @private
- */
-function nameForLabelId(existing: Map<string, string>, labelId: string): string | null {
-  for (const [name, id] of existing) if (id === labelId) return name;
-  return null;
-}
-
-/**
- * Per saved message the labels it goes out with in one mailbox
- *
- * @param files the drag's saved messages
- * @param plan
- * @param ids every destination name that exists in the mailbox now
- * @returns Message-ID to label ids
- * @private
- */
-function perMessageLabels(
-  files: SavedRef[],
-  plan: LabelTreePlan,
-  ids: Map<string, string>,
-): Map<string, string[]> {
-  const out = new Map<string, string[]>();
-  for (const file of files) {
-    if (!file.messageId.trim()) continue;
-    out.set(file.messageId, resolveMessageLabels(file.sourceLabels, plan.destinations, ids));
-  }
-  return out;
 }
 
 /**
@@ -2176,7 +2076,7 @@ async function sweepRunMarkers(
   if (mode === 'trash' && created.length > 0) {
     const left = await deleteCreatedLabels(created, deps);
     if (left.length > 0) {
-      notifyLog(`[maildrop] rollback: labels bleven staan — ${left.join(', ')}`);
+      notifyLog(`[maildrop] rollback: labels left behind — ${left.join(', ')}`);
     }
   }
   return outcome;
@@ -2205,48 +2105,18 @@ async function rollbackFinishedBatches(job: LabelJob, root: string): Promise<str
     }
     const outcome = await sweepRunMarkers(journal.runId, journal.markers, 'trash', journal.created);
     if (!settled(outcome) || !outcome.complete) trouble.push(`batch ${batch.index + 1}`);
-    finishCopyJournal(
-      root,
-      journal.runId,
-      outcome.complete ? 'rolled-back' : 'rolled-back-partial',
+    const closeError = attemptWrite(() =>
+      finishCopyJournal(
+        root,
+        journal.runId,
+        outcome.complete ? 'rolled-back' : 'rolled-back-partial',
+      ),
     );
+    // Collected rather than thrown: the batches left in this loop are the older ones, and a
+    // share that drops this line must not cost them their sweep.
+    if (closeError) trouble.push(`batch ${batch.index + 1}: journaal niet afgesloten`);
   }
   return trouble;
-}
-
-/**
- * The warning line for a mailbox whose sweep did not converge
- *
- * Framed as resumable, not as doubtful: unlike the old Message-ID reconciliation this
- * replaces, there is no ambiguity left to report here -- only a sweep that has not finished
- * yet, which the next start's resumed sweep will pick up on its own.
- *
- * @param m
- * @param verb the Dutch verb for what did not finish -- 'opruimen' or 'ongedaan maken'
- * @returns the line, for `warnings`
- */
-function sweepWarning(m: RollbackOutcome['mailboxes'][number], verb: string): string {
-  const why = m.refused === 'permission'
-    ? 'geen rechten'
-    : m.refused === 'auth'
-      ? 'kon niet worden geopend'
-      : m.reason ?? 'nog niet bevestigd';
-  return `${m.email}: ${verb} niet afgerond (${why}), wordt bij de volgende start opnieuw geprobeerd`;
-}
-
-/**
- * Whether every mailbox in a sweep has reached a terminal state
- *
- * Not the same question as `complete`: a mailbox that refused outright is terminal -- retrying
- * will not fix a permission problem -- while one that merely has not converged yet is not, and
- * must be left open for the next resumed sweep rather than closed as if it were done. Only
- * when every mailbox is one or the other does this run's journal get its closing line.
- *
- * @param outcome
- * @returns true once nothing here would change by sweeping again right now
- */
-function settled(outcome: RollbackOutcome): boolean {
-  return outcome.mailboxes.every((m) => m.converged || m.refused);
 }
 
 /**
@@ -2316,28 +2186,16 @@ function stopTheRun(
       // The running batch is rolled back by the run's own stop, exactly as a plain drag is. The
       // batches already finished are a separate sweep, started once this run has drained --
       // running both at once would have two sweeps trashing under two markers in one mailbox.
-      rollbackWholeJob = true;
+      //
+      // Only when this stop is the one that lands: once the gate is stopping its own stop() is a
+      // no-op, and trashing the finished batches on the back of a stop that was already answered
+      // as 'keep' would undo the mail the user asked to keep.
+      if (control.stopMode() === null) rollbackWholeJob = true;
       control.stop('rollback');
       return { ok: true };
     default:
       return { ok: false, error: 'Onbekende actie' };
   }
-}
-
-/**
- * What the panel should say a job is doing, or nothing when no job is walking
- *
- * Gated on the choices rather than on the job existing: a plan is written before the user has
- * picked anything, and a panel told about that job would replace the picking phase with a job
- * phase before there was a job to walk.
- *
- * @returns the label and its target mailboxes, or undefined outside a walking job
- * @private
- */
-function jobPanelInfo(): JobPanelInfo | undefined {
-  const choices = activeJob?.job.choices;
-  if (!activeJob || !choices) return undefined;
-  return { label: activeJob.job.label, targets: choices.targets.map((t) => t.email) };
 }
 
 /**
@@ -2395,16 +2253,14 @@ function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: strin
   } satisfies PanelProgress);
 }
 
-// The panel's walking phase is left by a job end and by nothing else, so every path that lets
-// go of a walked job has to send one. Three did not: a throw out of the pull or the copy, a
-// drop lock taken by a second drag, and a plan whose batch one never got its choices. Each
-// left activeJob set with no end sent, and the panel then sat on a walk that was over -- with
-// Annuleren refused too, since the guard behind it wants a driver that is no longer there.
+// The panel's walking phase is left by a job end and by nothing else, so every path that lets go
+// of a walked job has to send one -- a throw out of the pull or the copy, a drop lock taken by a
+// second drag, a plan whose batch one never got its choices. Each of those left activeJob set
+// with no end sent, and the panel then sat on a walk that was over.
 //
-// Hence one function, and the rule that goes with it: activeJob is cleared here and in no
-// other place. What makes that a guarantee rather than three more cases handled is the
-// `finally` in advanceJob, which ends any job still held once the walk has left, however it
-// left.
+// Hence one function, and the rule that goes with it: activeJob is cleared here and in no other
+// place. What makes that a guarantee rather than three more cases handled is the `finally` in
+// advanceJob, which ends any job still held once the walk has left, however it left.
 
 /**
  * Lets go of a walked job, telling the panel what became of it
@@ -2420,22 +2276,6 @@ function endWalkedJob(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: str
 }
 
 /**
- * The running job's own numbers, for the strip that draws above one batch's bar
- *
- * The batches behind come off the plan file; the batch in flight is only in the caller's own
- * counters, so it is handed in. Called without it the line steps once a batch, which is what
- * it did before -- so every caller that has the figures passes them.
- *
- * @param running the current batch's live insert count and mailbox count, when copying
- * @returns the job's progress, or undefined when this is a plain drag -- which is what makes the
- *   picker draw exactly the line it drew before jobs existed
- * @private
- */
-function jobProgressForSend(running?: RunningBatchProgress): MailDropCopyProgress['job'] {
-  return activeJob ? jobProgress(activeJob.job, running) : undefined;
-}
-
-/**
  * Tells the modal how far a paused copy had got, per mailbox
  *
  * Read off the journal rather than off a running tally: every insert that landed is already
@@ -2448,8 +2288,7 @@ function sendPausedProgress(): void {
   if (!activeRun) return;
   const { runId, root, total, targets } = activeRun;
   const entries = readCopyJournal(root, runId)?.entries ?? [];
-  const byMailbox = new Map<string, number>();
-  for (const e of entries) byMailbox.set(e.email, (byMailbox.get(e.email) ?? 0) + 1);
+  const byMailbox = insertsPerMailbox(entries);
   dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
     phase: 'copy',
     done: entries.length,
@@ -2460,19 +2299,6 @@ function sendPausedProgress(): void {
   } satisfies MailDropCopyProgress);
 }
 
-/** Copies whatever the last drag saved into the chosen labels, in the chosen mailboxes.
- *
- * Runs in three modes. 'check' scans for messages already there and reports them rather than
- * copying; 'all' skips the scan; the default copies what the scan said was new.
- *
- * The mails of one mailbox go up alongside each other, the mailboxes themselves one after
- * the other: the progress bar names the mailbox it is working on, and that only stays true
- * with one at a time.
- *
- * A copy that is paused and then stopped ends in one of three ways: 'completed' when it was
- * never stopped at all, 'kept' when the user chose to leave what had already landed, or a
- * rollback outcome when they chose to undo it -- see copyOneFile and the tail of this
- * function for where each of those is decided. */
 /**
  * Pulls and copies every batch left in the running job, one at a time
  *
@@ -2506,7 +2332,7 @@ async function advanceJob(): Promise<void> {
     // closed: nothing here says the mail already copied is unwanted, and the next start's
     // offer is where that is answered.
     const why = (e as Error)?.message ?? 'onbekende fout';
-    notifyLog(`[maildrop] klus afgebroken door een fout: ${why}`);
+    notifyLog(`[maildrop] job aborted by an error: ${why}`);
     if (activeJob) endWalkedJob(activeJob.job, 'stuck', why);
   } finally {
     // The guarantee. Every ending above clears activeJob through endWalkedJob, and anything
@@ -2535,7 +2361,7 @@ async function walkJob(): Promise<void> {
     // of: the tail below only speaks for a job that has run out of batches, so this one used
     // to leave the walk without a word and be offered again at every start, forever.
     if (!job.choices) {
-      notifyLog(`[maildrop] klus voor "${job.label}" kan niet lopen: er zijn geen postvakken gekozen`);
+      notifyLog(`[maildrop] job for "${job.label}" cannot run: no mailboxes were chosen`);
       endWalkedJob(job, 'stuck', 'Deze klus heeft geen gekozen postvakken — sleep het label opnieuw');
       return;
     }
@@ -2544,7 +2370,7 @@ async function walkJob(): Promise<void> {
     // Nobody resumes a walk that stood aside, so standing aside is an ending and says so. The
     // plan stays open, which is what makes the next start offer to continue it.
     if (token === null) {
-      notifyLog('[maildrop] klus gestopt: er wordt al mail opgehaald');
+      notifyLog('[maildrop] job stopped: mail is already being fetched');
       endWalkedJob(job, 'stuck', 'Er werd al andere mail opgehaald, dus de klus is gestopt');
       return;
     }
@@ -2613,23 +2439,13 @@ async function walkJob(): Promise<void> {
       // why the guard is on activeJob rather than on the result: a stop that got there first
       // leaves nothing here to do, and one that somehow did not still ends the job here.
       if (activeJob) {
-        const { job: stoppedJob, root: stoppedRoot } = activeJob;
-        const trouble = rollbackWholeJob
-          ? await rollbackFinishedBatches(stoppedJob, stoppedRoot)
-          : [];
-        const outcome: JobOutcome =
-          result.mode === 'keep'
-            ? 'kept'
-            : trouble.length === 0
-              ? 'rolled-back'
-              : 'rolled-back-partial';
-        const failed = attemptWrite(() => finishLabelJob(stoppedRoot, stoppedJob.jobId, outcome));
-        if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
-        if (trouble.length > 0) {
-          notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
-        }
-        rollbackWholeJob = false;
-        endWalkedJob(stoppedJob, outcome);
+        await endJobWithStop(
+          activeJob.job,
+          activeJob.root,
+          result.mode,
+          rollbackWholeJob,
+          'stopped during a batch',
+        );
       }
       return;
     }
@@ -2645,10 +2461,10 @@ async function walkJob(): Promise<void> {
     // instead of stepping over it.
     if (!stuck) {
       const failed = attemptWrite(() => finishLabelJob(root, job.jobId, 'completed'));
-      if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
+      if (failed) notifyLog(`[maildrop] could not close the job: ${failed}`);
     }
     notifyLog(
-      `[maildrop] klus voor "${job.label}" ${stuck ? 'gestopt op een mislukte batch, blijft open voor een keuze' : 'afgerond'}: ${job.batches.filter((b) => b.state === 'copied').length} van ${job.batches.length} batches`,
+      `[maildrop] job for "${job.label}" ${stuck ? 'stopped on a failed batch, left open for a choice' : 'finished'}: ${job.batches.filter((b) => b.state === 'copied').length} of ${job.batches.length} batches`,
     );
     endWalkedJob(job, stuck ? 'stuck' : 'completed');
   }
@@ -2669,21 +2485,36 @@ async function stopWalkedJob(mode: 'keep' | 'rollback'): Promise<void> {
   jobStopWanted = null;
   if (!activeJob) return;
   const { job, root } = activeJob;
-  const trouble = mode === 'rollback' ? await rollbackFinishedBatches(job, root) : [];
-  const outcome: JobOutcome =
-    mode === 'keep' ? 'kept' : trouble.length === 0 ? 'rolled-back' : 'rolled-back-partial';
-  const failed = attemptWrite(() => finishLabelJob(root, job.jobId, outcome));
-  if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
-  if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
-  notifyLog(
-    `[maildrop] klus voor "${job.label}" gestopt tussen twee batches: ${
-      mode === 'keep' ? 'wat er staat blijft staan' : 'teruggedraaid'
-    }`,
+  // Between two batches every rollback is a job-wide one: the batch just pulled has inserted
+  // nothing, so the only mail a rollback here can mean is what the finished batches landed.
+  await endJobWithStop(
+    job,
+    root,
+    mode,
+    mode === 'rollback' || rollbackWholeJob,
+    'stopped between two batches',
   );
-  rollbackWholeJob = false;
-  endWalkedJob(readLabelJob(root, job.jobId) ?? job, outcome);
 }
 
+/**
+ * Copies whatever the last drag saved into the chosen labels, in the chosen mailboxes
+ *
+ * Runs in three modes. 'check' scans for messages already there and reports them rather than
+ * copying; 'all' skips the scan; the default copies what the scan said was new.
+ *
+ * The mails of one mailbox go up alongside each other, the mailboxes themselves one after the
+ * other: the progress bar names the mailbox it is working on, and that only stays true with one
+ * at a time.
+ *
+ * A copy that is paused and then stopped ends in one of three ways: 'completed' when it was
+ * never stopped at all, 'kept' when the user chose to leave what had already landed, or a
+ * rollback outcome when they chose to undo it -- see copyOneFile and the tail of this function
+ * for where each of those is decided.
+ *
+ * @param arg
+ * @returns {Promise<MailDropCopyResult|MailDropCopyWarnedResult|MailDropCopyStoppedResult>} what
+ *   the picker draws: the counts, the duplicate question, or how the stop was settled
+ */
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
@@ -2706,16 +2537,14 @@ export async function copyToMailboxes(arg: {
   });
   // A copy nobody asked for is worse than a copy refused. While the driver is walking a job it
   // is already copying `lastDropSaved`, and a second call against the same files inserts every
-  // one of them again -- which is exactly what happened on 2026-08-26: the preview reopened for
-  // batch 2 with a live Kopieer button, the button was pressed nine seconds after the driver had
-  // started on the same 719 mails, and 717 of them landed twice.
+  // one of them again: 717 mails landed twice that way on 2026-08-26, off a preview that
+  // reopened for batch 2 with a live Kopieer button.
   //
-  // The duplicate scan is no defence here and cannot be made one: it asks Gmail which labels
-  // hold a Message-ID, and Gmail's index had not caught up with inserts made seconds earlier, so
-  // the scan found nothing and the second copy proceeded in good faith. The only thing that can
-  // refuse this is knowing a job owns these files right now.
+  // The duplicate scan is no defence here and cannot be made one -- Gmail's index had not caught
+  // up with inserts made seconds earlier, so the scan found nothing and the second copy went
+  // ahead in good faith. Only knowing that a job owns these files right now can refuse it.
   if (jobDriving && !arg?.fromJob) {
-    notifyLog('[maildrop] tweede copy geweigerd: de klus kopieert deze mail zelf al');
+    notifyLog('[maildrop] second copy refused: the job is already copying this mail itself');
     return fail('Er loopt een klus die deze mail zelf kopieert. Pauzeer of stop die eerst.');
   }
   if (!cfg || !oauthTokens) return fail('Koppeling niet ingesteld');
@@ -2747,13 +2576,10 @@ export async function copyToMailboxes(arg: {
   let copied = 0;
   let skipped = 0;
   // Inserts that landed, which is the one number the job line may speak. `done` is every file
-  // this copy has finished with, whatever became of it -- a duplicate it skipped, an upload that
-  // failed, a whole mailbox that dropped out before it began -- because that is what lets the bar
-  // reach its own total. The job line says "gekopieerd" and the paused line counts the copy
-  // journal, which holds only inserts that answered; counting attempts against a journal of
-  // landings is what made the line fall the moment the user pressed pause, 1535 to 1074 on a batch
-  // where no mail had moved. A mailbox that drops out lands nothing, so this needs no correction
-  // of its own -- which is what the credit kept beside `done` used to be for.
+  // this copy has finished with, whatever became of it, since that is what lets the bar reach
+  // its own total. The job line and the paused line both count landings instead: counting
+  // attempts against a journal of landings is what made the line fall the moment the user
+  // pressed pause, 1535 to 1074 on a batch where no mail had moved.
   let landed = 0;
   // The plan this copy answers for, captured rather than read again at the far end. The tail runs
   // minutes after this line, and a plan replaced in between took this batch's insert count into
@@ -2782,16 +2608,13 @@ export async function copyToMailboxes(arg: {
     });
 
   let index = new Set<string>();
-  // Empty in 'all' mode on purpose: that mode skips the scan below, so there is nothing to
-  // prove absence from. See absenceKey.
-  const provedAbsent = new Set<string>();
   if (mode !== 'all') {
     const key = scanKey(targets);
     const tally = { checks: 0, reused: 0, asked: 0 };
     const checkFrom = Date.now();
     const reusedWholeScan = lastScan?.key === key;
-    const { hits, scanned } = reusedWholeScan
-      ? lastScan!
+    const hits = reusedWholeScan
+      ? lastScan!.hits
       : await findDuplicates(
           targets,
           files,
@@ -2805,24 +2628,26 @@ export async function copyToMailboxes(arg: {
     notifyLog(
       `[maildrop] ${
         reusedWholeScan
-          ? `dubbelencheck: overgeslagen, dezelfde keuze als de vorige poging`
+          ? `duplicate check: skipped, same choice as the previous attempt`
           : checkLogLine({ ...tally, ms: Date.now() - checkFrom })
       }`,
     );
-    lastScan = { key, hits, scanned };
+    lastScan = { key, hits };
     done = 0;
     index = duplicateIndex(hits);
-    // A mail this mailbox's own scan found holding nothing under it is proof it was absent
-    // before this run touched it. Decided once, here, rather than re-derived from `mode`
-    // anywhere downstream.
-    for (const [email, mailboxScan] of scanned) {
-      for (const file of files) {
-        if (!file.messageId.trim()) continue;
-        const labelIds = mailboxScan.get(file.messageId);
-        if (labelIds && labelIds.length === 0) provedAbsent.add(absenceKey(email, file.messageId));
-      }
-    }
     if (mode === 'check' && hits.length > 0) {
+      // Counted against every destination the plan is going to have rather than off the labels
+      // that exist now: a mailbox whose tree is still to be created resolves to nothing at this
+      // point, which credited it no new mail at all and understated what "kopieer toch" inserts
+      // by that mailbox's entire share.
+      const planned: ResolvedTreeLabels = new Map(treeResolved);
+      for (const [email, plan] of trees.plans) {
+        const ids = new Map(plan.reuse);
+        // A stand-in for a label that does not exist yet: it holds nothing, so whatever is filed
+        // under it is new by definition, and no real id in the duplicate index can match it.
+        for (const name of plan.create) ids.set(name, `nog-te-maken:${name}`);
+        planned.set(email, perMessageLabels(files, plan, ids));
+      }
       return {
         ok: false,
         copied: 0,
@@ -2831,7 +2656,7 @@ export async function copyToMailboxes(arg: {
         accounts: [],
         needsConfirm: true,
         duplicates: groupDuplicates(hits),
-        newCount: newMessageCount(index, targets, files.map((f) => f.messageId), treeResolved),
+        newCount: newMessageCount(index, targets, files.map((f) => f.messageId), planned),
       };
     }
   }
@@ -2843,7 +2668,7 @@ export async function copyToMailboxes(arg: {
   if (activeJob && !activeJob.job.choices) {
     const choices = { targets, mode: inheritedMode(mode === 'all' ? 'all' : mode === 'new' ? 'new' : null) };
     const failed = attemptWrite(() => recordJobChoices(activeJob!.root, activeJob!.job.jobId, choices));
-    if (failed) notifyLog(`[maildrop] kon de keuzes van de klus niet vastleggen: ${failed}`);
+    if (failed) notifyLog(`[maildrop] could not record the job's choices: ${failed}`);
     activeJob.job = { ...activeJob.job, choices };
   }
 
@@ -2853,13 +2678,18 @@ export async function copyToMailboxes(arg: {
   // batch copy after asking it to stop. Consumed here instead: before the marker labels, before
   // the journal, before a single insert, so nothing of this batch exists to answer for.
   if (arg?.fromJob && jobStopWanted) {
-    const mode: CopyStopMode = jobStopWanted === 'rollback' ? 'rollback' : 'keep';
+    const stopMode: CopyStopMode = jobStopWanted;
     // The job-wide sweep, exactly as the running stop sets it: this batch has nothing of its
     // own to undo, and only the batches that already finished are anybody's question.
     if (jobStopWanted === 'rollback') rollbackWholeJob = true;
     jobStopWanted = null;
-    notifyLog('[maildrop] batch gestopt tijdens de dubbelencheck, er is niets van verstuurd');
-    return { stopped: true, mode, copied: 0, byMailbox: [] } satisfies MailDropCopyStoppedResult;
+    notifyLog('[maildrop] batch stopped during the duplicate check, nothing of it was sent');
+    return {
+      stopped: true,
+      mode: stopMode,
+      copied: 0,
+      byMailbox: [],
+    } satisfies MailDropCopyStoppedResult;
   }
 
   // Minted here rather than reusing dropSerial: dropSerial names the drag, and a 'check' pass
@@ -2892,7 +2722,7 @@ export async function copyToMailboxes(arg: {
       markers.push({ email: a.email, markerLabelId: a.markerLabelId });
       markerLabelByEmail.set(a.email, a.markerLabelId);
     } else {
-      notifyLog(`[maildrop] copy ${a.email}: kon geen intern label aanmaken — ${a.error}`);
+      notifyLog(`[maildrop] copy ${a.email}: could not create an internal label — ${a.error}`);
       accounts.push({ email: a.email, copied: 0, skipped: 0, total: files.length, error: a.error });
       done += files.length;
       progress('copy');
@@ -2902,7 +2732,7 @@ export async function copyToMailboxes(arg: {
   // whose marker could not be made: there is nothing safe to insert into it either.
   for (const [email, error] of trees.errors) {
     if (!markerLabelByEmail.has(email)) continue;
-    notifyLog(`[maildrop] copy ${email}: kon de labelstructuur niet bepalen — ${error}`);
+    notifyLog(`[maildrop] copy ${email}: could not work out the label structure — ${error}`);
     accounts.push({ email, copied: 0, skipped: 0, total: files.length, error });
     done += files.length;
     progress('copy');
@@ -2931,37 +2761,11 @@ export async function copyToMailboxes(arg: {
   const copyFrom = Date.now();
 
   const control = createCopyRunControl();
-  activeRun = { runId, control, root, total, targets: readyTargets.length, decided: false };
-  // A stop asked for while the marker labels were being made, which is the one window between
-  // the check above and the gate below. Handed to the gate rather than acted on here: stopping
-  // a run is the gate's job, and every worker below asks it before it starts anything.
-  if (arg?.fromJob && jobStopWanted) {
-    if (jobStopWanted === 'rollback') rollbackWholeJob = true;
-    control.stop(jobStopWanted === 'rollback' ? 'rollback' : 'keep');
-    jobStopWanted = null;
-  }
-  startCopyJournal(root, runId, readyTargets.map((t) => t.email), Date.now(), markers);
-
-  // After the journal exists, because every created label is written to it the moment it lands,
-  // and after the markers, because an insert without one must stay impossible. Before the first
-  // insert, because a message cannot be filed under a label that is not there yet.
+  // Declared out here because the copy closure below reads them, and filled by the label
+  // creation inside the run's own try
   const createdLabels: CreatedLabel[] = [];
   const treeWarnings: string[] = [];
   const failedLabels = new Map<string, string[]>();
-  for (const target of readyTargets) {
-    const plan = trees.plans.get(target.email);
-    if (!plan) continue;
-    const made = await createTreeLabels(root, runId, target.email, plan);
-    createdLabels.push(...made.created);
-    treeWarnings.push(...made.warnings);
-    if (made.failed.length > 0) failedLabels.set(target.email, made.failed);
-    treeResolved.set(target.email, perMessageLabels(files, plan, made.ids));
-    notifyLog(
-      `[maildrop] copy ${target.email}: ${made.created.length} label(s) aangemaakt, ${plan.reuse.size} hergebruikt${
-        made.failed.length > 0 ? `, ${made.failed.length} mislukt` : ''
-      }`,
-    );
-  }
 
   const runCopy = async (): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> => {
     const perTarget = await mapLimit(
@@ -2978,8 +2782,8 @@ export async function copyToMailboxes(arg: {
         if (!got.ok) {
           notifyLog(
             `[maildrop] copy ${target.email} (${
-              isDelegatedMailbox(target.email) ? 'gedelegeerd' : 'eigen'
-            }): geen token na ${tokenMs}ms — ${got.error}`,
+              isDelegatedMailbox(target.email) ? 'delegated' : 'own'
+            }): no token after ${tokenMs}ms — ${got.error}`,
           );
           if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
           done += files.length;
@@ -3009,7 +2813,6 @@ export async function copyToMailboxes(arg: {
           journalRoot: root,
           wait: control.wait,
           signal: control.signal(),
-          provedAbsent,
           resolved: treeResolved,
           markerLabelId: markerLabelByEmail.get(target.email)!,
           onInsert: (ms) => inserts.push(ms),
@@ -3075,8 +2878,8 @@ export async function copyToMailboxes(arg: {
     skipped += assembled.skipped;
 
     notifyLog(
-      `[maildrop] copy klaar: ${copied} gekopieerd, ${skipped} overgeslagen van ${total} ` +
-        `naar ${targets.length} postvak(ken) in ${((Date.now() - copyFrom) / 1000).toFixed(1)}s`,
+      `[maildrop] copy done: ${copied} copied, ${skipped} skipped of ${total} ` +
+        `into ${targets.length} mailbox(es) in ${((Date.now() - copyFrom) / 1000).toFixed(1)}s`,
     );
 
     // Written for a stopped run too: this is real mail that really landed, and the log must
@@ -3103,7 +2906,7 @@ export async function copyToMailboxes(arg: {
       // run that was never even paused has no business being asked.
       const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, 'keep'));
       if (decisionError) {
-        notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
+        notifyLog(`[maildrop] could not record the sweep decision: ${decisionError}`);
       }
       const swept = await sweepRunMarkers(runId, markers, 'strip');
       for (const m of swept.mailboxes) {
@@ -3126,7 +2929,7 @@ export async function copyToMailboxes(arg: {
         // Deliberately left without a closing line: this is what makes resumeOrphanedCopyRuns
         // pick it up and finish the sweep at the next start, using the decision above rather
         // than asking again.
-        notifyLog(`[maildrop] opruimen van run ${runId} nog niet compleet, wordt hervat`);
+        notifyLog(`[maildrop] sweep of run ${runId} not complete yet, will be resumed`);
       }
       return withWarnings(
         {
@@ -3142,7 +2945,7 @@ export async function copyToMailboxes(arg: {
 
     const byMailbox = accounts.map((a) => ({ email: a.email, copied: a.copied }));
     const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, stopMode));
-    if (decisionError) notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
+    if (decisionError) notifyLog(`[maildrop] could not record the sweep decision: ${decisionError}`);
 
     if (stopMode === 'keep') {
       // 'keep' means the user asked to keep the mail, not this app's own bookkeeping -- the
@@ -3152,7 +2955,7 @@ export async function copyToMailboxes(arg: {
         if (!m.converged) warnings.push(sweepWarning(m, 'opruimen'));
       }
       if (!settled(swept)) {
-        notifyLog(`[maildrop] opruimen van run ${runId} nog niet compleet, wordt hervat`);
+        notifyLog(`[maildrop] sweep of run ${runId} not complete yet, will be resumed`);
         return {
           stopped: true,
           mode: 'keep',
@@ -3197,17 +3000,21 @@ export async function copyToMailboxes(arg: {
       } satisfies MailDropCopyProgress),
     );
     if (settled(rollback)) {
-      const remainder = rollback.mailboxes
-        .filter((m) => !m.converged || m.refused)
-        .map((m) => ({ email: m.email, reason: m.reason ?? m.refused ?? 'niet geconvergeerd' }));
-      finishCopyJournal(
-        root,
-        runId,
-        rollback.complete ? 'rolled-back' : 'rolled-back-partial',
-        remainder,
+      const closeError = attemptWrite(() =>
+        finishCopyJournal(
+          root,
+          runId,
+          rollback.complete ? 'rolled-back' : 'rolled-back-partial',
+          sweepRemainder(rollback),
+        ),
       );
+      if (closeError) {
+        const message = `afronding van het ongedaan maken niet vastgelegd: ${closeError}`;
+        warnings.push(message);
+        notifyLog(`[maildrop] ${message}`);
+      }
     } else {
-      notifyLog(`[maildrop] ongedaan maken van run ${runId} nog niet compleet, wordt hervat`);
+      notifyLog(`[maildrop] rollback of run ${runId} not complete yet, will be resumed`);
     }
     return {
       stopped: true,
@@ -3219,7 +3026,54 @@ export async function copyToMailboxes(arg: {
     } satisfies MailDropCopyStoppedResult;
   };
 
+  activeRun = { runId, control, root, total, targets: readyTargets.length, decided: false };
   try {
+    // A stop asked for while the marker labels were being made, which is the one window between
+    // the check above and the gate below. Handed to the gate rather than acted on here: stopping
+    // a run is the gate's job, and every worker below asks it before it starts anything.
+    if (arg?.fromJob && jobStopWanted) {
+      if (jobStopWanted === 'rollback') rollbackWholeJob = true;
+      control.stop(jobStopWanted);
+      jobStopWanted = null;
+    }
+
+    // The write that anchors the whole record, and the one this file used to make unguarded. No
+    // journal means no insert may go out: the markers already minted are the only handle a later
+    // sweep has on this run's mail, and findOrphanedRuns can never see a run whose file does not
+    // exist. So the run is refused and its markers are swept off the mailboxes again.
+    const journalError = attemptWrite(() =>
+      startCopyJournal(root, runId, readyTargets.map((t) => t.email), Date.now(), markers),
+    );
+    if (journalError) {
+      notifyLog(`[maildrop] copy refused: journal could not be started — ${journalError}`);
+      const swept = await sweepRunMarkers(runId, markers, 'strip');
+      for (const m of swept.mailboxes) {
+        if (!m.converged) notifyLog(`[maildrop] ${sweepWarning(m, 'opruimen')}`);
+      }
+      return fail(`Niet gekopieerd: het rollback-journaal kon niet worden geschreven (${journalError})`);
+    }
+
+    // After the journal exists, because every created label is written to it the moment it lands,
+    // and after the markers, because an insert without one must stay impossible. Before the first
+    // insert, because a message cannot be filed under a label that is not there yet.
+    for (const target of readyTargets) {
+      const plan = trees.plans.get(target.email);
+      if (!plan) continue;
+      const made = await createTreeLabels(root, runId, target.email, plan);
+      createdLabels.push(...made.created);
+      treeWarnings.push(...made.warnings);
+      // Logged as well as carried: a driven batch's result is discarded by the walk, so for
+      // every batch but the first this is the only place these warnings reach anybody.
+      for (const warn of made.warnings) notifyLog(`[maildrop] copy ${target.email}: ${warn}`);
+      if (made.failed.length > 0) failedLabels.set(target.email, made.failed);
+      treeResolved.set(target.email, perMessageLabels(files, plan, made.ids));
+      notifyLog(
+        `[maildrop] copy ${target.email}: ${made.created.length} label(s) created, ${plan.reuse.size} reused${
+          made.failed.length > 0 ? `, ${made.failed.length} failed` : ''
+        }`,
+      );
+    }
+
     const result = await runCopy();
     // Only ever the plan this copy was started for. Read afresh, this recorded the batch against
     // whichever plan happened to be held when the copy answered -- a second drag mid-copy was
@@ -3230,7 +3084,10 @@ export async function copyToMailboxes(arg: {
     const held = activeJob ? { jobId: activeJob.job.jobId } : null;
     const ours = sameJobPlan(forPlan, held) ? activeJob : null;
     if (forPlan && !ours) {
-      notifyLog('[maildrop] batchstand niet vastgelegd: deze klus wordt niet meer gelopen');
+      notifyLog('[maildrop] batch state not recorded: this job is no longer being walked');
+      // The flag was set for a job that is no longer walked. Left standing it would roll back
+      // the finished batches of whatever job is walked next.
+      rollbackWholeJob = false;
     }
     // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
     // failed outright is recorded as failed and nextBatch then stops the job rather than trying
@@ -3250,7 +3107,7 @@ export async function copyToMailboxes(arg: {
             error: failedHard ? (result as MailDropCopyResult).error : undefined,
           }),
         );
-        if (failed) notifyLog(`[maildrop] kon de stand van batch ${at.index} niet vastleggen: ${failed}`);
+        if (failed) notifyLog(`[maildrop] could not record the state of batch ${at.index}: ${failed}`);
         ours.job = readLabelJob(ours.root, ours.job.jobId) ?? ours.job;
         // A stop is the user's final word on the whole job, not just on this batch, so the driver
         // is not started. What the stop rolls back is decided just below.
@@ -3260,19 +3117,13 @@ export async function copyToMailboxes(arg: {
     // The same plan again, for the same reason: a stop closes the job this copy belonged to and
     // never one that took its place.
     if (ours && 'stopped' in result && result.stopped) {
-      const { job, root } = ours;
-      const trouble = rollbackWholeJob ? await rollbackFinishedBatches(job, root) : [];
-      const outcome: JobOutcome =
-        result.mode === 'keep'
-          ? 'kept'
-          : trouble.length === 0
-            ? 'rolled-back'
-            : 'rolled-back-partial';
-      const failed = attemptWrite(() => finishLabelJob(root, job.jobId, outcome));
-      if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
-      if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
-      rollbackWholeJob = false;
-      endWalkedJob(job, outcome);
+      await endJobWithStop(
+        ours.job,
+        ours.root,
+        result.mode,
+        rollbackWholeJob,
+        'stopped during a batch',
+      );
     }
     return result;
   } finally {
@@ -3310,7 +3161,22 @@ async function finishOrphanRun(
   journal: CopyJournalRead,
   mode: CopyStopMode,
 ): Promise<void> {
-  if (journal.markers.length === 0) return; // nothing this app can sweep by label
+  const close = (outcome: CopyJournalOutcome, remainder?: CopyJournalRemainder[]): void => {
+    const failed = attemptWrite(() => finishCopyJournal(root, journal.runId, outcome, remainder));
+    if (failed) {
+      notifyLog(`[maildrop] journal of run ${journal.runId} not closed: ${failed}`);
+    }
+  };
+
+  // Closed rather than left open, even though there is nothing here to sweep by label: a run
+  // that died before recording a marker cannot be swept at all, and an unclosed journal is
+  // what makes the next start read it again -- every start, for good.
+  if (journal.markers.length === 0) {
+    notifyLog(`[maildrop] run ${journal.runId} had no internal label; nothing to sweep`);
+    close(mode === 'keep' ? 'kept' : 'rolled-back-partial');
+    return;
+  }
+
   const outcome = await sweepRunMarkers(
     journal.runId,
     journal.markers,
@@ -3319,21 +3185,13 @@ async function finishOrphanRun(
   );
   if (!settled(outcome)) {
     notifyLog(
-      `[maildrop] hervatte opruiming van run ${journal.runId} nog niet compleet, wordt bij de volgende start opnieuw geprobeerd`,
+      `[maildrop] resumed sweep of run ${journal.runId} not complete yet, will be tried again at the next start`,
     );
     return;
   }
-  const remainder =
-    mode === 'rollback'
-      ? outcome.mailboxes
-          .filter((m) => !m.converged || m.refused)
-          .map((m) => ({ email: m.email, reason: m.reason ?? m.refused ?? 'niet geconvergeerd' }))
-      : undefined;
-  finishCopyJournal(
-    root,
-    journal.runId,
+  close(
     mode === 'keep' ? 'kept' : outcome.complete ? 'rolled-back' : 'rolled-back-partial',
-    remainder,
+    mode === 'rollback' ? sweepRemainder(outcome) : undefined,
   );
 }
 
@@ -3370,7 +3228,7 @@ export async function resumeOrphanedCopyRuns(): Promise<void> {
     const stuck = job.batches.some((b) => b.state === 'failed');
     if (!job.choices || (!nextBatch(job) && !stuck)) {
       const failed = attemptWrite(() => finishLabelJob(root, job.jobId, 'kept'));
-      if (failed) notifyLog(`[maildrop] kon een onafgemaakte klus niet afsluiten: ${failed}`);
+      if (failed) notifyLog(`[maildrop] could not close an unfinished job: ${failed}`);
       continue;
     }
     if (!pendingJob) pendingJob = job;
@@ -3385,14 +3243,10 @@ export async function resumeOrphanedCopyRuns(): Promise<void> {
  *
  * @returns the run and how far it got per mailbox, or null when nothing is waiting
  */
-export function pendingOrphanDecision(): {
-  runId: CopyRunId;
-  byMailbox: { email: string; inserted: number }[];
-} | null {
+export function pendingOrphanDecision(): PendingOrphan | null {
   const journal = pendingOrphans[0];
   if (!journal) return null;
-  const byMailbox = new Map<string, number>();
-  for (const e of journal.entries) byMailbox.set(e.email, (byMailbox.get(e.email) ?? 0) + 1);
+  const byMailbox = insertsPerMailbox(journal.entries);
   return {
     runId: journal.runId,
     byMailbox: journal.markers.map((m) => ({ email: m.email, inserted: byMailbox.get(m.email) ?? 0 })),
@@ -3413,11 +3267,19 @@ export async function decideOrphanRun(
 ): Promise<{ ok: boolean }> {
   const at = pendingOrphans.findIndex((j) => j.runId === runId);
   if (at === -1) return { ok: false };
-  const [journal] = pendingOrphans.splice(at, 1);
+  const journal = pendingOrphans[at];
   const root = mailDropFolder();
   const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, mode));
-  if (decisionError) notifyLog(`[maildrop] kon de opruimkeuze niet vastleggen: ${decisionError}`);
-  await finishOrphanRun(root, journal, mode);
+  if (decisionError) notifyLog(`[maildrop] could not record the sweep decision: ${decisionError}`);
+  try {
+    await finishOrphanRun(root, journal, mode);
+  } catch (e) {
+    // Left on the pending list on purpose: the decision itself is on disk, so the next start
+    // resumes it, and taking it off here would lose the offer while the run is still unclosed.
+    notifyLog(`[maildrop] sweep of run ${runId} failed: ${(e as Error).message}`);
+    return { ok: false };
+  }
+  pendingOrphans.splice(at, 1);
   return { ok: true };
 }
 
@@ -3429,15 +3291,7 @@ export async function decideOrphanRun(
  *
  * @returns the job and how far it got, or null when nothing is waiting
  */
-export function pendingJobDecision(): {
-  jobId: string;
-  label: string;
-  batch: number;
-  batches: number;
-  done: number;
-  total: number;
-  mode: 'new' | 'all';
-} | null {
+export function pendingJobDecision(): PendingJob | null {
   if (!pendingJob || !pendingJob.choices) return null;
   return {
     jobId: pendingJob.jobId,
@@ -3488,10 +3342,301 @@ export async function decideJobRun(
   }
 
   const trouble = choice === 'rollback' ? await rollbackFinishedBatches(job, root) : [];
-  const outcome: JobOutcome =
-    choice === 'keep' ? 'kept' : trouble.length === 0 ? 'rolled-back' : 'rolled-back-partial';
+  const outcome = jobStopOutcome(choice, trouble);
   const failed = attemptWrite(() => finishLabelJob(root, jobId, outcome));
-  if (failed) notifyLog(`[maildrop] kon de klus niet afsluiten: ${failed}`);
-  if (trouble.length > 0) notifyLog(`[maildrop] niet alles teruggedraaid: ${trouble.join(', ')}`);
+  if (failed) notifyLog(`[maildrop] could not close the job: ${failed}`);
+  if (trouble.length > 0) notifyLog(`[maildrop] not everything was rolled back: ${trouble.join(', ')}`);
   return { ok: true };
 }
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * One drop error with the archive write that also failed folded into it
+ *
+ * log.jsonl is the only record of what was ever saved and this share has dropped an appended
+ * write before, so a failure is reported rather than swallowed. A row that already failed has no
+ * second field to carry it, so it rides along in the same line.
+ *
+ * @param error what the row itself failed on
+ * @param logError what the archive write answered, or null when it went through
+ * @returns {string} the line the strip and the picker show
+ * @private
+ */
+function withLogTrouble(error: string, logError: string | null): string {
+  return logError ? `${error} (logboek niet bijgeschreven: ${logError})` : error;
+}
+
+/**
+ * How many of a run's journal entries landed in each mailbox
+ *
+ * @param entries the journal's insert lines
+ * @returns {Map<string, number>} per mailbox its own count
+ * @private
+ */
+function insertsPerMailbox(entries: CopyJournalEntry[]): Map<string, number> {
+  const byMailbox = new Map<string, number>();
+  for (const e of entries) byMailbox.set(e.email, (byMailbox.get(e.email) ?? 0) + 1);
+  return byMailbox;
+}
+
+/**
+ * The mailboxes a sweep left unconfirmed, as the journal records them
+ *
+ * @param outcome what the sweep came to
+ * @returns {CopyJournalRemainder[]} one entry per mailbox that did not converge
+ * @private
+ */
+function sweepRemainder(outcome: RollbackOutcome): CopyJournalRemainder[] {
+  return outcome.mailboxes
+    .filter((m) => !m.converged || m.refused)
+    .map((m) => ({ email: m.email, reason: m.reason ?? m.refused ?? 'niet geconvergeerd' }));
+}
+
+/**
+ * The plan's own outcome for a stop
+ *
+ * @param mode what the user chose for the mail that had already landed
+ * @param trouble the batches a rollback could not account for
+ * @returns {JobOutcome}
+ * @private
+ */
+function jobStopOutcome(mode: CopyStopMode, trouble: string[]): JobOutcome {
+  if (mode === 'keep') return 'kept';
+  return trouble.length === 0 ? 'rolled-back' : 'rolled-back-partial';
+}
+
+/**
+ * Closes a job the user stopped and lets the walk go
+ *
+ * The one place the ordering of a stop is written down: the batches that already finished are
+ * swept when the stop was job-wide, the outcome follows from what that came to, the plan is
+ * closed, and only then is the job let go. Three call sites spelled this out with small
+ * divergences between them, which is three copies of an ordering that has to agree.
+ *
+ * @param job the plan as it stands
+ * @param root the drop folder
+ * @param mode what the user chose for the mail that had already landed
+ * @param wholeJob whether the batches that already finished are part of this stop
+ * @param where what to log about the moment the stop arrived
+ * @private
+ */
+async function endJobWithStop(
+  job: LabelJob,
+  root: string,
+  mode: CopyStopMode,
+  wholeJob: boolean,
+  where: string,
+): Promise<void> {
+  const trouble = wholeJob ? await rollbackFinishedBatches(job, root) : [];
+  const outcome = jobStopOutcome(mode, trouble);
+  const failed = attemptWrite(() => finishLabelJob(root, job.jobId, outcome));
+  if (failed) notifyLog(`[maildrop] could not close the job: ${failed}`);
+  if (trouble.length > 0) notifyLog(`[maildrop] not everything was rolled back: ${trouble.join(', ')}`);
+  notifyLog(
+    `[maildrop] job for "${job.label}" ${where}: ${
+      mode === 'keep' ? 'what has landed stays' : 'rolled back'
+    }`,
+  );
+  rollbackWholeJob = false;
+  // Read back rather than handed on: the panel is told the counts the closing line just wrote
+  endWalkedJob(readLabelJob(root, job.jobId) ?? job, outcome);
+}
+
+function savedRefs(
+  root: string,
+  files: string[],
+  messages: SavedMessage[],
+  threadId: string,
+  sourceLabels: string[] = [],
+): SavedRef[] {
+  return messages.map((m, i) => ({
+    file: join(root, files[i]),
+    messageId: m.headers.messageId,
+    subject: m.headers.subject || NO_SUBJECT,
+    threadId,
+    sourceLabels,
+  }));
+}
+
+function scanKey(targets: MailDropCopyTarget[]): string {
+  return `${dropSerial}|${JSON.stringify(targets)}`;
+}
+
+/**
+ * How many conversations each label of the tree turned out to hold
+ *
+ * Counted off what was actually collected rather than off the listing, so the number the
+ * picker shows is the number that will be copied. A label with none is still in the list: an
+ * empty sublabel is created too, and leaving it out would make the picker promise a shape it
+ * is not going to build.
+ *
+ * @param members every label of the tree, parents first
+ * @param collected
+ * @returns one entry per member, in the members' own order
+ * @private
+ */
+function memberCounts(
+  members: string[],
+  collected: CollectedThread[],
+): Array<{ name: string; threads: number }> {
+  return members.map((name) => ({
+    name,
+    threads: collected.filter((c) => c.thread.labels.includes(name)).length,
+  }));
+}
+
+/**
+ * The label a chosen id belongs to
+ *
+ * @param existing name to id, as the mailbox answered it
+ * @param labelId
+ * @returns the name, or null when the mailbox no longer has that label
+ * @private
+ */
+function nameForLabelId(existing: Map<string, string>, labelId: string): string | null {
+  for (const [name, id] of existing) if (id === labelId) return name;
+  return null;
+}
+
+/**
+ * Per saved message the labels it goes out with in one mailbox
+ *
+ * @param files the drag's saved messages
+ * @param plan
+ * @param ids every destination name that exists in the mailbox now
+ * @returns Message-ID to label ids
+ * @private
+ */
+function perMessageLabels(
+  files: SavedRef[],
+  plan: LabelTreePlan,
+  ids: Map<string, string>,
+): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const file of files) {
+    if (!file.messageId.trim()) continue;
+    out.set(file.messageId, resolveMessageLabels(file.sourceLabels, plan.destinations, ids));
+  }
+  return out;
+}
+
+/**
+ * The progress callback every pull path hands down, which also remembers how far it got
+ *
+ * One function rather than the same arrow in three places, because the count it keeps is what
+ * the cancel line reports and that has to be the same number the strip was last shown.
+ *
+ * @returns the callback saveLabel and the row loop report through
+ * @private
+ */
+function pullReporter(): SaveProgress {
+  // The gate of the pull this reporter belongs to, taken now rather than read per call: both
+  // callers set activePull before they ask for one, and a report arriving late must answer for
+  // its own pull and not for whichever one is running by then.
+  const mine = activePull;
+  return (done, total) => {
+    pullDone = done;
+    // Kept counting, but no longer shown. The requests already on the wire go on landing for as
+    // long as they take -- mapLimit only refuses to claim the next item, and nothing severs a
+    // fetch in flight -- and every one of them used to push the strip's count one higher after
+    // Annuleren was pressed. A line that goes on climbing is exactly what a swallowed click looks
+    // like, which is why the button was pressed again. The count itself is still kept, because
+    // the line the lock closes with reports how far the pull actually got.
+    if (mine?.stopped()) return;
+    manager?.sendDropProgress({ done, total });
+  };
+}
+
+/**
+ * The listing's own reporter, which moves the strip while a label is being paged
+ *
+ * Apart from pullReporter and deliberately so: that one keeps pullDone, which counts
+ * conversations fetched and is the number the cancel line reports. A listing that fed it would
+ * have the strip claim thousands of conversations were pulled when not one had been.
+ *
+ * @returns the callback listLabelTree reports its running count through
+ * @private
+ */
+function listReporter(): (found: number) => void {
+  const mine = activePull;
+  return (found) => {
+    if (mine?.stopped()) return;
+    // Total zero for as long as the walk runs: it is not known until its last page, and the
+    // strip draws the count as found rather than as fetched on exactly that signal.
+    manager?.sendDropProgress({ done: found, total: 0 });
+  };
+}
+
+/**
+ * What the panel should say a job is doing, or nothing when no job is walking
+ *
+ * Gated on the choices rather than on the job existing: a plan is written before the user has
+ * picked anything, and a panel told about that job would replace the picking phase with a job
+ * phase before there was a job to walk.
+ *
+ * @returns the label and its target mailboxes, or undefined outside a walking job
+ * @private
+ */
+function jobPanelInfo(): JobPanel | undefined {
+  const choices = activeJob?.job.choices;
+  if (!activeJob || !choices) return undefined;
+  return { label: activeJob.job.label, targets: choices.targets.map((t) => t.email) };
+}
+
+/**
+ * The running job's own numbers, for the strip that draws above one batch's bar
+ *
+ * The batches behind come off the plan file; the batch in flight is only in the caller's own
+ * counters, so it is handed in. Called without it the line steps once a batch, which is what
+ * it did before -- so every caller that has the figures passes them.
+ *
+ * @param running the current batch's live insert count and mailbox count, when copying
+ * @returns the job's progress, or undefined when this is a plain drag -- which is what makes the
+ *   picker draw exactly the line it drew before jobs existed
+ * @private
+ */
+function jobProgressForSend(running?: RunningBatchProgress): MailDropCopyProgress['job'] {
+  return activeJob ? jobProgress(activeJob.job, running) : undefined;
+}
+
+/**
+ * The warning line for a mailbox whose sweep did not converge
+ *
+ * Framed as resumable, not as doubtful: unlike the old Message-ID reconciliation this
+ * replaces, there is no ambiguity left to report here -- only a sweep that has not finished
+ * yet, which the next start's resumed sweep will pick up on its own.
+ *
+ * @param m
+ * @param verb the Dutch verb for what did not finish -- 'opruimen' or 'ongedaan maken'
+ * @returns the line, for `warnings`
+ * @private
+ */
+function sweepWarning(m: RollbackOutcome['mailboxes'][number], verb: string): string {
+  const why = m.refused === 'permission'
+    ? 'geen rechten'
+    : m.refused === 'auth'
+      ? 'kon niet worden geopend'
+      : m.reason ?? 'nog niet bevestigd';
+  return `${m.email}: ${verb} niet afgerond (${why}), wordt bij de volgende start opnieuw geprobeerd`;
+}
+
+/**
+ * Whether every mailbox in a sweep has reached a terminal state
+ *
+ * Not the same question as `complete`: a mailbox that refused outright is terminal -- retrying
+ * will not fix a permission problem -- while one that merely has not converged yet is not, and
+ * must be left open for the next resumed sweep rather than closed as if it were done. Only
+ * when every mailbox is one or the other does this run's journal get its closing line.
+ *
+ * @param outcome
+ * @returns true once nothing here would change by sweeping again right now
+ * @private
+ */
+function settled(outcome: RollbackOutcome): boolean {
+  return outcome.mailboxes.every((m) => m.converged || m.refused);
+}
+

@@ -16,9 +16,6 @@ import { Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'elect
 import { hasClickableItem, type NativeMenuItem } from '../../renderer/lib/native-menu';
 import { menuIcon } from './menu-icons';
 
-// how long a close is given to be followed by the click of the chosen item
-const DISMISS_GRACE_MS = 100;
-
 
 //===========================
 // Types
@@ -29,6 +26,14 @@ export interface MenuAnchor {
   x: number;
   y: number;
 }
+
+
+//===========================
+// Constants
+//===========================
+
+// how long a close is given to be followed by the click of the chosen item
+const DISMISS_GRACE_MS = 100;
 
 
 //===========================

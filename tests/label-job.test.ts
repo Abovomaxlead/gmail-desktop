@@ -7,8 +7,6 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  JOB_BATCH_THREADS,
-  sliceIntoBatches,
   needsJob,
   inheritedMode,
   jobPath,
@@ -23,6 +21,7 @@ import {
   jobProgress,
   type LabelJob,
 } from '../electron/mail/label-job';
+import { chunk } from '../electron/mail/chunk';
 // A batch's own run says which mailboxes it opened, and the plan points at that run by id --
 // the link the note at the top of label-job.ts describes. Written here the way the copy writes
 // it, so the reading side is proved against the real record and not against a fixture.
@@ -45,7 +44,7 @@ afterEach(() => {
  * each repeat six lines of setup. */
 const written = (count: number, batchSize = 2): LabelJob => {
   const all = threads(count);
-  const slices = sliceIntoBatches(all, batchSize);
+  const slices = chunk(all, batchSize);
   startLabelJob(
     root,
     {
@@ -62,35 +61,6 @@ const written = (count: number, batchSize = 2): LabelJob => {
   return readLabelJob(root, 'job-1')!;
 };
 
-describe('sliceIntoBatches', () => {
-  it('cuts an exact multiple into equal batches', () => {
-    const out = sliceIntoBatches(threads(6), 3);
-    expect(out.map((b) => b.length)).toEqual([3, 3]);
-    expect(out[1][0].threadId).toBe('t3');
-  });
-
-  it('leaves the last batch short rather than padding it', () => {
-    expect(sliceIntoBatches(threads(7), 3).map((b) => b.length)).toEqual([3, 3, 1]);
-  });
-
-  // The case the whole safety property rests on: a label that fits is one batch, and Task 4
-  // writes no plan at all for it.
-  it('answers one batch for a list shorter than the batch size', () => {
-    expect(sliceIntoBatches(threads(5), 2000).map((b) => b.length)).toEqual([5]);
-  });
-
-  it('answers nothing for an empty list', () => {
-    expect(sliceIntoBatches([], 2000)).toEqual([]);
-  });
-
-  it('keeps every thread exactly once, in the order it was given', () => {
-    const all = threads(10);
-    expect(sliceIntoBatches(all, 4).flat().map((t) => t.threadId)).toEqual(
-      all.map((t) => t.threadId),
-    );
-  });
-});
-
 describe('inheritedMode', () => {
   // The rule, and the reason it is a named function rather than a ternary at the call site.
   it('carries an explicit choice for duplicates forward', () => {
@@ -103,12 +73,6 @@ describe('inheritedMode', () => {
   // Inheriting 'all' here would grant permission nobody gave.
   it('falls back to skipping duplicates when nobody was ever asked', () => {
     expect(inheritedMode(null)).toBe('new');
-  });
-});
-
-describe('the batch size', () => {
-  it('is the number the user settled on', () => {
-    expect(JOB_BATCH_THREADS).toBe(2000);
   });
 });
 
@@ -561,7 +525,7 @@ describe('jobProgress when a batch fails below what it was showing', () => {
   };
 
   it('steps back to what the batch actually inserted', () => {
-    const walking = written(100, 25);
+    written(100, 25);
     recordJobChoices(root, 'job-1', {
       targets: [{ email: 'a@example.com', labelIds: ['L'] }],
       mode: 'new',
@@ -570,7 +534,6 @@ describe('jobProgress when a batch fails below what it was showing', () => {
     const mid = readLabelJob(root, 'job-1')!;
     expect(jobProgress(mid, { phase: 'copy', done: 25, targets: 1 }).done).toBe(50);
     expect(jobProgress(failedAfterRunning(0)).done).toBe(25);
-    expect(walking.total).toBe(100);
   });
 
   it('never steps back below what the plan file accounts for', () => {

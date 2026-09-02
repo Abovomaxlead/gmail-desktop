@@ -3,7 +3,7 @@
 // back as HTTP 403.
 
 import { describe, it, expect } from 'vitest';
-import { dropFailures, NOTHING_SAVED } from '../renderer/app/drop-outcome';
+import { dropFailures, NOTHING_SAVED } from '../renderer/lib/drop-outcome';
 
 describe('dropFailures', () => {
   it('says nothing while at least one mail was saved', () => {

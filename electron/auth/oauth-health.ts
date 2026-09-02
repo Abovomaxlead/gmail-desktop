@@ -1,31 +1,21 @@
 // Which accounts lost their Gmail link, and how big the banner about it should be.
 //
-// 'expired' means the link is gone and moving mail no longer works; 'push' means only
-// notifications are down. The banner sits bottom-right and is sized to itself, because a
-// view over the whole window would swallow every click meant for Gmail.
+// Being named is the whole message -- the link is gone and moving mail no longer works. The
+// banner sits bottom-right and is sized to itself, because a view over the whole window would
+// swallow every click meant for Gmail.
 
 import type { AccountOAuthStatus, OAuthStatus } from '../../renderer/lib/oauth-status';
-
+import type { ReconnectAccount } from '../../renderer/lib/reconnect';
 
 
 //===========================
 // Types
 //===========================
 
-export type ReconnectReason = 'expired' | 'push';
-
-export interface ReconnectAccount {
-  email: string;
-  reason: ReconnectReason;
-}
-
 export interface HealthInput {
   ownEmails: string[];
   hasToken: (email: string) => boolean;
   refreshFailed: (email: string) => boolean;
-  pushConfigured: boolean;
-  missingScopes: (email: string) => boolean;
-  pushRefused: (email: string) => boolean;
 }
 
 export interface Rect {
@@ -40,11 +30,12 @@ export interface Rect {
 // Constants
 //===========================
 
-const RECONNECT_REASON: Record<OAuthStatus, ReconnectReason | null> = {
-  linked: null,
-  unlinked: 'expired',
-  expired: 'expired',
-  'push-only': 'push',
+// A table rather than `status !== 'linked'`, so a new status has to say here whether the
+// banner names it instead of being swept in by a default nobody chose.
+const NEEDS_RECONNECT: Record<OAuthStatus, boolean> = {
+  linked: false,
+  unlinked: true,
+  expired: true,
 };
 
 const WIDTH = 380;
@@ -77,12 +68,9 @@ export function accountOAuthStatuses(input: HealthInput): AccountOAuthStatus[] {
  * @returns one entry per unhealthy account; healthy ones are left out
  */
 export function accountsNeedingReconnect(input: HealthInput): ReconnectAccount[] {
-  const out: ReconnectAccount[] = [];
-  for (const { email, status } of accountOAuthStatuses(input)) {
-    const reason = RECONNECT_REASON[status];
-    if (reason) out.push({ email, reason });
-  }
-  return out;
+  return accountOAuthStatuses(input)
+    .filter(({ status }) => NEEDS_RECONNECT[status])
+    .map(({ email }) => ({ email }));
 }
 
 /**
@@ -112,9 +100,8 @@ export function bannerBounds(win: { width: number; height: number }, rows: numbe
 /**
  * The link state of one account
  *
- * A gone link outranks a missing scope, since there is nothing to re-grant a scope on; and
- * a push fault counts only when push is configured, because every token stored before the
- * push scope existed lacks it.
+ * A missing token and a failed refresh are told apart because a list has to answer whether
+ * this account was ever connected, while the banner only says something needs attention
  *
  * @param input
  * @param email
@@ -124,8 +111,5 @@ export function bannerBounds(win: { width: number; height: number }, rows: numbe
 function statusFor(input: HealthInput, email: string): OAuthStatus {
   if (!input.hasToken(email)) return 'unlinked';
   if (input.refreshFailed(email)) return 'expired';
-  if (input.pushConfigured && (input.missingScopes(email) || input.pushRefused(email))) {
-    return 'push-only';
-  }
   return 'linked';
 }

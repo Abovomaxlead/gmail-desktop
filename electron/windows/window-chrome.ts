@@ -33,6 +33,12 @@ export const MIN_WINDOW_HEIGHT = 600;
 //===========================
 
 let saveBoundsTimer: ReturnType<typeof setTimeout> | null = null;
+
+
+//===========================
+// Exported functions
+//===========================
+
 export function saveWindowBounds(): void {
   if (!mainWindow || mainWindow.isDestroyed() || !prefs) return;
   const maximized = mainWindow.isMaximized();
@@ -57,7 +63,8 @@ export function handleInput(input: KeyInput): void {
   } else if (action.type === 'reload') {
     manager?.reloadActive();
   } else if (action.type === 'switch') {
-    const ordered = [...profiles].sort((a, b) => (a.order ?? authIdx(a)) - (b.order ?? authIdx(b)));
+    const orderOf = (p: (typeof profiles)[number]): number => prefs?.getAccount(p.email).order ?? authIdx(p);
+    const ordered = [...profiles].sort((a, b) => orderOf(a) - orderOf(b));
     const target = ordered[action.n - 1];
     if (target) showAccount(target.ref, 'mail');
   } else if (action.type === 'compose') {

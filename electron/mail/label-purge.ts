@@ -85,20 +85,6 @@ export const PURGE_LIST_MAX = 50_000;
 //===========================
 
 /**
- * Cuts an id list into the calls it will be sent in
- *
- * @param ids
- * @param size Gmail's own per-call limit, passed in rather than read from here so the caller's
- *   constant stays the single source of it
- * @returns one chunk per call, the last one short rather than padded, and nothing for nothing
- */
-export function chunkIds(ids: string[], size: number): string[][] {
-  const out: string[][] = [];
-  for (let at = 0; at < ids.length; at += size) out.push(ids.slice(at, at + size));
-  return out;
-}
-
-/**
  * A store holding the one listing that may currently be purged
  *
  * @param newHandle injected so a test can name a handle, and so nothing here reaches for a

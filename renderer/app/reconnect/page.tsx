@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { reconnectHeading, type ReconnectAccount } from '../reconnect-text';
+import { reconnectHeading } from '../reconnect-text';
+import type { ReconnectAccount } from '../../lib/reconnect';
 
 // Standing notice for accounts whose Gmail connection has to be made again. No close button
 // on purpose: it goes once every account is connected, and it sits in its own bottom-right
@@ -32,12 +33,16 @@ export default function ReconnectPage() {
     });
   };
 
+  const transparent = <style>{'html,body{background:transparent}'}</style>;
+  // Nothing to say until the first list lands: a card drawn over an empty list would have to
+  // guess a heading, and main closes this view the moment the list is empty anyway.
+  if (accounts.length === 0) return transparent;
+
   const { title, sub } = reconnectHeading(accounts);
 
   return (
     <>
-      <style>{'html,body{background:transparent}'}</style>
-
+      {transparent}
       <div className="flex h-screen w-full flex-col overflow-hidden rounded-xl border border-amber-300 bg-white shadow-2xl dark:border-amber-700/60 dark:bg-neutral-900">
         <div className="flex shrink-0 items-start gap-2.5 border-b border-black/5 px-4 py-3 dark:border-white/10">
           <svg

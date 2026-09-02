@@ -1,25 +1,7 @@
 // Parses the repo's CHANGELOG.md (Keep-a-Changelog style, bilingual) into the data the
 // "What's new" section draws. Pure, so it can be unit-tested and reused in both processes.
 
-
-
-//===========================
-// Types
-//===========================
-
-export type Lang = 'en' | 'nl' | 'unknown';
-
-export interface ChangelogEntry {
-  heading: string;
-  lang: Lang;
-  items: string[];
-}
-
-export interface ChangelogVersion {
-  version: string;
-  date: string;
-  entries: ChangelogEntry[];
-}
+import type { ChangelogEntry, ChangelogVersion, Lang } from '../../renderer/lib/changelog-types';
 
 
 //===========================

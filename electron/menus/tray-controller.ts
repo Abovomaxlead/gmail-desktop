@@ -49,10 +49,7 @@ export interface TrayState {
  * @param state
  * @returns false only once the app is on its way out
  */
-export function shouldHideOnClose(state: {
-  isQuitting: boolean;
-  platform: NodeJS.Platform;
-}): boolean {
+export function shouldHideOnClose(state: { isQuitting: boolean }): boolean {
   return !state.isQuitting;
 }
 
@@ -129,11 +126,6 @@ export function trayMenuTemplate(state: TrayState): MenuItemConstructorOptions[]
   ];
 }
 
-export function buildTrayMenu(state: TrayState): Menu {
-  const { Menu } = require('electron') as typeof import('electron');
-  return Menu.buildFromTemplate(trayMenuTemplate(state));
-}
-
 /**
  * Puts the icon in the tray
  *
@@ -164,6 +156,18 @@ export function updateTrayMenu(tray: Tray, state: TrayState): void {
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * Builds the tray's Menu from its template
+ *
+ * @param state
+ * @returns {Menu}
+ * @private
+ */
+function buildTrayMenu(state: TrayState): Menu {
+  const { Menu } = require('electron') as typeof import('electron');
+  return Menu.buildFromTemplate(trayMenuTemplate(state));
+}
 
 /**
  * Whether a snooze is still running

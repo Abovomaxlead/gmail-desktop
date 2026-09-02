@@ -28,6 +28,7 @@ function harness(dark: () => boolean) {
     setInteractive: () => undefined,
     wouldOverflow: () => false,
     applySize: () => undefined,
+    hasPainted: () => false,
     reposition: () => undefined,
     hide: () => undefined,
     destroy: () => undefined,

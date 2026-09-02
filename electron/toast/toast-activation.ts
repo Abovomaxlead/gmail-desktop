@@ -13,13 +13,11 @@ import { IPC } from '../core/ipc';
 import { mapLimit } from '../core/concurrency';
 import {
   idxOfKey,
-  isQuitting,
   keyOf,
   mainWindow,
   manager,
   prefs,
   profiles,
-  setDetectionStarted,
   setSettingsPanelOpen,
   settingsPanelOpen,
 } from '../core/runtime';
@@ -45,15 +43,13 @@ import type { Toast, ToastAction } from '../../renderer/lib/toast';
 // Types
 //===========================
 
-/** The two things above this module that a click can reach. The main window is rebuilt by
- * a click that arrives after it closed, and an update or error card opens the settings
- * panel; both belong to the window layer, which wires the click handlers in the first
- * place.
+/** The one thing above this module that a click can reach: an update or error card opens the
+ * settings panel, which belongs to the window layer that wires the click handlers in the
+ * first place.
  *
  * The section is optional because only a card that knows where it is going names one: the
  * list of sections belongs to the renderer, so it travels as a string. */
 export interface ToastActivationHooks {
-  reopenWindow(): void;
   openSettingsPanel(section?: string): void;
 }
 
@@ -62,7 +58,7 @@ export interface ToastActivationHooks {
 // Module state
 //===========================
 
-let hooks: ToastActivationHooks = { reopenWindow: () => {}, openSettingsPanel: () => {} };
+let hooks: ToastActivationHooks = { openSettingsPanel: () => {} };
 
 
 //===========================
@@ -93,12 +89,9 @@ export function activateNotification(
   messageId?: string,
 ): void {
   const idx = idxOfKey(accountKey);
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    if (isQuitting) return;
-    setDetectionStarted(false);
-    hooks.reopenWindow();
-    return;
-  }
+  // A click shows the window that is there; it never builds one. Without a window there is
+  // nothing to open the mail in, and the card has already been taken off the stack.
+  if (!mainWindow || mainWindow.isDestroyed()) return;
   const profile = profiles.find((p) => keyOf(p) === accountKey);
   if (!profile) return;
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');

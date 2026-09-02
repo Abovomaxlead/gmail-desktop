@@ -197,7 +197,7 @@ describe('createQuotaBudget, when Gmail refuses anyway', () => {
     const budget = createQuotaBudget({ now: c.now, sleep: c.sleep }, (m) => notes.push(m));
     budget.refused();
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('plafond');
+    expect(notes[0]).toContain('ceiling');
   });
 });
 
@@ -248,6 +248,13 @@ describe('callForUrl', () => {
 
   it('reads a label delete off its own path and method', () => {
     expect(callForUrl(`${base}/labels/L9`, 'DELETE')).toBe('labels.delete');
+  });
+
+  // The unread poll reads one label per account per sweep. Left off the price list it books at
+  // the dearest call known, which stalls anything sharing the budget for near half a second.
+  it('reads a single label off its path and prices it at what Gmail charges', () => {
+    expect(callForUrl(`${base}/labels/INBOX`)).toBe('labels.get');
+    expect(quotaCost('labels.get')).toBe(1);
   });
 
   // rest.split('/')[1] is undefined for a bulk-verb path with no message id in front of it,
