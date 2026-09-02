@@ -154,7 +154,8 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
   getMailDropPreview: (): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
-  getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
+  getLabels: (opts?: { everyMailbox?: boolean }): Promise<{ accounts: unknown[] }> =>
+    ipcRenderer.invoke(IPC.LABELS_GET, opts),
   getRecentLabels: (): Promise<RecentLabelUse[]> => ipcRenderer.invoke(IPC.MAIL_DROP_RECENT_GET),
   getMailDropExisting: (): Promise<{
     accounts: unknown[];

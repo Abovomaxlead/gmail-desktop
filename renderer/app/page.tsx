@@ -253,7 +253,9 @@ interface DesktopBridge {
   onMailDropPreview(cb: (arg: MailDropPreview) => void): void;
   closeMailDropPreview(): void;
   getMailDropPreview(): Promise<MailDropPreview>;
-  getLabels(): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
+  getLabels(opts?: {
+    everyMailbox?: boolean;
+  }): Promise<{ accounts: { email: string; labels: { id: string; name: string }[]; error?: string }[] }>;
   getRecentLabels(): Promise<RecentLabelUse[]>;
   getMailDropExisting(): Promise<MailDropExisting>;
   onMailDropExisting(cb: (arg: MailDropExisting) => void): void;

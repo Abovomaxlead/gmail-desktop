@@ -31,6 +31,7 @@ import {
   dropPreviewItems,
   existingForCopyTargets,
   labelsForCopyTargets,
+  labelsForEveryMailbox,
   mailDropFolder,
   mailDropStatus,
   pendingJobDecision,
@@ -297,7 +298,11 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => dropPreviewItems());
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => closeDropPreview());
   ipcMain.on(IPC.MAIL_DROP_PULL_CANCEL, () => cancelMailDropPull());
-  ipcMain.handle(IPC.LABELS_GET, () => labelsForCopyTargets());
+  // Two audiences, one channel: the copy window wants the drag's source left out, the label
+  // cleanup section wants every mailbox it can reach.
+  ipcMain.handle(IPC.LABELS_GET, (_e, arg?: { everyMailbox?: boolean }) =>
+    arg?.everyMailbox === true ? labelsForEveryMailbox() : labelsForCopyTargets(),
+  );
   ipcMain.handle(IPC.LABEL_PURGE_COUNT, (_e, arg: { email: string; label: string }) =>
     countLabelForPurge(arg.email, arg.label),
   );

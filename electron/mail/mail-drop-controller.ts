@@ -1459,10 +1459,18 @@ export function closeDropPreview(): void {
   dropOverlay?.close();
 }
 
-export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[] }> {
+/**
+ * The labels of the mailboxes this app can reach
+ *
+ * @param source the mailbox to leave out, empty to offer them all
+ * @returns one entry per mailbox, in sidebar order, with its own error where the labels
+ *   could not be read
+ * @private
+ */
+async function labelsForMailboxes(source: string): Promise<{ accounts: AccountLabels[] }> {
   const cfg = oauthConfig();
 
-  const targetable = copyTargetEmails(profiles, lastDropSource);
+  const targetable = copyTargetEmails(profiles, source);
   if (!cfg || !oauthTokens) {
     return {
       accounts: targetable.map((email) => ({ email, labels: [], error: 'Niet gekoppeld' })),
@@ -1515,6 +1523,22 @@ export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[
     }
   });
   return { accounts };
+}
+
+/** The label lists the copy window offers, one column per mailbox that may be copied into.
+ *
+ * The mailbox the drag came out of is left out: mail is not copied to where it already sits. */
+export async function labelsForCopyTargets(): Promise<{ accounts: AccountLabels[] }> {
+  return labelsForMailboxes(lastDropSource);
+}
+
+/** Every mailbox with its labels, the last drag included.
+ *
+ * Label cleanup picks a mailbox to empty a label in, so it has no source to exclude. Sharing
+ * the copy window's list hid the user's own mailbox for the rest of the session after one drag,
+ * and only a restart -- which clears lastDropSource -- brought it back. */
+export async function labelsForEveryMailbox(): Promise<{ accounts: AccountLabels[] }> {
+  return labelsForMailboxes('');
 }
 
 // Above this the picker says nothing about duplicates at all, so it is set above the most a

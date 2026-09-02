@@ -3,6 +3,17 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Niet uitgebracht]
+
+### Opgelost
+- **Je eigen postvak bleef staan in "Label leegmaken", ook na het slepen van mail.** Het lijstje
+  postvakken kwam uit hetzelfde antwoord als het kopieervenster, en dat venster laat met opzet één
+  postvak weg: het postvak waar je net mail uit hebt gesleept, want daarheen kopiëren heeft geen
+  zin. Voor leegmaken bestaat die bron niet, dus verdween je eigen postvak uit de keuzelijst zodra
+  je die dag één keer mail uit Gmail had gesleept — tot de eerstvolgende herstart, die het
+  onthouden bronpostvak wist. Het lijstje in de instellingen vraagt nu om álle postvakken; het
+  kopieervenster laat de bron weg zoals eerst.
+
 ## [1.0.0-beta.1788351630] — 2026-09-02
 
 ### Toegevoegd

@@ -29,12 +29,13 @@ export function LabelCleanupSection({ S }: { S: UiStrings }) {
 
   // getLabels is the picker the mail drop already uses: the mailboxes this app can reach, with
   // their own labels and none of its markers. A second channel for the same answer would be a
-  // second thing to keep true.
+  // second thing to keep true. everyMailbox drops the copy window's one difference -- it hides
+  // the mailbox the last drag came out of, which is no rule here.
   useEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
     void bridge
-      .getLabels()
+      .getLabels({ everyMailbox: true })
       .then((r) => setBoxes(r?.accounts ?? []))
       .catch(() => setBoxes([]));
   }, []);
