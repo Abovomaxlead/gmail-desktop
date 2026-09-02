@@ -34,6 +34,13 @@ to [Semantic Versioning](https://semver.org/).
   bij, dus liep die op elke ronde stuk. Dat bestand staat er nu naast.
 
 ### Opgelost
+- **Een gedeeld postvak toevoegen klapt niet meer je eigen accountmenu open.** De webadressen van
+  gedeelde postbussen staan nergens anders dan in het accountmenu van Gmail zelf — er is geen API
+  die ze geeft en het adres alleen is niet genoeg — dus moest de app dat menu openen om te kijken.
+  Dat gebeurde in de Gmail die jij op dat moment aan het lezen was: je zag je eigen menu open- en
+  seconden later weer dichtklappen, alsof de app je muis overnam. Nu wordt Gmail daarvoor los
+  ingeladen in een venster dat nooit in beeld komt. Op je scherm beweegt niets meer, en aan het
+  resultaat verandert niets.
 - **Een lang bericht in het feedbackvenster kon een Google-foutpagina opleveren in plaats van een
   mail.** De mail reist als adres naar Gmail, en Google weigert een adres boven de acht kilobyte.
   Vier duizend getypte tekens werden er in dat adres al meer dan achtduizend, en dan opende er

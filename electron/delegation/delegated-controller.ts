@@ -5,7 +5,9 @@
 // Membership comes from Google's delegation administration through the relay, and is folded on
 // in both directions by delegated-reconcile.ts. The URL comes from Gmail's account switcher, the
 // only place the opaque id in /mail/u/<n>/d/<id>/ exists at all -- no API returns it, it cannot
-// be built from the address, and it rotates. That is why the scrape is still here.
+// be built from the address, and it rotates per session. That is why the switcher is still read.
+// It is read in a window nobody sees (switcher-reader.ts), so adding a mailbox no longer opens
+// the account menu in front of the person using the app.
 //
 // Both halves used to be add-only, and that was one bug with two faces. A rotated id was never
 // re-read, so the URL kept answering with the signed-in account's own mailbox behind it; and a
@@ -25,6 +27,7 @@ import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
 import { canRunDelegatedApiScan } from './delegated-discovery-gate';
 import { deadDelegatedUrls, delegatedRepairFor } from './delegated-health';
 import { reconcileDelegations, type RequesterAnswer } from './delegated-reconcile';
+import { readSwitcher } from '../windows/switcher-reader';
 import { pickableMailboxes } from './delegated-candidates';
 import { pushHidden, pushProfiles } from '../core/broadcast';
 import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
@@ -35,7 +38,6 @@ import {
   delegated,
   hidden,
   keyOf,
-  keyOfIndex,
   manager,
   oauthTokens,
   profiles,
@@ -121,11 +123,15 @@ export function loadDelegatedProfiles(): void {
   }
 }
 
-async function scanSwitcherEntries(
-  acctKey: string = keyOfIndex(0),
-): Promise<Array<{ email: string; mailUrl: string }>> {
-  if (!manager) return [];
-  const raw = await manager.scrapeSwitcher(acctKey, SWITCHER_SCRAPE_JS).catch(() => []);
+/**
+ * The delegated entries one own account's switcher holds
+ *
+ * @param authuser the account's multi-login index; account 0 unless a caller walks them all
+ * @returns the mailboxes with the URL each one opens at
+ * @private
+ */
+async function scanSwitcherEntries(authuser = 0): Promise<Array<{ email: string; mailUrl: string }>> {
+  const raw = await readSwitcher(authuser, SWITCHER_SCRAPE_JS).catch(() => []);
   return parseDelegatedEntries(raw).map((e) => ({ email: e.email, mailUrl: e.mailUrl }));
 }
 
@@ -187,8 +193,8 @@ function delegatedWithoutUrl(): string[] {
 /**
  * Reads the account switchers until nothing is outstanding any more
  *
- * Asked account by account and stopped the moment nothing is left, because a scrape clicks the
- * avatar in a live mail view and then waits on Google's widget frame. Account 0 first, since a
+ * Asked account by account and stopped the moment nothing is left, because every read loads a
+ * Gmail page of its own and then waits on Google's widget frame. Account 0 first, since a
  * delegation nearly always appears there.
  *
  * @param outstanding which mailboxes still need a url from the switcher; asked again after each
@@ -197,10 +203,11 @@ function delegatedWithoutUrl(): string[] {
  * @private
  */
 async function scrapeSwitchersUntil(outstanding: () => string[], why: string): Promise<void> {
-  if (!delegated || !manager) return;
+  if (!delegated) return;
   if (outstanding().length === 0) return;
   for (const own of profiles.filter((p) => p.kind === 'authuser')) {
-    applySwitcherUrls(await scanSwitcherEntries(keyOf(own)));
+    if (own.ref.kind !== 'authuser') continue;
+    applySwitcherUrls(await scanSwitcherEntries(own.ref.index));
     const left = outstanding();
     if (left.length === 0) {
       notifyLog(`[delegated] ${why}: every mailbox has a url again`);

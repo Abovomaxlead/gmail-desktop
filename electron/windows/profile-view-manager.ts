@@ -907,45 +907,6 @@ export class ProfileViewManager {
       if (!v.webContents.isDestroyed()) v.webContents.send(channel, arg);
     }
   }
-
-  /**
-   * Opens Gmail's own account switcher and reads what is in it
-   *
-   * The list lives in an ogs.google.com frame that is only built once the switcher is
-   * opened, so it is toggled open, read, and toggled shut again.
-   *
-   * @param accountKey
-   * @param scrapeJs runs inside the switcher frame
-   * @returns empty when the frame never
-   *   appeared
-   */
-  async scrapeSwitcher(accountKey: string, scrapeJs: string): Promise<Array<{ email: string; href: string }>> {
-    const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
-    if (!wc || wc.isDestroyed()) return [];
-    const toggleJs = `(() => {
-      var re = /@[a-z0-9.-]+\\.[a-z]{2,}/i;
-      var a = Array.from(document.querySelectorAll('a[aria-label]'))
-        .find(function (x) { return re.test(x.getAttribute('aria-label') || ''); });
-      if (a) { a.click(); return true; }
-      return false;
-    })()`;
-    try {
-      await wc.executeJavaScript(toggleJs).catch(() => false);
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 400));
-        const ogsFrames = (wc.mainFrame?.framesInSubtree ?? []).filter((f) =>
-          f.url.startsWith('https://ogs.google.com'),
-        );
-        for (const frame of ogsFrames) {
-          const res = await frame.executeJavaScript(scrapeJs).catch(() => null);
-          if (Array.isArray(res) && res.length > 0) return res as Array<{ email: string; href: string }>;
-        }
-      }
-      return [];
-    } finally {
-      await wc.executeJavaScript(toggleJs).catch(() => false);
-    }
-  }
 }
 
 
