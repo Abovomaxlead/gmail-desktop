@@ -3,7 +3,7 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Niet uitgebracht]
+## [1.0.0-beta.1788351630] — 2026-09-02
 
 ### Toegevoegd
 - **Je kiest zelf welke gedeelde postbussen erbij komen.** "Gedelegeerd postvak toevoegen" haalde
