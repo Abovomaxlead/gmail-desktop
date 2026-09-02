@@ -51,6 +51,10 @@ export class OverlayView {
     // someone is typing, and taking the keyboard off them mid-sentence is worse than being
     // ignored.
     private readonly takesFocus = false,
+    // What to focus when a focus-taking overlay closes. Keyboard focus does not fall back by
+    // itself: it stays with the view that was just detached, and before-input-event reaches
+    // the focused webContents only, so the shortcuts would be dead until the next click.
+    private readonly returnFocus: () => void = () => {},
   ) {
     this.win.on('resize', () => this.applyBounds());
   }
@@ -101,6 +105,7 @@ export class OverlayView {
       this.win.contentView.removeChildView(this.view);
     } catch {
     }
+    if (this.takesFocus) this.returnFocus();
   }
 
   /**

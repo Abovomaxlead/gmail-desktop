@@ -133,7 +133,14 @@ export function createWindow(): void {
   win.on('show', refreshBadge);
   win.on('restore', refreshBadge);
 
-  win.on('focus', () => void pushDefaultMailStatus());
+  win.on('focus', () => {
+    void pushDefaultMailStatus();
+    // A window brought back from the tray, from alt-tab or from a click on its frame is
+    // focused without anything inside it being focused, and the shortcuts then reach no
+    // handler. Measured with a probe on this exact layout: the keys were lost until the user
+    // clicked a page.
+    manager?.focusActiveSurface();
+  });
   setColors(new ColorStore(join(app.getPath('userData'), 'colors.json')));
   const tokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
 
@@ -248,6 +255,10 @@ export function createWindow(): void {
     void pushDefaultMailStatus();
     startDelegatedUrlRefreshOnce();
     applyReneZoom();
+    // The shell takes keyboard focus the moment it is drawn, so the shortcuts work in a
+    // window nobody has clicked in yet. A view that is already up wins it back through
+    // focusActiveSurface.
+    manager?.focusActiveSurface();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
     if (!detectionStarted) {
       setDetectionStarted(true);

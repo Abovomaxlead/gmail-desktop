@@ -12,9 +12,9 @@
 // webContents that supports on/once/loadURL/setZoomLevel/setAudioMuted/setWindowOpenHandler,
 // and a host window with a contentView that can add and remove children.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { AccountRef } from '../renderer/lib/account-ref';
-import type { Profile } from '../electron/windows/profile-view-manager';
+import type { Profile, ProfileViewManager as ViewManager } from '../electron/windows/profile-view-manager';
 
 const { FakeWebContentsView } = vi.hoisted(() => {
   class FakeWebContents {
@@ -55,6 +55,12 @@ const { FakeWebContentsView } = vi.hoisted(() => {
     }
     setZoomLevel(): void {}
     setAudioMuted(): void {}
+    /** How often main put keyboard focus here; before-input-event only reaches the focused
+     * webContents, so this is what decides whether a shortcut is heard at all. */
+    focuses = 0;
+    focus(): void {
+      this.focuses += 1;
+    }
     isDestroyed(): boolean {
       return false;
     }
@@ -92,10 +98,42 @@ const { accountKey } = await import('../renderer/lib/account-ref');
 const { handleInput } = await import('../electron/windows/window-chrome');
 const { profiles: runtimeProfiles, setPrefs } = await import('../electron/core/runtime');
 
-function fakeWin() {
+/** The fake page behind a view, as the tests need to see it. */
+interface FakePage {
+  url: string;
+  navigations: string[];
+  /** How often main put keyboard focus here. */
+  focuses: number;
+  sent: Array<{ channel: string; args: unknown[] }>;
+  /** Drives what the real WebContents raises, so a test can act as the page. */
+  emit(event: string, ...args: unknown[]): void;
+}
+
+/** A view the manager built, as it lands in the host window. */
+interface FakeView {
+  webContents: FakePage;
+  visible: boolean;
+}
+
+/** The host window the manager is driven against. */
+interface FakeWin {
+  isDestroyed: () => boolean;
+  isFocused: () => boolean;
+  on: () => void;
+  webContents: { focus: Mock<[], void>; isDestroyed: () => boolean };
+  contentView: {
+    addChildView: Mock<[FakeView], void>;
+    removeChildView: Mock<[FakeView], void>;
+  };
+  getContentSize: () => number[];
+}
+
+function fakeWin(): FakeWin {
   return {
     isDestroyed: () => false,
+    isFocused: () => true,
     on: () => {},
+    webContents: { focus: vi.fn(), isDestroyed: () => false },
     contentView: {
       addChildView: vi.fn(),
       removeChildView: vi.fn(),
@@ -104,7 +142,7 @@ function fakeWin() {
   };
 }
 
-function manager(win: ReturnType<typeof fakeWin>, mayDragToSave?: (accountKey: string) => boolean | null) {
+function manager(win: FakeWin, mayDragToSave?: (accountKey: string) => boolean | null) {
   return new ProfileViewManager(
     win as never,
     'preload.js',
@@ -131,15 +169,9 @@ const withUrl: AccountRef = {
 };
 const owned: AccountRef = { kind: 'authuser', index: 0 };
 
-/** The fake page behind a view, as the reload tests need to see it. */
-interface FakePage {
-  url: string;
-  navigations: string[];
-}
-
 /** The page of the nth view the manager built. */
-function pageOf(win: ReturnType<typeof fakeWin>, n = 0): FakePage {
-  return (win.contentView.addChildView.mock.calls[n][0] as { webContents: FakePage }).webContents;
+function pageOf(win: FakeWin, n = 0): FakePage {
+  return win.contentView.addChildView.mock.calls[n][0].webContents;
 }
 
 describe('ProfileViewManager funnel guard', () => {
@@ -188,7 +220,7 @@ describe('ProfileViewManager funnel guard', () => {
 // to reach it — an answer that never arrives leaves no strip, which is the safe side, but a
 // wrong `true` would put one in a private mailbox.
 describe('who may offer drag-to-save', () => {
-  const askFrom = (win: ReturnType<typeof fakeWin>, m: ReturnType<typeof manager>) => {
+  const askFrom = (win: FakeWin, m: ViewManager) => {
     m.ensureView(owned, 'mail', true);
     const view = win.contentView.addChildView.mock.calls[0][0] as {
       webContents: { emit(e: string, ...a: unknown[]): void; sent: Array<{ channel: string; args: unknown[] }> };
@@ -248,7 +280,7 @@ describe('who may offer drag-to-save', () => {
 // before it reaches either callback rather than handed over unchecked.
 describe('page-sent identity and drop payloads are shape-checked', () => {
   function managerWithCallbacks(
-    win: ReturnType<typeof fakeWin>,
+    win: FakeWin,
     overrides: { onIdentity?: (...args: unknown[]) => void; onMailDrop?: (...args: unknown[]) => void } = {},
   ) {
     return new ProfileViewManager(
@@ -358,13 +390,63 @@ describe('Ctrl+number follows the tab bar order, not detection order', () => {
   });
 });
 
+// Shortcuts reach the app as before-input-event, and Electron sends that to the focused
+// webContents only. Measured on this layout with real OS keystrokes: a switch that flipped
+// setVisible without moving focus left the key with the view that had just gone invisible,
+// and Ctrl+1..9 did nothing until the user clicked a page. Same for the settings panel,
+// which hides every view. So what is on screen must also hold focus.
+describe('keyboard focus follows what is on screen', () => {
+  const focusesOf = (win: FakeWin, n = 0) => win.contentView.addChildView.mock.calls[n][0].webContents.focuses;
+
+  it('focuses the view a switch brought up', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    expect(focusesOf(win)).toBe(1);
+    expect(win.webContents.focus).not.toHaveBeenCalled();
+  });
+
+  it('hands focus to the shell while the settings panel hides every view', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    m.hideAll();
+    expect(win.webContents.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives focus back to the view when the panel closes', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    m.hideAll();
+    m.showActive();
+    expect(focusesOf(win)).toBe(2);
+  });
+
+  it('falls back to the shell when the view holding focus is torn down', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    m.discardView(accountKey(owned), 'mail');
+    expect(win.webContents.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its hands off focus while the window is in the background', () => {
+    const win: FakeWin = { ...fakeWin(), isFocused: () => false };
+    const m = manager(win);
+    m.show(owned, 'mail');
+    expect(focusesOf(win)).toBe(0);
+    expect(win.webContents.focus).not.toHaveBeenCalled();
+  });
+});
+
 // A pull locks every Gmail view, not the one that was dragged from: the drop handler is one
 // module-level pull, so switching accounts mid-pull was the way to start a second one. The
 // broadcast is what makes the lock true everywhere, and it has to stay off the other
 // surfaces -- a veil over Calendar would be a bug nobody could explain.
 describe('the pull lock reaches every Gmail view', () => {
   const second: AccountRef = { kind: 'authuser', index: 1 };
-  const sentOn = (win: ReturnType<typeof fakeWin>, channel: string) =>
+  const sentOn = (win: FakeWin, channel: string) =>
     win.contentView.addChildView.mock.calls
       .map((c: unknown[]) => c[0] as { webContents: { sent: Array<{ channel: string; args: unknown[] }> } })
       .map((v) => v.webContents.sent.filter((s) => s.channel === channel).length);

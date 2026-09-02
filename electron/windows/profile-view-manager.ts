@@ -86,6 +86,9 @@ export class ProfileViewManager {
   private warming = new Set<string>();
   private popoutExpectUntil = new Map<string, number>();
   private dropRefused = new Set<string>();
+  /** Whether the settings panel has every view hidden. Keyboard focus belongs to the shell
+   * while it is, and to the view on screen otherwise. */
+  private surfacesHidden = false;
   /** Which anchor owns a mail view. A later click bumps it, and the one still looking
    * stops. */
   private anchorRun = new Map<string, number>();
@@ -239,7 +242,13 @@ export class ProfileViewManager {
     this.warming.delete(k);
     for (const [vk, v] of this.views) v.setVisible(vk === k || this.warming.has(vk));
     this.activeViewKey = k;
+    this.surfacesHidden = false;
     this.applyBounds(view);
+    // Keyboard focus has to travel with the view, or it stays with the one that just went
+    // invisible. before-input-event only reaches the focused webContents, so a switch that
+    // leaves focus behind drops Ctrl+1..9, Ctrl+N and the zoom keys on the floor -- and the
+    // user has to click the page to get them back.
+    this.focusActiveSurface();
   }
 
   /**
@@ -410,15 +419,21 @@ export class ProfileViewManager {
     this.views.delete(k);
     this.homeUrls.delete(k);
     this.warming.delete(k);
-    if (this.activeViewKey === k) this.activeViewKey = null;
+    if (this.activeViewKey === k) {
+      this.activeViewKey = null;
+      this.focusActiveSurface();
+    }
     if (surface === 'mail') this.onUnread(accountKey, 0);
   }
 
   hideAll(): void {
     for (const [vk, v] of this.views) if (!this.warming.has(vk)) v.setVisible(false);
+    this.surfacesHidden = true;
+    this.focusActiveSurface();
   }
 
   showActive(): void {
+    this.surfacesHidden = false;
     if (this.activeViewKey) {
       const view = this.views.get(this.activeViewKey);
       if (view) {
@@ -426,6 +441,29 @@ export class ProfileViewManager {
         this.applyBounds(view);
       }
     }
+    this.focusActiveSurface();
+  }
+
+  /**
+   * Puts keyboard focus on the surface that is on screen
+   *
+   * The shortcuts (Ctrl+1..9, Ctrl+N, the zoom keys) arrive as before-input-event, and
+   * Electron sends that to the focused webContents only. Three states used to leave the
+   * window focused with nothing inside it focused -- a window nobody had clicked in yet, a
+   * switch that hid the view holding focus, and the settings panel hiding every view -- and
+   * in all three the keys reached no handler at all. Called wherever what is on screen
+   * changes, so there is always exactly one place the keys land.
+   */
+  focusActiveSurface(): void {
+    // Only ever moves focus inside a window that already has it: focusing a webContents can
+    // raise its window on Windows, and a view built while the user is in another app must
+    // not pull them out of it. The window's own focus event calls this again, so a window
+    // that was busy elsewhere is put right the moment it comes back.
+    if (this.win.isDestroyed() || !this.win.isFocused()) return;
+    const k = this.activeViewKey;
+    const view = k && !this.surfacesHidden && !this.warming.has(k) ? this.views.get(k) : undefined;
+    if (view && !view.webContents.isDestroyed()) view.webContents.focus();
+    else if (!this.win.webContents.isDestroyed()) this.win.webContents.focus();
   }
 
   relayout(): void {

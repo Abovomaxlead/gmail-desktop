@@ -13,6 +13,16 @@ to [Semantic Versioning](https://semver.org/).
   je die dag één keer mail uit Gmail had gesleept — tot de eerstvolgende herstart, die het
   onthouden bronpostvak wist. Het lijstje in de instellingen vraagt nu om álle postvakken; het
   kopieervenster laat de bron weg zoals eerst.
+- **Ctrl+1 tot 9 werken zonder eerst in de pagina te klikken.** De sneltoetsen komen binnen bij het
+  venster-onderdeel dat op dat moment de toetsen heeft, en er waren drie momenten waarop dat
+  niemand was: een venster waar je nog niet in had geklikt, een postvakwissel — want die maakte het
+  oude postvak onzichtbaar terwijl de toetsen dáár nog lagen — en het instellingenpaneel, dat elk
+  postvak wegzet. In alle drie kwam Ctrl+1 tot 9 (en Ctrl+N, en de zoomtoetsen) bij niets uit, tot
+  je ergens in de pagina klikte. De toetsen verhuizen nu mee met wat je op het scherm ziet: naar
+  het postvak dat naar voren komt, naar de app zelf als het paneel de postvakken wegzet, en terug
+  naar het postvak als het paneel weer dichtgaat. Hetzelfde geldt voor het lijstje "gedeeld
+  postvak toevoegen", dat de toetsen ook niet meer meeneemt als het sluit. Staat het venster op de
+  achtergrond, dan blijft de app van je toetsen af: hij pakt ze pas als je zelf terugkomt.
 
 ## [1.0.0-beta.1788351630] — 2026-09-02
 

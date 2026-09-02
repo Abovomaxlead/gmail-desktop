@@ -12,7 +12,7 @@
 import { OverlayView } from '../windows/overlay-view';
 import { IPC } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
-import { currentLocale, delegatedPicker, mainWindow, prefs, setDelegatedPicker } from '../core/runtime';
+import { currentLocale, delegatedPicker, mainWindow, manager, prefs, setDelegatedPicker } from '../core/runtime';
 import { addDelegatedMailboxes, discoverDelegatedMailboxes } from './delegated-controller';
 import { notifyLog } from '../notify/notify-log';
 import type { DelegatedPickerAsk } from '../../renderer/lib/delegated-picker';
@@ -41,6 +41,7 @@ export function openDelegatedPicker(): void {
       // Takes the keyboard: Esc closes the panel and the rows are tickable with the keyboard,
       // neither of which reaches a view that was never focused
       true,
+      () => manager?.focusActiveSurface(),
     );
   setDelegatedPicker(overlay);
   overlay.open(ask({ scanning: true, candidates: [], answered: false }));
