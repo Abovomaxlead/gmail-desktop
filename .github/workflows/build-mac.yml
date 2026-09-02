@@ -1,0 +1,93 @@
+name: Build macOS (no publish)
+
+# Manually-triggered macOS build that produces the disk image as a downloadable
+# artifact WITHOUT publishing a GitHub release — the mac counterpart of build.yml,
+# and the only way to get one at all: electron-builder refuses a mac target on any
+# other platform, so a Windows workstation cannot produce this even unsigned.
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: Which Macs to build for
+        type: choice
+        default: both
+        options:
+          - both
+          - arm64
+          - x64
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install renderer dependencies
+        run: npm ci --prefix renderer
+
+      # Same as the Windows workflows: a test install has to be able to link accounts too,
+      # or it is not testing the thing people will run. See release.yml for why this comes
+      # from a secret rather than the repository.
+      - name: Write the bundled OAuth config
+        shell: bash
+        run: printf '%s' "$GOOGLE_OAUTH_JSON" > assets/oauth-defaults.json
+        env:
+          GOOGLE_OAUTH_JSON: ${{ secrets.GOOGLE_OAUTH_JSON }}
+
+      - name: Check the bundled OAuth config
+        run: npm run check:oauth
+
+      # Unsigned and unnotarised on purpose: there is no Apple Developer certificate in this
+      # repository, and electron-builder would otherwise try to sign with whatever it finds.
+      # CSC_IDENTITY_AUTO_DISCOVERY=false is what keeps that from failing the run. Gatekeeper
+      # will refuse the result on first open -- see the note the artifact ships with.
+      - name: Build disk image (no publish, no signing)
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          case "${{ inputs.arch }}" in
+            arm64) ARCHS=--arm64 ;;
+            x64)   ARCHS=--x64 ;;
+            *)     ARCHS="--arm64 --x64" ;;
+          esac
+          npm run build && npx electron-builder --mac $ARCHS --publish never
+
+      # Told here rather than in a README nobody reads at the moment it matters: an unsigned
+      # build looks broken rather than unsigned, and "is beschadigd" is what the tester reports.
+      - name: Write the note that travels with the artifact
+        shell: bash
+        run: |
+          cat > dist/OPEN-ME-FIRST.txt <<'NOTE'
+          This build is not signed and not notarised, so macOS will refuse it on first open
+          with "app is damaged" or "cannot be opened because the developer cannot be verified".
+          That is Gatekeeper, not a broken build.
+
+          To open it anyway, after dragging the app to Applications:
+
+              xattr -dr com.apple.quarantine "/Applications/Gmail Desktop.app"
+
+          Or: right-click the app in Applications, choose Open, then confirm.
+
+          Auto-update is not expected to work from this build: it was not published as a
+          release, so there is nothing for it to compare itself against.
+          NOTE
+
+      - name: Upload disk image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gmail-desktop-macos
+          path: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/*-mac.zip
+            dist/latest-mac.yml
+            dist/OPEN-ME-FIRST.txt
+          if-no-files-found: error
