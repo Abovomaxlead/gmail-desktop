@@ -19,8 +19,6 @@ export const TOAST_LOAD_TIMEOUT_MS = 5000;
 
 export const TOAST_RENDER_TIMEOUT_MS = 2500;
 
-const CONSOLE_LEVELS = ['verbose', 'info', 'warning', 'error'] as const;
-
 const ERR_ABORTED = -3;
 
 export const TOAST_REBUILD_ATTEMPTS = 3;
@@ -97,9 +95,9 @@ export class ToastWindow {
       this.setZoomFactor(win);
       notifyLog(`[toast] building the window for ${this.url} (zoom ${this.zoom()})`);
       // into the file rather than a devtools console nobody has open on an invisible window
-      win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
-        const where = sourceId ? ` (${sourceId}:${line})` : '';
-        notifyLog(`[toast] page says [${CONSOLE_LEVELS[level] ?? level}] ${message}${where}`);
+      win.webContents.on('console-message', ({ level, message, lineNumber, sourceId }) => {
+        const where = sourceId ? ` (${sourceId}:${lineNumber})` : '';
+        notifyLog(`[toast] page says [${level}] ${message}${where}`);
       });
       win.webContents.on('render-process-gone', (_e, details) => {
         this.markBroken(`the page's process is gone (${details.reason})`);

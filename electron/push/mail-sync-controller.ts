@@ -113,7 +113,7 @@ async function handleVerificationCode(
       vc.confidence,
     );
     if (!code) return;
-    clipboard.writeText(code);
+    await clipboard.writeText(code);
     handledCodeIds.add(meta.id);
     if (handledCodeIds.size > HANDLED_CODE_LIMIT) {
       for (const id of [...handledCodeIds].slice(0, HANDLED_CODE_LIMIT / 2)) {
