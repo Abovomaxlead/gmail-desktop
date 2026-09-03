@@ -131,6 +131,14 @@ export async function pushDefaultMailStatus(): Promise<void> {
 }
 
 export function refreshBadge(): void {
+  // A view that opened for an account which never became a profile -- a probe during
+  // detection, a delegation scan that came up empty -- reports a count under a key nothing
+  // will ever zero. pushProfiles prunes those, but a report arriving after the last push
+  // would otherwise sit in the total for the rest of the session. Only once there is a
+  // profile to compare against: before that, a count belongs to an account detection has
+  // not confirmed yet, and dropping it would leave the badge behind until the page speaks
+  // again.
+  if (profiles.length > 0) unread.retain(profiles.map(keyOf));
   const counts = unread.snapshot();
   const excluded = excludedBadgeKeys();
   const total = applyBadge(counts, (n) => app.setBadgeCount(n), excluded, () => {
