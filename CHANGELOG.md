@@ -6,6 +6,27 @@ to [Semantic Versioning](https://semver.org/).
 ## [Niet uitgebracht]
 
 ### Opgelost
+- **Google zegt niet meer dat je browser te oud is.** De app draaide op de Chrome-versie van
+  Electron 31 (Chrome 126), en die is Google inmiddels voorbijgelopen: Spreadsheets en Documenten
+  zetten er een balk boven de pagina dat deze browserversie niet meer wordt ondersteund. De app
+  draait nu op Electron 44, met Chrome 152 eronder. Verder werkt alles zoals eerst; alleen de
+  motor onder de app is nieuwer, en daarmee ook de beveiligingsupdates die Google en Chrome
+  sindsdien hebben uitgebracht.
+- **De instelling "Google-apps" geldt nu op élke manier waarop zo'n app opengaat.** Bij
+  "Google-apps" kun je zeggen dat een app in de browser hoort, in een eigen venster of gewoon in
+  de app — maar alleen de knoppen in de balk hielden zich daaraan. Vijf andere routes deden hun
+  eigen ding: een bijlage die je via "Openen met → Google Spreadsheets" opende, een link die de
+  pagina in hetzelfde venster volgde in plaats van er een nieuw te openen, een melding uit Agenda
+  of Chat, een link in een los venster (opstelvenster, pop-out, of een app die al in een eigen
+  venster stond), en elk venster dat Gmail zelf opende — dat laatste had zelfs helemaal geen
+  regels, ook geen linkwaarschuwing. Alle vijf gaan nu door dezelfde beslissing. Zet je een app
+  op "in de browser", dan komt hij daar terecht, hoe je hem ook tegenkomt.
+- **Maar zit je al ín een app, dan blijf je daar.** Eén uitzondering op het bovenstaande, en de
+  belangrijkste: staat Spreadsheets op "in de browser" en klik je binnen een spreadsheet door naar
+  een ander tabblad of een andere sheet, dan blijft dat waar je bent. "In de browser openen" gaat
+  over hoe je een app bereikt, niet over eruit gegooid worden zodra je er bent. Voor mail geldt
+  hetzelfde als altijd: een pop-out, een los bericht of een opstelvenster blijft in de app, wat er
+  bij Google-apps ook staat ingesteld.
 - **Je eigen postvak bleef staan in "Label leegmaken", ook na het slepen van mail.** Het lijstje
   postvakken kwam uit hetzelfde antwoord als het kopieervenster, en dat venster laat met opzet één
   postvak weg: het postvak waar je net mail uit hebt gesleept, want daarheen kopiëren heeft geen
