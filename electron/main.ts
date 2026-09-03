@@ -49,7 +49,7 @@ import {
 import { applyTraySetting, refreshTray, setTrayHooks } from './menus/tray-setup';
 import { applyAutoUpdateCheck, setUpdateHooks, setupUpdater } from './updates/update-controller';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menus/context-menu';
-import { setExternalOpener } from './system/external-links';
+import { setExternalOpener, setGoogleAppsRouting } from './system/external-links';
 import { extractMailtoFromArgv } from './mail/mailto';
 import { startMailDropCleanup } from './mail/mail-drop-cleanup';
 import { mailDropFolder, resumeOrphanedCopyRuns } from './mail/mail-drop-controller';
@@ -161,6 +161,7 @@ app.whenReady().then(() => {
   app.on('session-created', (s) => attachSessionHandlers(s));
   attachSessionHandlers(session.defaultSession);
   setExternalOpener(openExternalGuarded);
+  setGoogleAppsRouting(() => prefs?.getAll().googleApps ?? null);
   wireModules();
   registerAppProtocol();
   setupNotifications();

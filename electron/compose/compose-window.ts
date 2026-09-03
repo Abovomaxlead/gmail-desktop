@@ -7,7 +7,7 @@ import { anchorMessage } from '../gmail/message-anchor';
 import { notifyLog } from '../notify/notify-log';
 import { composeUrl } from './compose-url';
 import { SESSION_PARTITION } from '../core/session-partition';
-import {  } from '../core/runtime';
+import { manager } from '../core/runtime';
 import type { MailtoFields } from '../mail/mailto';
 
 
@@ -38,7 +38,10 @@ export function openCompose(
       contextIsolation: true,
     },
   });
-  attachExternalLinkHandling(win.webContents);
+  attachExternalLinkHandling(win.webContents, {
+    surface: 'mail',
+    openInApp: (url) => manager?.openInOwningSurface({ kind: 'authuser', index }, 'mail', url),
+  });
   void win.loadURL(composeUrl(index, fields));
   return win;
 }
@@ -59,7 +62,10 @@ export function openFullThreadWindow(index: number, threadId: string, messageId?
     backgroundColor: '#ffffff',
     webPreferences: { partition: SESSION_PARTITION, contextIsolation: true },
   });
-  attachExternalLinkHandling(win.webContents);
+  attachExternalLinkHandling(win.webContents, {
+    surface: 'mail',
+    openInApp: (url) => manager?.openInOwningSurface({ kind: 'authuser', index }, 'mail', url),
+  });
   // Hung off the load rather than off loadURL's promise: Gmail routinely supersedes its own
   // navigation, which rejects that promise with ERR_ABORTED on a page that loaded fine.
   if (messageId) {

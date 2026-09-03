@@ -9,7 +9,7 @@ import { BrowserWindow, dialog, shell } from 'electron';
 import { pushPrefs } from '../core/broadcast';
 import { accountKey, type AccountRef } from '../accounts/account-ref';
 import { SESSION_PARTITION } from '../core/session-partition';
-import { activeView, currentLocale, mainWindow, prefs, profiles } from '../core/runtime';
+import { activeView, currentLocale, mainWindow, manager, prefs, profiles } from '../core/runtime';
 import { showAccount } from './view-surfaces';
 import { hiddenNotificationText, playNotificationSound, resetSoundThrottle } from '../notify/notify-gating';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
@@ -85,7 +85,12 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
   win.on('page-title-updated', (e) => {
     if (showLabel) e.preventDefault();
   });
-  attachExternalLinkHandling(win.webContents);
+  attachExternalLinkHandling(win.webContents, {
+    surface,
+    // A link out of this window into another app obeys the setting like anywhere else, and
+    // one that belongs in the app lands in the shared view rather than in a third window.
+    openInApp: (target) => manager?.openInOwningSurface(ref, surface, target),
+  });
   void win.loadURL(url);
 }
 

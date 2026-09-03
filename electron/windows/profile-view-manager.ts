@@ -154,6 +154,7 @@ export class ProfileViewManager {
       },
     });
     attachExternalLinkHandling(view.webContents, {
+      surface,
       getOpenMode: this.getOpenMode,
       openInApp: (url) => this.openInOwningSurface(ref, surface, url),
       isNotificationClickInFlight: () => Date.now() < (this.notifClickUntil.get(k) ?? 0),

@@ -21,7 +21,7 @@ import {
   setSettingsPanelOpen,
   settingsPanelOpen,
 } from '../core/runtime';
-import { showAccount } from '../windows/view-surfaces';
+import { openSurfaceForAccount } from '../windows/surface-opener';
 import { openFullThreadWindow } from '../compose/compose-window';
 import { withTokenFor } from '../auth/mailbox-token';
 import { forgetDownloadClickPath, takeDownloadClickAction } from '../system/session-setup';
@@ -120,7 +120,11 @@ export function activateNotification(
   // The profile's own ref, never one rebuilt from the index: a delegated mailbox has no
   // index, so idx is null for it and the mailbox that raised the card would stay off screen
   // while the thread opened in a view nobody was looking at.
-  if (surfacesForRef(profile.ref).includes(surface)) showAccount(profile.ref, surface);
+  //
+  // Which is not the same as deciding where it lands: a card from Calendar or Chat opens
+  // that app, and an app the user sent to the browser belongs in the browser here too, so
+  // this goes through the same funnel as the button in the bar. Mail is exempt inside it.
+  if (surfacesForRef(profile.ref).includes(surface)) openSurfaceForAccount(profile.ref, surface);
   if (surface !== 'mail') return;
   if (threadId) manager?.openMailThread(accountKey, threadId, messageId);
   else if (subject) manager?.openMailSearch(accountKey, subject);
