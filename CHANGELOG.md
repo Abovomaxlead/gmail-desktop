@@ -3,7 +3,7 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Niet uitgebracht]
+## [1.0.0-beta.1788503135] — 2026-09-04
 
 ### Opgelost
 - **Google zegt niet meer dat je browser te oud is.** De app draaide op de Chrome-versie van
