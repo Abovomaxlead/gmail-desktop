@@ -135,6 +135,7 @@ import {
 } from './job-guard';
 import {
   labelTreeMembers,
+  parentInsideTree,
   planLabelTree,
   resolveMessageLabels,
   type LabelTreePlan,
@@ -185,6 +186,7 @@ import {
   deleteLabel,
   fetchLabels,
   fetchUserLabelMap,
+  isSystemLabelId,
   createVisibleLabel,
   fetchMessageListPage,
   fetchThreadMessages,
@@ -2000,12 +2002,30 @@ async function planTrees(
       const chosen = target.tree?.parentLabelId ?? null;
       const parent = chosen ? nameForLabelId(existing, chosen) : null;
       // Refused rather than quietly put at the top of the list: the user picked a label, and
-      // landing somewhere else is not a smaller version of that.
+      // landing somewhere else is not a smaller version of that. Gmail's own places are not in
+      // `existing` at all -- it lists user labels -- so they come out here too, and say why:
+      // nesting is naming, and only a user label can carry a name with a slash in it.
       if (chosen && !parent) {
-        errors.set(target.email, 'het gekozen label bestaat niet meer in dit postvak');
+        errors.set(
+          target.email,
+          isSystemLabelId(chosen)
+            ? 'een structuur kan alleen onder een eigen label, niet onder Postvak IN, Met sterren of Belangrijk'
+            : 'het gekozen label bestaat niet meer in dit postvak',
+        );
         return;
       }
-      const plan = planLabelTree(members, tree.dragged, parent, existing);
+      // A parent of the tree's own kind puts the whole tree in a copy of itself -- nothing is
+      // reused, every name is new, and the mail lands one level deeper. Refused rather than
+      // silently stripped: whoever wants the sublabel under the label that is already there
+      // means the top of the list, which reuses it and gives exactly that.
+      if (parent && parentInsideTree(tree.dragged, parent)) {
+        errors.set(
+          target.email,
+          `"${parent}" hoort bij dezelfde structuur als "${tree.dragged}" — kies Bovenin, dan wordt het bestaande label hergebruikt`,
+        );
+        return;
+      }
+      const plan = planLabelTree(members, parent, existing);
       plans.set(target.email, plan);
       resolved.set(target.email, perMessageLabels(files, plan, new Map(plan.reuse)));
     } catch (e) {

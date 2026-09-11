@@ -210,6 +210,19 @@ const SYSTEM_NAMES: Record<string, string> = {
   IMPORTANT: 'Belangrijk',
 };
 
+/**
+ * Whether an id names one of Gmail's own places rather than a label the user made
+ *
+ * The picker offers these three as copy destinations, but only a user label can carry a
+ * nested name -- there is no `INBOX/Klanten` -- so a tree can never be put under one.
+ *
+ * @param id a label id as the picker sends it back
+ * @returns true for Gmail's own
+ */
+export function isSystemLabelId(id: string): boolean {
+  return SYSTEM_TARGETS.has(id);
+}
+
 
 //===========================
 // Labels

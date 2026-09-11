@@ -3,6 +3,7 @@
 import { labelKind, type LabelKind } from '../label-kind';
 import { type MailboxRow } from '../mailbox-rail';
 import { type MailDropTree } from '../../lib/maildrop-copy';
+import { treeTopPlace } from '../tree-place';
 import { type UiStrings } from '../strings';
 
 
@@ -168,9 +169,10 @@ export function LabelPane({
   S: UiStrings;
 }) {
   const single = tree !== null;
-  const places: Array<{ id: string; name: string }> = single
-    ? [{ id: TOP_LEVEL, name: S.mdTopLevel }, ...shown]
-    : shown;
+  // The top place is drawn on its own above the header below, not as the first of the labels:
+  // it is the row that reuses the structure the mailbox already has, and under a heading that
+  // says "place under" it read as the one row that does not do that.
+  const top = tree ? treeTopPlace(tree.dragged, account.labels, S) : null;
   // Only above an empty box. Once something is typed the list is the answer to that, and a
   // shortcut standing in front of it is one more thing to read past.
   const shortcuts = search.trim() === '' ? recent : [];
@@ -201,10 +203,25 @@ export function LabelPane({
         <span className="px-4 py-3 text-xs text-red-600 dark:text-red-500">{account.error}</span>
       ) : account.labels.length === 0 && !single ? (
         <span className="px-4 py-3 text-xs text-neutral-400">{S.mdNoLabels}</span>
-      ) : places.length === 0 ? (
+      ) : shown.length === 0 && !top ? (
         <span className="px-4 py-3 text-xs text-neutral-400">{S.mdNoLabelFound}</span>
       ) : (
         <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-2">
+          {top && (
+            <>
+              <PlaceRow
+                label={{ id: TOP_LEVEL, name: top.name }}
+                hint={top.hint}
+                on={picked.includes(TOP_LEVEL)}
+                single
+                disabled={disabled}
+                already={0}
+                onToggle={() => onToggle(TOP_LEVEL)}
+                S={S}
+              />
+              <div className="my-1.5 border-t border-black/5 dark:border-white/10" />
+            </>
+          )}
           {shortcuts.length > 0 && (
             <>
               <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
@@ -225,21 +242,19 @@ export function LabelPane({
               <div className="my-1.5 border-t border-black/5 dark:border-white/10" />
             </>
           )}
-          {single && (
+          {single && shown.length > 0 && (
             <p className="px-1.5 pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
               {S.mdPlaceUnder}
             </p>
           )}
-          {places.map((label) => (
+          {shown.map((label) => (
             <PlaceRow
               key={label.id}
               label={label}
               on={picked.includes(label.id)}
               single={single}
               disabled={disabled}
-              // Never asked about a place that is not a label, and never about a label that is
-              // about to be created: neither can hold anything yet.
-              already={label.id === TOP_LEVEL ? 0 : countExisting(label.id)}
+              already={countExisting(label.id)}
               onToggle={() => onToggle(label.id)}
               S={S}
             />
@@ -257,6 +272,8 @@ export function LabelPane({
  * twice -- one tickbox drawn two ways is what would make them disagree.
  *
  * @param label
+ * @param hint a second line under the name, for a row whose name alone does not say what it
+ *   does -- only the top place has one
  * @param on whether it is ticked
  * @param single one destination rather than several, which turns the tickbox into a choice
  * @param disabled while a copy is running
@@ -266,6 +283,7 @@ export function LabelPane({
  */
 export function PlaceRow({
   label,
+  hint,
   on,
   single,
   disabled,
@@ -274,6 +292,7 @@ export function PlaceRow({
   S,
 }: {
   label: { id: string; name: string };
+  hint?: string;
   on: boolean;
   single: boolean;
   disabled: boolean;
@@ -297,8 +316,15 @@ export function PlaceRow({
         className="h-4 w-4 shrink-0 accent-blue-600"
       />
       {label.id === TOP_LEVEL ? <TopLevelIcon /> : <LabelIcon id={label.id} S={S} />}
-      <span className="truncate" title={label.name}>
-        {label.name}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate" title={label.name}>
+          {label.name}
+        </span>
+        {hint && (
+          <span className="block truncate text-[11px] text-neutral-500 dark:text-neutral-400">
+            {hint}
+          </span>
+        )}
       </span>
       {already > 0 && (
         <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
@@ -315,17 +341,34 @@ export function PlaceRow({
  * Shown before anything is copied because it is the only place a sublabel the scrape could not
  * see becomes visible while the drag can still be cancelled.
  *
+ * The labels above the dragged one are drawn too, without a count: they are made in the target
+ * so the sublabel hangs where it hung, and no mail goes into them.
+ *
  * @param tree
  * @param S the active string set
  */
 export function TreeOutline({ tree, S }: { tree: MailDropTree; S: UiStrings }) {
+  const above = tree.dragged.split('/').slice(0, -1);
+  const ancestors = above.map((_, i) => above.slice(0, i + 1).join('/'));
   return (
     <div className="max-h-32 shrink-0 overflow-y-auto border-b border-black/5 bg-black/[0.02] px-4 py-2 dark:border-white/10 dark:bg-white/[0.03]">
       <p className="pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
         {S.mdTreeLabelCount(tree.members.length)}
       </p>
+      {ancestors.map((name, i) => (
+        <div
+          key={name}
+          className="flex items-center gap-2 py-px text-[12px] text-neutral-400 dark:text-neutral-500"
+          style={{ paddingLeft: `${i * 12}px` }}
+        >
+          <span className="truncate" title={name}>
+            {name.split('/').pop()}
+          </span>
+          <span className="ml-auto shrink-0 text-[11px] italic">{S.mdTreeStructureOnly}</span>
+        </div>
+      ))}
       {tree.members.map((m) => {
-        const depth = m.name.split('/').length - tree.dragged.split('/').length;
+        const depth = m.name.split('/').length - 1;
         return (
           <div
             key={m.name}

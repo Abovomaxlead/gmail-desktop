@@ -46,21 +46,44 @@ export function labelTreeMembers(all: string[], dragged: string): string[] {
 }
 
 /**
+ * Whether the chosen parent belongs to the dragged tree itself
+ *
+ * A tree put under a label of its own kind lands in a copy of itself: choosing `Klanten` for a
+ * dragged `Klanten` makes `Klanten/Klanten`, and nothing is reused because every destination
+ * name is new. Since every member hangs under the dragged label and every step above a
+ * destination is a prefix of it, the whole question is one segment: the first one.
+ *
+ * Compared in lower case because Gmail treats names that differ only in capitalisation as the
+ * same label -- that is the 409 `createVisibleLabel` already catches -- so `klanten` as the
+ * parent of `Klanten` is the same mistake.
+ *
+ * @param dragged the label the drag started on
+ * @param parent the label the tree would be put under, or null for the top of the list
+ * @returns true when the parent may not be used
+ */
+export function parentInsideTree(dragged: string, parent: string | null): boolean {
+  if (!parent) return false;
+  return (
+    parent.split('/')[0].toLocaleLowerCase('nl') ===
+    dragged.split('/')[0].toLocaleLowerCase('nl')
+  );
+}
+
+/**
  * What one member of the tree is called in the target mailbox
  *
- * The dragged label's own leaf name is the top of what lands: dragging `Klanten/Acme` copies
- * a folder called `Acme`, because that is the folder the user picked up, not the one above it.
+ * The whole path comes along, not just the leaf: dragging `Klanten/Acme` makes `Klanten` there
+ * too, so the sublabel hangs where it hung. `Klanten` itself is not a member of the tree, so no
+ * mail lands in it -- it is structure and nothing else. Dragging `Klanten/Bakker` afterwards
+ * finds that `Klanten` already exists and reuses it, which is how a second sublabel joins the
+ * first instead of starting its own tree.
  *
- * @param dragged
  * @param member
  * @param parent the label the tree is put under, or null for the top of the list
  * @returns the destination name
  */
-export function destinationName(dragged: string, member: string, parent: string | null): string {
-  const base = dragged.split('/').pop() ?? dragged;
-  const below = member.slice(dragged.length);
-  const relative = `${base}${below}`;
-  return parent ? `${parent}/${relative}` : relative;
+export function destinationName(member: string, parent: string | null): string {
+  return parent ? `${parent}/${member}` : member;
 }
 
 /**
@@ -68,17 +91,16 @@ export function destinationName(dragged: string, member: string, parent: string 
  *
  * A destination name the mailbox already has is reused and never recreated -- that is what
  * copying a tree into an existing label means, and it is what keeps a rollback from deleting
- * a label the user made themselves.
+ * a label the user made themselves. The labels above the dragged one are in `create` like any
+ * other missing step, and hold no mail: only a member gets messages.
  *
  * @param members from labelTreeMembers
- * @param dragged
  * @param parent the label the tree is put under, or null
  * @param existing the target mailbox's own labels, name to id
  * @returns the plan
  */
 export function planLabelTree(
   members: string[],
-  dragged: string,
   parent: string | null,
   existing: Map<string, string>,
 ): LabelTreePlan {
@@ -87,7 +109,7 @@ export function planLabelTree(
   const wanted = new Set<string>();
 
   for (const member of members) {
-    const name = destinationName(dragged, member, parent);
+    const name = destinationName(member, parent);
     destinations.set(member, name);
     for (const step of ancestryOf(name, parent)) wanted.add(step);
   }

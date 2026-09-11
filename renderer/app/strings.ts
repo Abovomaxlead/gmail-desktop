@@ -365,6 +365,11 @@ export interface UiStrings {
   mdPlaceUnder: string;
   mdAlreadyInLabel: (n: number) => string;
   mdTreeLabelCount: (n: number) => string;
+  mdTreeStructureOnly: string;
+  mdTreeMergeInto: (name: string) => string;
+  mdTreeMergeHint: string;
+  mdTreeNewTop: (name: string) => string;
+  mdTreeNewTopHint: string;
   mdKindInbox: string;
   mdKindStarred: string;
   mdKindImportant: string;
@@ -937,6 +942,11 @@ export const STRINGS_NORMAL: UiStrings = {
   mdAlreadyInLabel: (n) =>
     n === 1 ? 'Message already in label' : `${n} messages already in label`,
   mdTreeLabelCount: (n) => (n === 1 ? '1 label' : `${n} labels`),
+  mdTreeStructureOnly: 'structure only',
+  mdTreeMergeInto: (name) => `Merge into "${name}"`,
+  mdTreeMergeHint: 'the labels already there are reused',
+  mdTreeNewTop: (name) => `New at the top: "${name}"`,
+  mdTreeNewTopHint: 'the structure is created here',
   mdKindInbox: 'Inbox',
   mdKindStarred: 'Starred',
   mdKindImportant: 'Important',
@@ -1439,6 +1449,11 @@ export const STRINGS_RENE: UiStrings = {
   mdPlaceUnder: 'Zet onder',
   mdAlreadyInLabel: (n) => (n === 1 ? 'Staat hier al in' : `${n} staan hier al in`),
   mdTreeLabelCount: (n) => (n === 1 ? '1 label' : `${n} labels`),
+  mdTreeStructureOnly: 'alleen het mapje',
+  mdTreeMergeInto: (name) => `Bij "${name}" zetten`,
+  mdTreeMergeHint: 'de mapjes die er al zijn worden gebruikt',
+  mdTreeNewTop: (name) => `Nieuw mapje "${name}"`,
+  mdTreeNewTopHint: 'het mapje wordt hier gemaakt',
   mdKindInbox: 'Postbus',
   mdKindStarred: 'Met ster',
   mdKindImportant: 'Belangrijk',
@@ -1958,6 +1973,11 @@ export const STRINGS_NL: UiStrings = {
   mdAlreadyInLabel: (n) =>
     n === 1 ? 'Bericht bestaat al in label' : `${n} berichten bestaan al in label`,
   mdTreeLabelCount: (n) => (n === 1 ? '1 label' : `${n} labels`),
+  mdTreeStructureOnly: 'alleen structuur',
+  mdTreeMergeInto: (name) => `Samenvoegen met "${name}"`,
+  mdTreeMergeHint: 'de labels die er al zijn worden hergebruikt',
+  mdTreeNewTop: (name) => `Nieuw bovenin: "${name}"`,
+  mdTreeNewTopHint: 'de structuur wordt hier aangemaakt',
   mdKindInbox: 'Postvak',
   mdKindStarred: 'Met ster',
   mdKindImportant: 'Belangrijk',

@@ -25,6 +25,9 @@ import {
   type PickedChip,
 } from '../mailbox-rail';
 import { filterLabels } from '../label-search';
+import { parentInsideTree } from '../../../electron/mail/label-tree';
+import { treeTopPlace } from '../tree-place';
+import { labelKind } from '../label-kind';
 import {
   previewMayPick,
   panelBelongsToJob,
@@ -428,16 +431,47 @@ export default function MailDropModalPage() {
     () => existingNotices(existing.accounts, accounts ?? []),
     [existing.accounts, accounts],
   );
+  // The chips and the status line name the place the same way the row does, tree or no tree: a
+  // chip reading "Bovenin" beside a row reading "Samenvoegen met Klanten" is two names for one
+  // choice.
+  const labelName = (email: string, labelId: string) => {
+    const mailbox = accounts?.find((a) => a.email === email);
+    if (labelId !== TOP_LEVEL) {
+      return mailbox?.labels.find((l) => l.id === labelId)?.name ?? labelId;
+    }
+    return tree ? treeTopPlace(tree.dragged, mailbox?.labels ?? [], S).name : S.mdTopLevel;
+  };
+
   const rows = useMemo(
     () => mailboxRows(accounts ?? [], picked, existing.accounts, search),
     [accounts, picked, existing.accounts, search],
   );
-  const chips = useMemo(() => pickedChips(picked, accounts ?? []), [picked, accounts]);
+  const chips = pickedChips(picked, accounts ?? [], labelName);
   const openMailbox = accounts?.find((a) => a.email === active) ?? accounts?.[0] ?? null;
+  // Two kinds of place a structure cannot go, both left out of the list rather than drawn dead,
+  // because neither is a choice that exists:
+  //
+  // - Gmail's own labels. Nesting is naming, and only a label the user made can carry a name
+  //   with a slash in it -- there is no `Postvak IN/Klanten`. Filing a flat drag in the inbox is
+  //   fine, which is why this only applies while the structure is on.
+  // - The dragged tree's own family: putting `Klanten` under `Klanten` makes `Klanten/Klanten`
+  //   and copies the tree into a copy of itself. The place meant by "under the one that is
+  //   already there" is the top of the list, which reuses it.
+  //
+  // Main refuses both once more (planTrees), for a label list that moved on since.
+  const placeable = useMemo(() => {
+    const labels = openMailbox?.labels ?? [];
+    // Read straight off flatMode rather than through takesTree, so the deps below say exactly
+    // what this reads.
+    if (!tree || !openMailbox || flatMode[openMailbox.email]) return labels;
+    return labels.filter(
+      (l) => labelKind(l.id) === 'user' && !parentInsideTree(tree.dragged, l.name),
+    );
+  }, [openMailbox, tree, flatMode]);
   const shownLabels = useMemo(
     () =>
-      openMailbox ? filterLabels(openMailbox.labels, search, picked[openMailbox.email] ?? []) : [],
-    [openMailbox, search, picked],
+      openMailbox ? filterLabels(placeable, search, picked[openMailbox.email] ?? []) : [],
+    [openMailbox, placeable, search, picked],
   );
 
   const copy = async (mode: MailDropCopyMode = 'check') => {
@@ -509,12 +543,6 @@ export default function MailDropModalPage() {
       : phase.kind === 'walking'
         ? phase.progress ?? { phase: 'copy', done: 0, total: 0 }
         : null;
-
-  const labelName = (email: string, labelId: string) =>
-    labelId === TOP_LEVEL
-      ? S.mdTopLevel
-      : accounts?.find((a) => a.email === email)?.labels.find((l) => l.id === labelId)?.name ??
-        labelId;
 
   return (
     <>
@@ -647,7 +675,7 @@ export default function MailDropModalPage() {
                   account={openMailbox}
                   shown={shownLabels}
                   search={search}
-                  recent={recentFor(recent, openMailbox.email, openMailbox.labels)}
+                  recent={recentFor(recent, openMailbox.email, placeable)}
                   picked={picked[openMailbox.email] ?? []}
                   disabled={phase.kind === 'copying'}
                   tree={takesTree(openMailbox.email) ? tree : null}
