@@ -34,7 +34,7 @@ import type {
 } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import { SESSION_PARTITION } from '../core/session-partition';
-import { currentLocale, dropOverlay, recentLabels, keyOf, mainWindow, manager, oauthTokens, prefs, profiles, messageIndex, setDropOverlay } from '../core/runtime';
+import { currentLocale, currentlyDark, dropOverlay, recentLabels, keyOf, mainWindow, manager, oauthTokens, prefs, profiles, messageIndex, setDropOverlay } from '../core/runtime';
 import type { Locale } from '../core/locale';
 import type { JobPanel, PendingJob, PendingOrphan } from '../../renderer/lib/maildrop-copy';
 import { createUploadBudget, mapLimit, memoise, type UploadBudget } from '../core/concurrency';
@@ -666,9 +666,14 @@ async function findDuplicates(
  */
 function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  // The two the page cannot ask for itself, the same way delegated-picker.ts completes its own
-  // payload: the panel draws its text from these.
-  const forThePage = { locale: currentLocale(), reneMode: prefs?.getAll().reneMode === true };
+  // The three the page cannot ask for itself, the same way delegated-picker.ts completes its own
+  // payload: the panel draws its text from the first two, and its own window knows nothing of the
+  // theme the sidebar page applies to itself.
+  const forThePage = {
+    locale: currentLocale(),
+    reneMode: prefs?.getAll().reneMode === true,
+    dark: currentlyDark(),
+  };
   if (driven) {
     // Sent, never opened. open() re-attaches the view on top of everything attached since, so a
     // batch finishing threw the panel back in front of whatever the user was doing -- three times
@@ -1452,6 +1457,7 @@ export function dropPreviewItems(): {
   tree: MailDropTree | null;
   locale: Locale;
   reneMode: boolean;
+  dark: boolean;
   panel?: JobPanel;
   job?: MailDropCopyProgress['job'];
 } {
@@ -1461,6 +1467,7 @@ export function dropPreviewItems(): {
     tree: lastDropTree,
     locale: currentLocale(),
     reneMode: prefs?.getAll().reneMode === true,
+    dark: currentlyDark(),
     ...(panel && activeJob ? { panel, job: jobProgress(activeJob.job) } : {}),
   };
 }

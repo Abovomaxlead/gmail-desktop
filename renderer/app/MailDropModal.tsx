@@ -31,6 +31,9 @@ export interface MailDropPreview {
   driven?: boolean;
   locale?: 'en' | 'nl';
   reneMode?: boolean;
+  /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts
+   * on itself */
+  dark?: boolean;
 }
 
 export interface MailDropCopyAccountResult {

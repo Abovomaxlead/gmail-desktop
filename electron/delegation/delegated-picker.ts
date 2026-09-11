@@ -12,7 +12,7 @@
 import { OverlayView } from '../windows/overlay-view';
 import { IPC } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
-import { currentLocale, delegatedPicker, mainWindow, manager, prefs, setDelegatedPicker } from '../core/runtime';
+import { currentLocale, currentlyDark, delegatedPicker, mainWindow, manager, prefs, setDelegatedPicker } from '../core/runtime';
 import { addDelegatedMailboxes, discoverDelegatedMailboxes } from './delegated-controller';
 import { notifyLog } from '../notify/notify-log';
 import type { DelegatedPickerAsk } from '../../renderer/lib/delegated-picker';
@@ -78,16 +78,19 @@ export function applyDelegatedPick(emails: string[]): void {
 //===========================
 
 /**
- * Completes a payload with the two things the page cannot ask for itself
+ * Completes a payload with the three things the page cannot ask for itself
  *
  * @param partial what this round of the ask knows
  * @returns the payload as the page expects it
  * @private
  */
-function ask(partial: Omit<DelegatedPickerAsk, 'locale' | 'reneMode'>): DelegatedPickerAsk {
+function ask(
+  partial: Omit<DelegatedPickerAsk, 'locale' | 'reneMode' | 'dark'>,
+): DelegatedPickerAsk {
   return {
     ...partial,
     locale: currentLocale(),
     reneMode: prefs?.getAll().reneMode === true,
+    dark: currentlyDark(),
   };
 }

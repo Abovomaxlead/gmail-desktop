@@ -24,4 +24,7 @@ export interface DelegatedPickerAsk {
   answered: boolean;
   locale: 'en' | 'nl';
   reneMode: boolean;
+  /** Whether the app is drawing dark; the page runs in its own window and cannot read the
+   * class the sidebar page puts on itself */
+  dark: boolean;
 }

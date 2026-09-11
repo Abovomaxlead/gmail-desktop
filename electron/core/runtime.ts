@@ -6,11 +6,12 @@
 // The rule that matters: read these when you need them, never capture them at construction.
 // Nearly all of it is born once in createWindow(), when the app starts.
 
-import { app } from 'electron';
+import { app, nativeTheme } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { accountKey, parseAccountKey, type AccountRef } from '../accounts/account-ref';
 import { colorForIndex } from '../accounts/palette';
 import { resolveLocale, type Locale } from './locale';
+import { isDarkTheme } from '../windows/titlebar';
 import { SURFACES } from '../../renderer/lib/surfaces';
 import { UnreadStore } from '../unread/unread-store';
 import type { ProfileViewManager, Profile, Surface } from '../windows/profile-view-manager';
@@ -198,6 +199,20 @@ export function colorForEmail(email: string): string {
 
 export function currentLocale(): Locale {
   return resolveLocale(prefs?.getAll().language ?? 'system', app.getLocale());
+}
+
+/**
+ * Whether the app is drawing dark right now
+ *
+ * The pages main opens for itself -- the copy picker, the delegated picker, the compose
+ * chooser, the toast stack -- get this in their payload: they run in their own window, where
+ * the class the sidebar page puts on its own `<html>` means nothing, and a page that reads
+ * `prefers-color-scheme` itself would ignore a user who chose light or dark by hand.
+ *
+ * @returns true when the theme in use is the dark one
+ */
+export function currentlyDark(): boolean {
+  return isDarkTheme(prefs?.getAll().theme ?? 'system', nativeTheme.shouldUseDarkColors);
 }
 
 /**

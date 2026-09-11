@@ -11,6 +11,7 @@ import { RENE_ZOOM_FACTOR } from '../core/rene';
 import {
   authIdx,
   currentLocale,
+  currentlyDark,
   mainWindow,
   manager,
   pendingMailtos,
@@ -151,6 +152,7 @@ function chooseComposeAccount(fields: MailtoFields, mailtoUrl: string): Promise<
     accounts,
     locale: currentLocale(),
     reneMode: prefs?.getAll().reneMode === true,
+    dark: currentlyDark(),
   };
 
   return composePicker.ask(ask, mailtoUrl);

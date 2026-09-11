@@ -26,6 +26,12 @@ export default function DelegatedPickerPage() {
     });
   }, []);
 
+  // Its own window, so the class the sidebar page puts on its own <html> is not there: the
+  // theme travels in the payload and is applied here, the way the toast stack does it.
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', ask?.dark === true);
+  }, [ask?.dark]);
+
   const close = useCallback(() => window.desktop?.closeDelegatedPicker(), []);
 
   useEffect(() => {

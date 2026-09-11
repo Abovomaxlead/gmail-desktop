@@ -176,13 +176,17 @@ export default function MailDropModalPage() {
   const [stopDialogOpen, setStopDialogOpen] = useState(false);
   /** What the last stop asked of main and did not get, or null when there is nothing to say */
   const [controlError, setControlError] = useState<string | null>(null);
-  // This window has no prefs of its own, so the language rides on the preview payload the same
-  // way it does for the toast window.
-  const [lang, setLang] = useState<{ locale: 'en' | 'nl'; reneMode: boolean }>({
+  // This window has no prefs of its own, so the language and the theme ride on the preview
+  // payload the same way they do for the toast window.
+  const [lang, setLang] = useState<{ locale: 'en' | 'nl'; reneMode: boolean; dark: boolean }>({
     locale: 'en',
     reneMode: false,
+    dark: false,
   });
   const S = getStrings(lang.locale, lang.reneMode);
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', lang.dark);
+  }, [lang.dark]);
   // The mount-once effect below reaches text through this ref rather than through `S` itself,
   // since its closures are set up once and would otherwise keep speaking whatever language was
   // active when the window opened.
@@ -234,8 +238,8 @@ export default function MailDropModalPage() {
         });
     };
     void bridge.getMailDropPreview().then((got: MailDropPreview) => {
-      const { items: i, tree: t, panel, job, locale, reneMode } = got;
-      setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false });
+      const { items: i, tree: t, panel, job, locale, reneMode, dark } = got;
+      setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false, dark: dark === true });
       if (i.length > 0) setItems(i);
       setTree(t ?? null);
       // Reopened halfway through a job: without this the window would come back in its picking
@@ -253,7 +257,7 @@ export default function MailDropModalPage() {
       const { items: i, tree: t, panel, job, locale, reneMode } = p;
       setItems(i);
       setTree(t ?? null);
-      setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false });
+      setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false, dark: p.dark === true });
       // A driven batch is a job showing what it is about to copy itself, not a new drag: its
       // list is still worth updating, but returning to `picking` here would offer the copy
       // button again for mail the driver already has in flight -- see previewMayPick.
