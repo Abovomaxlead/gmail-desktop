@@ -7,6 +7,7 @@ const input = (over: Partial<Parameters<typeof accountsNeedingReconnect>[0]> = {
   ownEmails: ['a@x.nl', 'b@x.nl'],
   hasToken: () => true,
   refreshFailed: () => false,
+  scopesComplete: () => true,
   ...over,
 });
 
@@ -73,15 +74,15 @@ describe('bannerBounds', () => {
   });
 });
 
-
 // The status the accounts panel draws. The precedence is the part worth pinning down: a link
-// that was never made outranks one that stopped working, because the panel has to answer
-// whether this account was ever connected.
+// that was never made outranks one that stopped working, which outranks one that is merely
+// short of rights, because the panel has to answer whether this account was ever connected.
 describe('accountOAuthStatuses', () => {
   const one = (over: Partial<Parameters<typeof accountOAuthStatuses>[0]> = {}) => ({
     ownEmails: ['a@x.nl'],
     hasToken: () => true,
     refreshFailed: () => false,
+    scopesComplete: () => true,
     ...over,
   });
   const statusOf = (over: Partial<Parameters<typeof accountOAuthStatuses>[0]> = {}) =>
@@ -99,8 +100,18 @@ describe('accountOAuthStatuses', () => {
     expect(statusOf({ refreshFailed: () => true })).toBe('expired');
   });
 
+  // A release that adds a scope leaves every stored token like this, and only a fresh consent
+  // fixes it: a refresh returns the scopes that were granted, never the ones that were not.
+  it('is incomplete when the token predates a scope the app now needs', () => {
+    expect(statusOf({ scopesComplete: () => false })).toBe('incomplete');
+  });
+
   it('prefers unlinked over expired', () => {
     expect(statusOf({ hasToken: () => false, refreshFailed: () => true })).toBe('unlinked');
+  });
+
+  it('prefers expired over incomplete, since one consent fixes both', () => {
+    expect(statusOf({ refreshFailed: () => true, scopesComplete: () => false })).toBe('expired');
   });
 
   it('has one entry per own account, in the order given', () => {
@@ -119,20 +130,21 @@ describe('accountOAuthStatuses', () => {
 
 // The banner and the accounts panel must never disagree about the same account, which holds
 // only while the reconnect list stays a projection of the statuses. Every combination of the
-// two inputs is checked, which pins the mapping for the three states they can produce. A
-// fourth status would need a new field on HealthInput, so no table of these booleans could
-// construct it; what catches an unmapped status is the total Record type on RECONNECT_REASON
-// in electron/auth/oauth-health.ts, which turns the omission into a compile error there.
+// three inputs is checked, which pins the mapping for every state they can produce. What
+// catches a status nobody mapped is the total Record type on NEEDS_RECONNECT in
+// electron/auth/oauth-health.ts, which turns the omission into a compile error there.
 describe('accountsNeedingReconnect follows accountOAuthStatuses', () => {
   const bools = [true, false];
   const cases: Parameters<typeof accountsNeedingReconnect>[0][] = [];
   for (const token of bools)
     for (const failed of bools)
-      cases.push({
-        ownEmails: ['a@x.nl'],
-        hasToken: () => token,
-        refreshFailed: () => failed,
-      });
+      for (const scopes of bools)
+        cases.push({
+          ownEmails: ['a@x.nl'],
+          hasToken: () => token,
+          refreshFailed: () => failed,
+          scopesComplete: () => scopes,
+        });
 
   it.each(cases.map((input, i) => ({ i, input })))(
     'case $i reports exactly what the statuses imply',

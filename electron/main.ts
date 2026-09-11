@@ -55,6 +55,7 @@ import { startMailDropCleanup } from './mail/mail-drop-cleanup';
 import { mailDropFolder, resumeOrphanedCopyRuns } from './mail/mail-drop-controller';
 import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
+import { flushCrashReports, installCrashReporting } from './feedback/crash-controller';
 
 
 //===========================
@@ -74,6 +75,12 @@ try {
   if (early.advanced.hardwareAcceleration === false) app.disableHardwareAcceleration();
 } catch {
 }
+
+// Before anything else that can fail: a crash while the switches above are being thrown, or
+// while the window is being built, is exactly the crash a user cannot report themselves --
+// there is no window to report it from. The queue this fills is sent once there is a mailbox
+// to send from, which is after createWindow.
+installCrashReporting();
 
 
 //===========================
@@ -190,6 +197,10 @@ app.whenReady().then(() => {
   applyTraySetting();
   setupUpdater();
   applyAutoUpdateCheck();
+  // Whatever crashed on the last run, or before the window existed on this one. Never awaited
+  // and never fatal: it does nothing when the queue is empty, and leaves the queue alone when
+  // no mailbox can send yet.
+  void flushCrashReports();
 });
 
 app.on('window-all-closed', () => {

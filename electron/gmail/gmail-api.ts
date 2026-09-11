@@ -1300,6 +1300,30 @@ export async function insertMessage(
   return { id: parseInsertedId(json), threadId: parseInsertedThreadId(json) };
 }
 
+/**
+ * Sends a message as the account the token belongs to
+ *
+ * The counterpart of insertMessage: insert puts a message in a mailbox without it ever having
+ * been sent, this actually posts one. The only caller is the automatic crash report
+ * (feedback/crash-controller.ts), which is why there is no threading, no attachment plumbing
+ * and no draft step here -- the whole message arrives built.
+ *
+ * Retried as a POST, so it is not repeated after an ambiguous failure: a report arriving twice
+ * is noise in somebody's mailbox, and the queue tries again on the next flush anyway.
+ *
+ * @param accessToken needs the gmail.send scope
+ * @param raw the whole RFC 822 message
+ * @returns {Promise<string | null>} the id Gmail filed it as
+ */
+export async function sendRawMessage(accessToken: string, raw: Buffer): Promise<string | null> {
+  const json = await requestJson(`${MESSAGES_URL}/send`, accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify({ raw: raw.toString('base64url') }), 'utf8'),
+  });
+  return parseInsertedId(json);
+}
+
 
 //===========================
 // Marker sweep

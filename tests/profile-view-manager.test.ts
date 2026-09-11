@@ -142,7 +142,11 @@ function fakeWin(): FakeWin {
   };
 }
 
-function manager(win: FakeWin, mayDragToSave?: (accountKey: string) => boolean | null) {
+function manager(
+  win: FakeWin,
+  mayDragToSave?: (accountKey: string) => boolean | null,
+  crashPageUrl?: (accountKey: string) => string,
+) {
   return new ProfileViewManager(
     win as never,
     'preload.js',
@@ -157,6 +161,7 @@ function manager(win: FakeWin, mayDragToSave?: (accountKey: string) => boolean |
     () => {},
     () => {},
     mayDragToSave,
+    crashPageUrl,
   );
 }
 
@@ -543,6 +548,76 @@ describe('reloading a view that was redirected away', () => {
     m.reloadActive();
 
     expect(wc.navigations).toEqual(['reload']);
+  });
+});
+
+// A page whose process is gone is not reloaded by Electron: the view stays attached, stays on
+// top, and never paints again. Clicks land on nothing, so the whole window reads as frozen --
+// and until this existed, every renderer crash was a hang that only a restart cured.
+describe('a view whose process died', () => {
+  it('is reloaded, so the window does not sit on a dead page', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox';
+    wc.navigations.length = 0;
+
+    wc.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+
+    expect(wc.navigations).toEqual(['reload']);
+  });
+
+  it('is left alone when the page closed cleanly, which is not a crash', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.navigations.length = 0;
+
+    wc.emit('render-process-gone', {}, { reason: 'clean-exit', exitCode: 0 });
+
+    expect(wc.navigations).toEqual([]);
+  });
+
+  it('stops reloading a page that keeps crashing, and says so in that view', () => {
+    const win = fakeWin();
+    const m = manager(win, undefined, (acctKey) => `data:text/html,dead ${acctKey}`);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox';
+    wc.navigations.length = 0;
+
+    for (let i = 0; i < 10; i++)
+      wc.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+
+    // Three reloads, then the failure shown in the panel that broke -- and no further attempts
+    expect(wc.navigations).toEqual([
+      'reload',
+      'reload',
+      'reload',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+    ]);
+  });
+
+  it('shows nothing rather than a blank document when no page was handed in', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox';
+    wc.navigations.length = 0;
+
+    for (let i = 0; i < 5; i++)
+      wc.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+
+    expect(wc.navigations).toEqual(['reload', 'reload', 'reload']);
   });
 });
 

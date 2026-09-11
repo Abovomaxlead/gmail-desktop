@@ -16,6 +16,7 @@ import { IPC } from '../core/ipc';
 import { DEV_URL, ICON_PATH, PRELOAD_PATH, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from '../core/rene';
 import { PrefsStore } from '../core/prefs-store';
+import { viewCrashText, viewCrashUrl } from './view-crash-page';
 import {
   accountCacheLoaded,
   currentLocale,
@@ -202,6 +203,14 @@ export function createWindow(): void {
     (acctKey) => {
       const email = profiles.find((p) => keyOf(p) === acctKey)?.email;
       return email ? isAllowedAccount(email) : null;
+    },
+    // What a view says once it has crashed too often to keep reloading. Built here because the
+    // wording needs the locale, Rene mode, the theme and the address -- none of which the view
+    // manager may reach into without importing runtime.ts, which imports it.
+    (acctKey) => {
+      const email = profiles.find((p) => keyOf(p) === acctKey)?.email ?? '';
+      const text = viewCrashText(currentLocale(), prefs?.getAll().reneMode === true);
+      return viewCrashUrl(text, email, nativeTheme.shouldUseDarkColors);
     },
   );
   setManager(views);

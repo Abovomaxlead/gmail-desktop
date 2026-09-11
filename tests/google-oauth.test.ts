@@ -166,6 +166,8 @@ describe('SCOPES', () => {
   it('still includes what the app itself needs', () => {
     expect(SCOPES).toContain('https://www.googleapis.com/auth/gmail.readonly');
     expect(SCOPES).toContain('https://www.googleapis.com/auth/gmail.insert');
+    // What an automatic crash report leaves the machine with -- feedback/crash-controller.ts
+    expect(SCOPES).toContain('https://www.googleapis.com/auth/gmail.send');
   });
 
   it('sees a token minted before the email scope as incomplete', () => {

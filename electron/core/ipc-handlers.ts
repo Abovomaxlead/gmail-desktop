@@ -41,6 +41,7 @@ import { countLabelForPurge, purgeCountedLabel } from '../mail/label-purge-contr
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
 import { openFeedbackCompose } from '../feedback/feedback-controller';
+import { reportRendererError } from '../feedback/crash-controller';
 import { openSurfaceForAccount, showTestNotification } from '../windows/surface-opener';
 import { applyViewBudget, syncCalendarViews } from '../windows/view-surfaces';
 import { applyMinWindowSize, applyReneZoom, applyTitleBarOverlay } from '../windows/window-chrome';
@@ -220,6 +221,8 @@ export function registerIpc(): void {
     const who = profiles.find((p) => keyOf(p) === key)?.email ?? key ?? `view ${e.sender.id}`;
     notifyLog(`[view ${who}] ${message.slice(0, 300)}`);
   });
+  // The app's own pages only -- the Gmail views run preload.ts, which never sends this
+  ipcMain.on(IPC.CRASH_REPORT, (_e, arg: unknown) => reportRendererError(arg));
   ipcMain.on(IPC.TOAST_READY, () => toasts?.markReady());
   ipcMain.on(IPC.TOAST_SIZE, (_e, size: { width: number; height: number }) =>
     toasts?.applySize(size.width, size.height),

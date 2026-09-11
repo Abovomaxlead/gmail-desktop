@@ -80,6 +80,7 @@ export const QUOTA_COST: Record<string, number> = {
   'messages.modify': 5,
   'messages.trash': 20,
   'messages.batchModify': 50,
+  'messages.send': 100,
   'threads.get': 10,
   'threads.list': 10,
   'history.list': 2,
@@ -140,7 +141,12 @@ export function callForUrl(url: string, method = 'GET'): string {
     // same shape as a bare id with no verb after it. Checked first, or 'batchModify' reads as
     // an id with nothing after it and falls into the plain .get branch below, silently pricing
     // a bulk call at a fifth of what it actually costs.
-    if (rest === 'batchModify' || rest === 'batchDelete') return `${kind}.${rest}`;
+    // `send` sits in the same place a bulk verb does: directly under the collection with no id
+    // in front of it. Without this it read as a bare id and priced as messages.get -- 5 units
+    // for the dearest ordinary call Gmail sells, at 100.
+    if (rest === 'batchModify' || rest === 'batchDelete' || rest === 'send') {
+      return `${kind}.${rest}`;
+    }
     // A verb after the id is a change to the message, which Gmail prices apart from reading it
     const verb = rest.split('/')[1];
     return verb ? `${kind.slice(0, -1)}s.${verb}` : `${kind}.get`;

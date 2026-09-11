@@ -123,6 +123,7 @@ export const IPC = {
   WEB_NOTIFY_SHOW: 'web-notify:show',
   WEB_NOTIFY_CLICK: 'web-notify:click',
   VIEW_LOG: 'view:log',
+  CRASH_REPORT: 'crash:report',
 } as const;
 
 

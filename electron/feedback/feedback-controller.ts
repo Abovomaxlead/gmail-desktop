@@ -7,26 +7,15 @@
 //
 // Both logs go along, not just the updater's: notify.log is where the app records what it did
 // with every notification, every label drag and every copy, and that is the trail almost every
-// report is about. Neither is sent as it was written -- log-redact.ts masks the credentials and
-// the mail content first.
+// report is about. Reading and masking them is app-logs.ts's job, shared with the automatic
+// crash report -- neither is sent as it was written.
 
 import { app } from 'electron';
-import { readFileSync } from 'node:fs';
 import { release } from 'node:os';
-import { join } from 'node:path';
 import { openComposeWindow } from '../compose/mailto-controller';
 import { activeTab, authIdx, idxOfKey, profiles } from '../core/runtime';
-import { feedbackMail, type FeedbackLog } from './feedback-mail';
-import { redactLog } from './log-redact';
-
-
-//===========================
-// Constants
-//===========================
-
-/** In the order the mail spends its budget on them: what the app itself did first, the updater's
- * chatter second. Both live in userData beside the stores that write them. */
-const LOG_FILES = ['notify.log', 'update.log'];
+import { redactedLogs } from './app-logs';
+import { feedbackMail } from './feedback-mail';
 
 
 //===========================
@@ -84,35 +73,3 @@ function composeIndex(): number | null {
   const first = profiles.map(authIdx).find((index) => index >= 0);
   return first ?? null;
 }
-
-/**
- * Every log the app keeps, masked and ready to send
- *
- * @returns {FeedbackLog[]} the files that had something in them, in LOG_FILES order
- * @private
- */
-function redactedLogs(): FeedbackLog[] {
-  const logs: FeedbackLog[] = [];
-  for (const name of LOG_FILES) {
-    const text = redactLog(readLog(name));
-    if (text.trim() !== '') logs.push({ name, text });
-  }
-  return logs;
-}
-
-/**
- * One log file as text
- *
- * @param name
- * @returns {string} empty when there is no file, which is the case for update.log on a machine
- *   that has never seen an update. Both are capped by their own loggers, so this reads whole.
- * @private
- */
-function readLog(name: string): string {
-  try {
-    return readFileSync(join(app.getPath('userData'), name), 'utf8');
-  } catch {
-    return '';
-  }
-}
-

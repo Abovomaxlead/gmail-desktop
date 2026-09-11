@@ -282,6 +282,7 @@ export interface UiStrings {
   oauthLinked: string;
   oauthUnlinked: string;
   oauthExpired: string;
+  oauthIncomplete: string;
   oauthConnect: string;
   oauthReconnect: string;
   oauthBusy: string;
@@ -843,6 +844,7 @@ export const STRINGS_NORMAL: UiStrings = {
   oauthLinked: 'Connected',
   oauthUnlinked: 'Not connected yet',
   oauthExpired: 'Connection expired',
+  oauthIncomplete: 'Needs permission again',
   oauthConnect: 'Connect',
   oauthReconnect: 'Reconnect',
   oauthBusy: 'Working…',
@@ -1346,6 +1348,7 @@ export const STRINGS_RENE: UiStrings = {
   oauthLinked: 'Alles in orde',
   oauthUnlinked: 'Nog niet aangezet',
   oauthExpired: 'De verbinding is weg',
+  oauthIncomplete: 'Moet je opnieuw toestaan',
   oauthConnect: 'Aanzetten',
   oauthReconnect: 'Opnieuw aanzetten',
   oauthBusy: 'Momentje…',
@@ -1861,6 +1864,7 @@ export const STRINGS_NL: UiStrings = {
   oauthLinked: 'Verbonden',
   oauthUnlinked: 'Nog niet verbonden',
   oauthExpired: 'Verbinding verlopen',
+  oauthIncomplete: 'Nieuwe toestemming nodig',
   oauthConnect: 'Verbinden',
   oauthReconnect: 'Opnieuw verbinden',
   oauthBusy: 'Bezig…',

@@ -19,6 +19,7 @@ import {
   setReconnectBanner,
 } from '../core/runtime';
 import { accessTokenFor } from './oauth-flow';
+import { hasScopes } from './google-oauth';
 import { linkableOwnEmails } from './account-domain';
 import { oauthConfig } from './oauth-config';
 import { accountOAuthStatuses, accountsNeedingReconnect, bannerBounds } from './oauth-health';
@@ -75,6 +76,10 @@ export async function checkOAuthHealth(): Promise<void> {
     ownEmails,
     hasToken: (e: string) => oauthTokens!.get(e) !== undefined,
     refreshFailed: (e: string) => refreshFailures.has(e),
+    scopesComplete: (e: string) => {
+      const token = oauthTokens!.get(e);
+      return token !== undefined && hasScopes(token);
+    },
   };
   setOauthStatuses(accountOAuthStatuses(health));
   pushOAuthStatus();

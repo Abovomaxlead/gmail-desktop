@@ -71,6 +71,16 @@ const POPOUT_CLICK_TRIES = 12;
 const POPOUT_CLICK_INTERVAL_MS = 250;
 const POPOUT_WINDOW_WAIT_MS = 2000;
 
+/** How often one view's process may die inside RENDERER_CRASH_WINDOW_MS before reloading stops
+ * and the view is told to say so. A page that crashes on load would otherwise reload for the
+ * rest of the session, which is worse than a blank panel: it is a blank panel plus a spinning
+ * machine. */
+const RENDERER_CRASH_LIMIT = 3;
+
+/** What counts as "in a row". Long enough to catch a page that crashes, reloads and crashes
+ * again; short enough that three accidents spread over a working day are three accidents. */
+const RENDERER_CRASH_WINDOW_MS = 3 * 60 * 1000;
+
 
 //===========================
 // Manager
@@ -92,6 +102,9 @@ export class ProfileViewManager {
   /** Which anchor owns a mail view. A later click bumps it, and the one still looking
    * stops. */
   private anchorRun = new Map<string, number>();
+  /** When each view's renderer process died, newest last. Only what falls inside
+   * RENDERER_CRASH_WINDOW_MS is kept, which is what tells a crash loop from bad luck. */
+  private rendererCrashes = new Map<string, number[]>();
 
   constructor(
     private readonly win: BrowserWindow,
@@ -116,6 +129,11 @@ export class ProfileViewManager {
     private readonly onMailDrop: (accountKey: string, payload: MailDropPayload) => void = () => {},
     private readonly onViewAttached: () => void = () => {},
     private readonly mayDragToSave: (accountKey: string) => boolean | null = () => true,
+    /** The page a view is sent to once it has crashed too often to keep reloading. Handed in
+     * rather than built here, because the wording needs the locale, the theme and the account
+     * list -- all of which live in runtime.ts, which imports this file. Empty means "say
+     * nothing", which is what the tests and any caller that has no page get. */
+    private readonly crashPageUrl: (accountKey: string) => string = () => '',
   ) {
     this.win.on('resize', () => this.relayout());
   }
@@ -208,6 +226,37 @@ export class ProfileViewManager {
     view.webContents.on('did-finish-load', () => {
       view.webContents.setZoomLevel(this.getZoom(acctKey));
       if (surface === 'mail') view.webContents.setAudioMuted(this.getSilent(acctKey));
+    });
+    // A page whose process is gone stays a dead grey rectangle: Electron does not reload it,
+    // and the view is still attached and still on top, so the window reads as frozen -- clicks
+    // land on nothing and nothing paints again, ever. Every renderer crash was therefore a
+    // hang until the user restarted the app.
+    //
+    // Reloaded here, back to its own home URL, which is what reloadViewKey already knows how to
+    // do. A page that recovers says nothing: the mailbox is back, and there is nothing left to
+    // tell. A page that keeps crashing is where the user has to be told, so once the reloading
+    // stops the view is sent to a page that says so in the panel that broke -- not a card
+    // somewhere else on screen.
+    //
+    // Counted per window rather than for the life of the app: three crashes in a minute is a
+    // page that cannot load, three over a working day is three unrelated accidents and each of
+    // them deserves its reload.
+    view.webContents.on('render-process-gone', (_e, details) => {
+      if (details.reason === 'clean-exit' || this.views.get(k) !== view) return;
+      const now = Date.now();
+      const recent = [...(this.rendererCrashes.get(k) ?? []), now].filter(
+        (at) => now - at < RENDERER_CRASH_WINDOW_MS,
+      );
+      this.rendererCrashes.set(k, recent);
+      if (recent.length > RENDERER_CRASH_LIMIT) {
+        notifyLog(
+          `[view ${acctKey}] process gone (${details.reason}); ${recent.length} crashes in a row, showing the failure in the view`,
+        );
+        this.showCrashPage(view, acctKey);
+        return;
+      }
+      notifyLog(`[view ${acctKey}] process gone (${details.reason}); reloading it`);
+      this.reloadViewKey(k);
     });
     view.webContents.once('destroyed', () => {
       if (this.views.get(k) !== view) return;
@@ -894,6 +943,29 @@ export class ProfileViewManager {
     const home = this.homeUrls.get(vk) ?? null;
     if (viewLeftItsHome(home, wc.getURL())) void wc.loadURL(home!);
     else wc.reload();
+  }
+
+  /**
+   * Puts the failure in the panel that failed
+   *
+   * The last thing done to a view that has crashed too often to keep reloading. It loads a
+   * document with no script and no network reference in it, so it cannot fail the way the page
+   * it replaces did, and it names the mailbox: a window of four panels has to say which one is
+   * gone.
+   *
+   * Ctrl+R still works from here -- the page is not the view's home, so reloadViewKey sends it
+   * back to the mailbox rather than reloading this notice.
+   *
+   * @param view the dead view
+   * @param acctKey whose view it is
+   * @private
+   */
+  private showCrashPage(view: WebContentsView, acctKey: string): void {
+    const wc = view.webContents;
+    if (wc.isDestroyed()) return;
+    const url = this.crashPageUrl(acctKey);
+    if (url === '') return;
+    void wc.loadURL(url);
   }
 
   toggleDevTools(): void {

@@ -16,6 +16,10 @@ export interface HealthInput {
   ownEmails: string[];
   hasToken: (email: string) => boolean;
   refreshFailed: (email: string) => boolean;
+  /** Whether the stored token carries every scope this version of the app needs. False after a
+   * release that added one, which is a thing only a fresh consent can fix -- a refresh returns
+   * the scopes that were granted, never the ones that were not. */
+  scopesComplete: (email: string) => boolean;
 }
 
 export interface Rect {
@@ -36,6 +40,7 @@ const NEEDS_RECONNECT: Record<OAuthStatus, boolean> = {
   linked: false,
   unlinked: true,
   expired: true,
+  incomplete: true,
 };
 
 const WIDTH = 380;
@@ -103,6 +108,10 @@ export function bannerBounds(win: { width: number; height: number }, rows: numbe
  * A missing token and a failed refresh are told apart because a list has to answer whether
  * this account was ever connected, while the banner only says something needs attention
  *
+ * Precedence: never linked, then broken, then short of rights. A token that cannot be
+ * refreshed is worth saying so about whatever its scopes were, and both are fixed by the same
+ * consent -- so the order only decides which sentence the panel shows.
+ *
  * @param input
  * @param email
  * @returns the status the panel and the banner both read
@@ -111,5 +120,6 @@ export function bannerBounds(win: { width: number; height: number }, rows: numbe
 function statusFor(input: HealthInput, email: string): OAuthStatus {
   if (!input.hasToken(email)) return 'unlinked';
   if (input.refreshFailed(email)) return 'expired';
+  if (!input.scopesComplete(email)) return 'incomplete';
   return 'linked';
 }
