@@ -89,6 +89,45 @@ export function parseChangelog(markdown: string): ChangelogVersion[] {
   return versions.filter((v) => v.entries.length > 0);
 }
 
+/**
+ * Reads one release's notes into the shape the What's-new block already draws
+ *
+ * A GitHub release body is a changelog section without its own heading -- release-notes.mjs
+ * cuts exactly that out of CHANGELOG.md on the way up. Putting the heading back is all it
+ * takes to reuse the parser, and the parser is what keeps the modal and the settings panel
+ * from drawing the same notes two different ways.
+ *
+ * @param version the version the notes belong to
+ * @param markdown the release body, as the updater hands it over
+ * @returns the version block, or null when the body holds nothing worth showing -- which is
+ *   what a caller reads as "no notes to put in front of anybody"
+ */
+export function parseReleaseNotes(version: string, markdown: string): ChangelogVersion | null {
+  const body = (markdown ?? '').trim();
+  if (!body) return null;
+  const parsed = parseChangelog(`## [${version}]\n\n${body}`);
+  return parsed[0] ?? null;
+}
+
+/**
+ * The release body as one piece of markdown, whatever shape the updater used
+ *
+ * electron-updater answers a string for a single release and an array of `{version, note}`
+ * once `fullChangelog` is on, and null when the release page was empty. Folding that here
+ * keeps the shape of a third-party field out of everything downstream.
+ *
+ * @param raw info.releaseNotes, exactly as it arrived
+ * @returns the markdown, newest release first; empty when there is none
+ */
+export function releaseNotesMarkdown(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (!Array.isArray(raw)) return '';
+  return raw
+    .map((one) => (one && typeof one === 'object' && 'note' in one ? String(one.note ?? '') : ''))
+    .filter((note) => note.trim() !== '')
+    .join('\n\n');
+}
+
 
 //===========================
 // Helper functions

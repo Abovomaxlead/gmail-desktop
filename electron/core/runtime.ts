@@ -71,6 +71,7 @@ export let toastWindow: ToastWindow | null = null;
 export let dropOverlay: OverlayView | null = null;
 export let reconnectBanner: OverlayView | null = null;
 export let delegatedPicker: OverlayView | null = null;
+export let releaseNotesOverlay: OverlayView | null = null;
 export const profiles: Profile[] = [];
 export const unread = new UnreadStore();
 export const syncRunners = new Map<string, SyncRunner>();
@@ -146,6 +147,9 @@ export function setReconnectBanner(v: OverlayView | null): void {
 export function setDelegatedPicker(v: OverlayView | null): void {
   delegatedPicker = v;
 }
+export function setReleaseNotesOverlay(v: OverlayView | null): void {
+  releaseNotesOverlay = v;
+}
 export function setCachedAccounts(v: CachedAccount[]): void {
   cachedAccounts = v;
 }
@@ -178,6 +182,7 @@ export function raiseOverlays(): void {
   dropOverlay?.raise();
   reconnectBanner?.raise();
   delegatedPicker?.raise();
+  releaseNotesOverlay?.raise();
 }
 
 export const authRef = (index: number): AccountRef => ({ kind: 'authuser', index });

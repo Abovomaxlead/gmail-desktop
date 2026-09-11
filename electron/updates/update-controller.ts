@@ -37,6 +37,8 @@ import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
 import { NO_RELEASE_ERROR, updateErrorText } from './update-error';
+import { releaseNotesMarkdown } from './changelog';
+import { openReleaseNotes } from './release-notes-overlay';
 import { createUpdateLog, type UpdateLogger } from './update-log';
 import { showToast } from '../toast/toast-presenter';
 import { playNotificationSound } from '../notify/notify-gating';
@@ -167,7 +169,7 @@ export function setupUpdater(): void {
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
   autoUpdater.on('update-available', (info) => {
     sendUpdate({ state: 'available', version: info.version });
-    maybeNotifyUpdate(info.version);
+    maybeNotifyUpdate(info.version, releaseNotesMarkdown(info.releaseNotes));
   });
   autoUpdater.on('update-not-available', (info) =>
     sendUpdate({ state: 'not-available', version: info.version }),
@@ -251,7 +253,18 @@ function maybeShowTrayUpdatePopup(): void {
     });
 }
 
-function maybeNotifyUpdate(version: string): void {
+/**
+ * Announces a version the app just found
+ *
+ * The notes themselves where they can be shown, a card in the corner where they cannot: a
+ * release with an empty body has nothing to put in a modal, and an app with no window yet
+ * has nowhere to put one. Never both -- one found version is one announcement.
+ *
+ * @param version
+ * @param notes the release body, empty when the release carried none
+ * @private
+ */
+function maybeNotifyUpdate(version: string, notes: string): void {
   if (prefs?.getAll().updates.notify === false) return;
   if (
     !shouldNotifyUpdate({
@@ -263,13 +276,15 @@ function maybeNotifyUpdate(version: string): void {
   )
     return;
   notifiedUpdateVersion = version;
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  showToast({
-    kind: 'update',
-    title: L.updateAvailableTitle,
-    body: L.updateAvailableBody(version),
-    persist: true,
-  });
+  if (!openReleaseNotes(version, notes)) {
+    const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+    showToast({
+      kind: 'update',
+      title: L.updateAvailableTitle,
+      body: L.updateAvailableBody(version),
+      persist: true,
+    });
+  }
   if (prefs) playNotificationSound(prefs.getAll());
 }
 

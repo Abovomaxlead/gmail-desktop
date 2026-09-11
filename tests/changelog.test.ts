@@ -1,7 +1,11 @@
 // Parsing the changelog into versions and categorised entries.
 
 import { describe, it, expect } from 'vitest';
-import { parseChangelog } from '../electron/updates/changelog';
+import {
+  parseChangelog,
+  parseReleaseNotes,
+  releaseNotesMarkdown,
+} from '../electron/updates/changelog';
 
 const SAMPLE = `# Changelog
 
@@ -84,5 +88,45 @@ describe('parseChangelog', () => {
   it('returns an empty array for empty or version-less input', () => {
     expect(parseChangelog('')).toEqual([]);
     expect(parseChangelog('# Changelog\n\nJust some prose.\n')).toEqual([]);
+  });
+});
+
+describe('parseReleaseNotes', () => {
+  const BODY = `### Opgelost
+- **Iets kapots.** Nu heel.
+
+### Toegevoegd
+- **Iets nieuws.** Het werkt.`;
+
+  it('reads a release body, which carries no heading of its own', () => {
+    const notes = parseReleaseNotes('1.2.3', BODY);
+    expect(notes?.version).toBe('1.2.3');
+    expect(notes?.entries.map((e) => e.heading)).toEqual(['Opgelost', 'Toegevoegd']);
+    expect(notes?.entries[0].items).toEqual(['**Iets kapots.** Nu heel.']);
+  });
+
+  it('answers null for a release that says nothing, so no empty box is shown', () => {
+    expect(parseReleaseNotes('1.2.3', '')).toBeNull();
+    expect(parseReleaseNotes('1.2.3', '   \n  ')).toBeNull();
+  });
+});
+
+describe('releaseNotesMarkdown', () => {
+  it('takes the single-release string the updater gives, as it is', () => {
+    expect(releaseNotesMarkdown('### Opgelost\n- Iets.')).toBe('### Opgelost\n- Iets.');
+  });
+
+  it('joins the notes of a full changelog, newest first as the updater ordered them', () => {
+    expect(
+      releaseNotesMarkdown([
+        { version: '1.2.3', note: '- Nieuw.' },
+        { version: '1.2.2', note: '- Ouder.' },
+      ]),
+    ).toBe('- Nieuw.\n\n- Ouder.');
+  });
+
+  it('is empty for a release page that carried nothing', () => {
+    expect(releaseNotesMarkdown(null)).toBe('');
+    expect(releaseNotesMarkdown([{ version: '1.2.3', note: null }])).toBe('');
   });
 });

@@ -19,6 +19,7 @@ import { openableSurfaces, type Surface } from '../lib/surfaces';
 import { googleAppTarget, pinnedSurfacesFor } from '../lib/google-apps';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from '../lib/changelog-types';
+import type { ReleaseNotesAsk } from '../lib/release-notes';
 import type { ReconnectAccount } from '../lib/reconnect';
 import type { OAuthStatusReport } from '../lib/oauth-status';
 import type { HiddenAccount } from '../lib/hidden-accounts';
@@ -181,6 +182,8 @@ interface DesktopBridge {
   checkForUpdate(): void;
   downloadUpdate(): void;
   installUpdate(): void;
+  onReleaseNotes(cb: (ask: ReleaseNotesAsk) => void): void;
+  closeReleaseNotes(): void;
   /** Resolves to whether a compose window opened, which is what lets the panel decide
    * between clearing the box and leaving the text where it is. */
   sendFeedback(input: { text: string; includeDiagnostics: boolean }): Promise<boolean>;

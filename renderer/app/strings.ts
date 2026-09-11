@@ -260,6 +260,13 @@ export interface UiStrings {
   showOlder: string;
   hideOlder: string;
   changelogEmpty: string;
+  /** The release-notes modal that opens when a new version is found */
+  releaseNotesTitle: (version: string) => string;
+  releaseNotesSubtitle: string;
+  releaseNotesEmpty: string;
+  releaseNotesDownload: string;
+  releaseNotesLater: string;
+  releaseNotesDownloading: string;
   changelogCategory: (heading: string) => string;
 
   accountLabelField: string;
@@ -821,6 +828,12 @@ export const STRINGS_NORMAL: UiStrings = {
   showOlder: 'Show older versions',
   hideOlder: 'Hide older versions',
   changelogEmpty: 'No release notes available.',
+  releaseNotesTitle: (version) => `Version ${version} is available`,
+  releaseNotesSubtitle: "What's in this version",
+  releaseNotesEmpty: 'This version carries no release notes.',
+  releaseNotesDownload: 'Download',
+  releaseNotesLater: 'Later',
+  releaseNotesDownloading: 'Downloading…',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_NORMAL[key] : '';
@@ -1332,6 +1345,12 @@ export const STRINGS_RENE: UiStrings = {
   showOlder: 'Laat oude dingen zien',
   hideOlder: 'Verberg oude dingen',
   changelogEmpty: 'Er is nog niks om te laten zien.',
+  releaseNotesTitle: (version) => `Er is een nieuwe versie: ${version}`,
+  releaseNotesSubtitle: 'Dit is er nieuw',
+  releaseNotesEmpty: 'Bij deze versie staat niks uitgelegd.',
+  releaseNotesDownload: 'Ophalen',
+  releaseNotesLater: 'Straks',
+  releaseNotesDownloading: 'Hij wordt opgehaald…',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_RENE[key] : '';
@@ -1853,6 +1872,12 @@ export const STRINGS_NL: UiStrings = {
   showOlder: 'Oudere versies weergeven',
   hideOlder: 'Oudere versies verbergen',
   changelogEmpty: 'Geen releasenotes beschikbaar.',
+  releaseNotesTitle: (version) => `Versie ${version} is beschikbaar`,
+  releaseNotesSubtitle: 'Wat er in deze versie zit',
+  releaseNotesEmpty: 'Deze versie heeft geen releasenotes.',
+  releaseNotesDownload: 'Downloaden',
+  releaseNotesLater: 'Niet nu',
+  releaseNotesDownloading: 'Bezig met downloaden…',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_NL[key] : '';

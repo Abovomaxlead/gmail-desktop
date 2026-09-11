@@ -74,6 +74,10 @@ contextBridge.exposeInMainWorld('desktop', {
   checkForUpdate: (): void => ipcRenderer.send(IPC.UPDATE_CHECK),
   downloadUpdate: (): void => ipcRenderer.send(IPC.UPDATE_DOWNLOAD),
   installUpdate: (): void => ipcRenderer.send(IPC.UPDATE_INSTALL),
+  onReleaseNotes: (cb: (ask: unknown) => void): void => {
+    ipcRenderer.on(IPC.RELEASE_NOTES_ASK, (_e, ask) => cb(ask));
+  },
+  closeReleaseNotes: (): void => ipcRenderer.send(IPC.RELEASE_NOTES_CLOSE),
   onUpdateStatus: (cb: (status: unknown) => void): void => {
     ipcRenderer.on(IPC.UPDATE_STATUS, (_e, status) => cb(status));
   },

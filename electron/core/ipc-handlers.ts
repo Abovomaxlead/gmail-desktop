@@ -21,6 +21,7 @@ import {
   closeDelegatedPicker,
   openDelegatedPicker,
 } from '../delegation/delegated-picker';
+import { closeReleaseNotes } from '../updates/release-notes-overlay';
 import {
   cancelMailDropPull,
   closeDropPreview,
@@ -99,6 +100,7 @@ export function registerIpc(): void {
     applyDelegatedPick(Array.isArray(arg?.emails) ? arg.emails : []);
   });
   ipcMain.on(IPC.DELEGATED_PICK_CLOSE, () => closeDelegatedPicker());
+  ipcMain.on(IPC.RELEASE_NOTES_CLOSE, () => closeReleaseNotes());
   ipcMain.on(IPC.SET_COLOR, (_e, arg: { email: string; color: string }) => {
     colors!.set(arg.email, arg.color);
     const p = profiles.find((x) => x.email === arg.email);
