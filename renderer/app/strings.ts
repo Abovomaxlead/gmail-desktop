@@ -298,6 +298,8 @@ export interface UiStrings {
   addAccountLabel: string;
   addDelegatedLabel: string;
   delegatedTooltipSuffix: string;
+  /** The overflow button beside the tab strip, naming how many tabs are out of sight */
+  moreAccounts: (n: number) => string;
   delegatedNeedsClick: string;
   settingsTooltip: string;
 
@@ -868,6 +870,7 @@ export const STRINGS_NORMAL: UiStrings = {
   addAccountLabel: 'Add account',
   addDelegatedLabel: 'Add delegated mailbox',
   delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
+  moreAccounts: (n) => (n === 1 ? '1 more mailbox' : `${n} more mailboxes`),
   delegatedNeedsClick: 'open once in Gmail first',
   settingsTooltip: 'Settings',
 
@@ -1375,6 +1378,7 @@ export const STRINGS_RENE: UiStrings = {
   addAccountLabel: 'Doe er iemand bij',
   addDelegatedLabel: 'Doe een gedeelde postbus erbij',
   delegatedTooltipSuffix: '(de postbus van iemand anders)',
+  moreAccounts: (n) => (n === 1 ? 'Er staat er nog 1 naast' : `Er staan er nog ${n} naast`),
   delegatedNeedsClick: 'moet nog één keer open in Gmail',
   settingsTooltip: 'Knopjes',
 
@@ -1898,6 +1902,7 @@ export const STRINGS_NL: UiStrings = {
   addAccountLabel: 'Account toevoegen',
   addDelegatedLabel: 'Gedelegeerd postvak toevoegen',
   delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
+  moreAccounts: (n) => (n === 1 ? 'Nog 1 postvak' : `Nog ${n} postvakken`),
   delegatedNeedsClick: 'nog één keer openen in Gmail',
   settingsTooltip: 'Instellingen',
 

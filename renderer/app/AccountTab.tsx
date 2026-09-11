@@ -4,6 +4,8 @@ import type { Surface } from '../lib/surfaces';
 import { APP_ICONS } from './app-icons';
 import { CALENDAR_ICON_DATA_URI } from '../lib/calendar-icon-data';
 import { unreadLabel } from './unread-label';
+import { Avatar } from './Avatar';
+import { TAB_AVATAR_ONLY } from './topbar-tabs';
 import type { Profile } from './page';
 
 
@@ -14,6 +16,7 @@ import type { Profile } from './page';
 export function AccountTab({
   profile,
   label,
+  labelWidth,
   unread,
   showUnread,
   active,
@@ -28,6 +31,8 @@ export function AccountTab({
 }: {
   profile: Profile;
   label: string;
+  /** How wide the name may be, from tabLabelWidth; TAB_AVATAR_ONLY draws the avatar alone */
+  labelWidth: number;
   unread: number;
   showUnread: boolean;
   active: boolean;
@@ -43,6 +48,8 @@ export function AccountTab({
   const delegated = profile.kind === 'delegated';
   const needsUrl = delegated && profile.hasMail === false;
   const surface = activeSurface && activeSurface !== 'mail' ? activeSurface : null;
+  const named = labelWidth > TAB_AVATAR_ONLY;
+  const badge = showUnread && unread > 0;
   return (
     <button
       draggable
@@ -64,16 +71,39 @@ export function AccountTab({
             : profile.email
       }
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      className={`group relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition ${
+      className={`group relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md text-[13px] transition ${
+        named ? 'px-2.5' : 'px-1.5'
+      } ${
         active
           ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
           : 'text-neutral-600 hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10'
       } ${dragging ? 'opacity-40' : ''} ${needsUrl ? 'opacity-50' : ''}`}
     >
-      {delegated && <DelegatedIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />}
+      {/* Without a name the avatar is the account: its picture, its colour, its first letter.
+          A delegated mailbox keeps its mark on top of that, since the two kinds must not look
+          alike once the address is gone. */}
+      {!named && (
+        <span className="relative flex shrink-0 items-center">
+          <Avatar url={profile.avatarUrl} color={profile.color} name={label} size="sm" />
+          {delegated && (
+            <DelegatedIcon className="absolute -bottom-px -right-px h-3 w-3 rounded-full bg-neutral-100 p-px text-neutral-700 dark:bg-neutral-950 dark:text-neutral-300" />
+          )}
+          {badge && (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-neutral-100 dark:ring-neutral-950"
+            />
+          )}
+        </span>
+      )}
+      {named && delegated && <DelegatedIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />}
       {surface && <SurfaceIcon surface={surface} className="h-3.5 w-3.5 shrink-0" />}
-      <span className="max-w-[160px] truncate">{label}</span>
-      {showUnread && unread > 0 && (
+      {named && (
+        <span className="truncate" style={{ maxWidth: labelWidth }}>
+          {label}
+        </span>
+      )}
+      {named && badge && (
         <span className="shrink-0 rounded-full bg-blue-500 px-1.5 text-[10px] font-bold leading-[15px] text-white">
           {unreadLabel(unread, strings.numberLocale)}
         </span>

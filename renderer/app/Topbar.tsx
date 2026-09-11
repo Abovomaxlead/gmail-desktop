@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccountTab } from './AccountTab';
+import { planOverflowMenu, stripMaskImage, tabLabelWidth } from './topbar-tabs';
 import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { planPlusMenu, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
@@ -47,6 +48,8 @@ const RESERVE_WITHOUT_UPDATE = DRAG_RESERVE + ICON_BUTTON + ICON_BUTTON + GEAR_M
 const RESERVE_WITH_UPDATE = RESERVE_WITHOUT_UPDATE + UPDATE_BUTTON + GAP;
 
 const PINNED_BUTTON = ICON_BUTTON + GAP;
+/** The overflow button's own room: an icon, its count and the gap before it */
+const OVERFLOW_BUTTON = 38 + GAP;
 
 
 //===========================
@@ -92,8 +95,13 @@ export function Topbar({
   onReorder(fromEmail: string, toEmail: string): void;
 }) {
   const [dragEmail, setDragEmail] = useState<string | null>(null);
+  const [offScreen, setOffScreen] = useState<Set<string>>(new Set());
+  /** Whether the strip has been scrolled away from its first tab */
+  const [scrolledOff, setScrolledOff] = useState(false);
+  const stripRef = useRef<HTMLDivElement | null>(null);
   const updateReady = update.state === 'downloaded';
   const activeProfile = active ? (profiles.find((p) => p.key === active.key) ?? null) : null;
+  const labelWidth = tabLabelWidth(profiles.length);
   const pinned = activeProfile
     ? pinnedSurfacesFor(prefs?.googleApps.pinned ?? [], openableSurfaces(activeProfile))
     : [];
@@ -113,6 +121,54 @@ export function Topbar({
     if (surface) onOpen(p.key, surface);
   }
 
+  // Which tabs are not fully in the strip. Watched rather than measured on a timer: the
+  // observer fires on scrolling, on resizing and on a tab appearing, which is every way the
+  // answer can change.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const seen = new IntersectionObserver(
+      (entries) => {
+        setOffScreen((cur) => {
+          const next = new Set(cur);
+          for (const entry of entries) {
+            const key = (entry.target as HTMLElement).dataset.tabKey;
+            if (!key) continue;
+            if (entry.intersectionRatio > 0.99) next.delete(key);
+            else next.add(key);
+          }
+          return next;
+        });
+      },
+      { root: strip, threshold: [0.99] },
+    );
+    for (const tab of strip.querySelectorAll('[data-tab-key]')) seen.observe(tab);
+    return () => seen.disconnect();
+  }, [profiles]);
+
+  // The account that was just opened may be one of the ones off the edge -- opened from the
+  // sidebar, a notification, or the overflow menu itself. Bringing it into view is what keeps
+  // the strip from contradicting the window behind it.
+  useEffect(() => {
+    if (!active) return;
+    stripRef.current
+      ?.querySelector(`[data-tab-key="${CSS.escape(active.key)}"]`)
+      ?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+  }, [active?.key]);
+
+  const hidden = profiles.filter((p) => offScreen.has(p.key));
+  const stripMask = stripMaskImage(scrolledOff, hidden.length > 0);
+
+  async function openOverflowMenu(): Promise<void> {
+    const picked = await onPopupMenu(
+      planOverflowMenu(
+        hidden.map((p) => ({ key: p.key, label: labelFor(p), unread: unread[p.key] ?? 0 })),
+      ),
+    );
+    const chosen = hidden.find((p) => p.key === picked);
+    if (chosen) onOpen(chosen.key, 'mail');
+  }
+
   return (
     <div
       className="relative shrink-0 select-none bg-neutral-100 dark:bg-neutral-950"
@@ -120,13 +176,20 @@ export function Topbar({
     >
       <div style={AREA} className="flex items-center gap-1 pl-2">
         <div
+          ref={stripRef}
           data-tour="tabs"
           className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          onScroll={(e) => setScrolledOff(e.currentTarget.scrollLeft > 1)}
           style={{
             maxWidth: `calc(100% - ${
               (updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE) +
+              (hidden.length > 0 ? OVERFLOW_BUTTON : 0) +
               (pinned.length + demoPinned.length) * PINNED_BUTTON
             }px)`,
+            // A tab sliced down the middle at an edge reads as a drawing error. Fading the cut
+            // stretch says the row continues there -- on the right that is what the button
+            // beside it is for, on the left it is where the strip has been scrolled away from.
+            ...(stripMask ? { maskImage: stripMask, WebkitMaskImage: stripMask } : {}),
             ...NO_DRAG,
           }}
         >
@@ -135,6 +198,7 @@ export function Topbar({
               key={p.key}
               profile={p}
               label={labelFor(p)}
+              labelWidth={labelWidth}
               unread={unread[p.key] ?? 0}
               showUnread={accountCountVisible(
                 prefs?.accounts[p.email]?.badgeCount,
@@ -155,6 +219,21 @@ export function Topbar({
             />
           ))}
         </div>
+
+        {/* Only when something is actually out of sight, so a window with three accounts has
+            nothing extra in it. The number is the point: it says how much is not on screen. */}
+        {hidden.length > 0 && (
+          <button
+            onClick={() => void openOverflowMenu()}
+            title={S.moreAccounts(hidden.length)}
+            aria-label={S.moreAccounts(hidden.length)}
+            style={NO_DRAG}
+            className="flex h-[26px] shrink-0 items-center gap-1 rounded-md px-1.5 text-[12px] font-medium text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <ChevronsIcon className="h-3.5 w-3.5" />
+            {hidden.length}
+          </button>
+        )}
 
         <div className="relative shrink-0" style={NO_DRAG}>
           <button
@@ -258,6 +337,14 @@ function PlusIcon({ className = '' }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" className={className}>
       <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function ChevronsIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="m7 6 6 6-6 6M14 6l6 6-6 6" />
     </svg>
   );
 }
