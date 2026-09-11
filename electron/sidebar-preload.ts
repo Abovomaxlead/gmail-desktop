@@ -243,3 +243,32 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.send(IPC.TOAST_ACTION, arg),
   setToastHovered: (hovered: boolean): void => ipcRenderer.send(IPC.TOAST_HOVER, hovered),
 });
+
+
+//===========================
+// Crash reporting
+//===========================
+
+// Registered here rather than in the pages, because a page that fails while it is loading has
+// no code of its own running yet -- and that is the failure worth hearing about, since it shows
+// up as an empty window. Only this app's own surfaces run this preload; the Gmail views run
+// preload.ts, so Google's script errors never come through here.
+//
+// Every error is sent; whether it is worth a mail is decided in main (crash-report.ts), which
+// is the only place that knows what has already been reported.
+window.addEventListener('error', (e: ErrorEvent) => {
+  ipcRenderer.send(IPC.CRASH_REPORT, {
+    message: e.message || String(e.error ?? 'script error'),
+    stack: e.error instanceof Error ? e.error.stack : undefined,
+    where: `${location.href} ${e.filename}:${e.lineno}`,
+  });
+});
+
+window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
+  const reason = e.reason as Error | undefined;
+  ipcRenderer.send(IPC.CRASH_REPORT, {
+    message: String(reason?.message ?? e.reason ?? 'unhandled rejection'),
+    stack: reason?.stack,
+    where: location.href,
+  });
+});
