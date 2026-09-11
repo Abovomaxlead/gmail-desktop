@@ -191,6 +191,14 @@ describe('insertLabelIds', () => {
   it('still carries the marker when there are no real labels at all', () => {
     expect(insertLabelIds([], 'MARKER_1')).toEqual(['MARKER_1']);
   });
+
+  it('carries UNREAD when the source has the message unread, so the copy lands unread too', () => {
+    expect(insertLabelIds(['L1'], 'MARKER_1', true)).toEqual(['L1', 'MARKER_1', 'UNREAD']);
+  });
+
+  it('leaves UNREAD off a message that was read, which is what every copy did before', () => {
+    expect(insertLabelIds(['L1'], 'MARKER_1', false)).toEqual(['L1', 'MARKER_1']);
+  });
 });
 
 describe('newMessageCount', () => {

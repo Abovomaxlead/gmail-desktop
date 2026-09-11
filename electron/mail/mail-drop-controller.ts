@@ -216,6 +216,8 @@ interface SavedRef {
   /** The labels of a dragged tree this message was found under, empty for every other drag.
    * What the copy turns into destination labels, one mailbox at a time. */
   sourceLabels: string[];
+  /** Whether the source mailbox has this message unread, so the copy can land unread too */
+  unread: boolean;
 }
 
 /** What became of a job, sent once when its walk is over. The plan's own outcome vocabulary plus
@@ -406,7 +408,12 @@ function readThread(cache: ThreadReadCache, email: string, threadId: string): Pr
     const errors: Array<string | undefined> = [];
     for (const m of api.messages) {
       if (m.raw) {
-        all.push({ raw: m.raw, headers: parseHeaders(m.raw.toString('utf8')), id: m.id });
+        all.push({
+          raw: m.raw,
+          headers: parseHeaders(m.raw.toString('utf8')),
+          id: m.id,
+          unread: m.unread,
+        });
       } else {
         errors.push(m.error);
       }
@@ -875,9 +882,10 @@ async function fetchThreadSlice(
     const { threadId } = thread;
     try {
       const raws = await withToken((token) => fetchThreadRaw(token, threadId));
-      const messages: SavedMessage[] = raws.map((raw) => ({
+      const messages: SavedMessage[] = raws.map(({ raw, unread }) => ({
         raw,
         headers: parseHeaders(raw.toString('utf8')),
+        unread,
       }));
       return {
         thread: { ...thread, subject: messages[0]?.headers.subject || NO_SUBJECT },
@@ -1862,8 +1870,9 @@ async function copyOneFile(arg: {
       // modify call to add it afterwards, which would reopen exactly the window a cancel-safe
       // copy exists to close. It never reaches the journal or the outcome record below: both
       // stay exactly what the user asked for (`labelIds`), and the marker is tracked only by
-      // the run's own journal header (see MarkerLabel).
-      const withMarker = insertLabelIds(labelIds, arg.markerLabelId);
+      // the run's own journal header (see MarkerLabel). UNREAD travels the same way: mail that
+      // was unread in the mailbox it came from arrives unread in the one it was copied to.
+      const withMarker = insertLabelIds(labelIds, arg.markerLabelId, arg.ref.unread);
       const insert = (t: string, thread?: string) =>
         insertMessage(t, raw, withMarker, thread, arg.signal);
       let inserted: { id: string | null; threadId: string | null };
@@ -3503,6 +3512,7 @@ function savedRefs(
     subject: m.headers.subject || NO_SUBJECT,
     threadId,
     sourceLabels,
+    unread: m.unread === true,
   }));
 }
 

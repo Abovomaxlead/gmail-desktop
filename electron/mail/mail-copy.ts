@@ -307,21 +307,30 @@ export function labelsStillNeeded(
 }
 
 /**
- * The labels one insert actually carries: the real ones, plus this run's own marker
+ * The labels one insert actually goes out with
  *
- * Folded together here because both must ride the very same insertMessage call. A follow-up
- * modify to add the marker after the insert answers would reopen the exact window a
+ * The marker rides inside the same call that creates the message, which is the whole race a
  * cancel-safe copy exists to close: a socket cut between the two calls would leave a message
  * in the mailbox with no marker on it at all. Kept separate from `labelIds` itself -- the
  * caller's journal entry and outcome record must go on using the array without the marker,
  * since that is what the user actually asked for.
  *
+ * `UNREAD` travels the same way and for the same reason: a copy of unread mail that lands read
+ * has quietly lost the one thing the user was going to act on, and a second call to mark it
+ * afterwards is a second chance to fail. It is not part of what the user chose either, so it
+ * stays out of the journal too.
+ *
  * @param labelIds the labels the user chose
  * @param markerLabelId this mailbox's own marker for the run
+ * @param unread whether the source mailbox has this message unread
  * @returns the labelIds to pass to insertMessage
  */
-export function insertLabelIds(labelIds: string[], markerLabelId: string): string[] {
-  return [...labelIds, markerLabelId];
+export function insertLabelIds(
+  labelIds: string[],
+  markerLabelId: string,
+  unread = false,
+): string[] {
+  return unread ? [...labelIds, markerLabelId, 'UNREAD'] : [...labelIds, markerLabelId];
 }
 
 /**

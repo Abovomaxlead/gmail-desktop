@@ -30,6 +30,10 @@ export interface SavedMessage {
   headers: EmlHeaders;
   id?: string;
   permMsgId?: string;
+  /** Whether the source mailbox has it unread. Only the API route knows -- the show-original
+   * page carries the message, not its state -- so a message fetched over cookies is absent
+   * here and copies as read, the way every copy did before. */
+  unread?: boolean;
 }
 
 export interface LogRecord {

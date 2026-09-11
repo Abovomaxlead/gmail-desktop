@@ -12,6 +12,7 @@ import {
   apiHeaders,
   parseThreadList,
   parseThreadMessageIds,
+  parseThreadMessageRefs,
   parseMessageRaw,
   threadsListUrl,
   THREADS_PAGE_SIZE,
@@ -485,6 +486,34 @@ describe('parseThreadMessageIds', () => {
     expect(parseThreadMessageIds({})).toEqual([]);
     expect(parseThreadMessageIds(null)).toEqual([]);
     expect(parseThreadMessageIds({ messages: [{ id: '' }] })).toEqual([]);
+  });
+});
+
+describe('parseThreadMessageRefs', () => {
+  it('reads unread off the same listing the ids come from, message by message', () => {
+    expect(
+      parseThreadMessageRefs({
+        messages: [
+          { id: 'm1', labelIds: ['INBOX', 'UNREAD'] },
+          { id: 'm2', labelIds: ['INBOX'] },
+        ],
+      }),
+    ).toEqual([
+      { id: 'm1', unread: true },
+      { id: 'm2', unread: false },
+    ]);
+  });
+
+  it('calls a message read when Gmail names no labels at all', () => {
+    expect(parseThreadMessageRefs({ messages: [{ id: 'm1' }] })).toEqual([
+      { id: 'm1', unread: false },
+    ]);
+  });
+
+  it('returns nothing for an unexpected response', () => {
+    expect(parseThreadMessageRefs({})).toEqual([]);
+    expect(parseThreadMessageRefs(null)).toEqual([]);
+    expect(parseThreadMessageRefs({ messages: [{ id: '' }] })).toEqual([]);
   });
 });
 

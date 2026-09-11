@@ -47,6 +47,9 @@ export interface AccountLabels {
 
 export interface ThreadMessage {
   id: string;
+  /** Whether the source mailbox still has this message unread, so a copy can land the same
+   * way. Read off the thread listing that is fetched anyway, never a call of its own. */
+  unread: boolean;
   raw?: Buffer;
   error?: string;
 }
@@ -616,6 +619,26 @@ export function parseThreadMessageIds(json: unknown): string[] {
 }
 
 /**
+ * The messages of a thread with the one label a copy cares about
+ *
+ * `format=minimal` answers every message's labels alongside its id, so whether the mail is
+ * unread costs nothing extra -- this listing is fetched to know what to download anyway.
+ *
+ * @param json a threads.get response
+ * @returns one entry per message, in the thread's own order
+ */
+export function parseThreadMessageRefs(json: unknown): Array<{ id: string; unread: boolean }> {
+  const raw = (json as { messages?: unknown })?.messages;
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ id: string; unread: boolean }> = [];
+  for (const m of raw) {
+    if (typeof m?.id !== 'string' || !m.id) continue;
+    out.push({ id: m.id, unread: parseMessageLabelIds(m).includes('UNREAD') });
+  }
+  return out;
+}
+
+/**
  * Walks pages of thread ids, whatever is answering them
  *
  * The page reader is a dependency so a test can check the walk: the paging, the deduplicating,
@@ -692,13 +715,17 @@ export async function fetchThreadMessages(
   accessToken: string,
   threadId: string,
 ): Promise<ThreadMessage[]> {
-  const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
+  const refs = parseThreadMessageRefs(await requestJson(threadMessagesUrl(threadId), accessToken));
   // The sources of a conversation are the bulk of a drag: one batch instead of one request per
   // message is where the waiting goes. Small groups, because a part here is a whole mail.
-  const answers = await batchedOrOneByOne(ids.map(messageRawUrl), accessToken, RAW_BATCH_LIMIT);
-  return ids.map((id, i) => {
+  const answers = await batchedOrOneByOne(
+    refs.map((r) => messageRawUrl(r.id)),
+    accessToken,
+    RAW_BATCH_LIMIT,
+  );
+  return refs.map(({ id, unread }, i) => {
     const raw = parseMessageRaw(answers[i]);
-    return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
+    return raw ? { id, unread, raw } : { id, unread, error: 'Gmail gaf geen bron voor dit bericht' };
   });
 }
 
@@ -707,12 +734,15 @@ export async function fetchThreadMessages(
  *
  * @param accessToken
  * @param threadId
- * @returns {Promise<Buffer[]>} the messages that could be read, so a short answer here
- *   says nothing about how long the thread is
+ * @returns the messages that could be read, each with whether the source has it unread, so a
+ *   short answer here says nothing about how long the thread is
  */
-export async function fetchThreadRaw(accessToken: string, threadId: string): Promise<Buffer[]> {
+export async function fetchThreadRaw(
+  accessToken: string,
+  threadId: string,
+): Promise<Array<{ raw: Buffer; unread: boolean }>> {
   const messages = await fetchThreadMessages(accessToken, threadId);
-  return messages.flatMap((m) => (m.raw ? [m.raw] : []));
+  return messages.flatMap((m) => (m.raw ? [{ raw: m.raw, unread: m.unread }] : []));
 }
 
 
