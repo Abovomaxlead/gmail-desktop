@@ -3,6 +3,59 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1789125695] — 2026-09-11
+
+### Toegevoegd
+- **De app meldt zelf wat er misgaat.** Een crash die niemand doorgeeft wordt niet opgelost, en
+  bijna niemand geeft er een door: het feedbackvenster vraagt erom dat je het zelf opmerkt,
+  beschrijft en verstuurt. Vanaf nu merkt de app het zelf en stuurt hij het bericht met de
+  logboeken erbij, vanuit het postvak waar je in zit. Je hoeft niets te doen en je ziet er niets
+  van — behalve de storing zelf, op de plek waar hij gebeurde: een postvak dat vastloopt zegt dat
+  in dat postvak. Uit de logboeken gaan eerst de gegevens van je mail: afzender, ontvangers,
+  onderwerp en berichtnummers blijven thuis, alleen wat er wanneer gebeurde gaat mee. Een crash
+  zonder internet of nog vóór het koppelen van een account gaat niet verloren: die wacht en
+  vertrekt bij de volgende start. En hij overdrijft niet — dezelfde fout gaat hoogstens eens per
+  zes uur de deur uit.
+- **Mail die ongelezen was, komt ongelezen aan.** Kopieerde je ongelezen mail naar een ander
+  postvak, dan stond die daar als gelezen — precies het enige wat je nog moest weten was weg. De
+  leesstatus reist nu mee. Dat kost geen extra werk en geen extra wachttijd: hij stond al in het
+  antwoord dat de app toch al ophaalde. Alleen bij een postvak zonder koppeling is die status niet
+  te achterhalen; dan komt de mail aan als gelezen, zoals altijd.
+
+### Opgelost
+- **Een structuur kan niet meer in zichzelf terechtkomen.** Sleepte je een label mét "Structuur
+  overnemen" naar een postvak dat dat label al heeft, dan mocht je dat bestaande label aanwijzen
+  als plek — en dan kwam `Klanten` in `Klanten/Klanten` te staan, met alles eronder een niveau
+  dieper in een kopie van zichzelf, en je mail erin. Terugdraaien kon alleen met de rollback van
+  diezelfde kopie. Die keuze bestaat niet meer: labels die bij de gesleepte structuur horen staan
+  niet meer in de lijst. Ook Postvak IN, Met sterren en Belangrijk zijn weg als bestemming zolang
+  de structuur aan staat: onder die drie kan geen label hangen — dat is geen instelling van ons
+  maar hoe Gmail met namen omgaat. Losse mail in Postvak IN zetten kan gewoon nog.
+- **De bovenste keuze zegt nu wat hij doet.** "Bovenin" was precies de plek die je moest kiezen om
+  je mail in de mapjes te krijgen die er al stonden, en precies de plek die klonk alsof je alles
+  los bovenaan dumpte. Die regel heet nu "Samenvoegen met «Klanten»" als het postvak dat label al
+  heeft, of "Nieuw bovenin: «Klanten»" als het er nog niet is, met daaronder in kleine letters wat
+  dat betekent. Hij staat bovenaan, los van het kopje "Plaats onder" dat bij de labels eronder
+  hoort, en het labeltje onderin het venster zegt precies hetzelfde.
+- **De balk met postvakken blijft leesbaar, ook met twintig postvakken.** De tabbladen liepen
+  gewoon van het scherm af: niets liet zien dat er meer waren, en opende je een postvak vanuit de
+  zijbalk of een melding, dan kon dat tabblad buiten beeld blijven staan. Nu geven eerst de namen
+  mee, daarna blijft alleen het rondje met de foto over (het adres blijft in de tooltip), en pas
+  als het dan nog niet past schuift de rij — met een knopje ernaast dat zegt hoeveel postvakken je
+  niet ziet en ze in een lijstje opent, inclusief hun aantal ongelezen berichten. Het postvak dat
+  je opent schuift voortaan altijd vanzelf in beeld.
+- **De vensters van de app zelf gaan mee met de donkere modus.** Het kopieervenster, het lijstje
+  "gedeeld postvak toevoegen" en het keuzevenster voor de afzender bleven wit terwijl de rest van
+  de app donker stond. Die vensters staan los van het hoofdvenster en kregen de themakeuze nooit
+  te horen; nu wel, zoals de meldingen dat al deden.
+
+### Let op
+- **Je wordt één keer om nieuwe toestemming gevraagd.** Het versturen van een storingsmelding
+  vraagt een recht dat de app nooit eerder nodig had, en een bestaande koppeling kan dat er niet
+  alsnog bij krijgen. Bij Instellingen → Accounts staat daarom "Nieuwe toestemming nodig" bij je
+  accounts; één keer opnieuw koppelen is genoeg. Er is niets mis met de koppeling zelf — de app
+  vraagt om meer dan eerst.
+
 ## [1.0.0-beta.1788503135] — 2026-09-04
 
 ### Opgelost
