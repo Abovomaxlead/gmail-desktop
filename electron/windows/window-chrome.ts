@@ -15,6 +15,7 @@ import { showAccount } from './view-surfaces';
 import { resolveShortcut, type KeyInput } from '../menus/shortcuts';
 import { overlayOptions, supportsOverlayUpdate } from './titlebar';
 import { grownToMinimum } from './window-bounds';
+import { shellWindows } from './tab-window-registry';
 
 
 //===========================
@@ -84,19 +85,19 @@ export function handleInput(input: KeyInput): void {
   }
 }
 
+/** The title-bar overlay is per window, so every shell window gets the new colours. */
 export function applyTitleBarOverlay(): void {
-  if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
+  if (!prefs) return;
   if (!supportsOverlayUpdate(process.platform)) return;
   const p = prefs.getAll();
-  mainWindow.setTitleBarOverlay(
-    overlayOptions(p.theme, nativeTheme.shouldUseDarkColors, p.reneMode),
-  );
+  const options = overlayOptions(p.theme, nativeTheme.shouldUseDarkColors, p.reneMode);
+  for (const win of shellWindows()) win.setTitleBarOverlay(options);
 }
 
 export function applyReneZoom(): void {
-  if (!prefs || !mainWindow || mainWindow.isDestroyed()) return;
+  if (!prefs) return;
   const on = prefs.getAll().reneMode;
-  mainWindow.webContents.setZoomFactor(on ? RENE_ZOOM_FACTOR : 1);
+  for (const win of shellWindows()) win.webContents.setZoomFactor(on ? RENE_ZOOM_FACTOR : 1);
   applyTitleBarOverlay();
   for (const p of profiles) {
     manager?.setZoomForKey(keyOf(p), on ? RENE_ZOOM_LEVEL : prefs.getAccount(p.email).zoom ?? 0);
@@ -105,12 +106,13 @@ export function applyReneZoom(): void {
 }
 
 export function applyMinWindowSize(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
   const on = prefs?.getAll().appearance.restrictMinWindowSize !== false;
-  mainWindow.setMinimumSize(on ? MIN_WINDOW_WIDTH : 0, on ? MIN_WINDOW_HEIGHT : 0);
-  if (!on || mainWindow.isMaximized() || mainWindow.isFullScreen()) return;
-  const bounds = mainWindow.getBounds();
-  const grown = grownToMinimum(bounds, { width: MIN_WINDOW_WIDTH, height: MIN_WINDOW_HEIGHT });
-  if (grown.width === bounds.width && grown.height === bounds.height) return;
-  mainWindow.setBounds({ ...bounds, ...grown });
+  for (const win of shellWindows()) {
+    win.setMinimumSize(on ? MIN_WINDOW_WIDTH : 0, on ? MIN_WINDOW_HEIGHT : 0);
+    if (!on || win.isMaximized() || win.isFullScreen()) continue;
+    const bounds = win.getBounds();
+    const grown = grownToMinimum(bounds, { width: MIN_WINDOW_WIDTH, height: MIN_WINDOW_HEIGHT });
+    if (grown.width === bounds.width && grown.height === bounds.height) continue;
+    win.setBounds({ ...bounds, ...grown });
+  }
 }

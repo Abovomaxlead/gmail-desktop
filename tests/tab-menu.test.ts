@@ -1,7 +1,13 @@
 // The plan for a tab's right-click menu, and the icons it names.
 
 import { describe, it, expect } from 'vitest';
-import { tabMenuSurfaces, tabMenuChoices, planTabMenu } from '../renderer/app/tab-menu';
+import {
+  tabMenuSurfaces,
+  tabMenuChoices,
+  planTabMenu,
+  TAB_MENU_NEW_WINDOW,
+  TAB_MENU_TO_MAIN,
+} from '../renderer/app/tab-menu';
 import { hasClickableItem } from '../renderer/lib/native-menu';
 import { APP_SURFACES, SURFACE_CONFIG, type Surface } from '../renderer/lib/surfaces';
 import { SURFACE_ICON_DATA_URIS } from '../renderer/lib/surface-icon-data';
@@ -97,6 +103,48 @@ describe('planTabMenu', () => {
     ] as const) {
       expect(hasClickableItem(planTabMenu('x', tabMenuChoices(account)))).toBe(true);
     }
+  });
+});
+
+// Dragging a tab out is the way most people will move a mailbox into its own window, but a
+// drag is not something everybody can do comfortably and it is not discoverable at all. The
+// menu is the other way in, and the way back out.
+describe('planTabMenu window moves', () => {
+  const own = tabMenuChoices({ kind: 'authuser', hasCalendar: true });
+  const labels = { newWindowLabel: 'In a window of its own', toMainLabel: 'Back to the main window' };
+
+  it('offers a window of its own, kept apart from the surfaces above it', () => {
+    const items = planTabMenu('Work', own, { canDetach: true, canReturn: false, ...labels });
+    expect(items.at(-1)).toEqual({ kind: 'item', id: TAB_MENU_NEW_WINDOW, label: labels.newWindowLabel });
+    expect(items.at(-2)).toEqual({ kind: 'separator' });
+  });
+
+  it('offers the way back only where there is somewhere to go back from', () => {
+    const home = planTabMenu('Work', own, { canDetach: true, canReturn: false, ...labels });
+    const away = planTabMenu('Work', own, { canDetach: true, canReturn: true, ...labels });
+    expect(home.some((i) => i.kind === 'item' && i.id === TAB_MENU_TO_MAIN)).toBe(false);
+    expect(away.some((i) => i.kind === 'item' && i.id === TAB_MENU_TO_MAIN)).toBe(true);
+  });
+
+  it('opens for a mailbox with no surfaces of its own but a window to move to', () => {
+    const none = tabMenuChoices({ kind: 'delegated', hasCalendar: false });
+    const items = planTabMenu('Shared inbox', none, { canDetach: true, canReturn: false, ...labels });
+    expect(hasClickableItem(items)).toBe(true);
+    // No surfaces above it, so there is nothing for a separator to separate.
+    expect(items.some((i) => i.kind === 'separator')).toBe(false);
+  });
+
+  it('stays shut for a mailbox that can neither go anywhere nor open anything', () => {
+    const none = tabMenuChoices({ kind: 'delegated', hasCalendar: false });
+    const items = planTabMenu('Shared inbox', none, { canDetach: false, canReturn: false, ...labels });
+    expect(items).toEqual([]);
+  });
+
+  it('never collides a window entry with a surface id', () => {
+    const items = planTabMenu('Work', own, { canDetach: true, canReturn: true, ...labels });
+    const ids = items.flatMap((i) => (i.kind === 'item' ? [i.id] : []));
+    expect(ids.filter((id) => own.includes(id as Surface))).toEqual(own);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });
 

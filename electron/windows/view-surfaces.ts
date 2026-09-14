@@ -108,7 +108,7 @@ export function trimViewsToVisible(): void {
   // away mid-flight would abandon the probe or the consent page.
   const registered = new Set(profiles.map((p) => keyOf(p)));
   const live = manager.liveViewIds().filter((v) => registered.has(v.accountKey));
-  for (const view of viewsToDiscard({ live, active: manager.activeViewId() })) {
+  for (const view of viewsToDiscard({ live, onScreen: manager.visibleViewIds() })) {
     manager.discardView(view.accountKey, view.surface);
   }
 }

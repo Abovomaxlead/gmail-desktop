@@ -11,8 +11,16 @@ import type { CopyStopMode } from '../mail/copy-run-types';
 import { writeFileAtomic } from './json-store';
 import { OAUTH_CONFIG_PATH } from './paths';
 import { SESSION_PARTITION } from './session-partition';
-import { activeTab, colors, currentLocale, downloadHistory, hidden, mainWindow, manager, oauthStatuses, oauthTokens, prefs, profiles, keyOf, recentLabels, reconnectAccounts, setSettingsPanelOpen, settingsPanelOpen, startedWithoutAccounts, toastWindow, toasts } from './runtime';
-import { pushPrefs, pushProfiles, pushUnread, refreshBadge } from './broadcast';
+import { activeTab, activeTabIn, colors, currentLocale, downloadHistory, hidden, mainWindow, manager, oauthStatuses, oauthTokens, prefs, profiles, keyOf, recentLabels, reconnectAccounts, setSettingsPanelOpen, settingsPanelOpen, startedWithoutAccounts, toastWindow, toasts } from './runtime';
+import { pushPrefs, pushProfiles, pushUnread, pushWindowState, refreshBadge } from './broadcast';
+import { tabsFor } from '../windows/tab-window-registry';
+import {
+  adoptAccount,
+  clearTabDrag,
+  draggingAccount,
+  noteTabDrag,
+  tearOffAccount,
+} from '../windows/tab-windows';
 import { type LanguagePref } from './locale';
 import { type AccountPref, type AppearancePatch, type PrefsStore } from './prefs-store';
 import { addAccount, redetect, removeAccount, unhideAccount } from '../accounts/detection-controller';
@@ -88,10 +96,49 @@ import type { Surface } from '../windows/profile-view-manager';
 //===========================
 
 export function registerIpc(): void {
-  ipcMain.on(IPC.SWITCH_SURFACE, (_e, arg: { key: string; surface: Surface }) => {
+  ipcMain.on(IPC.SWITCH_SURFACE, (e, arg: { key: string; surface: Surface }) => {
     const p = profiles.find((x) => keyOf(x) === arg.key);
     if (!p) return;
+    // A tab clicked in a window that does not hold it -- the same mailbox opened from a
+    // notification, say -- is brought to that window rather than lit up in another one.
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) adoptAccount(arg.key, win);
     openSurfaceForAccount(p.ref, arg.surface);
+  });
+
+  // The two ends of a tab drag. The strip that was dropped on says so, the tab that was
+  // dragged says how the drag ended, and whichever arrives first decides: a drop moves the
+  // mailbox into the window under the pointer, an end with no drop gives it a window of its
+  // own at the pointer -- which is what dragging a tab off a browser does.
+  ipcMain.on(IPC.TAB_DRAG_START, (_e, arg: { key?: unknown }) => {
+    if (typeof arg?.key === 'string') noteTabDrag(arg.key);
+  });
+  ipcMain.on(IPC.TAB_DROP, (e) => {
+    const key = draggingAccount();
+    const win = BrowserWindow.fromWebContents(e.sender);
+    clearTabDrag();
+    if (key && win) adoptAccount(key, win);
+  });
+  ipcMain.on(IPC.TAB_DRAG_END, (_e, arg: { dropped?: unknown }) => {
+    const key = draggingAccount();
+    clearTabDrag();
+    if (key && arg?.dropped !== true) tearOffAccount(key);
+  });
+  ipcMain.on(IPC.TAB_DETACH, (_e, arg: { key?: unknown }) => {
+    if (typeof arg?.key === 'string') tearOffAccount(arg.key);
+  });
+  ipcMain.on(IPC.TAB_TO_MAIN, (_e, arg: { key?: unknown }) => {
+    if (typeof arg?.key === 'string' && mainWindow) adoptAccount(arg.key, mainWindow);
+  });
+  // Asked rather than only pushed, for the same reason the tour's first-run answer is: a
+  // window made halfway through the session is pushed its state on did-finish-load, which is
+  // before the page has subscribed to anything. The answer carries the tabs, and the rest of
+  // what the window missed is pushed right behind it.
+  ipcMain.handle(IPC.WINDOW_TABS_GET, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { detached: false, own: [], foreign: [] };
+    pushWindowState(win);
+    return tabsFor(win);
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
@@ -113,22 +160,26 @@ export function registerIpc(): void {
   ipcMain.on(IPC.UPDATE_CHECK, () => checkForUpdate());
   ipcMain.on(IPC.UPDATE_DOWNLOAD, () => downloadUpdate());
   ipcMain.on(IPC.UPDATE_INSTALL, () => installUpdate());
-  ipcMain.on(IPC.SETTINGS_TOGGLE, (_e, arg: { open: boolean }) => {
+  // Per window: the panel and the tour draw in one shell page, and hiding the mailbox behind
+  // another window's tab would blank a window nobody touched.
+  ipcMain.on(IPC.SETTINGS_TOGGLE, (e, arg: { open: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWindow ?? undefined;
     setSettingsPanelOpen(arg.open);
-    if (arg.open) manager?.hideAll();
-    else manager?.showActive();
+    if (arg.open) manager?.hideAll(win);
+    else manager?.showActive(win);
   });
   // The tour draws in the renderer page, and the Gmail views are painted on top of it, so
   // they have to be out of the way or the tour is invisible. Same two calls the settings
   // panel makes. The settingsPanelOpen guard is what stops a tour that ends while the panel
   // happens to be open from painting Gmail over the panel.
-  ipcMain.on(IPC.TOUR_ACTIVE, (_e, arg: { active: boolean }) => {
+  ipcMain.on(IPC.TOUR_ACTIVE, (e, arg: { active: boolean }) => {
     // Logged because the one way this feature fails is invisibly: the tour draws in the
     // renderer page and every Gmail view is painted over it, so a hide that does not arrive
     // looks exactly like a tour that never started.
     console.info(`[tour] views ${arg.active ? 'hidden' : 'shown'}`);
-    if (arg.active) manager?.hideAll();
-    else if (!settingsPanelOpen) manager?.showActive();
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWindow ?? undefined;
+    if (arg.active) manager?.hideAll(win);
+    else if (!settingsPanelOpen) manager?.showActive(win);
   });
   // Asked rather than pushed: the renderer can ask whenever it is ready, so there is no race
   // between this answer and the first profiles push. Logged for the same reason the line above
@@ -332,7 +383,10 @@ export function registerIpc(): void {
     (_e, arg: { jobId: string; choice: 'continue' | 'keep' | 'rollback' }) =>
       decideJobRun(arg.jobId, arg.choice),
   );
-  ipcMain.handle(IPC.ACTIVE_GET, () => activeTab());
+  ipcMain.handle(IPC.ACTIVE_GET, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    return win ? activeTabIn(win) : activeTab();
+  });
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
   ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({
     configured: oauthConfig() !== null,

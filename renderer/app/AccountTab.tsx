@@ -8,6 +8,9 @@ import { Avatar } from './Avatar';
 import { TAB_AVATAR_ONLY } from './topbar-tabs';
 import type { Profile } from './page';
 
+/** The drag format a tab carries. Ours alone, so no page can be dropped a tab by accident. */
+export const TAB_DRAG_MIME = 'application/x-gmail-desktop-tab';
+
 
 //===========================
 // Component
@@ -41,9 +44,9 @@ export function AccountTab({
   strings: { delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   onOpen(): void;
   onMenu(): void;
-  onDragStart(): void;
+  onDragStart(e: React.DragEvent): void;
   onDrop(): void;
-  onDragEnd(): void;
+  onDragEnd(e: React.DragEvent): void;
 }) {
   const delegated = profile.kind === 'delegated';
   const needsUrl = delegated && profile.hasMail === false;
@@ -59,7 +62,15 @@ export function AccountTab({
         e.preventDefault();
         onMenu();
       }}
-      onDragStart={onDragStart}
+      onDragStart={(e) => {
+        // A format of our own and no text/plain: dropped on a Gmail view rather than a strip,
+        // plain text would be pasted into whatever was under the pointer. Nothing else in the
+        // app reads it -- the window that receives the drop asks main what was dragged -- but
+        // a drag with no data at all does not start on Windows.
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData(TAB_DRAG_MIME, profile.key);
+        onDragStart(e);
+      }}
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
       onDragEnd={onDragEnd}

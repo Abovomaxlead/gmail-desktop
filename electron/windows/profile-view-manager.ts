@@ -2,6 +2,12 @@
 // is "<accountKey>:<surface>", and since an accountKey may itself contain a colon it is
 // recovered by splitting on the LAST one.
 //
+// A view is attached to the window that hosts its account, which is the main window until a
+// tab is dragged out of it. Everything that used to be "the" window is therefore kept per
+// window: which view is on screen, whether the surfaces are hidden, and where the bounds come
+// from. hostFor is what the manager asks for an account's window; the ownership itself is
+// tab-windows.ts's, because an account with no view yet still belongs somewhere.
+//
 // A preloading view is parked off-window and stays visible: an invisible view counts as
 // occluded and Gmail never builds its message list, so show() and hideAll() skip warming
 // views. State a page load destroys, like the audio mute, is re-sent on every load.
@@ -91,14 +97,20 @@ export class ProfileViewManager {
   /** The URL each view belongs to. Set by the app and never by the page, so a redirect
    * the app did not ask for is recognisable as one -- see view-home.ts. */
   private homeUrls = new Map<string, string>();
-  private activeViewKey: string | null = null;
+  /** Which window each view is attached to. A view is a child of exactly one window's
+   * contentView, and moving it is what a torn-off tab is. */
+  private hostOf = new Map<string, BrowserWindow>();
+  /** The view on screen in each window, by window id. */
+  private activeByWindow = new Map<number, string>();
+  /** The windows whose surfaces are all hidden, so the shell page shows through. */
+  private hiddenWindows = new Set<number>();
+  /** The windows whose resize is already being followed, so a window adopted twice is not
+   * laid out twice per resize. */
+  private laidOut = new Set<number>();
   private notifClickUntil = new Map<string, number>();
   private warming = new Set<string>();
   private popoutExpectUntil = new Map<string, number>();
   private dropRefused = new Set<string>();
-  /** Whether the settings panel has every view hidden. Keyboard focus belongs to the shell
-   * while it is, and to the view on screen otherwise. */
-  private surfacesHidden = false;
   /** Which anchor owns a mail view. A later click bumps it, and the one still looking
    * stops. */
   private anchorRun = new Map<string, number>();
@@ -134,8 +146,74 @@ export class ProfileViewManager {
      * list -- all of which live in runtime.ts, which imports this file. Empty means "say
      * nothing", which is what the tests and any caller that has no page get. */
     private readonly crashPageUrl: (accountKey: string) => string = () => '',
+    /** Which window an account's views belong in. Asked rather than remembered here: an
+     * account that has no view yet still has a window, and that answer is tab-windows.ts's.
+     * Left out, everything lives in the window handed in above. */
+    private readonly hostFor?: (accountKey: string) => BrowserWindow | null,
   ) {
-    this.win.on('resize', () => this.relayout());
+    this.follow(this.win);
+  }
+
+  /**
+   * The window an account's views belong in
+   *
+   * @param acctKey
+   * @returns the host window, falling back to the main one for an account nobody claims
+   * @private
+   */
+  private hostWindow(acctKey: string): BrowserWindow {
+    const win = this.hostFor?.(acctKey) ?? null;
+    return win && !win.isDestroyed() ? win : this.win;
+  }
+
+  /**
+   * The window a view is attached to right now
+   *
+   * @param k the view key
+   * @private
+   */
+  private hostOfView(k: string): BrowserWindow {
+    const win = this.hostOf.get(k);
+    return win && !win.isDestroyed() ? win : this.win;
+  }
+
+  /** Every window holding views, the main one included. @private */
+  private hostWindows(): BrowserWindow[] {
+    const out = [this.win];
+    for (const win of this.hostOf.values()) {
+      if (!win.isDestroyed() && !out.includes(win)) out.push(win);
+    }
+    return out;
+  }
+
+  /**
+   * Lays a window's view out again whenever it is resized, once per window
+   *
+   * @param win
+   * @private
+   */
+  private follow(win: BrowserWindow): void {
+    if (win.isDestroyed() || this.laidOut.has(win.id)) return;
+    this.laidOut.add(win.id);
+    win.on('resize', () => this.relayout(win));
+    win.once('closed', () => {
+      this.laidOut.delete(win.id);
+      this.activeByWindow.delete(win.id);
+      this.hiddenWindows.delete(win.id);
+    });
+  }
+
+  /**
+   * The window whose tab the keyboard is talking about
+   *
+   * Ctrl+R, the zoom keys and the devtools toggle belong to the window the user is in, and
+   * only one window is focused at a time. The main window is the answer when the app is in
+   * the background, which is where these shortcuts used to end up anyway.
+   *
+   * @private
+   */
+  private focusedHost(): BrowserWindow {
+    return this.hostWindows().find((win) => win.isFocused()) ?? this.win;
   }
 
   /**
@@ -260,17 +338,22 @@ export class ProfileViewManager {
     });
     view.webContents.once('destroyed', () => {
       if (this.views.get(k) !== view) return;
+      const host = this.hostOfView(k);
       this.views.delete(k);
       this.homeUrls.delete(k);
       this.warming.delete(k);
-      if (this.activeViewKey === k) this.activeViewKey = null;
-      if (this.win.isDestroyed()) return;
+      this.hostOf.delete(k);
+      if (this.activeByWindow.get(host.id) === k) this.activeByWindow.delete(host.id);
+      if (host.isDestroyed()) return;
       try {
-        this.win.contentView.removeChildView(view);
+        host.contentView.removeChildView(view);
       } catch {
       }
     });
-    this.win.contentView.addChildView(view);
+    const host = this.hostWindow(acctKey);
+    this.follow(host);
+    host.contentView.addChildView(view);
+    this.hostOf.set(k, host);
     this.onViewAttached();
     view.setVisible(false);
     this.views.set(k, view);
@@ -290,10 +373,16 @@ export class ProfileViewManager {
     const view = this.views.get(k);
     if (!view) return;
     this.warming.delete(k);
-    for (const [vk, v] of this.views) v.setVisible(vk === k || this.warming.has(vk));
-    this.activeViewKey = k;
-    this.surfacesHidden = false;
-    this.applyBounds(view);
+    const host = this.hostOfView(k);
+    // Only the window this view lives in: hiding every view in the app would blank the other
+    // windows, which each have a mailbox of their own on screen.
+    for (const [vk, v] of this.views) {
+      if (this.hostOfView(vk).id !== host.id) continue;
+      v.setVisible(vk === k || this.warming.has(vk));
+    }
+    this.activeByWindow.set(host.id, k);
+    this.hiddenWindows.delete(host.id);
+    this.applyBounds(view, host);
     // Keyboard focus has to travel with the view, or it stays with the one that just went
     // invisible. before-input-event only reaches the focused webContents, so a switch that
     // leaves focus behind drops Ctrl+1..9, Ctrl+N and the zoom keys on the floor -- and the
@@ -312,7 +401,7 @@ export class ProfileViewManager {
     this.ensureView(ref, surface, false);
     const k = viewKey(accountKey(ref), surface);
     const view = this.views.get(k);
-    if (!view || this.activeViewKey === k) return;
+    if (!view || this.activeByWindow.get(this.hostOfView(k).id) === k) return;
     this.warming.add(k);
     view.setBounds(WARM_BOUNDS);
     view.setVisible(true);
@@ -328,7 +417,7 @@ export class ProfileViewManager {
     const k = viewKey(accountKey, surface);
     this.warming.delete(k);
     const view = this.views.get(k);
-    if (!view || this.activeViewKey === k) return;
+    if (!view || this.activeByWindow.get(this.hostOfView(k).id) === k) return;
     view.setVisible(false);
   }
 
@@ -385,8 +474,39 @@ export class ProfileViewManager {
     return true;
   }
 
+  /**
+   * The account on screen in the window the user is in
+   *
+   * The keyboard, the tray and the menus all mean "the mailbox in front of me", and with
+   * tabs in windows of their own that is the focused window's, not the main window's.
+   *
+   * @returns the account key, or null when that window shows nothing
+   */
   activeKey(): string | null {
-    return this.activeViewKey ? acctKeyOfViewKey(this.activeViewKey) : null;
+    const k = this.activeByWindow.get(this.focusedHost().id) ?? null;
+    return k ? acctKeyOfViewKey(k) : null;
+  }
+
+  /**
+   * The account on screen in one window
+   *
+   * @param win
+   * @returns the account key, or null when nothing is showing there
+   */
+  activeKeyIn(win: BrowserWindow): string | null {
+    const k = this.activeByWindow.get(win.id) ?? null;
+    return k ? acctKeyOfViewKey(k) : null;
+  }
+
+  /**
+   * Which surface of an account is on screen in one window
+   *
+   * @param win
+   * @param accountKey
+   * @param surface
+   */
+  isShowingIn(win: BrowserWindow, accountKey: string, surface: Surface): boolean {
+    return this.activeByWindow.get(win.id) === viewKey(accountKey, surface);
   }
 
   /**
@@ -402,8 +522,10 @@ export class ProfileViewManager {
     return null;
   }
 
+  /** Whether a view is the one on screen in the window it lives in, wherever that is. */
   isShowing(accountKey: string, surface: Surface): boolean {
-    return this.activeViewKey === viewKey(accountKey, surface);
+    const k = viewKey(accountKey, surface);
+    return this.activeByWindow.get(this.hostOfView(k).id) === k;
   }
 
   /**
@@ -445,11 +567,88 @@ export class ProfileViewManager {
    * @returns the visible view, or null when none is
    */
   activeViewId(): ViewId | null {
-    if (!this.activeViewKey) return null;
+    const k = this.activeByWindow.get(this.focusedHost().id) ?? null;
+    if (!k) return null;
     return {
-      accountKey: acctKeyOfViewKey(this.activeViewKey),
-      surface: this.activeViewKey.slice(this.activeViewKey.lastIndexOf(':') + 1) as Surface,
+      accountKey: acctKeyOfViewKey(k),
+      surface: k.slice(k.lastIndexOf(':') + 1) as Surface,
     };
+  }
+
+  /**
+   * Every view on screen, one per window
+   *
+   * What the low-memory sweep must spare. activeViewId() answers for the window in front,
+   * which was the whole answer while there was one window; a mailbox in a window of its own
+   * is just as much on screen, and sweeping it would blank a window the user is reading.
+   *
+   * @returns one entry per window showing something
+   */
+  visibleViewIds(): ViewId[] {
+    return [...this.activeByWindow.values()].map((k) => ({
+      accountKey: acctKeyOfViewKey(k),
+      surface: k.slice(k.lastIndexOf(':') + 1) as Surface,
+    }));
+  }
+
+  /**
+   * Every account with a view in one window
+   *
+   * What a window's tab strip is built from, and what has to be handed back to the main
+   * window when a torn-off window closes.
+   *
+   * @param win
+   * @returns one entry per account, in no particular order
+   */
+  accountsIn(win: BrowserWindow): string[] {
+    const out: string[] = [];
+    for (const vk of this.views.keys()) {
+      if (this.hostOfView(vk).id !== win.id) continue;
+      const acct = acctKeyOfViewKey(vk);
+      if (!out.includes(acct)) out.push(acct);
+    }
+    return out;
+  }
+
+  /**
+   * Moves every view of one account into another window
+   *
+   * The whole of a tab travels: an account's mail, calendar and app views are one tab in the
+   * strip, so leaving its calendar behind in the window it was dragged out of would put a
+   * mailbox in two places at once. A WebContentsView survives being reparented -- the page is
+   * not reloaded and nothing it holds is lost -- so this is a detach and an attach, not a
+   * rebuild.
+   *
+   * The window it leaves is left showing whatever else it has, and the caller decides what to
+   * show in the window it arrives in: this only moves them.
+   *
+   * @param accountKey
+   * @param target
+   * @returns true when something actually moved
+   */
+  moveAccountToWindow(accountKey: string, target: BrowserWindow): boolean {
+    if (target.isDestroyed()) return false;
+    let moved = false;
+    for (const [vk, view] of this.views) {
+      if (acctKeyOfViewKey(vk) !== accountKey) continue;
+      const from = this.hostOfView(vk);
+      if (from.id === target.id) continue;
+      if (!from.isDestroyed()) {
+        try {
+          from.contentView.removeChildView(view);
+        } catch {
+        }
+        if (this.activeByWindow.get(from.id) === vk) this.activeByWindow.delete(from.id);
+      }
+      this.follow(target);
+      target.contentView.addChildView(view);
+      this.hostOf.set(vk, target);
+      // Hidden until the target window is told which surface to show, so a calendar view that
+      // came along does not land on top of the mail one.
+      view.setVisible(false);
+      moved = true;
+    }
+    return moved;
   }
 
   /**
@@ -464,32 +663,48 @@ export class ProfileViewManager {
     const k = viewKey(accountKey, surface);
     const view = this.views.get(k);
     if (!view) return;
-    this.win.contentView.removeChildView(view);
+    const host = this.hostOfView(k);
+    if (!host.isDestroyed()) host.contentView.removeChildView(view);
     view.webContents.close();
     this.views.delete(k);
     this.homeUrls.delete(k);
     this.warming.delete(k);
-    if (this.activeViewKey === k) {
-      this.activeViewKey = null;
+    this.hostOf.delete(k);
+    if (this.activeByWindow.get(host.id) === k) {
+      this.activeByWindow.delete(host.id);
       this.focusActiveSurface();
     }
     if (surface === 'mail') this.onUnread(accountKey, 0);
   }
 
-  hideAll(): void {
-    for (const [vk, v] of this.views) if (!this.warming.has(vk)) v.setVisible(false);
-    this.surfacesHidden = true;
+  /**
+   * Takes every view in one window off the screen
+   *
+   * @param win the window whose surfaces to hide, the main one by default -- the settings
+   *   panel and the tour are the main window's, and a window that keeps its own mailbox on
+   *   screen must not be blanked by them
+   */
+  hideAll(win: BrowserWindow = this.win): void {
+    for (const [vk, v] of this.views) {
+      if (this.hostOfView(vk).id !== win.id || this.warming.has(vk)) continue;
+      v.setVisible(false);
+    }
+    this.hiddenWindows.add(win.id);
     this.focusActiveSurface();
   }
 
-  showActive(): void {
-    this.surfacesHidden = false;
-    if (this.activeViewKey) {
-      const view = this.views.get(this.activeViewKey);
-      if (view) {
-        view.setVisible(true);
-        this.applyBounds(view);
-      }
+  /**
+   * Puts one window's own view back on screen
+   *
+   * @param win the window, the main one by default
+   */
+  showActive(win: BrowserWindow = this.win): void {
+    this.hiddenWindows.delete(win.id);
+    const k = this.activeByWindow.get(win.id);
+    const view = k ? this.views.get(k) : undefined;
+    if (view) {
+      view.setVisible(true);
+      this.applyBounds(view, win);
     }
     this.focusActiveSurface();
   }
@@ -509,23 +724,32 @@ export class ProfileViewManager {
     // raise its window on Windows, and a view built while the user is in another app must
     // not pull them out of it. The window's own focus event calls this again, so a window
     // that was busy elsewhere is put right the moment it comes back.
-    if (this.win.isDestroyed() || !this.win.isFocused()) return;
-    const k = this.activeViewKey;
-    const view = k && !this.surfacesHidden && !this.warming.has(k) ? this.views.get(k) : undefined;
-    if (view && !view.webContents.isDestroyed()) view.webContents.focus();
-    else if (!this.win.webContents.isDestroyed()) this.win.webContents.focus();
-  }
-
-  relayout(): void {
-    if (this.activeViewKey) {
-      const view = this.views.get(this.activeViewKey);
-      if (view) this.applyBounds(view);
+    for (const win of this.hostWindows()) {
+      if (win.isDestroyed() || !win.isFocused()) continue;
+      const k = this.activeByWindow.get(win.id) ?? null;
+      const hidden = this.hiddenWindows.has(win.id);
+      const view = k && !hidden && !this.warming.has(k) ? this.views.get(k) : undefined;
+      if (view && !view.webContents.isDestroyed()) view.webContents.focus();
+      else if (!win.webContents.isDestroyed()) win.webContents.focus();
     }
   }
 
-  private applyBounds(view: WebContentsView): void {
-    if (this.win.isDestroyed()) return;
-    const [width, height] = this.win.getContentSize();
+  /**
+   * Lays the view on screen out again
+   *
+   * @param win one window, or every one of them when a setting changed rather than a frame
+   */
+  relayout(win?: BrowserWindow): void {
+    for (const host of win ? [win] : this.hostWindows()) {
+      const k = this.activeByWindow.get(host.id);
+      const view = k ? this.views.get(k) : undefined;
+      if (view) this.applyBounds(view, host);
+    }
+  }
+
+  private applyBounds(view: WebContentsView, win: BrowserWindow): void {
+    if (win.isDestroyed()) return;
+    const [width, height] = win.getContentSize();
     view.setBounds(contentBounds({ width, height }, this.getUiScale()));
   }
 
@@ -555,8 +779,9 @@ export class ProfileViewManager {
     }
   }
   getActiveZoomLevel(): number {
-    if (!this.activeViewKey) return 0;
-    return this.views.get(this.activeViewKey)?.webContents.getZoomLevel() ?? 0;
+    const k = this.activeByWindow.get(this.focusedHost().id);
+    if (!k) return 0;
+    return this.views.get(k)?.webContents.getZoomLevel() ?? 0;
   }
 
   /**
@@ -917,8 +1142,8 @@ export class ProfileViewManager {
    * other accounts.
    */
   reloadActive(): void {
-    if (!this.activeViewKey) return;
-    this.reloadViewKey(this.activeViewKey);
+    const k = this.activeByWindow.get(this.focusedHost().id);
+    if (k) this.reloadViewKey(k);
   }
 
   reloadAll(): void {
@@ -969,8 +1194,8 @@ export class ProfileViewManager {
   }
 
   toggleDevTools(): void {
-    if (!this.activeViewKey) return;
-    const wc = this.views.get(this.activeViewKey)?.webContents;
+    const k = this.activeByWindow.get(this.focusedHost().id);
+    const wc = k ? this.views.get(k)?.webContents : undefined;
     if (!wc || wc.isDestroyed()) return;
     if (wc.isDevToolsOpened()) wc.closeDevTools();
     else wc.openDevTools({ mode: 'detach' });

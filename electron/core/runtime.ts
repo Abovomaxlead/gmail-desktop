@@ -221,7 +221,7 @@ export function currentlyDark(): boolean {
 }
 
 /**
- * What the window is showing, for the bar that draws the active tab
+ * What the user is looking at, for the bar that draws the active tab
  *
  * Read off the manager rather than through `profiles`: detection shows account 0 before it
  * is registered, and the bar highlights the key as soon as its tab arrives.
@@ -233,6 +233,24 @@ export function activeTab(): { key: string; surface: Surface } | null {
   const key = m?.activeKey();
   if (!m || !key) return null;
   const surface = SURFACES.find((s) => m.isShowing(key, s));
+  return surface ? { key, surface } : null;
+}
+
+/**
+ * What one window is showing
+ *
+ * Each window draws its own strip and marks its own tab, so the answer is per window and not
+ * per app: the main window's highlight must not move because a mailbox in a window of its
+ * own was clicked.
+ *
+ * @param win
+ * @returns the active key and surface in that window, or null when it shows nothing
+ */
+export function activeTabIn(win: BrowserWindow): { key: string; surface: Surface } | null {
+  const m = manager;
+  const key = m?.activeKeyIn(win);
+  if (!m || !key) return null;
+  const surface = SURFACES.find((s) => m.isShowingIn(win, key, s));
   return surface ? { key, surface } : null;
 }
 

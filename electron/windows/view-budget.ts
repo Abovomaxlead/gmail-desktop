@@ -23,11 +23,13 @@ import type { ViewId } from './profile-view-manager';
 /**
  * Which live views must go
  *
- * @param opts live is every view that exists; active is the one on screen, null when none is
+ * @param opts live is every view that exists; onScreen is what is showing right now -- one
+ *   view per window, so a mailbox dragged into a window of its own is not swept away while
+ *   the user is reading it
  * @returns the views to discard, in the order given
  */
-export function viewsToDiscard(opts: { live: ViewId[]; active: ViewId | null }): ViewId[] {
-  return opts.live.filter((view) => !(opts.active && sameView(view, opts.active)));
+export function viewsToDiscard(opts: { live: ViewId[]; onScreen: readonly ViewId[] }): ViewId[] {
+  return opts.live.filter((view) => !opts.onScreen.some((kept) => sameView(view, kept)));
 }
 
 /**

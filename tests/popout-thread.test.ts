@@ -114,7 +114,9 @@ const { accountKey } = await import('../renderer/lib/account-ref');
 function fakeWin() {
   return {
     isDestroyed: () => false,
+    id: 1,
     on: () => {},
+    once: () => {},
     isFocused: () => true,
     webContents: { focus: () => {}, isDestroyed: () => false },
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },

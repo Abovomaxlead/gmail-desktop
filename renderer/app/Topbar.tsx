@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { AccountTab } from './AccountTab';
 import { planOverflowMenu, stripMaskImage, tabLabelWidth } from './topbar-tabs';
-import { planTabMenu, tabMenuChoices } from './tab-menu';
+import { planTabMenu, tabMenuChoices, TAB_MENU_NEW_WINDOW, TAB_MENU_TO_MAIN } from './tab-menu';
 import { planPlusMenu, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
@@ -74,6 +74,12 @@ export function Topbar({
   onOpenFeedback,
   onInstallUpdate,
   onReorder,
+  detached,
+  onTabDragStart,
+  onTabDragEnd,
+  onTabDropped,
+  onTabToNewWindow,
+  onTabToMainWindow,
 }: {
   profiles: Profile[];
   unread: Record<string, number>;
@@ -86,13 +92,26 @@ export function Topbar({
   demoPinned: readonly Surface[];
   S: UiStrings;
   onOpen(key: string, surface: Surface): void;
-  onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
+  onPopupMenu(items: NativeMenuItem[], anchor?: { x: number; y: number }): Promise<string | null>;
   onAddAccount(): void;
   onAddDelegated(): void;
   onOpenSettings(): void;
   onOpenFeedback(): void;
   onInstallUpdate(): void;
   onReorder(fromEmail: string, toEmail: string): void;
+  /** True in a window made by dragging a tab out, which draws its tabs and nothing else. */
+  detached: boolean;
+  /** A tab drag started here, so main knows what a drop somewhere else is about. */
+  onTabDragStart(key: string): void;
+  /** The drag ended. `dropped` false means it was let go over nothing of ours, which is what
+   * gives the tab a window of its own. */
+  onTabDragEnd(dropped: boolean): void;
+  /** A tab from another window was dropped on this strip. */
+  onTabDropped(): void;
+  /** The menu asked for this tab to get a window of its own. */
+  onTabToNewWindow(key: string): void;
+  /** The menu asked for this tab to go back to the main window. */
+  onTabToMainWindow(key: string): void;
 }) {
   const [dragEmail, setDragEmail] = useState<string | null>(null);
   const [offScreen, setOffScreen] = useState<Set<string>>(new Set());
@@ -114,9 +133,18 @@ export function Topbar({
 
   async function openTabMenu(p: Profile): Promise<void> {
     const choices = tabMenuChoices(p);
-    const items = planTabMenu(labelFor(p), choices);
+    const items = planTabMenu(labelFor(p), choices, {
+      // The last tab in a window has nowhere to go: the window it would get is the window it
+      // is already in.
+      canDetach: profiles.length > 1,
+      canReturn: detached,
+      newWindowLabel: S.tabNewWindow,
+      toMainLabel: S.tabToMainWindow,
+    });
     if (!hasClickableItem(items)) return;
     const picked = await onPopupMenu(items);
+    if (picked === TAB_MENU_NEW_WINDOW) return onTabToNewWindow(p.key);
+    if (picked === TAB_MENU_TO_MAIN) return onTabToMainWindow(p.key);
     const surface = choices.find((s) => s === picked);
     if (surface) onOpen(p.key, surface);
   }
@@ -180,9 +208,23 @@ export function Topbar({
           data-tour="tabs"
           className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onScroll={(e) => setScrolledOff(e.currentTarget.scrollLeft > 1)}
+          // The strip as a whole takes drops, not only the tabs in it: a tab dragged from
+          // another window is aimed at the row, and the gap past the last tab is most of the
+          // row in a window with two mailboxes in it.
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={() => {
+            if (!dragEmail) onTabDropped();
+            setDragEmail(null);
+          }}
           style={{
             maxWidth: `calc(100% - ${
-              (updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE) +
+              // A torn-off window has no plus, gear, feedback or update button, so the strip
+              // gets that room back and only the window's own buttons stay reserved.
+              (detached
+                ? DRAG_RESERVE + GAP
+                : updateReady
+                  ? RESERVE_WITH_UPDATE
+                  : RESERVE_WITHOUT_UPDATE) +
               (hidden.length > 0 ? OVERFLOW_BUTTON : 0) +
               (pinned.length + demoPinned.length) * PINNED_BUTTON
             }px)`,
@@ -210,12 +252,23 @@ export function Topbar({
               strings={S}
               onOpen={() => onOpen(p.key, 'mail')}
               onMenu={() => void openTabMenu(p)}
-              onDragStart={() => setDragEmail(p.email)}
+              onDragStart={() => {
+                setDragEmail(p.email);
+                onTabDragStart(p.key);
+              }}
               onDrop={() => {
+                // A drag that started in this window is a reorder; one that did not is a tab
+                // arriving from another window, and main knows which mailbox that is.
                 if (dragEmail) onReorder(dragEmail, p.email);
+                else onTabDropped();
                 setDragEmail(null);
               }}
-              onDragEnd={() => setDragEmail(null)}
+              onDragEnd={(e) => {
+                setDragEmail(null);
+                // Let go over nothing that took it -- the desktop, another app, or the mail
+                // view itself -- is what asks for a window of its own.
+                onTabDragEnd(e.dataTransfer?.dropEffect !== 'none');
+              }}
             />
           ))}
         </div>
@@ -235,20 +288,26 @@ export function Topbar({
           </button>
         )}
 
-        <div className="relative shrink-0" style={NO_DRAG}>
-          <button
-            data-tour="add"
-            onClick={() => void openPlusMenu()}
-            title={S.addAccountTooltip}
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
-          >
-            <PlusIcon className="h-4 w-4" />
-          </button>
-        </div>
+        {/* Adding an account, the update button, feedback and settings belong to the main
+            window: there is one of each, and a window holding two mailboxes is not where the
+            account list is managed from. A torn-off window keeps its tabs and its pinned
+            apps, which are the two things that are about the mailbox in front of you. */}
+        {!detached && (
+          <div className="relative shrink-0" style={NO_DRAG}>
+            <button
+              data-tour="add"
+              onClick={() => void openPlusMenu()}
+              title={S.addAccountTooltip}
+              className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
+            >
+              <PlusIcon className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <div className="min-w-[60px] flex-1" />
 
-        {updateReady && (
+        {updateReady && !detached && (
           <button
             onClick={onInstallUpdate}
             title={S.updateReady}
@@ -300,29 +359,33 @@ export function Topbar({
             />
           </button>
         ))}
-        <button
-          data-tour="feedback"
-          onClick={onOpenFeedback}
-          title={S.feedbackTooltip}
-          aria-label={S.feedbackTooltip}
-          style={NO_DRAG}
-          className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
-        >
-          <FeedbackIcon className="h-4 w-4" />
-        </button>
-        <button
-          data-tour="gear"
-          onClick={onOpenSettings}
-          title={S.settingsTooltip}
-          style={NO_DRAG}
-          className={`mr-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition ${
-            settingsOpen
-              ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
-              : 'text-neutral-500 hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white'
-          }`}
-        >
-          <GearIcon className="h-4 w-4" />
-        </button>
+        {!detached && (
+          <button
+            data-tour="feedback"
+            onClick={onOpenFeedback}
+            title={S.feedbackTooltip}
+            aria-label={S.feedbackTooltip}
+            style={NO_DRAG}
+            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <FeedbackIcon className="h-4 w-4" />
+          </button>
+        )}
+        {!detached && (
+          <button
+            data-tour="gear"
+            onClick={onOpenSettings}
+            title={S.settingsTooltip}
+            style={NO_DRAG}
+            className={`mr-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition ${
+              settingsOpen
+                ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
+                : 'text-neutral-500 hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white'
+            }`}
+          >
+            <GearIcon className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   );

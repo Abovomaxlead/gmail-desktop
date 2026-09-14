@@ -88,6 +88,8 @@ import { HistoryStore } from '../gmail/history-store';
 import { MessageIndexStore } from '../mail/message-index';
 import { DownloadHistoryStore } from '../system/download-history';
 import { shouldHideOnClose } from '../menus/tray-controller';
+import { windowForAccount } from './tab-window-registry';
+import { pushWindowTabs } from '../core/broadcast';
 import type { KeyInput } from '../menus/shortcuts';
 
 
@@ -212,6 +214,10 @@ export function createWindow(): void {
       const text = viewCrashText(currentLocale(), prefs?.getAll().reneMode === true);
       return viewCrashUrl(text, email, nativeTheme.shouldUseDarkColors);
     },
+    // Which window a mailbox's views belong in, which is this one until its tab is dragged
+    // out. Asked of the registry rather than remembered by the manager: an account with no
+    // view yet still has a window, and that is where its first view has to be built.
+    (acctKey) => windowForAccount(acctKey),
   );
   setManager(views);
 
@@ -261,6 +267,7 @@ export function createWindow(): void {
     loadDelegatedProfiles();
     pushProfiles();
     pushPrefs();
+    pushWindowTabs();
     void pushDefaultMailStatus();
     startDelegatedUrlRefreshOnce();
     applyReneZoom();

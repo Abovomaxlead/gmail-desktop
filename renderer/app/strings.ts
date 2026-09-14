@@ -308,6 +308,10 @@ export interface UiStrings {
   /** The overflow button beside the tab strip, naming how many tabs are out of sight */
   moreAccounts: (n: number) => string;
   delegatedNeedsClick: string;
+  /** The tab menu's entry that gives a mailbox a window of its own */
+  tabNewWindow: string;
+  /** The tab menu's entry that sends a torn-off mailbox back to the main window */
+  tabToMainWindow: string;
   settingsTooltip: string;
 
   composePickerTo: string;
@@ -885,6 +889,8 @@ export const STRINGS_NORMAL: UiStrings = {
   delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
   moreAccounts: (n) => (n === 1 ? '1 more mailbox' : `${n} more mailboxes`),
   delegatedNeedsClick: 'open once in Gmail first',
+  tabNewWindow: 'Open in a new window',
+  tabToMainWindow: 'Move back to the main window',
   settingsTooltip: 'Settings',
 
   composePickerTo: 'New message to',
@@ -1399,6 +1405,8 @@ export const STRINGS_RENE: UiStrings = {
   delegatedTooltipSuffix: '(de postbus van iemand anders)',
   moreAccounts: (n) => (n === 1 ? 'Er staat er nog 1 naast' : `Er staan er nog ${n} naast`),
   delegatedNeedsClick: 'moet nog één keer open in Gmail',
+  tabNewWindow: 'Zet in een eigen scherm',
+  tabToMainWindow: 'Terug naar het grote scherm',
   settingsTooltip: 'Knopjes',
 
   composePickerTo: 'Een mailtje naar',
@@ -1929,6 +1937,8 @@ export const STRINGS_NL: UiStrings = {
   delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
   moreAccounts: (n) => (n === 1 ? 'Nog 1 postvak' : `Nog ${n} postvakken`),
   delegatedNeedsClick: 'nog één keer openen in Gmail',
+  tabNewWindow: 'In een nieuw venster openen',
+  tabToMainWindow: 'Terug naar het hoofdvenster',
   settingsTooltip: 'Instellingen',
 
   composePickerTo: 'Nieuw bericht aan',
