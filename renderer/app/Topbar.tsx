@@ -75,6 +75,7 @@ export function Topbar({
   onInstallUpdate,
   onReorder,
   detached,
+  tabDragging,
   onTabDragStart,
   onTabDragEnd,
   onTabDropped,
@@ -101,6 +102,9 @@ export function Topbar({
   onReorder(fromEmail: string, toEmail: string): void;
   /** True in a window made by dragging a tab out, which draws its tabs and nothing else. */
   detached: boolean;
+  /** Whether a tab is being dragged anywhere in the app, which is when the bar gives up the
+   * window's drag region so every part of it can be dropped on. */
+  tabDragging: boolean;
   /** A tab drag started here, so main knows what a drop somewhere else is about. */
   onTabDragStart(key: string): void;
   /** The drag ended. `dropped` false means it was let go over nothing of ours, which is what
@@ -230,40 +234,42 @@ export function Topbar({
 
   return (
     <div
-      className="relative shrink-0 select-none bg-neutral-100 dark:bg-neutral-950"
-      style={{ height: TOPBAR_HEIGHT, WebkitAppRegion: 'drag' } as React.CSSProperties}
+      className={`relative shrink-0 select-none bg-neutral-100 dark:bg-neutral-950 ${
+        // The whole bar lights up, because the whole bar takes the drop: aiming at the row of
+        // tabs is a needle to thread in a window where the tabs are three short names.
+        adopting ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/50 dark:bg-blue-500/10' : ''
+      }`}
+      style={
+        {
+          height: TOPBAR_HEIGHT,
+          // The empty stretch of the bar is the window's own drag region, and a drag region
+          // swallows the pointer before the page sees it -- a tab let go there landed on
+          // nothing. While a tab is being dragged anywhere in the app, the region gives way,
+          // and the bar is one drop target from edge to edge.
+          WebkitAppRegion: tabDragging ? 'no-drag' : 'drag',
+        } as React.CSSProperties
+      }
+      onDragOver={hover}
+      onDragLeave={(e) => {
+        // Only when the pointer really left the bar: dragleave also fires on the way from one
+        // tab to the next, and clearing on that would make the row flicker.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) clearDropMarks();
+      }}
+      onDrop={(e) => {
+        // Anywhere but on a tab: a tab from elsewhere arrives, and one from this window goes
+        // to the end of the row rather than nowhere at all.
+        if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
+        if (!dragEmail) onTabDropped();
+        else if (profiles.length > 0) onReorder(dragEmail, profiles[profiles.length - 1].email);
+        clearDropMarks();
+      }}
     >
       <div style={AREA} className="flex items-center gap-1 pl-2">
         <div
           ref={stripRef}
           data-tour="tabs"
-          className={`flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-            // A row that will take the tab says so: without it, the only sign is the cursor,
-            // which is small, far from the strip and easy to miss in a window you just dragged
-            // a mailbox over.
-            adopting ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/50' : ''
-          }`}
+          className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onScroll={(e) => setScrolledOff(e.currentTarget.scrollLeft > 1)}
-          // The strip as a whole takes drops, not only the tabs in it: a tab dragged from
-          // another window is aimed at the row, and the gap past the last tab is most of the
-          // row in a window with two mailboxes in it.
-          onDragOver={hover}
-          onDragLeave={(e) => {
-            // Only when the pointer really left the strip: dragleave also fires on the way
-            // from one tab to the next, and clearing on that would make the row flicker.
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-              setAdopting(false);
-              setDropMark(null);
-            }
-          }}
-          onDrop={(e) => {
-            // Past the last tab, or in a gap: a tab from elsewhere arrives, and one from this
-            // window goes to the end of the row rather than nowhere at all.
-            if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
-            if (!dragEmail) onTabDropped();
-            else if (profiles.length > 0) onReorder(dragEmail, profiles[profiles.length - 1].email);
-            clearDropMarks();
-          }}
           style={{
             maxWidth: `calc(100% - ${
               // A torn-off window has no plus, gear, feedback or update button, so the strip

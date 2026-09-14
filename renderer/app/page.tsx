@@ -167,6 +167,7 @@ interface DesktopBridge {
   switchSurface(key: string, surface: Surface): void;
   onWindowTabs(cb: (tabs: WindowTabs) => void): void;
   getWindowTabs(): Promise<WindowTabs>;
+  onTabDragState(cb: (state: { dragging: boolean }) => void): void;
   tabDragStart(key: string): void;
   tabDragEnd(dropped: boolean): void;
   tabDropped(): void;
@@ -339,6 +340,9 @@ export default function AppShell() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);
+  /** Whether a tab is being dragged, in this window or in another one. While it is, the bar
+   * gives up the window's drag region so the whole of it can be dropped on. */
+  const [tabDragging, setTabDragging] = useState(false);
   // Which tabs this window draws, and whether it is one made by dragging a tab out. Until
   // main says otherwise a window draws every account, which is what the main window does for
   // the whole session unless a tab leaves it.
@@ -398,6 +402,7 @@ export default function AppShell() {
     // state the moment its page finishes loading, which is before this effect has run. The
     // answer also makes main repeat the rows, the counts and the settings to this window.
     void bridge.getWindowTabs().then(setWindowTabs);
+    bridge.onTabDragState(({ dragging }) => setTabDragging(dragging));
     // On a fresh install nobody presses the plus button: the Gmail view is already open on a
     // sign-in page, you sign in there, and detection pushes the account like any other. So the
     // tour cannot hang off addAccount alone -- it also arms when main says this launch found no
@@ -659,6 +664,7 @@ export default function AppShell() {
         onInstallUpdate={() => window.desktop?.installUpdate()}
         onReorder={reorder}
         detached={windowTabs.detached}
+        tabDragging={tabDragging}
         onTabDragStart={(key) => window.desktop?.tabDragStart(key)}
         onTabDragEnd={(dropped) => window.desktop?.tabDragEnd(dropped)}
         onTabDropped={() => window.desktop?.tabDropped()}

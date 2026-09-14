@@ -12,7 +12,7 @@
 // is not a document, so closing its window may not take it away.
 
 import { BrowserWindow, nativeTheme, screen } from 'electron';
-import { pushActive, pushWindowState, pushWindowTabs } from '../core/broadcast';
+import { pushActive, pushTabDrag, pushWindowState, pushWindowTabs } from '../core/broadcast';
 import { DEV_URL, ICON_PATH, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import { RENE_ZOOM_FACTOR } from '../core/rene';
 import { isQuitting, keyOf, mainWindow, manager, prefs, profiles } from '../core/runtime';
@@ -54,24 +54,35 @@ const DRAG_TTL_MS = 10_000;
 //===========================
 
 let drag: { accountKey: string; at: number } | null = null;
-
+/** The floor under a drag nobody ended, matching the repo's other timer handles. */
+let dragTimer: ReturnType<typeof setTimeout> | null = null;
 
 //===========================
 // Exported functions
 //===========================
 
 /**
- * Remembers which tab is being dragged
+ * Remembers which tab is being dragged, and says so in every window
  *
  * The drag itself is the renderer's, and the two ends of it are in different windows: the
- * strip that receives the drop does not learn what was dropped from the drag data (that
+ * bar that receives the drop does not learn what was dropped from the drag data (that
  * crosses windows only on some platforms), it says "something was dropped on me" and this is
  * what answers with what.
+ *
+ * Every window is told, because a window that does not know a drag is happening cannot be
+ * dropped on: the empty stretch of its bar is the window's own drag region, which swallows
+ * the pointer before the page ever sees it. The bars turn that off while this is true.
  *
  * @param accountKey
  */
 export function noteTabDrag(accountKey: string): void {
   drag = { accountKey, at: Date.now() };
+  pushTabDrag(true);
+  // A drag whose window went away never ends, and the bars would hold the window's drag
+  // region open for the rest of the session -- no dragging the app around by its bar. The
+  // timer is the floor under that; an ordinary drag clears it on dragend, long before.
+  clearTimeout(dragTimer ?? undefined);
+  dragTimer = setTimeout(() => clearTabDrag(), DRAG_TTL_MS);
 }
 
 /**
@@ -82,14 +93,16 @@ export function noteTabDrag(accountKey: string): void {
 export function draggingAccount(): string | null {
   if (!drag) return null;
   if (Date.now() - drag.at > DRAG_TTL_MS) {
-    drag = null;
+    clearTabDrag();
     return null;
   }
   return drag.accountKey;
 }
 
 export function clearTabDrag(): void {
+  if (!drag) return;
   drag = null;
+  pushTabDrag(false);
 }
 
 /**

@@ -114,6 +114,19 @@ export function pushWindowTabs(): void {
 }
 
 /**
+ * Tells every window whether a tab is being dragged right now
+ *
+ * A window that does not know cannot be dropped on: most of its bar is the window's own drag
+ * region, and the pointer never reaches the page there. Knowing, a bar turns that region off
+ * for as long as the drag lasts, so the whole strip of chrome is one drop target.
+ *
+ * @param dragging
+ */
+export function pushTabDrag(dragging: boolean): void {
+  for (const win of shellWindows()) win.webContents.send(IPC.TAB_DRAG_STATE, { dragging });
+}
+
+/**
  * Tells one window everything it needs at once
  *
  * What a window opened halfway through the session gets instead of the pushes it was not

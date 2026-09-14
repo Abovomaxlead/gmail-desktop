@@ -60,6 +60,9 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.WINDOW_TABS, (_e, tabs) => cb(tabs));
   },
   getWindowTabs: (): Promise<WindowTabs> => ipcRenderer.invoke(IPC.WINDOW_TABS_GET),
+  onTabDragState: (cb: (state: { dragging: boolean }) => void): void => {
+    ipcRenderer.on(IPC.TAB_DRAG_STATE, (_e, state) => cb(state));
+  },
   // The drag of a tab, told in three parts. The window a tab was dropped on cannot read the
   // drag's data on every platform, so it only reports that something landed on it and main
   // answers with what: the account named at the start of the drag.

@@ -85,6 +85,7 @@ export const IPC = {
   WINDOW_TABS: 'window:tabs',
   WINDOW_TABS_GET: 'window:tabs-get',
   TAB_DRAG_START: 'tab:drag-start',
+  TAB_DRAG_STATE: 'tab:drag-state',
   TAB_DRAG_END: 'tab:drag-end',
   TAB_DROP: 'tab:drop',
   TAB_DETACH: 'tab:detach',
