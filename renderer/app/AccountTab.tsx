@@ -6,6 +6,7 @@ import { CALENDAR_ICON_DATA_URI } from '../lib/calendar-icon-data';
 import { unreadLabel } from './unread-label';
 import { Avatar } from './Avatar';
 import { TAB_AVATAR_ONLY } from './topbar-tabs';
+import { createTabDragImage, TAB_GHOST_GRAB } from './tab-drag-image';
 import type { Profile } from './page';
 
 /** The drag format a tab carries. Ours alone, so no page can be dropped a tab by accident. */
@@ -29,6 +30,9 @@ export function AccountTab({
   onOpen,
   onMenu,
   onDragStart,
+  onDragOver,
+  onDragLeave,
+  dropSide,
   onDrop,
   onDragEnd,
 }: {
@@ -45,8 +49,13 @@ export function AccountTab({
   onOpen(): void;
   onMenu(): void;
   onDragStart(e: React.DragEvent): void;
-  onDrop(): void;
+  /** The pointer is over this tab during a drag, so the bar can say where it would land */
+  onDragOver(e: React.DragEvent): void;
+  onDragLeave(): void;
+  onDrop(e: React.DragEvent): void;
   onDragEnd(e: React.DragEvent): void;
+  /** Which side of this tab the line goes that marks where the dragged tab lands */
+  dropSide: 'before' | 'after' | null;
 }) {
   const delegated = profile.kind === 'delegated';
   const needsUrl = delegated && profile.hasMail === false;
@@ -67,11 +76,25 @@ export function AccountTab({
         // plain text would be pasted into whatever was under the pointer. Nothing else in the
         // app reads it -- the window that receives the drop asks main what was dragged -- but
         // a drag with no data at all does not start on Windows.
-        e.dataTransfer.effectAllowed = 'move';
+        //
+        // copyMove rather than move: a strip that will take the tab answers with 'copy', which
+        // is the plus the OS draws, and the tab is not copied by anyone -- the effect is the
+        // only way to ask for that cursor.
+        e.dataTransfer.effectAllowed = 'copyMove';
         e.dataTransfer.setData(TAB_DRAG_MIME, profile.key);
+        const ghost = createTabDragImage(
+          document,
+          { label, color: profile.color, avatarUrl: profile.avatarUrl },
+          document.documentElement.classList.contains('dark'),
+        );
+        e.dataTransfer.setDragImage(ghost, TAB_GHOST_GRAB.x, TAB_GHOST_GRAB.y);
+        // Chromium has its snapshot by the next tick; leaving it in the page would park a card
+        // off screen for the rest of the session.
+        setTimeout(() => ghost.remove(), 0);
         onDragStart(e);
       }}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       title={
@@ -126,6 +149,18 @@ export function AccountTab({
         }`}
         style={{ backgroundColor: profile.color }}
       />
+      {/* Where the tab being dragged will land. On the edge of the tab it would sit next to,
+          because the bar reorders by dropping one tab on another and the gap is the answer. */}
+      {dropSide && (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-y-0 w-[3px] rounded-full bg-blue-500 ${
+            // On the tab's own edge rather than in the gap beside it: the strip scrolls, and a
+            // line drawn outside the last tab is clipped away exactly when it matters.
+            dropSide === 'before' ? 'left-0' : 'right-0'
+          }`}
+        />
+      )}
     </button>
   );
 }

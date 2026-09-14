@@ -94,3 +94,20 @@ export function stripMaskImage(cutLeft: boolean, cutRight: boolean): string | nu
   const to = cutRight ? '#000 calc(100% - 16px), transparent' : '#000';
   return `linear-gradient(to right, ${from}, ${to})`;
 }
+
+/**
+ * Which side of a tab the line goes that says where the dragged one lands
+ *
+ * The bar reorders by dropping one tab on another, and where it ends up is decided by the two
+ * positions, not by which half of the target the pointer is over: dragging left of a tab puts
+ * the dragged one before it, dragging right puts it after. The line has to say the same thing
+ * the drop will do, or it lies about the result.
+ *
+ * @param fromIndex where the dragged tab is now
+ * @param toIndex the tab under the pointer
+ * @returns the side to draw the line on, or null when the drop would change nothing
+ */
+export function dropIndicatorSide(fromIndex: number, toIndex: number): 'before' | 'after' | null {
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return null;
+  return fromIndex < toIndex ? 'after' : 'before';
+}

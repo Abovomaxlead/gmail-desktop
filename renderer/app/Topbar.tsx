@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AccountTab } from './AccountTab';
-import { planOverflowMenu, stripMaskImage, tabLabelWidth } from './topbar-tabs';
+import { AccountTab, TAB_DRAG_MIME } from './AccountTab';
+import { dropIndicatorSide, planOverflowMenu, stripMaskImage, tabLabelWidth } from './topbar-tabs';
 import { planTabMenu, tabMenuChoices, TAB_MENU_NEW_WINDOW, TAB_MENU_TO_MAIN } from './tab-menu';
 import { planPlusMenu, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
@@ -114,6 +114,11 @@ export function Topbar({
   onTabToMainWindow(key: string): void;
 }) {
   const [dragEmail, setDragEmail] = useState<string | null>(null);
+  /** The tab the pointer is over during a drag, and which side of it the line goes on. */
+  const [dropMark, setDropMark] = useState<{ key: string; side: 'before' | 'after' } | null>(null);
+  /** Whether a tab from another window is hovering this strip, which takes the whole row. */
+  const [adopting, setAdopting] = useState(false);
+
   const [offScreen, setOffScreen] = useState<Set<string>>(new Set());
   /** Whether the strip has been scrolled away from its first tab */
   const [scrolledOff, setScrolledOff] = useState(false);
@@ -124,6 +129,32 @@ export function Topbar({
   const pinned = activeProfile
     ? pinnedSurfacesFor(prefs?.googleApps.pinned ?? [], openableSurfaces(activeProfile))
     : [];
+  /**
+   * Answers a drag hovering the strip, and says what letting go would do
+   *
+   * `copy` is the plus the OS draws. Nothing is copied -- the mailbox moves -- but the effect
+   * is the only say the page has over that cursor, and a plus is what a tab arriving from
+   * somewhere else means. A drag that is not one of our tabs is left alone entirely, so a file
+   * dragged across the bar is still refused by it.
+   *
+   * @param e
+   * @returns true when the drag is a tab this strip will take
+   */
+  function hover(e: React.DragEvent): boolean {
+    if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return false;
+    e.preventDefault();
+    const foreign = !dragEmail;
+    e.dataTransfer.dropEffect = foreign ? 'copy' : 'move';
+    setAdopting(foreign);
+    return true;
+  }
+
+  /** Forgets every mark a drag left behind, however it ended. */
+  function clearDropMarks(): void {
+    setDragEmail(null);
+    setDropMark(null);
+    setAdopting(false);
+  }
 
   async function openPlusMenu(): Promise<void> {
     const picked = await onPopupMenu(planPlusMenu({ strings: S }));
@@ -206,15 +237,32 @@ export function Topbar({
         <div
           ref={stripRef}
           data-tour="tabs"
-          className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className={`flex min-w-0 items-center gap-1 overflow-x-auto rounded-lg [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+            // A row that will take the tab says so: without it, the only sign is the cursor,
+            // which is small, far from the strip and easy to miss in a window you just dragged
+            // a mailbox over.
+            adopting ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/50' : ''
+          }`}
           onScroll={(e) => setScrolledOff(e.currentTarget.scrollLeft > 1)}
           // The strip as a whole takes drops, not only the tabs in it: a tab dragged from
           // another window is aimed at the row, and the gap past the last tab is most of the
           // row in a window with two mailboxes in it.
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={() => {
+          onDragOver={hover}
+          onDragLeave={(e) => {
+            // Only when the pointer really left the strip: dragleave also fires on the way
+            // from one tab to the next, and clearing on that would make the row flicker.
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              setAdopting(false);
+              setDropMark(null);
+            }
+          }}
+          onDrop={(e) => {
+            // Past the last tab, or in a gap: a tab from elsewhere arrives, and one from this
+            // window goes to the end of the row rather than nowhere at all.
+            if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
             if (!dragEmail) onTabDropped();
-            setDragEmail(null);
+            else if (profiles.length > 0) onReorder(dragEmail, profiles[profiles.length - 1].email);
+            clearDropMarks();
           }}
           style={{
             maxWidth: `calc(100% - ${
@@ -252,19 +300,29 @@ export function Topbar({
               strings={S}
               onOpen={() => onOpen(p.key, 'mail')}
               onMenu={() => void openTabMenu(p)}
+              dropSide={dropMark?.key === p.key ? dropMark.side : null}
               onDragStart={() => {
                 setDragEmail(p.email);
                 onTabDragStart(p.key);
               }}
-              onDrop={() => {
+              onDragOver={(e) => {
+                if (!hover(e)) return;
+                const from = profiles.findIndex((x) => x.email === dragEmail);
+                const side = dropIndicatorSide(from, profiles.indexOf(p));
+                setDropMark(side ? { key: p.key, side } : null);
+              }}
+              onDragLeave={() => setDropMark((cur) => (cur?.key === p.key ? null : cur))}
+              onDrop={(e) => {
                 // A drag that started in this window is a reorder; one that did not is a tab
                 // arriving from another window, and main knows which mailbox that is.
+                if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
+                e.stopPropagation();
                 if (dragEmail) onReorder(dragEmail, p.email);
                 else onTabDropped();
-                setDragEmail(null);
+                clearDropMarks();
               }}
               onDragEnd={(e) => {
-                setDragEmail(null);
+                clearDropMarks();
                 // Let go over nothing that took it -- the desktop, another app, or the mail
                 // view itself -- is what asks for a window of its own.
                 onTabDragEnd(e.dataTransfer?.dropEffect !== 'none');
