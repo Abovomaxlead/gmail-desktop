@@ -137,10 +137,7 @@ export function installUpdate(): void {
  * next check instead of the next launch.
  */
 export function applyUpdateChannel(): void {
-  autoUpdater.allowPrerelease = prereleaseAllowed(
-    prefs?.getAll().updates.allowPrerelease,
-    app.getVersion(),
-  );
+  autoUpdater.allowPrerelease = prereleaseAllowed(prefs?.getAll().updates.allowPrerelease);
   // Set explicitly although false is already the default, because this is the promise that an
   // update never walks backwards -- and autoUpdater's `channel` setter turns it on behind your
   // back, so the intent belongs in writing next to the flag it guards.
