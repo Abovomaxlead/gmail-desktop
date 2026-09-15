@@ -1,5 +1,5 @@
 // The one config file everything Google-facing is read from: the OAuth credentials and the
-// two relay URLs.
+// relay URLs.
 //
 // Every reader goes through oauthConfigText, so the app cannot link against one project and
 // subscribe for notifications against another. Nothing is cached, because the file can be
@@ -37,6 +37,12 @@ export function delegatedTokenUrl(): string | null {
 
 export function delegatedMailboxesUrl(): string | null {
   return relayUrlFromConfig(process.env.GMAIL_DELEGATED_MAILBOXES_URL, 'delegatedMailboxesUrl');
+}
+
+/** The endpoint that says whether this account is a beta tester. Read like the other two, so
+ * a machine with no config at all can be pointed at a local relay with an env var. */
+export function betaAccessUrl(): string | null {
+  return relayUrlFromConfig(process.env.GMAIL_BETA_ACCESS_URL, 'betaAccessUrl');
 }
 
 

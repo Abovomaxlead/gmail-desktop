@@ -20,6 +20,7 @@ const PROBE_TIMEOUT_MS = 16000;
 let resolveConsent: (result: { ok: boolean; error?: string }) => void;
 
 vi.mock('../electron/core/runtime', () => ({
+  betaEligible: undefined,
   SESSION_PARTITION: 'persist:test',
   accountCache: { remove: vi.fn() },
   authIdx: (p: { ref: { index: number } }) => p.ref.index,
@@ -70,6 +71,9 @@ vi.mock('../electron/push/mail-sync-controller', () => ({
 vi.mock('../electron/delegation/delegated-controller', () => ({
   maybeStartDelegatedApiScan: vi.fn(),
   addDelegatedMailboxes: vi.fn(),
+}));
+vi.mock('../electron/updates/beta-controller', () => ({
+  maybeStartBetaAccessSweep: vi.fn(),
 }));
 vi.mock('../electron/auth/oauth-flow', () => ({
   // Promise.withResolvers needs a newer lib target than this project's tsconfig sets.

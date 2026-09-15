@@ -17,6 +17,7 @@ import { refreshNotifyAllowed, playNotificationSound } from '../notify/notify-ga
 import { showToast } from '../toast/toast-presenter';
 import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
 import { addDelegatedMailboxes, maybeStartDelegatedApiScan } from '../delegation/delegated-controller';
+import { maybeStartBetaAccessSweep } from '../updates/beta-controller';
 import { connectAccount } from '../auth/oauth-flow';
 import { isAllowedAccount } from '../auth/account-domain';
 import { revokeRefreshToken } from '../auth/token-revoke';
@@ -101,6 +102,7 @@ function settleDetection(): void {
   setCachedAccounts([]);
   pushProfiles();
   maybeStartDelegatedApiScan();
+  maybeStartBetaAccessSweep();
   // Detection has to open a view per account to find it at all, so on a low-memory setup this
   // is the first moment there is anything to give back. Without it the saving would not arrive
   // until the user switched mailboxes by hand.

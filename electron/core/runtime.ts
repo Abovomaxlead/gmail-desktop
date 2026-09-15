@@ -88,6 +88,12 @@ export let oauthStatuses: AccountOAuthStatus[] = [];
 export const pendingMailtos: string[] = [];
 export let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 
+// The relay's answer to "may this person have prereleases", undefined until it has answered
+// at all. Here rather than in prefs because it is not the user's to set, and it deliberately
+// does not survive a restart: the endpoint is asked again as soon as there is an account to
+// ask as, and an install that cannot reach the relay cannot reach GitHub either.
+export let betaEligible: boolean | undefined = undefined;
+
 
 //===========================
 // Exported functions
@@ -176,6 +182,9 @@ export function setOauthStatuses(v: AccountOAuthStatus[]): void {
 }
 export function setLastUpdateStatus(v: Record<string, unknown>): void {
   lastUpdateStatus = v;
+}
+export function setBetaEligible(v: boolean | undefined): void {
+  betaEligible = v;
 }
 
 export function raiseOverlays(): void {

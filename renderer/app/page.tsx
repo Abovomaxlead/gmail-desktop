@@ -82,6 +82,9 @@ export interface UpdateStatus {
   version?: string;
   percent?: number;
   message?: string;
+  /** The relay's answer about beta access, absent while it has not answered. False locks the
+   * prerelease switch: the tester list is not this machine's to decide. */
+  betaEligible?: boolean;
 }
 
 export interface AccountPref {

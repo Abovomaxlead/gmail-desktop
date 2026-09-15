@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { IPC } from '../core/ipc';
 import { CHANGELOG_PATH } from '../core/paths';
 import {
+  betaEligible,
   currentLocale,
   lastUpdateStatus,
   mainWindow,
@@ -32,7 +33,7 @@ import {
 import { nativeLabels } from '../menus/native-labels';
 import { parseChangelog } from './changelog';
 import type { ChangelogVersion } from '../../renderer/lib/changelog-types';
-import { prereleaseAllowed } from './update-channel';
+import { prereleaseAllowed } from '../../renderer/lib/prerelease';
 import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
@@ -140,11 +141,19 @@ export function applyUpdateChannel(): void {
   autoUpdater.allowPrerelease = prereleaseAllowed(
     prefs?.getAll().updates.allowPrerelease,
     app.getVersion(),
+    betaEligible,
   );
   // Set explicitly although false is already the default, because this is the promise that an
   // update never walks backwards -- and autoUpdater's `channel` setter turns it on behind your
   // back, so the intent belongs in writing next to the flag it guards.
   autoUpdater.allowDowngrade = false;
+}
+
+/** Publishes the standing status again, for a change that came from outside the updater.
+ * Today that is only the relay's answer about beta access, which the Updates section draws
+ * the prerelease switch from. */
+export function republishUpdateStatus(): void {
+  sendUpdate({ ...lastUpdateStatus });
 }
 
 export function applyAutoUpdateCheck(): void {
@@ -197,9 +206,11 @@ export function setupUpdater(): void {
 // Helper functions
 //===========================
 
-/** The one place the update state is written and published */
+/** The one place the update state is written and published. Beta eligibility rides along on
+ * every status rather than on a channel of its own: the panel needs it exactly where it
+ * already listens, and it is never interesting without the version beside it. */
 function sendUpdate(status: Record<string, unknown>): void {
-  setLastUpdateStatus({ ...status, currentVersion: app.getVersion() });
+  setLastUpdateStatus({ ...status, currentVersion: app.getVersion(), betaEligible });
   mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);
   hooks.onStatusChanged();
   maybeShowTrayUpdatePopup();

@@ -124,6 +124,7 @@ export interface UiStrings {
   prereleaseUpdates: string;
   prereleaseUpdatesDescription: string;
   prereleaseStuckOnBeta: (version: string) => string;
+  prereleaseNotATester: string;
   notifyUpdates: string;
   notifyUpdatesDescription: string;
 
@@ -678,6 +679,8 @@ export const STRINGS_NORMAL: UiStrings = {
     'Offer beta versions as well as finished ones. Updates never go backwards, so switching this off leaves you on the version you have.',
   prereleaseStuckOnBeta: (version: string) =>
     `You are on ${version}. With this off you stay here until the finished version is released.`,
+  prereleaseNotATester:
+    'Beta versions go to the test group only. Ask the administrator to be added; the app picks it up within the hour.',
   notifyUpdates: 'Notify When Updates Are Available',
   notifyUpdatesDescription: 'Receive notifications when updates are available.',
 
@@ -1203,6 +1206,8 @@ export const STRINGS_RENE: UiStrings = {
     'Je krijgt dan ook versies die nog niet helemaal klaar zijn. Je gaat nooit terug naar een oudere versie, dus als je dit uitzet blijf je op de versie die je nu hebt.',
   prereleaseStuckOnBeta: (version: string) =>
     `Je hebt nu ${version}. Als dit uit staat blijf je daarop tot de gewone versie er is.`,
+  prereleaseNotATester:
+    'Proefversies zijn er alleen voor de testgroep. Vraag of je erbij mag; de app ziet het binnen een uur.',
   notifyUpdates: 'Zeg het als er iets nieuws is',
   notifyUpdatesDescription: 'Je krijgt een melding als er een nieuwe versie klaarstaat.',
 
@@ -1723,6 +1728,8 @@ export const STRINGS_NL: UiStrings = {
     'Naast definitieve versies worden ook betaversies aangeboden. Een update gaat nooit terug, dus dit uitzetten laat je op je huidige versie staan.',
   prereleaseStuckOnBeta: (version: string) =>
     `Je gebruikt ${version}. Met deze optie uit blijf je daarop tot de definitieve versie uitkomt.`,
+  prereleaseNotATester:
+    'Betaversies zijn beperkt tot de testgroep. Vraag de beheerder je toe te voegen; de app merkt dat binnen een uur.',
   notifyUpdates: 'Melden wanneer er updates zijn',
   notifyUpdatesDescription: 'Ontvang een melding wanneer er updates beschikbaar zijn.',
 

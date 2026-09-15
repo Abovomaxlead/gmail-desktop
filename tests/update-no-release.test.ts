@@ -44,6 +44,7 @@ vi.mock('electron-updater', () => ({
 }));
 
 vi.mock('../electron/core/runtime', () => ({
+  betaEligible: undefined,
   currentLocale: () => 'nl',
   lastUpdateStatus: {},
   mainWindow: { isDestroyed: () => false, webContents: { send: (..._a: unknown[]) => {} } },
