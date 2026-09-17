@@ -290,43 +290,52 @@ export function registerIpc(): void {
   );
   ipcMain.on(IPC.TOAST_HOVER, (_e, hovered: boolean) => toasts?.setHovered(Boolean(hovered)));
 
-  ipcMain.on(IPC.WEB_NOTIFY_SHOW, (e, arg: { id: string; title: string; body: string }) => {
-    if (!prefs) return;
+  ipcMain.on(
+    IPC.WEB_NOTIFY_SHOW,
+    (e, arg: { id: string; title: string; body: string; requireInteraction?: boolean }) => {
+      if (!prefs) return;
 
-    if (typeof arg?.id !== 'string') {
-      notifyLog(`[notify] a view raised a notification with a ${typeof arg?.id} id — dropped`);
-      return;
-    }
-    const accountKey = manager?.keyForWebContents(e.sender) ?? null;
-    const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
-    if (!profile) {
+      if (typeof arg?.id !== 'string') {
+        notifyLog(`[notify] a view raised a notification with a ${typeof arg?.id} id — dropped`);
+        return;
+      }
+      const accountKey = manager?.keyForWebContents(e.sender) ?? null;
+      const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
+      if (!profile) {
+        notifyLog(
+          `[notify] a notification arrived from a view with no account (key=${accountKey ?? 'unknown'}) — dropped`,
+        );
+        return;
+      }
+      const p = prefs.getAll();
+      const hidden = hiddenNotificationText(p);
+      const L = nativeLabels(currentLocale(), p.reneMode === true);
+      const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
+      const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
+      rememberWebNotifySource(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
+      // The page's own word wins over the per-account default, in one direction only: it may
+      // keep a card up, never take one down. Google Agenda marks every event reminder this
+      // way, and six seconds of a reminder is the same as no reminder -- there is no badge and
+      // no list to find it back in afterwards, the way there is for mail.
+      const persist = notificationPersist(p, profile.email) || arg.requireInteraction === true;
       notifyLog(
-        `[notify] a notification arrived from a view with no account (key=${accountKey ?? 'unknown'}) — dropped`,
+        `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
+          ` persist=${persist}${arg.requireInteraction === true ? ' (the page asked for it)' : ''}` +
+          ` silent=${notificationSilent(p, profile.email, 'mail')}` +
+          `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
       );
-      return;
-    }
-    const p = prefs.getAll();
-    const hidden = hiddenNotificationText(p);
-    const L = nativeLabels(currentLocale(), p.reneMode === true);
-    const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
-    const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
-    rememberWebNotifySource(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
-    notifyLog(
-      `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
-        ` persist=${notificationPersist(p, profile.email)} silent=${notificationSilent(p, profile.email, 'mail')}` +
-        `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
-    );
-    showToast({
-      kind: 'mail',
-      title: hidden.hiddenSender ?? arg.title,
-      body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
-      account: toastAccountFor(profile.email),
-      webNotifyId: sourceKey,
-      persist: notificationPersist(p, profile.email),
-    });
-    if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
-    void syncRunnerFor(profile.email)?.run();
-  });
+      showToast({
+        kind: 'mail',
+        title: hidden.hiddenSender ?? arg.title,
+        body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
+        account: toastAccountFor(profile.email),
+        webNotifyId: sourceKey,
+        persist,
+      });
+      if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
+      void syncRunnerFor(profile.email)?.run();
+    },
+  );
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
     const current = downloadFolder();
     const res = await dialog.showOpenDialog({
