@@ -148,7 +148,9 @@ const owned: AccountRef = { kind: 'authuser', index: 0 };
 function openMailView() {
   const win = {
     isDestroyed: () => false,
+    id: 1,
     on: () => {},
+    once: () => {},
     isFocused: () => true,
     webContents: { focus: () => {}, isDestroyed: () => false },
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },

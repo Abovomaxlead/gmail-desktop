@@ -11,6 +11,7 @@ import type { ReconnectAccount } from '../renderer/lib/reconnect';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
 import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
 import type { DelegatedPickerAsk } from '../renderer/lib/delegated-picker';
+import type { WindowTabs } from '../renderer/lib/window-tabs';
 import type { RecentLabelUse } from '../renderer/app/recent-labels';
 
 
@@ -55,6 +56,21 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   getActive: (): Promise<{ key: string; surface: Surface } | null> =>
     ipcRenderer.invoke(IPC.ACTIVE_GET),
+  onWindowTabs: (cb: (tabs: WindowTabs) => void): void => {
+    ipcRenderer.on(IPC.WINDOW_TABS, (_e, tabs) => cb(tabs));
+  },
+  getWindowTabs: (): Promise<WindowTabs> => ipcRenderer.invoke(IPC.WINDOW_TABS_GET),
+  onTabDragState: (cb: (state: { dragging: boolean }) => void): void => {
+    ipcRenderer.on(IPC.TAB_DRAG_STATE, (_e, state) => cb(state));
+  },
+  // The drag of a tab, told in three parts. The window a tab was dropped on cannot read the
+  // drag's data on every platform, so it only reports that something landed on it and main
+  // answers with what: the account named at the start of the drag.
+  tabDragStart: (key: string): void => ipcRenderer.send(IPC.TAB_DRAG_START, { key }),
+  tabDragEnd: (dropped: boolean): void => ipcRenderer.send(IPC.TAB_DRAG_END, { dropped }),
+  tabDropped: (): void => ipcRenderer.send(IPC.TAB_DROP),
+  detachTab: (key: string): void => ipcRenderer.send(IPC.TAB_DETACH, { key }),
+  tabToMainWindow: (key: string): void => ipcRenderer.send(IPC.TAB_TO_MAIN, { key }),
   redetect: (): void => ipcRenderer.send(IPC.REDETECT),
   addAccount: (): void => ipcRenderer.send(IPC.ADD_ACCOUNT),
   addDelegated: (): void => ipcRenderer.send(IPC.ADD_DELEGATED),

@@ -3,6 +3,53 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1789652279] — 2026-09-17
+
+### Toegevoegd
+- **Een postvak kan in zijn eigen venster.** Tien postvakken in één venster is veel venster, en
+  twee postvakken naast elkaar op twee schermen kon helemaal niet: de app had precies één
+  venster en elk postvak hing eraan. Sleep je een tabblad van de balk af, dan krijgt dat postvak
+  een venster voor zichzelf; laat je het op de balk van een ander venster vallen, dan hoort het
+  daar. Wat meereist is de pagina zelf, niet een nieuwe: je scrollpositie, het geopende gesprek
+  en het half getypte antwoord staan er na de verhuizing nog. De agenda en de Google-apps van
+  dat postvak gaan mee, want die zijn samen één tabblad. Sluit je zo'n venster, dan komen de
+  postvakken terug in het hoofdvenster — een postvak is geen document, sluiten mag het niet
+  weggooien. Wie niet sleept doet hetzelfde via het rechtermuismenu op een tabblad.
+- **De balk neemt een tabblad overal aan, en zegt vooraf waar het landt.** Een postvak neerzetten
+  betekende een ander tabblad raken: bij twee korte namen een doel van een paar centimeter, met
+  de rest van de balk die je sleep opslokte en er een nieuw venster van maakte. De hele balk is
+  nu één neerzetgebied en licht op zolang je erboven hangt. Tijdens het slepen zie je een kaartje
+  met de kleur en de naam van het postvak en een blauwe plus meelopen — ook buiten het venster,
+  waar Windows eerst een "mag niet"-teken stempelde terwijl juist daar het eigen venster ontstaat.
+  Tussen tabbladen wijst een streepje de plek waar het tabblad terechtkomt, en de ruimte na het
+  laatste tabblad betekent nu "achteraan" in plaats van niets.
+- **Een gevonden update laat eerst zien wat erin zit.** Een nieuwe versie was een kaartje met een
+  versienummer en verder niets, en "Wat is er nieuw" kon alleen de notities van de versie tonen
+  die je al had — lezen waar je aan begint kon dus niet. Die notities bestonden al en werden
+  weggegooid; nu opent een gevonden versie ze meteen, in een venster over de app heen. Esc, de
+  achtergrond en "Niet nu" sluiten het, en gesloten is een besluit: er komt niet elk kwartier
+  opnieuw een herinnering. Downloaden doet precies wat de knop in de instellingen doet.
+
+### Opgelost
+- **Een agendaherinnering blijft staan tot je hem wegklikt.** Hij kwam altijd op tijd binnen,
+  stond zes seconden rechtsonder en was daarna voorgoed weg: geen getal, geen lijst, niets om hem
+  in terug te vinden. Keek je op dat moment in een ander venster, dan zag je hem pas als je later
+  de agenda opende — en dan leek het alsof de melding een dag te laat kwam. Google Agenda zegt bij
+  elke herinnering zelf dat de kaart moet blijven staan tot iemand hem wegklikt, en die boodschap
+  ging onderweg verloren; nu niet meer. Voor mail verandert niets: dat blijft zes seconden, want
+  daar staat het bericht nog in je postvak met een getal erbij. De instelling "Melding blijft
+  staan" per postvak werkt zoals eerst en kan een kaart nog steeds vasthouden — alleen kan de
+  pagina nu ook zelf om vasthouden vragen, en nooit om het tegendeel.
+
+### Gewijzigd
+- **Testversies zijn voortaan een keuze, niet iets wat je overhoudt.** Wie op een beta zat kreeg
+  de volgende beta om één reden: hij zat op een beta. Die regel komt uit de updater zelf, en een
+  instelling die niemand had aangeraakt nam hem over — dus bleef een installatie onafgemaakte
+  versies aangeboden krijgen zonder er ooit om te hebben gevraagd. Voor iedereen die de schakelaar
+  niet heeft omgezet staat hij nu uit, wat de huidige versie ook is. Dat betekent bewust ook: zit
+  je op een beta met de schakelaar uit, dan krijg je niets aangeboden tot er een definitieve versie
+  is. Bij Updates staat dat er dan ook zo, en dat is geen storing.
+
 ## [1.0.0-beta.1789125695] — 2026-09-11
 
 ### Toegevoegd

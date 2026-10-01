@@ -34,21 +34,14 @@ describe('hasPrereleaseTag', () => {
 });
 
 describe('prereleaseAllowed', () => {
-  // The setting, once touched, is the whole answer -- the running version stops mattering.
-  it('honours an explicit yes whatever version is running', () => {
-    expect(prereleaseAllowed(true, '0.3.0')).toBe(true);
-    expect(prereleaseAllowed(true, '0.3.1-beta.13')).toBe(true);
+  it('offers prereleases only when the user asked for them', () => {
+    expect(prereleaseAllowed(true)).toBe(true);
+    expect(prereleaseAllowed(false)).toBe(false);
   });
 
-  it('honours an explicit no whatever version is running', () => {
-    expect(prereleaseAllowed(false, '0.3.0')).toBe(false);
-    expect(prereleaseAllowed(false, '0.3.1-beta.13')).toBe(false);
-  });
-
-  // Nobody has chosen yet, so the app must behave exactly as it did before the setting
-  // existed: electron-updater derived this from the running version and nothing else.
-  it('falls back to the running version when nothing has been chosen', () => {
-    expect(prereleaseAllowed(undefined, '0.3.1-beta.13')).toBe(true);
-    expect(prereleaseAllowed(undefined, '0.3.0')).toBe(false);
+  // The point of the change: a build that is itself a beta no longer keeps the beta channel
+  // open by itself. Until there is a tester gate, only the switch opens it.
+  it('keeps prereleases off for a setting nobody has touched', () => {
+    expect(prereleaseAllowed(undefined)).toBe(false);
   });
 });

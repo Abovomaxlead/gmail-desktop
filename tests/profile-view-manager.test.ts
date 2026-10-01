@@ -117,9 +117,11 @@ interface FakeView {
 
 /** The host window the manager is driven against. */
 interface FakeWin {
+  id: number;
   isDestroyed: () => boolean;
   isFocused: () => boolean;
   on: () => void;
+  once: () => void;
   webContents: { focus: Mock<[], void>; isDestroyed: () => boolean };
   contentView: {
     addChildView: Mock<[FakeView], void>;
@@ -128,11 +130,17 @@ interface FakeWin {
   getContentSize: () => number[];
 }
 
+/** Window ids are what the manager keeps per-window state under, so every fake needs its
+ * own -- two windows sharing an id would look like one window to it. */
+let nextWinId = 1;
+
 function fakeWin(): FakeWin {
   return {
+    id: nextWinId++,
     isDestroyed: () => false,
     isFocused: () => true,
     on: () => {},
+    once: () => {},
     webContents: { focus: vi.fn(), isDestroyed: () => false },
     contentView: {
       addChildView: vi.fn(),
@@ -146,6 +154,7 @@ function manager(
   win: FakeWin,
   mayDragToSave?: (accountKey: string) => boolean | null,
   crashPageUrl?: (accountKey: string) => string,
+  hostFor?: (accountKey: string) => FakeWin | null,
 ) {
   return new ProfileViewManager(
     win as never,
@@ -162,6 +171,7 @@ function manager(
     () => {},
     mayDragToSave,
     crashPageUrl,
+    hostFor as never,
   );
 }
 
@@ -665,5 +675,98 @@ describe('sending a view back where it belongs', () => {
 
     expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(false);
     expect(m.urlOf(accountKey(withUrl), 'mail')).toBeNull();
+  });
+});
+
+// A tab dragged out of the window is the same mailbox in a different frame: the page must
+// not be reloaded (a reload is a lost draft and a lost scroll position), and the window it
+// left must not be left showing the mailbox that is no longer in it.
+describe('moving a mailbox between windows', () => {
+  it('builds a view in the window that claims the account', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home, undefined, undefined, (key) => (key === accountKey(owned) ? away : home));
+
+    m.show(owned, 'mail');
+
+    expect(away.contentView.addChildView).toHaveBeenCalledTimes(1);
+    expect(home.contentView.addChildView).not.toHaveBeenCalled();
+    expect(m.activeKeyIn(away as never)).toBe(accountKey(owned));
+    expect(m.activeKeyIn(home as never)).toBeNull();
+  });
+
+  it('carries the live page over rather than loading it again', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home);
+    m.show(owned, 'mail');
+    const view = home.contentView.addChildView.mock.calls[0][0];
+    const before = [...view.webContents.navigations];
+
+    expect(m.moveAccountToWindow(accountKey(owned), away as never)).toBe(true);
+
+    expect(home.contentView.removeChildView).toHaveBeenCalledWith(view);
+    expect(away.contentView.addChildView).toHaveBeenCalledWith(view);
+    expect(view.webContents.navigations).toEqual(before);
+  });
+
+  it('takes every surface of the account with it, not just the one on screen', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home);
+    m.show(owned, 'mail');
+    m.show(owned, 'calendar');
+
+    m.moveAccountToWindow(accountKey(owned), away as never);
+
+    expect(away.contentView.addChildView).toHaveBeenCalledTimes(2);
+    expect(m.accountsIn(home as never)).toEqual([]);
+    expect(m.accountsIn(away as never)).toEqual([accountKey(owned)]);
+  });
+
+  it('leaves the window it came from showing nothing of that mailbox', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home);
+    m.show(owned, 'mail');
+
+    m.moveAccountToWindow(accountKey(owned), away as never);
+
+    expect(m.activeKeyIn(home as never)).toBeNull();
+    // Not on screen in the new window either until it is told to show it: the surfaces travel
+    // together and only one of them may be visible.
+    expect(home.contentView.addChildView.mock.calls[0][0].visible).toBe(false);
+
+    m.show(owned, 'mail');
+    expect(m.activeKeyIn(away as never)).toBe(accountKey(owned));
+    expect(home.contentView.addChildView.mock.calls[0][0].visible).toBe(true);
+  });
+
+  it('hides the surfaces of one window without blanking the other window', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home, undefined, undefined, (key) => (key === accountKey(owned) ? away : home));
+    m.show(owned, 'mail');
+    m.show(withUrl, 'mail');
+    const awayView = away.contentView.addChildView.mock.calls[0][0];
+    const homeView = home.contentView.addChildView.mock.calls[0][0];
+
+    m.hideAll(home as never);
+
+    expect(homeView.visible).toBe(false);
+    expect(awayView.visible).toBe(true);
+    expect(m.activeKeyIn(away as never)).toBe(accountKey(owned));
+  });
+
+  it('says which mailbox each window is showing, apart from the other', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home, undefined, undefined, (key) => (key === accountKey(owned) ? away : home));
+    m.show(owned, 'mail');
+    m.show(withUrl, 'mail');
+
+    expect(m.isShowingIn(away as never, accountKey(owned), 'mail')).toBe(true);
+    expect(m.isShowingIn(home as never, accountKey(owned), 'mail')).toBe(false);
+    expect(m.isShowingIn(home as never, accountKey(withUrl), 'mail')).toBe(true);
   });
 });

@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { AccountTab } from './AccountTab';
-import { planOverflowMenu, stripMaskImage, tabLabelWidth } from './topbar-tabs';
-import { planTabMenu, tabMenuChoices } from './tab-menu';
+import { AccountTab, TAB_DRAG_MIME } from './AccountTab';
+import { dropIndicatorSide, planOverflowMenu, stripMaskImage, tabLabelWidth } from './topbar-tabs';
+import { planTabMenu, tabMenuChoices, TAB_MENU_NEW_WINDOW, TAB_MENU_TO_MAIN } from './tab-menu';
 import { planPlusMenu, PLUS_ADD_ACCOUNT, PLUS_ADD_DELEGATED } from './plus-menu';
 import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
@@ -74,6 +74,13 @@ export function Topbar({
   onOpenFeedback,
   onInstallUpdate,
   onReorder,
+  detached,
+  tabDragging,
+  onTabDragStart,
+  onTabDragEnd,
+  onTabDropped,
+  onTabToNewWindow,
+  onTabToMainWindow,
 }: {
   profiles: Profile[];
   unread: Record<string, number>;
@@ -86,15 +93,36 @@ export function Topbar({
   demoPinned: readonly Surface[];
   S: UiStrings;
   onOpen(key: string, surface: Surface): void;
-  onPopupMenu(items: NativeMenuItem[]): Promise<string | null>;
+  onPopupMenu(items: NativeMenuItem[], anchor?: { x: number; y: number }): Promise<string | null>;
   onAddAccount(): void;
   onAddDelegated(): void;
   onOpenSettings(): void;
   onOpenFeedback(): void;
   onInstallUpdate(): void;
   onReorder(fromEmail: string, toEmail: string): void;
+  /** True in a window made by dragging a tab out, which draws its tabs and nothing else. */
+  detached: boolean;
+  /** Whether a tab is being dragged anywhere in the app, which is when the bar gives up the
+   * window's drag region so every part of it can be dropped on. */
+  tabDragging: boolean;
+  /** A tab drag started here, so main knows what a drop somewhere else is about. */
+  onTabDragStart(key: string): void;
+  /** The drag ended. `dropped` false means it was let go over nothing of ours, which is what
+   * gives the tab a window of its own. */
+  onTabDragEnd(dropped: boolean): void;
+  /** A tab from another window was dropped on this strip. */
+  onTabDropped(): void;
+  /** The menu asked for this tab to get a window of its own. */
+  onTabToNewWindow(key: string): void;
+  /** The menu asked for this tab to go back to the main window. */
+  onTabToMainWindow(key: string): void;
 }) {
   const [dragEmail, setDragEmail] = useState<string | null>(null);
+  /** The tab the pointer is over during a drag, and which side of it the line goes on. */
+  const [dropMark, setDropMark] = useState<{ key: string; side: 'before' | 'after' } | null>(null);
+  /** Whether a tab from another window is hovering this strip, which takes the whole row. */
+  const [adopting, setAdopting] = useState(false);
+
   const [offScreen, setOffScreen] = useState<Set<string>>(new Set());
   /** Whether the strip has been scrolled away from its first tab */
   const [scrolledOff, setScrolledOff] = useState(false);
@@ -105,6 +133,32 @@ export function Topbar({
   const pinned = activeProfile
     ? pinnedSurfacesFor(prefs?.googleApps.pinned ?? [], openableSurfaces(activeProfile))
     : [];
+  /**
+   * Answers a drag hovering the strip, and says what letting go would do
+   *
+   * `copy` is the plus the OS draws. Nothing is copied -- the mailbox moves -- but the effect
+   * is the only say the page has over that cursor, and a plus is what a tab arriving from
+   * somewhere else means. A drag that is not one of our tabs is left alone entirely, so a file
+   * dragged across the bar is still refused by it.
+   *
+   * @param e
+   * @returns true when the drag is a tab this strip will take
+   */
+  function hover(e: React.DragEvent): boolean {
+    if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return false;
+    e.preventDefault();
+    const foreign = !dragEmail;
+    e.dataTransfer.dropEffect = foreign ? 'copy' : 'move';
+    setAdopting(foreign);
+    return true;
+  }
+
+  /** Forgets every mark a drag left behind, however it ended. */
+  function clearDropMarks(): void {
+    setDragEmail(null);
+    setDropMark(null);
+    setAdopting(false);
+  }
 
   async function openPlusMenu(): Promise<void> {
     const picked = await onPopupMenu(planPlusMenu({ strings: S }));
@@ -114,9 +168,18 @@ export function Topbar({
 
   async function openTabMenu(p: Profile): Promise<void> {
     const choices = tabMenuChoices(p);
-    const items = planTabMenu(labelFor(p), choices);
+    const items = planTabMenu(labelFor(p), choices, {
+      // The last tab in a window has nowhere to go: the window it would get is the window it
+      // is already in.
+      canDetach: profiles.length > 1,
+      canReturn: detached,
+      newWindowLabel: S.tabNewWindow,
+      toMainLabel: S.tabToMainWindow,
+    });
     if (!hasClickableItem(items)) return;
     const picked = await onPopupMenu(items);
+    if (picked === TAB_MENU_NEW_WINDOW) return onTabToNewWindow(p.key);
+    if (picked === TAB_MENU_TO_MAIN) return onTabToMainWindow(p.key);
     const surface = choices.find((s) => s === picked);
     if (surface) onOpen(p.key, surface);
   }
@@ -171,8 +234,35 @@ export function Topbar({
 
   return (
     <div
-      className="relative shrink-0 select-none bg-neutral-100 dark:bg-neutral-950"
-      style={{ height: TOPBAR_HEIGHT, WebkitAppRegion: 'drag' } as React.CSSProperties}
+      className={`relative shrink-0 select-none bg-neutral-100 dark:bg-neutral-950 ${
+        // The whole bar lights up, because the whole bar takes the drop: aiming at the row of
+        // tabs is a needle to thread in a window where the tabs are three short names.
+        adopting ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/50 dark:bg-blue-500/10' : ''
+      }`}
+      style={
+        {
+          height: TOPBAR_HEIGHT,
+          // The empty stretch of the bar is the window's own drag region, and a drag region
+          // swallows the pointer before the page sees it -- a tab let go there landed on
+          // nothing. While a tab is being dragged anywhere in the app, the region gives way,
+          // and the bar is one drop target from edge to edge.
+          WebkitAppRegion: tabDragging ? 'no-drag' : 'drag',
+        } as React.CSSProperties
+      }
+      onDragOver={hover}
+      onDragLeave={(e) => {
+        // Only when the pointer really left the bar: dragleave also fires on the way from one
+        // tab to the next, and clearing on that would make the row flicker.
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) clearDropMarks();
+      }}
+      onDrop={(e) => {
+        // Anywhere but on a tab: a tab from elsewhere arrives, and one from this window goes
+        // to the end of the row rather than nowhere at all.
+        if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
+        if (!dragEmail) onTabDropped();
+        else if (profiles.length > 0) onReorder(dragEmail, profiles[profiles.length - 1].email);
+        clearDropMarks();
+      }}
     >
       <div style={AREA} className="flex items-center gap-1 pl-2">
         <div
@@ -182,7 +272,13 @@ export function Topbar({
           onScroll={(e) => setScrolledOff(e.currentTarget.scrollLeft > 1)}
           style={{
             maxWidth: `calc(100% - ${
-              (updateReady ? RESERVE_WITH_UPDATE : RESERVE_WITHOUT_UPDATE) +
+              // A torn-off window has no plus, gear, feedback or update button, so the strip
+              // gets that room back and only the window's own buttons stay reserved.
+              (detached
+                ? DRAG_RESERVE + GAP
+                : updateReady
+                  ? RESERVE_WITH_UPDATE
+                  : RESERVE_WITHOUT_UPDATE) +
               (hidden.length > 0 ? OVERFLOW_BUTTON : 0) +
               (pinned.length + demoPinned.length) * PINNED_BUTTON
             }px)`,
@@ -210,12 +306,33 @@ export function Topbar({
               strings={S}
               onOpen={() => onOpen(p.key, 'mail')}
               onMenu={() => void openTabMenu(p)}
-              onDragStart={() => setDragEmail(p.email)}
-              onDrop={() => {
-                if (dragEmail) onReorder(dragEmail, p.email);
-                setDragEmail(null);
+              dropSide={dropMark?.key === p.key ? dropMark.side : null}
+              onDragStart={() => {
+                setDragEmail(p.email);
+                onTabDragStart(p.key);
               }}
-              onDragEnd={() => setDragEmail(null)}
+              onDragOver={(e) => {
+                if (!hover(e)) return;
+                const from = profiles.findIndex((x) => x.email === dragEmail);
+                const side = dropIndicatorSide(from, profiles.indexOf(p));
+                setDropMark(side ? { key: p.key, side } : null);
+              }}
+              onDragLeave={() => setDropMark((cur) => (cur?.key === p.key ? null : cur))}
+              onDrop={(e) => {
+                // A drag that started in this window is a reorder; one that did not is a tab
+                // arriving from another window, and main knows which mailbox that is.
+                if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
+                e.stopPropagation();
+                if (dragEmail) onReorder(dragEmail, p.email);
+                else onTabDropped();
+                clearDropMarks();
+              }}
+              onDragEnd={(e) => {
+                clearDropMarks();
+                // Let go over nothing that took it -- the desktop, another app, or the mail
+                // view itself -- is what asks for a window of its own.
+                onTabDragEnd(e.dataTransfer?.dropEffect !== 'none');
+              }}
             />
           ))}
         </div>
@@ -235,20 +352,26 @@ export function Topbar({
           </button>
         )}
 
-        <div className="relative shrink-0" style={NO_DRAG}>
-          <button
-            data-tour="add"
-            onClick={() => void openPlusMenu()}
-            title={S.addAccountTooltip}
-            className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
-          >
-            <PlusIcon className="h-4 w-4" />
-          </button>
-        </div>
+        {/* Adding an account, the update button, feedback and settings belong to the main
+            window: there is one of each, and a window holding two mailboxes is not where the
+            account list is managed from. A torn-off window keeps its tabs and its pinned
+            apps, which are the two things that are about the mailbox in front of you. */}
+        {!detached && (
+          <div className="relative shrink-0" style={NO_DRAG}>
+            <button
+              data-tour="add"
+              onClick={() => void openPlusMenu()}
+              title={S.addAccountTooltip}
+              className="flex h-[26px] w-[26px] items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
+            >
+              <PlusIcon className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <div className="min-w-[60px] flex-1" />
 
-        {updateReady && (
+        {updateReady && !detached && (
           <button
             onClick={onInstallUpdate}
             title={S.updateReady}
@@ -300,29 +423,33 @@ export function Topbar({
             />
           </button>
         ))}
-        <button
-          data-tour="feedback"
-          onClick={onOpenFeedback}
-          title={S.feedbackTooltip}
-          aria-label={S.feedbackTooltip}
-          style={NO_DRAG}
-          className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
-        >
-          <FeedbackIcon className="h-4 w-4" />
-        </button>
-        <button
-          data-tour="gear"
-          onClick={onOpenSettings}
-          title={S.settingsTooltip}
-          style={NO_DRAG}
-          className={`mr-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition ${
-            settingsOpen
-              ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
-              : 'text-neutral-500 hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white'
-          }`}
-        >
-          <GearIcon className="h-4 w-4" />
-        </button>
+        {!detached && (
+          <button
+            data-tour="feedback"
+            onClick={onOpenFeedback}
+            title={S.feedbackTooltip}
+            aria-label={S.feedbackTooltip}
+            style={NO_DRAG}
+            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white"
+          >
+            <FeedbackIcon className="h-4 w-4" />
+          </button>
+        )}
+        {!detached && (
+          <button
+            data-tour="gear"
+            onClick={onOpenSettings}
+            title={S.settingsTooltip}
+            style={NO_DRAG}
+            className={`mr-1 flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-md transition ${
+              settingsOpen
+                ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
+                : 'text-neutral-500 hover:bg-black/5 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-white/10 dark:hover:text-white'
+            }`}
+          >
+            <GearIcon className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </div>
   );

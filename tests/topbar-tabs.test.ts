@@ -6,6 +6,7 @@ import {
   tabLabelWidth,
   planOverflowMenu,
   stripMaskImage,
+  dropIndicatorSide,
   TAB_AVATAR_ONLY,
 } from '../renderer/app/topbar-tabs';
 
@@ -72,5 +73,26 @@ describe('stripMaskImage', () => {
     expect(stripMaskImage(true, true)).toBe(
       'linear-gradient(to right, transparent, #000 16px, #000 calc(100% - 16px), transparent)',
     );
+  });
+});
+
+// The line the bar draws while a tab is dragged over another one. It has to agree with what
+// the drop does -- a line on the wrong side promises a position the reorder will not produce.
+describe('dropIndicatorSide', () => {
+  it('puts the line after a tab being dragged rightwards past it', () => {
+    expect(dropIndicatorSide(0, 3)).toBe('after');
+  });
+
+  it('puts the line before a tab being dragged leftwards past it', () => {
+    expect(dropIndicatorSide(3, 1)).toBe('before');
+  });
+
+  it('draws nothing over the tab being dragged itself', () => {
+    expect(dropIndicatorSide(2, 2)).toBeNull();
+  });
+
+  it('draws nothing for a tab that is not in this strip', () => {
+    expect(dropIndicatorSide(-1, 2)).toBeNull();
+    expect(dropIndicatorSide(1, -1)).toBeNull();
   });
 });

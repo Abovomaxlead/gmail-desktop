@@ -17,6 +17,7 @@ import { planTour, type TourStage, type TourStep } from './tour-steps';
 import { planTabMenu, tabMenuChoices } from './tab-menu';
 import { openableSurfaces, type Surface } from '../lib/surfaces';
 import { googleAppTarget, pinnedSurfacesFor } from '../lib/google-apps';
+import { ALL_TABS, tabsForWindow, type WindowTabs } from '../lib/window-tabs';
 import type { NativeMenuItem } from '../lib/native-menu';
 import type { ChangelogVersion } from '../lib/changelog-types';
 import type { ReleaseNotesAsk } from '../lib/release-notes';
@@ -164,6 +165,14 @@ interface DesktopBridge {
   onActiveChanged(cb: (active: { key: string; surface: Surface } | null) => void): void;
   getActive(): Promise<{ key: string; surface: Surface } | null>;
   switchSurface(key: string, surface: Surface): void;
+  onWindowTabs(cb: (tabs: WindowTabs) => void): void;
+  getWindowTabs(): Promise<WindowTabs>;
+  onTabDragState(cb: (state: { dragging: boolean }) => void): void;
+  tabDragStart(key: string): void;
+  tabDragEnd(dropped: boolean): void;
+  tabDropped(): void;
+  detachTab(key: string): void;
+  tabToMainWindow(key: string): void;
   redetect(): void;
   addAccount(): void;
   addDelegated(): void;
@@ -331,6 +340,13 @@ export default function AppShell() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [unread, setUnread] = useState<Record<string, number>>({});
   const [active, setActive] = useState<{ key: string; surface: Surface } | null>(null);
+  /** Whether a tab is being dragged, in this window or in another one. While it is, the bar
+   * gives up the window's drag region so the whole of it can be dropped on. */
+  const [tabDragging, setTabDragging] = useState(false);
+  // Which tabs this window draws, and whether it is one made by dragging a tab out. Until
+  // main says otherwise a window draws every account, which is what the main window does for
+  // the whole session unless a tab leaves it.
+  const [windowTabs, setWindowTabs] = useState<WindowTabs>(ALL_TABS);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sectionRequest, setSectionRequest] = useState<
     { section: SettingsSection; seq: number } | undefined
@@ -381,6 +397,12 @@ export default function AppShell() {
     bridge.onPrefsChanged((p) => setPrefs(p as Prefs));
     bridge.onDefaultMailStatus(setIsDefaultMail);
     bridge.onPlayNotificationSound(({ name, volume }) => playSound(name, volume));
+    bridge.onWindowTabs(setWindowTabs);
+    // Asked as well as listened for: a window opened by dragging a tab out is pushed its
+    // state the moment its page finishes loading, which is before this effect has run. The
+    // answer also makes main repeat the rows, the counts and the settings to this window.
+    void bridge.getWindowTabs().then(setWindowTabs);
+    bridge.onTabDragState(({ dragging }) => setTabDragging(dragging));
     // On a fresh install nobody presses the plus button: the Gmail view is already open on a
     // sign-in page, you sign in there, and detection pushes the account like any other. So the
     // tour cannot hang off addAccount alone -- it also arms when main says this launch found no
@@ -450,11 +472,14 @@ export default function AppShell() {
   // address, so it cannot carry the steps that talk about tabs and does not count as arrival.
   useEffect(() => {
     if (!tourArmed || tourStarted.current) return;
+    // The tour walks the whole bar -- the plus button, the gear, the tabs -- and a window made
+    // by dragging a tab out has none of that. It belongs to the main window.
+    if (windowTabs.detached) return;
     if (!prefs || prefs.tour.seen) return;
     if (!profiles.some((p) => !p.provisional)) return;
     if (settingsOpen) closeSettings();
     startTour();
-  }, [tourArmed, profiles, prefs, settingsOpen]);
+  }, [tourArmed, profiles, prefs, settingsOpen, windowTabs.detached]);
 
   function open(key: string, surface: Surface) {
     // The tour's example tab has no view behind it, and ensureView would throw on its index
@@ -523,7 +548,10 @@ export default function AppShell() {
   // What the bar draws while the tour is up, and which mailbox the demo panel names. The
   // panel shows a real address rather than a made-up one, so nobody has to wonder whether
   // they are looking at their own mail.
-  const barProfiles = barProfilesFor(profiles, touring, S);
+  //
+  // Only this window's mailboxes: the rows themselves are the whole list everywhere, because
+  // settings still lists every account, but a tab belongs to one strip at a time.
+  const barProfiles = tabsForWindow(barProfilesFor(profiles, touring, S), windowTabs);
   const barUnread = touring ? { ...unread, [TOUR_DEMO_KEY]: TOUR_DEMO_UNREAD } : unread;
   // Nothing pinned means the pinned step has nothing to point at, so the bar borrows one for
   // the length of the tour. Drive rather than Calendar: Calendar only appears for a mailbox
@@ -635,6 +663,13 @@ export default function AppShell() {
         onOpenFeedback={openFeedback}
         onInstallUpdate={() => window.desktop?.installUpdate()}
         onReorder={reorder}
+        detached={windowTabs.detached}
+        tabDragging={tabDragging}
+        onTabDragStart={(key) => window.desktop?.tabDragStart(key)}
+        onTabDragEnd={(dropped) => window.desktop?.tabDragEnd(dropped)}
+        onTabDropped={() => window.desktop?.tabDropped()}
+        onTabToNewWindow={(key) => window.desktop?.detachTab(key)}
+        onTabToMainWindow={(key) => window.desktop?.tabToMainWindow(key)}
       />
 
       {settingsOpen && (

@@ -69,7 +69,7 @@ export function UpdatesSection({
         >
           <Switch
             id="setting-prerelease"
-            checked={prereleaseOn(prefs, update)}
+            checked={prereleaseOn(prefs)}
             onChange={(v) => window.desktop?.setUpdatePrefs({ allowPrerelease: v })}
           />
         </SettingRow>
@@ -104,19 +104,15 @@ export function UpdatesSection({
 /**
  * Whether the prerelease switch shows as on
  *
- * Mirrors the main process: an untouched setting falls back to whether this build is itself a
- * prerelease, so the switch shows the channel actually in use rather than a default nobody
- * chose.
+ * Mirrors the main process: betas are opt-in, so an untouched setting reads as off whatever
+ * version this build happens to be.
  *
  * @param prefs
- * @param u carries the running version
  * @returns the switch position
  * @private
  */
-function prereleaseOn(prefs: Prefs | null, u: UpdateStatus): boolean {
-  const chosen = prefs?.updates.allowPrerelease;
-  if (typeof chosen === 'boolean') return chosen;
-  return hasPrereleaseTag(u.currentVersion ?? '');
+function prereleaseOn(prefs: Prefs | null): boolean {
+  return prefs?.updates.allowPrerelease === true;
 }
 
 /**
@@ -133,7 +129,7 @@ function prereleaseOn(prefs: Prefs | null, u: UpdateStatus): boolean {
  */
 function prereleaseDescription(prefs: Prefs | null, u: UpdateStatus, S: UiStrings): string {
   const version = u.currentVersion ?? '';
-  if (!prereleaseOn(prefs, u) && hasPrereleaseTag(version)) {
+  if (!prereleaseOn(prefs) && hasPrereleaseTag(version)) {
     return `${S.prereleaseUpdatesDescription} ${S.prereleaseStuckOnBeta(version)}`;
   }
   return S.prereleaseUpdatesDescription;
