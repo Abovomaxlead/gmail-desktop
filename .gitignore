@@ -10,3 +10,6 @@ dist/
 # the repository is public. Produced by scripts/bundle-oauth-config.mjs, and in CI by
 # the release workflow from a repository secret.
 assets/oauth-defaults.json
+
+# Handoff notes that name hosts, accounts and people; they belong in a private place
+docs/handoff/INTERNAL-*
