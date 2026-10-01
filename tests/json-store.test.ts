@@ -116,4 +116,13 @@ describe('writeFileAtomic', () => {
     writeFileAtomic(path, '{ "installed": {} }');
     expect(readFileSync(backupPath(path), 'utf8')).toBe('{ "installed": {} }');
   });
+
+  // A locked disk or a full one used to throw out of here, aborting whatever multi-step
+  // mutation was calling it midway -- removing an account, for one.
+  it('does not throw when the target path cannot be created', () => {
+    const blocker = join(dir, 'blocker');
+    writeFileSync(blocker, 'x', 'utf8');
+    const path = join(blocker, 'sub', 'prefs.json');
+    expect(() => writeFileAtomic(path, '{}')).not.toThrow();
+  });
 });

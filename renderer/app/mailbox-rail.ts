@@ -80,20 +80,25 @@ export function mailboxRows(
  * hides. Naming the first label per mailbox keeps that readable without listing everything.
  *
  * @param picked the labels ticked per mailbox
- * @param accounts the label lists, for the names behind the ids
+ * @param accounts the mailboxes, for their order
+ * @param nameFor what to call one picked place; the top of the list is not a label, so this
+ *   cannot be a lookup in `accounts`
  * @returns one chip per mailbox with a tick, in mailbox order
  */
 export function pickedChips(
   picked: Record<string, string[]>,
   accounts: RailAccount[],
+  nameFor: (email: string, labelId: string) => string,
 ): PickedChip[] {
   const chips: PickedChip[] = [];
   for (const account of accounts) {
     const mine = picked[account.email] ?? [];
     if (mine.length === 0) continue;
-    const first = mine[0];
-    const name = account.labels.find((l) => l.id === first)?.name ?? first;
-    chips.push({ email: account.email, label: name, extra: mine.length - 1 });
+    chips.push({
+      email: account.email,
+      label: nameFor(account.email, mine[0]),
+      extra: mine.length - 1,
+    });
   }
   return chips;
 }

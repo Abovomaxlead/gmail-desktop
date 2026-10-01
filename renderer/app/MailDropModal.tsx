@@ -5,6 +5,9 @@
 // count, and a label drag is hundreds of requests, so the modal follows the progress.
 
 
+import type { JobLine, JobPanel, MailDropTree } from '../lib/maildrop-copy';
+
+
 //===========================
 // Types
 //===========================
@@ -14,6 +17,23 @@ export interface MailDropItem {
   subject: string;
   saved: number;
   error?: string;
+}
+
+/** Everything main sends with a drag, or answers when the modal asks what the open drag is.
+ * `driven` marks a batch a running job is showing rather than a fresh drag, and the language
+ * fields travel with it the way ToastState carries them, since this window has no prefs of
+ * its own. */
+export interface MailDropPreview {
+  items: MailDropItem[];
+  tree?: MailDropTree | null;
+  panel?: JobPanel;
+  job?: JobLine;
+  driven?: boolean;
+  locale?: 'en' | 'nl';
+  reneMode?: boolean;
+  /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts
+   * on itself */
+  dark?: boolean;
 }
 
 export interface MailDropCopyAccountResult {

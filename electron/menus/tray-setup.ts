@@ -41,6 +41,7 @@ export interface TrayHooks {
   refreshNotifyAllowed(): void;
   activateAccount(accountKey: string): void;
   setAutoStart(v: boolean): void;
+  openFeedback(): void;
 }
 
 
@@ -54,6 +55,7 @@ let hooks: TrayHooks = {
   refreshNotifyAllowed: () => {},
   activateAccount: () => {},
   setAutoStart: () => {},
+  openFeedback: () => {},
 };
 
 
@@ -82,12 +84,18 @@ export function refreshTray(): void {
   if (tray) updateTrayMenu(tray, getTrayState());
 }
 
+
+//===========================
+// Helper functions
+//===========================
+
 /**
  * Turns notifications off, off until a moment, or back on
  *
  * @param minutes null for indefinitely, 0 or less to clear, otherwise how long from now
+ * @private
  */
-export function setSnooze(minutes: number | null): void {
+function setSnooze(minutes: number | null): void {
   if (!prefs) return;
   const n = prefs.getAll().notifications;
   if (minutes === null) prefs.setNotifications({ ...n, dnd: true, dndUntil: undefined });
@@ -97,11 +105,6 @@ export function setSnooze(minutes: number | null): void {
   hooks.refreshNotifyAllowed();
   refreshTray();
 }
-
-
-//===========================
-// Helper functions
-//===========================
 
 function openFromTrayIcon(): void {
   if (prefs?.getAll().appearance.tray.selectUnreadOnClick === true) {
@@ -129,6 +132,7 @@ function getTrayState(): TrayState {
     },
     isPackaged: app.isPackaged,
     updateStatus: lastUpdateStatus as unknown as TrayUpdateStatus,
+    onFeedback: () => hooks.openFeedback(),
     onCheckUpdate: checkForUpdateFromTray,
     onDownloadUpdate: downloadUpdate,
     onInstallUpdate: installUpdate,

@@ -23,29 +23,22 @@ import type { ViewId } from './profile-view-manager';
 /**
  * Which live views must go
  *
- * @param opts live is every view that exists; active is the one on screen, null when none is
+ * @param opts live is every view that exists; onScreen is what is showing right now -- one
+ *   view per window, so a mailbox dragged into a window of its own is not swept away while
+ *   the user is reading it
  * @returns the views to discard, in the order given
  */
-export function viewsToDiscard(opts: { live: ViewId[]; active: ViewId | null }): ViewId[] {
-  const seen = new Set<string>();
-  const out: ViewId[] = [];
-  for (const view of opts.live) {
-    const id = `${view.accountKey}:${view.surface}`;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    if (opts.active && sameView(view, opts.active)) continue;
-    out.push(view);
-  }
-  return out;
+export function viewsToDiscard(opts: { live: ViewId[]; onScreen: readonly ViewId[] }): ViewId[] {
+  return opts.live.filter((view) => !opts.onScreen.some((kept) => sameView(view, kept)));
 }
 
-/** Whether a view may be built ahead of being asked for. */
-export function mayWarmViews(lowMemory: boolean): boolean {
-  return !lowMemory;
-}
-
-/** Whether calendar views may exist at all. */
-export function mayKeepCalendarViews(lowMemory: boolean): boolean {
+/**
+ * Whether a view may be built ahead of being asked for -- warmed in advance, or, for a
+ * calendar, created before its surface is ever opened
+ *
+ * @param lowMemory
+ */
+export function mayBuildAheadOfDemand(lowMemory: boolean): boolean {
   return !lowMemory;
 }
 

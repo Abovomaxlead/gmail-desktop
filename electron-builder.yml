@@ -30,7 +30,13 @@ win:
     - nsis
   icon: build/icon.png
 mac:
+  # zip beside the dmg, and it is not optional: electron-updater's MacUpdater takes a zip and
+  # explicitly refuses a dmg or a pkg, so a mac release without one throws
+  # ERR_UPDATER_ZIP_FILE_NOT_FOUND on every check. Electron's own default here is
+  # ["zip", "dmg"] and naming only the dmg is what dropped it. The dmg is what a person
+  # installs; the zip is what the updater reads.
   target:
     - dmg
+    - zip
   category: public.app-category.productivity
   icon: build/icon.png

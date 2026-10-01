@@ -23,11 +23,14 @@ import {
   DROPZONE_ID,
   DROPZONE_CSS,
   DROPZONE_LABEL,
+  CANCEL_ID,
+  CANCEL_LABEL,
+  cancelledText,
   DROPLOCK_ID,
   DROPLOCK_CSS,
   PULLING_TEXT,
   DRAG_CHROME_Z,
-  threadIdFromDragTarget,
+  pressFromDragTarget,
   messageRefFromDragTarget,
   selectedRows,
   rowsForDrag,
@@ -129,6 +132,35 @@ export function matchThreadsBySubject(
     if (text === wanted || (ellipsized && text.startsWith(prefix))) found.push(id);
   }
   return found;
+}
+
+/**
+ * The newest message of a row's conversation
+ *
+ * The row names it: Gmail writes the last message's id beside the thread's, which is the
+ * one a notification is almost always about. Almost, because a reply that landed between
+ * the card and the click would take its place — and that is still the newest mail in the
+ * conversation, never an older one, which is the failure being fixed.
+ *
+ * @param doc
+ * @param threadId the row to read, as matchThreadsBySubject found it
+ * @returns the legacy message id, or undefined when Gmail's row does not carry one
+ */
+export function rowMessageIdFor(
+  doc: { querySelectorAll(sel: string): ArrayLike<any> },
+  threadId: string,
+): string | undefined {
+  if (!threadId) return undefined;
+  for (const el of Array.from(doc.querySelectorAll('[data-legacy-thread-id]'))) {
+    if (el.getAttribute('data-legacy-thread-id') !== threadId) continue;
+    const own = el.getAttribute('data-legacy-last-message-id');
+    if (own) return own;
+    const inside = el.querySelectorAll?.('[data-legacy-last-message-id]');
+    if (!inside || inside.length !== 1) continue;
+    const id = inside[0].getAttribute('data-legacy-last-message-id');
+    if (id) return id;
+  }
+  return undefined;
 }
 
 /**
@@ -243,25 +275,31 @@ export function webNotifyPageId(loadNonce: string, seq: number): string {
 /**
  * What travels to main when the page raises a notification
  *
- * Both fields are coerced: `title: string` is the DOM signature, not what arrives, and a
+ * Both text fields are coerced: `title: string` is the DOM signature, not what arrives, and a
  * non-primitive handed to React as a child unmounts the toasts page — taking every later
  * notification with it.
+ *
+ * `requireInteraction` comes along because it is the page saying the card must stay up until
+ * somebody dismisses it. Google Agenda sets it on every event reminder, and a reminder that
+ * fades after six seconds is a reminder nobody gets: unlike mail, nothing is left behind to
+ * find it back with.
  *
  * @param id
  * @param title
  * @param options
- * @returns the payload, with both fields strings whatever the page passed
+ * @returns the payload, with both text fields strings whatever the page passed
  */
 export function webNotifyPayload(
   id: string,
   title: string,
   options?: NotificationOptions,
-): { id: string; title: string; body: string } {
+): { id: string; title: string; body: string; requireInteraction: boolean } {
   const raw = options?.body;
   return {
     id,
     title: title === undefined || title === null ? '' : String(title),
     body: raw === undefined || raw === null ? '' : String(raw),
+    requireInteraction: options?.requireInteraction === true,
   };
 }
 
@@ -302,12 +340,14 @@ export function wrapWindowOpen(original: typeof window.open): typeof window.open
  * @param send hands a finished drop to main
  * @param log a line into notify.log, the only place a message from inside Google's page
  *   is ever read back
+ * @param cancelPull asks main to stop the pull that is running
  * @returns what to call with main's answer, which the strip then shows
  * @private
  */
 function installDropzone(
   send: (p: MailDropPayload) => void,
   log: (message: string) => void,
+  cancelPull: () => void,
 ): {
   showResult: (r: MailDropResult) => void;
   showProgress: (p: MailDropSaveProgress) => void;
@@ -317,7 +357,6 @@ function installDropzone(
   style.textContent = DROPZONE_CSS + DROPLOCK_CSS;
   const zone = document.createElement('div');
   zone.id = DROPZONE_ID;
-  zone.textContent = DROPZONE_LABEL;
   zone.setAttribute('data-state', 'idle');
 
   // The veil that makes a pull exclusive. Always in the page and shown by its data-state, so
@@ -325,6 +364,25 @@ function installDropzone(
   const lock = document.createElement('div');
   lock.id = DROPLOCK_ID;
   lock.setAttribute('data-state', 'off');
+
+  // The line and the button are two children of the strip rather than a line with a button put
+  // back after it. Writing the strip's textContent drops every child it has, so the button used
+  // to be detached and re-attached for every line drawn — and progress arrives per mail during
+  // a pull. A click only fires when the press and the release land on the same connected
+  // element, so a tick between the two swallowed it: the button needed several presses to catch
+  // a gap. Moving an existing child with appendChild does the same damage, which is why the
+  // append in showLine is guarded rather than repeated.
+
+  /** Carries the line the strip shows. Written through, never replaced. */
+  const line = document.createTextNode(DROPZONE_LABEL);
+  zone.appendChild(line);
+
+  // The button that stops a pull. Appended once for the whole pull and taken out only by a line
+  // that is not a pull's.
+  const cancel = document.createElement('button');
+  cancel.id = CANCEL_ID;
+  cancel.type = 'button';
+  cancel.textContent = CANCEL_LABEL;
 
   const host = document.body ?? document.documentElement;
   const attach = () => {
@@ -334,7 +392,7 @@ function installDropzone(
   };
   attach();
   new MutationObserver(attach).observe(host, { childList: true });
-  console.info('[gmail-desktop] dropzone geïnstalleerd in', host.tagName);
+  console.info('[gmail-desktop] dropzone installed in', host.tagName);
 
   let clearTimer: ReturnType<typeof setTimeout> | null = null;
   let saving = false;
@@ -343,10 +401,79 @@ function installDropzone(
    * The other accounts' pages are locked by the same pull and get none. */
   let mine = false;
   const setState = (s: string) => zone.setAttribute('data-state', s);
+
+  /**
+   * Puts one line in the strip, with or without the button that stops a pull
+   *
+   * The button is left exactly where it is for as long as the lines keep belonging to a pull:
+   * re-appending it would move it, and a moved element loses the click it was in the middle of.
+   *
+   * @param text the line to show
+   * @param cancellable whether this line belongs to a pull the user may still stop
+   * @private
+   */
+  const showLine = (text: string, cancellable = false): void => {
+    line.nodeValue = text;
+    if (cancellable) {
+      if (cancel.parentNode !== zone) zone.appendChild(cancel);
+      return;
+    }
+    // showResult and reset used to clear the button by wiping textContent. The line is its own
+    // node now, so the button has to be taken out by name.
+    if (cancel.parentNode) cancel.remove();
+  };
+
+  /** Whether there is a pull on screen to stop. `saving` is the one flag that is already true
+   * for every line a pull shows: this page sets it the moment it starts one, setLock sets it on
+   * every page a pull veils, and reset clears it. The button's own presence is not enough --
+   * a line may still be on screen after the pull behind it has answered. */
+  const pullCancellable = (): boolean => saving;
+
+  /** How far the pull had got at the last tick, so the line a cancel draws counts the same
+   * conversations the line before it did. Fetched conversations only -- see showProgress.
+   * Cleared with the rest of the pull's state in reset. */
+  let pullDone = 0;
+
+  /** When this page last asked main to stop the pull, or 0 when it has not. Not a plain flag,
+   * because a cancel that never arrived has to be sendable again — see requestCancel. */
+  let cancelSentAt = 0;
+
+  // How long a sent cancel is trusted before the button is offered again. Ticks keep arriving
+  // for a moment after a cancel that did land, since the fetches already on the wire finish on
+  // their own; this is comfortably longer than that and far shorter than a stuck pull.
+  const CANCEL_GRACE_MS = 6000;
+
+  /**
+   * Asks main to stop the pull, once, and says so on the strip straight away
+   *
+   * The one route for both ways in — the button and Escape — so the two cannot drift apart.
+   *
+   * The line changes on the press rather than when main answers: the strip went on counting up
+   * after a cancel, which reads as a click that did nothing and is half of why it was pressed
+   * again. Taking the button out with it makes a second press unnecessary and impossible.
+   *
+   * A cancel is sent once, not per press: main's own cancel is idempotent, so pressing twice
+   * cannot achieve more than pressing once. The exception is a cancel that provably did nothing
+   * — the pull is still reporting progress CANCEL_GRACE_MS later — and there the button comes
+   * back rather than leaving the user with a strip that lies.
+   *
+   * @private
+   */
+  const requestCancel = (): void => {
+    if (!pullCancellable() || cancelSentAt !== 0) return;
+    cancelSentAt = Date.now();
+    cancelPull();
+    showLine(cancelledText(pullDone));
+  };
+
+  cancel.addEventListener('click', requestCancel);
   const reset = () => {
     saving = false;
-    // A page that is still locked says so again rather than inviting another drag.
-    zone.textContent = locked ? PULLING_TEXT : DROPZONE_LABEL;
+    pullDone = 0;
+    cancelSentAt = 0;
+    // A page that is still locked says so again rather than inviting another drag, and keeps
+    // the button for as long as that pull is still running.
+    showLine(locked ? PULLING_TEXT : DROPZONE_LABEL, locked);
     setState(locked ? 'armed' : 'idle');
   };
 
@@ -399,9 +526,14 @@ function installDropzone(
       // reaching Gmail; this stops one that started before the veil went up.
       if (locked || e.button !== 0) return;
       const target = e.target as unknown as DragNode | null;
-      pressThreadId = threadIdFromDragTarget(target);
+      // Three kinds and not two, because the label branch below fetches every mail under a
+      // label: a press the guards refused is a press on mail, and only a press on nothing at
+      // all may be offered to it. While both answered null, selecting the subject line of an
+      // opened conversation could arm the strip for a whole label. See DragPress.
+      const press = pressFromDragTarget(target);
+      pressThreadId = press.kind === 'row' ? press.threadId : null;
       pressMessage = pressThreadId ? messageRefFromDragTarget(target) : null;
-      pressLabel = pressThreadId ? null : labelFromDragTarget(target);
+      pressLabel = press.kind === 'none' ? labelFromDragTarget(target) : null;
       pressAt = { x: e.clientX, y: e.clientY };
       dragging = false;
       if (pressThreadId || pressLabel) {
@@ -420,6 +552,22 @@ function installDropzone(
     true,
   );
 
+  // The one key this page answers, and only while a pull holds it. Capture, like the mouse
+  // listeners above, so Gmail does not get to it first.
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Escape' || !pullCancellable()) return;
+      // Swallowed for the reason the veil swallows the mouse: the key that stops the pull must
+      // not also close whatever sits behind it.
+      e.preventDefault();
+      e.stopPropagation();
+      // The same route the button takes, so the two cannot answer differently.
+      requestCancel();
+    },
+    true,
+  );
+
   document.addEventListener(
     'mousemove',
     (e) => {
@@ -428,9 +576,9 @@ function installDropzone(
       if (!dragging && !movedEnough(pressAt, at)) return;
       dragging = true;
       if (clearTimer) clearTimeout(clearTimer);
-      zone.textContent = pressLabel
-        ? `Sleep hier om alle mail uit "${pressLabel}" op te slaan`
-        : DROPZONE_LABEL;
+      showLine(
+        pressLabel ? `Sleep hier om alle mail uit "${pressLabel}" op te slaan` : DROPZONE_LABEL,
+      );
       setState(isOverZone(at, zone.getBoundingClientRect()) ? 'over' : 'armed');
     },
     true,
@@ -453,7 +601,7 @@ function installDropzone(
       if (label) {
         saving = true;
         mine = true;
-        zone.textContent = `Mail uit "${label}" ophalen…`;
+        showLine(`Mail uit "${label}" ophalen…`, true);
         setState('armed');
         send({
           items: [],
@@ -488,7 +636,7 @@ function installDropzone(
       );
       saving = true;
       mine = true;
-      zone.textContent = items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…';
+      showLine(items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…', true);
       setState('armed');
       send({
         items,
@@ -504,7 +652,7 @@ function installDropzone(
   return {
     showResult: (r: MailDropResult) => {
       mine = false;
-      zone.textContent = resultText(r);
+      showLine(resultText(r));
       setState(r.ok ? 'done' : 'failed');
       if (clearTimer) clearTimeout(clearTimer);
       clearTimer = setTimeout(reset, 2000);
@@ -512,7 +660,19 @@ function installDropzone(
 
     showProgress: (p: MailDropSaveProgress) => {
       if (clearTimer) clearTimeout(clearTimer);
-      zone.textContent = savingText(p.done, p.total);
+      // Only from a tick that names a total. A total of nothing is the label still being listed,
+      // and what that counts is conversations found, not conversations pulled -- taking it here
+      // would have the cancel line claim thousands were fetched when none had been.
+      if (p.total > 0) pullDone = p.done;
+      // A tick this long after a cancel is a pull that never heard it. The button comes back
+      // rather than leaving a strip that says the pull was stopped while it counts on. Within
+      // the grace window the cancel stands, and the line it drew is left alone: the fetches
+      // that were already on the wire report in for a moment yet.
+      if (cancelSentAt !== 0) {
+        if (Date.now() - cancelSentAt < CANCEL_GRACE_MS) return;
+        cancelSentAt = 0;
+      }
+      showLine(savingText(p.done, p.total), true);
       setState('armed');
     },
 
@@ -528,7 +688,7 @@ function installDropzone(
         // The page that dragged already says what it is doing, and its own line is the better
         // one to keep until the first count arrives.
         if (!mine) {
-          zone.textContent = PULLING_TEXT;
+          showLine(PULLING_TEXT, true);
           setState('armed');
         }
         return;
@@ -537,7 +697,7 @@ function installDropzone(
       // the line to leave standing. So the strip is only touched for the two cases the result
       // does not cover: a lock that lifted itself, and a page that had no result coming.
       if (l.note) {
-        zone.textContent = l.note;
+        showLine(l.note);
         setState('failed');
         if (clearTimer) clearTimeout(clearTimer);
         clearTimer = setTimeout(reset, 4000);
@@ -599,11 +759,13 @@ if (typeof document !== 'undefined') {
     const body = bodies.get(id) ?? '';
     bodies.delete(id);
     const matches = matchThreadsBySubject(document, body);
-    ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, matches[0] ?? undefined, {
+    const threadId = matches[0] ?? undefined;
+    ipcRenderer.send(IPC.NOTIFICATION_ACTIVATE, threadId, {
       rows: document.querySelectorAll('[data-legacy-thread-id]').length,
       matches: matches.length,
       hash: location.hash,
       body: body.slice(0, 60),
+      messageId: threadId ? rowMessageIdFor(document, threadId) : undefined,
     });
   });
 
@@ -614,13 +776,14 @@ if (typeof document !== 'undefined') {
 
   const start = () => {
     report();
-    const titleEl = document.querySelector('title');
-    if (titleEl) {
-      new MutationObserver(report).observe(titleEl, { childList: true });
-    }
-    setInterval(report, 5000);
 
     if (location.hostname === 'mail.google.com') {
+      const titleEl = document.querySelector('title');
+      if (titleEl) {
+        new MutationObserver(report).observe(titleEl, { childList: true });
+      }
+      setInterval(report, 5000);
+
       let answered = false;
       ipcRenderer.on(IPC.MAIL_DROP_ALLOWED, (_e: unknown, allowed: boolean) => {
         if (answered) return;
@@ -631,6 +794,7 @@ if (typeof document !== 'undefined') {
         const drop = installDropzone(
           (p) => ipcRenderer.send(IPC.MAIL_DROP, p),
           (message) => ipcRenderer.send(IPC.VIEW_LOG, message),
+          () => ipcRenderer.send(IPC.MAIL_DROP_PULL_CANCEL),
         );
         ipcRenderer.on(IPC.MAIL_DROP_RESULT, (_e2: unknown, r: MailDropResult) => drop.showResult(r));
         ipcRenderer.on(IPC.MAIL_DROP_SAVE_PROGRESS, (_e2: unknown, p: MailDropSaveProgress) =>
@@ -647,19 +811,19 @@ if (typeof document !== 'undefined') {
         setTimeout(ask, 1000);
       };
       ask();
-    }
 
-    let identityTries = 0;
-    const identityTimer = setInterval(() => {
-      identityTries += 1;
-      const identity = extractIdentity(document);
-      if (identity) {
-        ipcRenderer.send(IPC.ACCOUNT_IDENTITY, identity);
-        clearInterval(identityTimer);
-      } else if (identityTries >= 15) {
-        clearInterval(identityTimer);
-      }
-    }, 1000);
+      let identityTries = 0;
+      const identityTimer = setInterval(() => {
+        identityTries += 1;
+        const identity = extractIdentity(document);
+        if (identity) {
+          ipcRenderer.send(IPC.ACCOUNT_IDENTITY, identity);
+          clearInterval(identityTimer);
+        } else if (identityTries >= 15) {
+          clearInterval(identityTimer);
+        }
+      }, 1000);
+    }
   };
 
   if (document.readyState === 'loading') {

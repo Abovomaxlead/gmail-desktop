@@ -33,10 +33,30 @@ export interface UiStrings {
   navUpdates: string;
   navVerificationCodes: string;
   navAdvanced: string;
+  navLabelCleanup: string;
+  navFeedback: string;
   navWhatsNew: string;
   navAbout: string;
+  labelCleanupIntro: string;
+  labelCleanupMailbox: string;
+  labelCleanupLabel: string;
+  labelCleanupCount: string;
+  labelCleanupCounting: string;
+  labelCleanupNothing: string;
+  labelCleanupCapped: string;
+  labelCleanupTrashNote: string;
+  labelCleanupPerLabel: (count: string) => string;
+  labelCleanupTrashButton: (count: string) => string;
+  labelCleanupMoved: (n: number) => string;
+  labelCleanupPartial: (moved: number, failed: number, error: string) => string;
+  feedbackIntro: string;
+  feedbackPlaceholder: string;
+  feedbackIncludeDiagnostics: string;
+  feedbackIncludeDiagnosticsDescription: string;
+  feedbackSend: string;
+  feedbackNoMailbox: string;
+  feedbackTooltip: string;
   settingsAttention: string;
-  sectionEmpty: string;
 
   defaultMailClient: string;
   defaultMailClientDescription: string;
@@ -230,6 +250,7 @@ export interface UiStrings {
   updChecking: string;
   updAvailable: (version: string) => string;
   updLatest: string;
+  updNoRelease: (version?: string) => string;
   updDownloading: (percent: number) => string;
   updDownloaded: string;
   updError: (message: string) => string;
@@ -239,6 +260,13 @@ export interface UiStrings {
   showOlder: string;
   hideOlder: string;
   changelogEmpty: string;
+  /** The release-notes modal that opens when a new version is found */
+  releaseNotesTitle: (version: string) => string;
+  releaseNotesSubtitle: string;
+  releaseNotesEmpty: string;
+  releaseNotesDownload: string;
+  releaseNotesLater: string;
+  releaseNotesDownloading: string;
   changelogCategory: (heading: string) => string;
 
   accountLabelField: string;
@@ -249,6 +277,11 @@ export interface UiStrings {
   removeConfirmAfter: string;
   remove: string;
   cancel: string;
+
+  hiddenTitle: string;
+  hiddenDescription: string;
+  hiddenRestore: string;
+  hiddenReturnsOnRestart: string;
   redetectLabel: string;
   redetect: string;
   redetectDescription: string;
@@ -256,10 +289,9 @@ export interface UiStrings {
   oauthLinked: string;
   oauthUnlinked: string;
   oauthExpired: string;
-  oauthPushOnly: string;
+  oauthIncomplete: string;
   oauthConnect: string;
   oauthReconnect: string;
-  oauthReallow: string;
   oauthBusy: string;
   oauthFailed: string;
   oauthNotSetUpTitle: string;
@@ -273,7 +305,13 @@ export interface UiStrings {
   addAccountLabel: string;
   addDelegatedLabel: string;
   delegatedTooltipSuffix: string;
+  /** The overflow button beside the tab strip, naming how many tabs are out of sight */
+  moreAccounts: (n: number) => string;
   delegatedNeedsClick: string;
+  /** The tab menu's entry that gives a mailbox a window of its own */
+  tabNewWindow: string;
+  /** The tab menu's entry that sends a torn-off mailbox back to the main window */
+  tabToMainWindow: string;
   settingsTooltip: string;
 
   composePickerTo: string;
@@ -281,6 +319,165 @@ export interface UiStrings {
   composePickerFrom: string;
   composePickerEsc: string;
   composePickerCancel: string;
+
+  delegatedPickerTitle: string;
+  delegatedPickerSubtitle: string;
+  delegatedPickerScanning: string;
+  delegatedPickerEmpty: string;
+  delegatedPickerNoAnswer: string;
+  delegatedPickerAdd: string;
+  delegatedPickerCancel: string;
+  delegatedPickerEsc: string;
+
+  tourGroup: string;
+  tourReplay: string;
+  tourReplayDescription: string;
+  tourReplayButton: string;
+  tourBack: string;
+  tourNext: string;
+  tourDone: string;
+  tourSkip: string;
+  tourWelcomeTitle: string;
+  tourWelcomeBody: string;
+  tourTabsTitle: string;
+  tourTabsBody: string;
+  tourTabMenuTitle: string;
+  tourTabMenuBody: string;
+  tourAddTitle: string;
+  tourAddBody: string;
+  tourPinnedTitle: string;
+  tourPinnedBody: string;
+  tourMailDropTitle: string;
+  tourMailDropBody: string;
+  tourFeedbackTitle: string;
+  tourFeedbackBody: string;
+  tourGearTitle: string;
+  tourGearBody: string;
+  tourDemoTabName: string;
+  /** A comma-separated list of example label names for the tour's demo panel. */
+  tourDemoLabels: string;
+  tourStripTitle: string;
+  tourStripBody: string;
+
+  mdCancel: string;
+  mdCopy: string;
+  mdCopyAll: string;
+  mdCopyNew: (n: number) => string;
+  mdLoadingLabels: string;
+  mdNoOtherAccount: string;
+  mdDismissNotice: string;
+  mdSearchPlaceholder: string;
+  mdSearchAria: string;
+  mdSearchClear: string;
+  mdTopLevel: string;
+  mdMailboxRail: string;
+  mdKeepStructure: string;
+  mdNoLabels: string;
+  mdNoLabelFound: string;
+  mdRecent: string;
+  mdPlaceUnder: string;
+  mdAlreadyInLabel: (n: number) => string;
+  mdTreeLabelCount: (n: number) => string;
+  mdTreeStructureOnly: string;
+  mdTreeMergeInto: (name: string) => string;
+  mdTreeMergeHint: string;
+  mdTreeNewTop: (name: string) => string;
+  mdTreeNewTopHint: string;
+  mdKindInbox: string;
+  mdKindStarred: string;
+  mdKindImportant: string;
+  mdKindUser: string;
+
+  mdDragFailed: string;
+  mdCopyTitle: (n: number) => string;
+  mdCopyingTo: (names: string) => string;
+  mdJobProgress: (batch: number, batches: number, done: number, total: number) => string;
+  mdListAnd: string;
+  mdStopFailed: (why: string) => string;
+  mdControlNoAnswer: string;
+  mdJobDone: (done: number, total: number) => string;
+  mdJobStoppedKept: (done: number, total: number) => string;
+  mdJobRolledBack: string;
+  mdJobRolledBackPartial: string;
+  mdJobStuck: (batch: number, batches: number, error: string) => string;
+  mdJobStuckDefault: string;
+  mdJobUnknownOutcome: (outcome: string) => string;
+
+  mdBatchRunning: (batch: number, batches: number, done: number, total: number) => string;
+  mdPaused: (n: number) => string;
+  mdPhaseCheck: string;
+  mdPhaseCopy: string;
+  mdPhaseRollback: string;
+  mdPhaseProgress: (doing: string, done: number, total: number) => string;
+  mdPhaseWorking: (doing: string) => string;
+  mdBatchPrefix: (batch: number, batches: number) => string;
+  mdJobTotalSuffix: (done: number, total: number) => string;
+  mdStoppedKept: (n: number) => string;
+  mdStoppedUndone: string;
+  mdStoppedUndonePartial: string;
+  mdDupAlready: (n: number) => string;
+  mdDupNewSuffix: (n: number) => string;
+  mdCopiedCount: (n: number) => string;
+  mdSkippedSuffix: (n: number) => string;
+  mdNothingCopied: string;
+  mdWarningCount: (n: number) => string;
+  mdOrphanPending: string;
+  mdJobPending: (label: string) => string;
+  mdNothingSaved: string;
+  mdChooseDestination: string;
+  mdMessagesTo: (n: number) => string;
+
+  mdDropFailedTitle: string;
+  mdExistingOne: string;
+  mdExistingSome: string;
+  mdExistingAlready: string;
+  mdExistingUnchecked: (list: string) => string;
+  mdDupIntroNew: (n: number) => string;
+  mdDupIntroAll: string;
+  mdDupCount: (n: number) => string;
+  mdAndMore: (n: number) => string;
+  mdPausedTitle: string;
+  mdPausedNone: string;
+  mdPausedSoFar: (n: number) => string;
+  mdMessages: (n: number) => string;
+  mdResume: string;
+  mdStopKeep: string;
+  mdStopTrash: string;
+  mdStopTrashBatch: (batch: number) => string;
+  mdStopTrashJob: (n: number) => string;
+  mdTrashNote: string;
+  mdRollbackSlow: (n: number) => string;
+  mdInterruptedTitle: string;
+  mdOrphanNone: string;
+  mdOrphanSoFar: (n: number) => string;
+  mdKeep: string;
+  mdMoveToTrash: string;
+  mdTrashNoteBackground: string;
+  mdJobInterrupted: (
+    label: string,
+    done: number,
+    total: number,
+    batch: number,
+    batches: number,
+  ) => string;
+  mdJobDuplicateWarning: (batch: number) => string;
+  mdJobContinue: (batch: number) => string;
+  mdJobKeep: string;
+  mdJobTrash: (n: number) => string;
+  mdStoppedIncomplete: string;
+  mdRollbackFailed: string;
+  mdStoppedKeptSentence: (n: number) => string;
+  mdRollbackDone: string;
+  mdRollbackPartial: string;
+  mdRefusedPermission: string;
+  mdRefusedAuth: string;
+  mdSweepPending: (n: number) => string;
+  mdSweepResumes: string;
+  mdWorking: string;
+  mdBatchesCopied: (done: number, total: number) => string;
+  mdAccountFailed: (copied: number, total: number, error: string) => string;
+  mdAccountCopied: (n: number) => string;
+  mdAccountSkipped: (n: number) => string;
 }
 
 
@@ -372,10 +569,32 @@ export const STRINGS_NORMAL: UiStrings = {
   navUpdates: 'Updates',
   navVerificationCodes: 'Verification Codes',
   navAdvanced: 'Advanced',
+  navLabelCleanup: 'Clear a label',
+  navFeedback: 'Feedback',
   navWhatsNew: "What's New",
   navAbout: 'About Gmail Desktop',
+  labelCleanupIntro: 'Moves every message under a label to the trash. The label itself stays.',
+  labelCleanupMailbox: 'Mailbox',
+  labelCleanupLabel: 'Label',
+  labelCleanupCount: 'Count what is in it',
+  labelCleanupCounting: 'Counting…',
+  labelCleanupNothing: 'Nothing under this label.',
+  labelCleanupCapped: 'Stopped counting at 50,000; there are more.',
+  labelCleanupTrashNote: 'The trash is not final: Gmail keeps it for another 30 days.',
+  labelCleanupPerLabel: (count) => `${count} message(s)`,
+  labelCleanupTrashButton: (count) => `Move ${count} messages to the trash`,
+  labelCleanupMoved: (n) => `${n} message(s) moved to the trash.`,
+  labelCleanupPartial: (moved, failed, error) => `${moved} moved, ${failed} not: ${error}`,
+  feedbackIntro:
+    'Tell us what went wrong or what you are missing. Sending opens a mail from your own mailbox, so you see exactly what goes out before it leaves.',
+  feedbackPlaceholder: 'What happened, and what did you expect to happen?',
+  feedbackIncludeDiagnostics: 'Include version, system and logs',
+  feedbackIncludeDiagnosticsDescription:
+    'Adds the version, your operating system and how many mailboxes are linked, with the last lines of both logs. Passwords, tokens and the content of your mail are left out, and everything else is in the mail itself, so you can read it before you send.',
+  feedbackSend: 'Write feedback mail',
+  feedbackNoMailbox: 'Link a mailbox first: the mail is sent from your own Gmail.',
+  feedbackTooltip: 'Send feedback',
   settingsAttention: 'needs your attention',
-  sectionEmpty: 'Nothing to set here yet.',
 
   defaultMailClient: 'Default Mail Client',
   defaultMailClientDescription:
@@ -492,7 +711,7 @@ export const STRINGS_NORMAL: UiStrings = {
     'Tint a Google App window in the account colour while it loads, so you can see whose it is.',
   gaPinned: 'Pinned Apps',
   gaPinnedDescription:
-    'Pick the apps you reach for most. The bar at the top does not draw them yet — that is the next step; for now they are also in the right-click menu of an account tab.',
+    'Pick the apps you reach for most. Each one gets a button in the bar at the top, and they stay in the right-click menu of an account tab as well.',
   gaPinnedHeading: 'Pinned',
   gaAvailableHeading: 'Available',
   gaPin: (name) => `Pin ${name}`,
@@ -602,8 +821,10 @@ export const STRINGS_NORMAL: UiStrings = {
   updChecking: 'Checking for updates…',
   updAvailable: (version) => `Update available: v${version}`,
   updLatest: "You're on the latest version.",
+  updNoRelease: (version) =>
+    `No final version has been released yet, so you stay on${version ? ` ${version}` : ' your current version'}.`,
   updDownloading: (percent) => `Downloading update… ${percent}%`,
-  updDownloaded: 'Update downloaded — restarting to install…',
+  updDownloaded: 'Update ready to install — restart to apply.',
   updError: (message) => `Couldn't check for updates: ${message}`,
   updDev: 'Updates are only available in the installed app.',
 
@@ -611,6 +832,12 @@ export const STRINGS_NORMAL: UiStrings = {
   showOlder: 'Show older versions',
   hideOlder: 'Hide older versions',
   changelogEmpty: 'No release notes available.',
+  releaseNotesTitle: (version) => `Version ${version} is available`,
+  releaseNotesSubtitle: "What's in this version",
+  releaseNotesEmpty: 'This version carries no release notes.',
+  releaseNotesDownload: 'Download',
+  releaseNotesLater: 'Later',
+  releaseNotesDownloading: 'Downloading…',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_NORMAL[key] : '';
@@ -624,10 +851,16 @@ export const STRINGS_NORMAL: UiStrings = {
   },
   removeAccount: 'Remove account',
   removeConfirmBefore:
-    'Remove this account from the app? It stays signed in with Google — re-add it later with the ',
+    'Remove this mailbox from the app? It stays signed in with Google, and the app remembers that you do not want it — put it back under Hidden mailboxes below, or with the ',
   removeConfirmAfter: ' button.',
   remove: 'Remove',
   cancel: 'Cancel',
+
+  hiddenTitle: 'Hidden mailboxes',
+  hiddenDescription:
+    'Mailboxes you removed. They stay off the screen until you put one back, updates included.',
+  hiddenRestore: 'Put back',
+  hiddenReturnsOnRestart: 'appears at the next start',
   redetectLabel: 'Account detection',
   redetect: 'Re-detect accounts',
   redetectDescription: 'Looks again at the Google accounts you are signed in to.',
@@ -635,10 +868,9 @@ export const STRINGS_NORMAL: UiStrings = {
   oauthLinked: 'Connected',
   oauthUnlinked: 'Not connected yet',
   oauthExpired: 'Connection expired',
-  oauthPushOnly: 'Notifications are off',
+  oauthIncomplete: 'Needs permission again',
   oauthConnect: 'Connect',
   oauthReconnect: 'Reconnect',
-  oauthReallow: 'Allow again',
   oauthBusy: 'Working…',
   oauthFailed: 'Did not work',
   oauthNotSetUpTitle: 'This computer has no Google connection set up',
@@ -655,7 +887,10 @@ export const STRINGS_NORMAL: UiStrings = {
   addAccountLabel: 'Add account',
   addDelegatedLabel: 'Add delegated mailbox',
   delegatedTooltipSuffix: "(delegated — someone else's mailbox)",
+  moreAccounts: (n) => (n === 1 ? '1 more mailbox' : `${n} more mailboxes`),
   delegatedNeedsClick: 'open once in Gmail first',
+  tabNewWindow: 'Open in a new window',
+  tabToMainWindow: 'Move back to the main window',
   settingsTooltip: 'Settings',
 
   composePickerTo: 'New message to',
@@ -663,6 +898,186 @@ export const STRINGS_NORMAL: UiStrings = {
   composePickerFrom: 'Send from',
   composePickerEsc: 'Esc closes',
   composePickerCancel: 'Cancel',
+
+  delegatedPickerTitle: 'Add a delegated mailbox',
+  delegatedPickerSubtitle: 'Tick the mailboxes you want in the bar.',
+  delegatedPickerScanning: 'Asking Google…',
+  delegatedPickerEmpty: 'Nothing to add: every mailbox delegated to you is already here.',
+  delegatedPickerNoAnswer: 'Could not ask right now. Check your connection and try again.',
+  delegatedPickerAdd: 'Add',
+  delegatedPickerCancel: 'Cancel',
+  delegatedPickerEsc: 'Esc closes',
+
+  tourGroup: 'Tour',
+  tourReplay: 'Show the tour again',
+  tourReplayDescription: 'Walk past the app’s own features once more.',
+  tourReplayButton: 'Start tour',
+  tourBack: 'Back',
+  tourNext: 'Next',
+  tourDone: 'Done',
+  tourSkip: 'Skip',
+  tourWelcomeTitle: 'Welcome to Gmail Desktop',
+  tourWelcomeBody: 'A minute’s look at what this app adds to Gmail.',
+  tourTabsTitle: 'One tab per mailbox',
+  tourTabsBody:
+    'Every account and every shared mailbox gets a tab. Click another mailbox to switch to it.',
+  tourTabMenuTitle: 'More behind every tab',
+  tourTabMenuBody:
+    'Right-click a tab to see what else it opens: its Calendar, and for your own accounts Drive and Contacts as well. Drag a tab sideways to reorder the strip.',
+  tourAddTitle: 'Add a mailbox',
+  tourAddBody:
+    'The plus links another Google account, or a mailbox somebody has shared with you.',
+  tourPinnedTitle: 'Pinned Google apps',
+  tourPinnedBody:
+    'These open in the mailbox you are looking at. Choose which ones sit here under Settings, Google apps.',
+  tourMailDropTitle: 'Drop mail onto the window',
+  tourMailDropBody:
+    'From here you can copy the mail you dragged in to any of your labels.',
+  tourFeedbackTitle: 'Report a problem',
+  tourFeedbackBody: 'The speech bubble writes a message to the developer.',
+  tourGearTitle: 'Everything else',
+  tourGearBody:
+    'Notifications, downloads, updates and the rest live behind the gear. You can start this tour again from Settings, General.',
+  tourDemoTabName: 'Example mailbox',
+  tourDemoLabels: 'Clients,Invoices,Projects,Archive 2026,Newsletters,To do',
+  tourStripTitle: 'Drag mail out of Gmail',
+  tourStripBody:
+    'Drag a conversation in Gmail and this strip appears across the top. Drop the mail there and you can copy it to the mailboxes you have access to.',
+
+  mdCancel: 'Cancel',
+  mdCopy: 'Copy',
+  mdCopyAll: 'Copy everything',
+  mdCopyNew: (n) => (n === 1 ? 'Copy only the new one' : `Copy only the ${n} new ones`),
+  mdLoadingLabels: 'Fetching labels…',
+  mdNoOtherAccount: 'No other linked account.',
+  mdDismissNotice: 'Dismiss message',
+  mdSearchPlaceholder: 'Search for a label…',
+  mdSearchAria: 'Search for a label',
+  mdSearchClear: 'Clear search',
+  mdTopLevel: 'Top level',
+  mdMailboxRail: 'Mailboxes',
+  mdKeepStructure: 'Keep the structure',
+  mdNoLabels: 'No labels',
+  mdNoLabelFound: 'No label found',
+  mdRecent: 'Recent',
+  mdPlaceUnder: 'Place under',
+  mdAlreadyInLabel: (n) =>
+    n === 1 ? 'Message already in label' : `${n} messages already in label`,
+  mdTreeLabelCount: (n) => (n === 1 ? '1 label' : `${n} labels`),
+  mdTreeStructureOnly: 'structure only',
+  mdTreeMergeInto: (name) => `Merge into "${name}"`,
+  mdTreeMergeHint: 'the labels already there are reused',
+  mdTreeNewTop: (name) => `New at the top: "${name}"`,
+  mdTreeNewTopHint: 'the structure is created here',
+  mdKindInbox: 'Inbox',
+  mdKindStarred: 'Starred',
+  mdKindImportant: 'Important',
+  mdKindUser: 'Own label',
+
+  mdDragFailed: 'Drag failed',
+  mdCopyTitle: (n) => (n === 1 ? 'Copy 1 conversation' : `Copy ${n} conversations`),
+  mdCopyingTo: (names) => `Copying to ${names}`,
+  mdJobProgress: (batch, batches, done, total) =>
+    `Batch ${batch} of ${batches} — ${done} of ${total} copied`,
+  mdListAnd: 'and',
+  mdStopFailed: (why) => `Stopping did not work — ${why}`,
+  mdControlNoAnswer: 'the copy did not answer',
+  mdJobDone: (done, total) => `Job finished — ${done} of ${total} conversations copied`,
+  mdJobStoppedKept: (done, total) =>
+    `Job stopped — ${done} of ${total} conversations stay copied`,
+  mdJobRolledBack: 'Job stopped and undone',
+  mdJobRolledBackPartial: 'Job stopped, undoing did not work everywhere',
+  mdJobStuck: (batch, batches, error) =>
+    `Job stopped on batch ${batch} of ${batches}${error ? ` — ${error}` : ''}`,
+  mdJobStuckDefault: 'The job stopped on a batch that failed',
+  mdJobUnknownOutcome: (outcome) => `The job ended on an unknown outcome (${outcome})`,
+
+  mdBatchRunning: (batch, batches, done, total) =>
+    `Batch ${batch} of ${batches} running — ${done} of ${total} copied`,
+  mdPaused: (n) => `Paused — ${n} ${n === 1 ? 'message' : 'messages'} already copied`,
+  mdPhaseCheck: 'Checking',
+  mdPhaseCopy: 'Copying',
+  mdPhaseRollback: 'Undoing',
+  mdPhaseProgress: (doing, done, total) => `${doing}: ${done} of ${total}`,
+  mdPhaseWorking: (doing) => `${doing}…`,
+  mdBatchPrefix: (batch, batches) => `Batch ${batch} of ${batches} — `,
+  mdJobTotalSuffix: (done, total) => ` (${done} of ${total} in total)`,
+  mdStoppedKept: (n) => `Stopped, ${n} ${n === 1 ? 'message stays' : 'messages stay'} copied`,
+  mdStoppedUndone: 'Stopped and undone',
+  mdStoppedUndonePartial: 'Stopped, undoing did not work everywhere',
+  mdDupAlready: (n) =>
+    n === 1 ? 'This mail is already there' : `${n} of these messages are already there`,
+  mdDupNewSuffix: (n) => `, ${n} ${n === 1 ? 'is' : 'are'} new`,
+  mdCopiedCount: (n) => `${n} copied`,
+  mdSkippedSuffix: (n) => `, ${n} skipped`,
+  mdNothingCopied: 'Nothing copied',
+  mdWarningCount: (n) => (n === 1 ? '1 warning' : `${n} warnings`),
+  mdOrphanPending: 'Interrupted last time — a choice is still needed',
+  mdJobPending: (label) => `Interrupted last time — a choice is still needed about “${label}”`,
+  mdNothingSaved: 'Nothing saved to copy',
+  mdChooseDestination: 'Choose where the mail goes',
+  mdMessagesTo: (n) => `${n} ${n === 1 ? 'message' : 'messages'} to`,
+
+  mdDropFailedTitle: 'Nothing was saved, so there is nothing to copy either.',
+  mdExistingOne: 'This mail is already in a mailbox you can choose.',
+  mdExistingSome: 'Some of this mail is already in a mailbox you can choose.',
+  mdExistingAlready: 'already there',
+  mdExistingUnchecked: (list) => `Not checked for duplicates: ${list}`,
+  mdDupIntroNew: (n) =>
+    `Part of it is already at the destination. “Copy only the new ones” skips those and adds ${
+      n === 1 ? 'the one new message' : `the ${n} new messages`
+    }; “Copy everything” makes a second copy of the ones already there.`,
+  mdDupIntroAll:
+    'Everything you dragged is already at the destination. Copying makes a second copy of each.',
+  mdDupCount: (n) => (n === 1 ? 'already there' : `${n} messages already there`),
+  mdAndMore: (n) => `and ${n} more…`,
+  mdPausedTitle: 'Copying paused',
+  mdPausedNone: 'Nothing has been copied yet.',
+  mdPausedSoFar: (n) =>
+    n === 1 ? '1 message is already in:' : `${n} messages are already in:`,
+  mdMessages: (n) => `${n} ${n === 1 ? 'message' : 'messages'}`,
+  mdResume: 'Continue copying',
+  mdStopKeep: 'Stop, leave what is already there',
+  mdStopTrash: 'Stop and move to the trash',
+  mdStopTrashBatch: (batch) => `Stop and move only batch ${batch} to the trash`,
+  mdStopTrashJob: (n) => `Stop and move all ${n} copied messages to the trash`,
+  mdTrashNote: 'The trash is not final: Gmail keeps it there for another 30 days.',
+  mdRollbackSlow: (n) =>
+    `Undoing everything takes a while: pulling ${n} messages back out is another few minutes of work.`,
+  mdInterruptedTitle: 'Interrupted last time',
+  mdOrphanNone: 'Nothing had been copied yet then.',
+  mdOrphanSoFar: (n) =>
+    n === 1 ? '1 message was already in:' : `${n} messages were already in:`,
+  mdKeep: 'Leave it',
+  mdMoveToTrash: 'Move to the trash',
+  mdTrashNoteBackground:
+    'The trash is not final: Gmail keeps it there for another 30 days. This is finished in the background — you can carry on in the meantime.',
+  mdJobInterrupted: (label, done, total, batch, batches) =>
+    `Of label “${label}”, ${done} of ${total} messages were copied, up to batch ${batch} of ${batches}.`,
+  mdJobDuplicateWarning: (batch) =>
+    `This job also copies messages that are already there, as you chose back then. Carrying on means batch ${batch} partly ends up twice.`,
+  mdJobContinue: (batch) => `Carry on with batch ${batch}`,
+  mdJobKeep: 'Leave it, close the job',
+  mdJobTrash: (n) => `Move all ${n} messages to the trash`,
+  mdStoppedIncomplete: 'Stopped, but not finished',
+  mdRollbackFailed: 'Undoing did not work',
+  mdStoppedKeptSentence: (n) =>
+    `Stopped. ${n === 1 ? '1 message stays' : `${n} messages stay`} copied.`,
+  mdRollbackDone: 'Undone. Everything that had been copied is back in the trash.',
+  mdRollbackPartial: 'Undoing did not work everywhere.',
+  mdRefusedPermission: 'no permission to delete, still there',
+  mdRefusedAuth: 'could not be opened, still there',
+  mdSweepPending: (n) =>
+    n === 1
+      ? 'Cleaning up in 1 mailbox is not finished yet.'
+      : `Cleaning up in ${n} mailboxes is not finished yet.`,
+  mdSweepResumes:
+    'This finishes automatically the next time the app starts — nothing needs to be done here.',
+  mdWorking: 'Working…',
+  mdBatchesCopied: (done, total) => `${done} of ${total} batches copied`,
+  mdAccountFailed: (copied, total, error) => `${copied} of ${total} copied — ${error}`,
+  mdAccountCopied: (n) => `${n} ${n === 1 ? 'message' : 'messages'} copied`,
+  mdAccountSkipped: (n) => `, ${n} already there`,
 };
 
 export const STRINGS_RENE: UiStrings = {
@@ -683,10 +1098,33 @@ export const STRINGS_RENE: UiStrings = {
   navUpdates: 'Nieuwe versie',
   navVerificationCodes: 'Codes',
   navAdvanced: 'Voor knutselaars',
+  navLabelCleanup: 'Label leeghalen',
+  navFeedback: 'Zeg wat je vindt',
   navWhatsNew: 'Wat is er nieuw?',
   navAbout: 'Over de app',
+  labelCleanupIntro:
+    'Alle mail onder een label gaat naar de prullenbak. Het label zelf blijft gewoon staan.',
+  labelCleanupMailbox: 'Welke postbus?',
+  labelCleanupLabel: 'Welk label?',
+  labelCleanupCount: 'Kijk hoeveel het er zijn',
+  labelCleanupCounting: 'Even tellen…',
+  labelCleanupNothing: 'Er zit niets onder dit label.',
+  labelCleanupCapped: 'Gestopt met tellen bij 50.000. Er zijn er nog meer.',
+  labelCleanupTrashNote: 'Weg is niet weg: Gmail bewaart het nog 30 dagen in de prullenbak.',
+  labelCleanupPerLabel: (count) => `${count} mailtje(s)`,
+  labelCleanupTrashButton: (count) => `Doe ${count} mailtjes in de prullenbak`,
+  labelCleanupMoved: (n) => `${n} mailtje(s) zitten nu in de prullenbak.`,
+  labelCleanupPartial: (moved, failed, error) => `${moved} gelukt, ${failed} niet: ${error}`,
+  feedbackIntro:
+    'Ging er iets mis, of mis je iets? Schrijf het hier. Als je op de knop drukt maakt de app een mail vanuit je eigen postbus. Je ziet hem eerst, en jij drukt zelf op verzenden.',
+  feedbackPlaceholder: 'Wat ging er mis? En wat had je verwacht?',
+  feedbackIncludeDiagnostics: 'Stuur ook mee wat de app deed',
+  feedbackIncludeDiagnosticsDescription:
+    'Dan komt er onder je bericht te staan welke versie je hebt, wat voor computer, hoeveel postbussen, en wat de app het laatst deed. Wachtwoorden en wat er in je mail staat gaan niet mee. Alles staat gewoon in de mail, dus je kunt het zelf lezen.',
+  feedbackSend: 'Maak de mail',
+  feedbackNoMailbox: 'Koppel eerst een postbus. De mail gaat vanuit je eigen Gmail.',
+  feedbackTooltip: 'Zeg wat je vindt',
   settingsAttention: 'kijk hier even',
-  sectionEmpty: 'Hier is nog niks om te zetten.',
 
   defaultMailClient: 'Mail gaat door deze app',
   defaultMailClientDescription:
@@ -797,7 +1235,7 @@ export const STRINGS_RENE: UiStrings = {
     'Het venster krijgt even het kleurtje van het account, zodat je ziet van wie het is.',
   gaPinned: 'Vaste dingen',
   gaPinnedDescription:
-    'Kies welke dingen je het meest gebruikt. De balk bovenaan laat ze nog niet zien — dat komt nog.',
+    'Kies welke dingen je het meest gebruikt. Ze krijgen allemaal een knopje in de balk bovenaan, en ze staan ook in het menu als je met rechts op een tabblad klikt.',
   gaPinnedHeading: 'Vast',
   gaAvailableHeading: 'Te kiezen',
   gaPin: (name) => `Zet ${name} vast`,
@@ -902,8 +1340,10 @@ export const STRINGS_RENE: UiStrings = {
   updChecking: 'Even kijken…',
   updAvailable: (version) => `Er is iets nieuws: v${version}`,
   updLatest: 'Je hebt al het nieuwste.',
+  updNoRelease: (version) =>
+    `Er is nog niks nieuws${version ? `, je houdt ${version}` : ''}.`,
   updDownloading: (percent) => `Het komt eraan… ${percent}%`,
-  updDownloaded: 'Het is er! De app gaat uit en aan…',
+  updDownloaded: 'Het is er! Start de app opnieuw om het te gebruiken.',
   updError: (message) => `Het lukt nu niet: ${message}`,
   updDev: 'Dit kan alleen in de echte app.',
 
@@ -911,6 +1351,12 @@ export const STRINGS_RENE: UiStrings = {
   showOlder: 'Laat oude dingen zien',
   hideOlder: 'Verberg oude dingen',
   changelogEmpty: 'Er is nog niks om te laten zien.',
+  releaseNotesTitle: (version) => `Er is een nieuwe versie: ${version}`,
+  releaseNotesSubtitle: 'Dit is er nieuw',
+  releaseNotesEmpty: 'Bij deze versie staat niks uitgelegd.',
+  releaseNotesDownload: 'Ophalen',
+  releaseNotesLater: 'Straks',
+  releaseNotesDownloading: 'Hij wordt opgehaald…',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_RENE[key] : '';
@@ -923,10 +1369,16 @@ export const STRINGS_RENE: UiStrings = {
     return key ? COLOR_RENE[key] : hex;
   },
   removeAccount: 'Weg ermee',
-  removeConfirmBefore: 'Mag deze weg uit de app? Je kan hem later weer terug doen met de ',
+  removeConfirmBefore:
+    'Mag deze weg uit de app? De app onthoudt dat, ook na een update. Terugzetten kan hieronder bij Weggeklikt, of met de ',
   removeConfirmAfter: ' knop.',
   remove: 'Weg',
   cancel: 'Nee',
+
+  hiddenTitle: 'Weggeklikt',
+  hiddenDescription: 'Deze heb je weggedaan. Ze blijven weg tot je ze terugzet, ook na een update.',
+  hiddenRestore: 'Terug',
+  hiddenReturnsOnRestart: 'komt terug als je de app opnieuw opstart',
   redetectLabel: 'Accounts zoeken',
   redetect: 'Zoek nog een keer',
   redetectDescription: 'De app kijkt nog een keer wie er mee doet.',
@@ -934,10 +1386,9 @@ export const STRINGS_RENE: UiStrings = {
   oauthLinked: 'Alles in orde',
   oauthUnlinked: 'Nog niet aangezet',
   oauthExpired: 'De verbinding is weg',
-  oauthPushOnly: 'Je krijgt geen meldingen',
+  oauthIncomplete: 'Moet je opnieuw toestaan',
   oauthConnect: 'Aanzetten',
   oauthReconnect: 'Opnieuw aanzetten',
-  oauthReallow: 'Meldingen aanzetten',
   oauthBusy: 'Momentje…',
   oauthFailed: 'Het lukte niet',
   oauthNotSetUpTitle: 'Deze computer is nog niet ingesteld',
@@ -952,7 +1403,10 @@ export const STRINGS_RENE: UiStrings = {
   addAccountLabel: 'Doe er iemand bij',
   addDelegatedLabel: 'Doe een gedeelde postbus erbij',
   delegatedTooltipSuffix: '(de postbus van iemand anders)',
+  moreAccounts: (n) => (n === 1 ? 'Er staat er nog 1 naast' : `Er staan er nog ${n} naast`),
   delegatedNeedsClick: 'moet nog één keer open in Gmail',
+  tabNewWindow: 'Zet in een eigen scherm',
+  tabToMainWindow: 'Terug naar het grote scherm',
   settingsTooltip: 'Knopjes',
 
   composePickerTo: 'Een mailtje naar',
@@ -960,6 +1414,184 @@ export const STRINGS_RENE: UiStrings = {
   composePickerFrom: 'Van wie moet het komen?',
   composePickerEsc: 'Met Esc ga je weg',
   composePickerCancel: 'Laat maar',
+
+  delegatedPickerTitle: 'Doe een gedeelde postbus erbij',
+  delegatedPickerSubtitle: 'Vink aan welke je in de balk wilt.',
+  delegatedPickerScanning: 'Even bij Google kijken…',
+  delegatedPickerEmpty: 'Er is niks meer om erbij te doen; alles wat van jou mag staat er al.',
+  delegatedPickerNoAnswer: 'Kon het even niet navragen. Kijk of je internet het doet en probeer nog eens.',
+  delegatedPickerAdd: 'Doe erbij',
+  delegatedPickerCancel: 'Laat maar',
+  delegatedPickerEsc: 'Met Esc ga je weg',
+
+  tourGroup: 'Het rondje',
+  tourReplay: 'Rondje nog eens doen',
+  tourReplayDescription: 'Loop nog een keer met ons mee door de app.',
+  tourReplayButton: 'Start het rondje',
+  tourBack: 'Terug',
+  tourNext: 'Verder',
+  tourDone: 'Klaar',
+  tourSkip: 'Nu niet',
+  tourWelcomeTitle: 'Welkom!',
+  tourWelcomeBody: 'We lopen even samen door de app. Het duurt een minuutje.',
+  tourTabsTitle: 'Elke mailbox een tabje',
+  tourTabsBody:
+    'Bovenaan staat een tabje voor elke mailbox. Klik op een ander tabje om te wisselen.',
+  tourTabMenuTitle: 'Rechtermuisknop op een tabje',
+  tourTabMenuBody:
+    'Klik met de rechtermuisknop op een tabje. Dan zie je wat er nog meer bij hoort: de agenda, en bij je eigen mailboxen ook Drive en contacten. Slepen mag ook, dan verschuif je het tabje.',
+  tourAddTitle: 'Mailbox erbij',
+  tourAddBody:
+    'Met de plus zet je een nieuwe mailbox erbij. Ook een mailbox die iemand met je deelt.',
+  tourPinnedTitle: 'Snelknoppen',
+  tourPinnedBody:
+    'Deze knoppen horen bij de mailbox die je nu ziet. Welke knoppen hier staan, kies je bij Instellingen, Google-apps.',
+  tourMailDropTitle: 'Mail hierheen slepen',
+  tourMailDropBody:
+    'Hiervandaan kun je de gesleepte mail kopiëren naar verschillende labels.',
+  tourFeedbackTitle: 'Iets kwijt of stuk?',
+  tourFeedbackBody:
+    'Klik op het wolkje. Dan stuur je een berichtje naar de maker van de app.',
+  tourGearTitle: 'De rest zit hier',
+  tourGearBody:
+    'Achter het tandwiel staat alles: meldingen, downloads en updates. Wil je dit rondje nog eens? Dat kan bij Instellingen, Algemeen.',
+  tourDemoTabName: 'Voorbeeld',
+  tourDemoLabels: 'Klanten,Rekeningen,Klussen,Oud,Nieuwsbrieven,Nog doen',
+  tourStripTitle: 'Mail eruit slepen',
+  tourStripBody:
+    'Sleep in Gmail een mailtje en deze balk komt bovenaan in beeld. Laat de mail daar los en je kunt hem kopiëren naar de mailboxen waar je bij mag.',
+
+  mdCancel: 'Stoppen',
+  mdCopy: 'Kopieer',
+  mdCopyAll: 'Alles kopiëren',
+  mdCopyNew: (n) => (n === 1 ? 'Alleen de nieuwe kopiëren' : `Alleen die ${n} nieuwe kopiëren`),
+  mdLoadingLabels: 'Even de labels ophalen…',
+  mdNoOtherAccount: 'Er is geen ander account.',
+  mdDismissNotice: 'Weghalen',
+  mdSearchPlaceholder: 'Zoek een label…',
+  mdSearchAria: 'Zoek een label',
+  mdSearchClear: 'Zoeken leegmaken',
+  mdTopLevel: 'Bovenin',
+  mdMailboxRail: 'Postbussen',
+  mdKeepStructure: 'Mapjes meenemen',
+  mdNoLabels: 'Geen labels',
+  mdNoLabelFound: 'Niks gevonden',
+  mdRecent: 'Pas gebruikt',
+  mdPlaceUnder: 'Zet onder',
+  mdAlreadyInLabel: (n) => (n === 1 ? 'Staat hier al in' : `${n} staan hier al in`),
+  mdTreeLabelCount: (n) => (n === 1 ? '1 label' : `${n} labels`),
+  mdTreeStructureOnly: 'alleen het mapje',
+  mdTreeMergeInto: (name) => `Bij "${name}" zetten`,
+  mdTreeMergeHint: 'de mapjes die er al zijn worden gebruikt',
+  mdTreeNewTop: (name) => `Nieuw mapje "${name}"`,
+  mdTreeNewTopHint: 'het mapje wordt hier gemaakt',
+  mdKindInbox: 'Postbus',
+  mdKindStarred: 'Met ster',
+  mdKindImportant: 'Belangrijk',
+  mdKindUser: 'Eigen label',
+
+  mdDragFailed: 'Slepen ging mis',
+  mdCopyTitle: (n) => (n === 1 ? '1 mailtje kopiëren' : `${n} mailtjes kopiëren`),
+  mdCopyingTo: (names) => `Gaat naar ${names}`,
+  mdJobProgress: (batch, batches, done, total) =>
+    `Stapel ${batch} van ${batches} — ${done} van ${total} gedaan`,
+  mdListAnd: 'en',
+  mdStopFailed: (why) => `Stoppen lukte niet — ${why}`,
+  mdControlNoAnswer: 'de app gaf geen antwoord',
+  mdJobDone: (done, total) => `Klaar — ${done} van ${total} mailtjes gekopieerd`,
+  mdJobStoppedKept: (done, total) => `Gestopt — ${done} van ${total} mailtjes blijven staan`,
+  mdJobRolledBack: 'Gestopt en alles teruggedraaid',
+  mdJobRolledBackPartial: 'Gestopt, maar niet alles kon terug',
+  mdJobStuck: (batch, batches, error) =>
+    `Gestopt bij stapel ${batch} van ${batches}${error ? ` — ${error}` : ''}`,
+  mdJobStuckDefault: 'De klus stopte bij een stapel die misging',
+  mdJobUnknownOutcome: (outcome) => `De klus stopte, maar de app snapt niet hoe (${outcome})`,
+
+  mdBatchRunning: (batch, batches, done, total) =>
+    `Stapel ${batch} van ${batches} is bezig — ${done} van ${total} gedaan`,
+  mdPaused: (n) => `Even gepauzeerd — ${n} ${n === 1 ? 'mailtje' : 'mailtjes'} al gekopieerd`,
+  mdPhaseCheck: 'Kijken',
+  mdPhaseCopy: 'Kopiëren',
+  mdPhaseRollback: 'Terugdraaien',
+  mdPhaseProgress: (doing, done, total) => `${doing}: ${done} van ${total}`,
+  mdPhaseWorking: (doing) => `${doing}…`,
+  mdBatchPrefix: (batch, batches) => `Stapel ${batch} van ${batches} — `,
+  mdJobTotalSuffix: (done, total) => ` (${done} van ${total} bij elkaar)`,
+  mdStoppedKept: (n) =>
+    `Gestopt, ${n} ${n === 1 ? 'mailtje blijft' : 'mailtjes blijven'} staan`,
+  mdStoppedUndone: 'Gestopt en teruggedraaid',
+  mdStoppedUndonePartial: 'Gestopt, niet alles kon terug',
+  mdDupAlready: (n) =>
+    n === 1 ? 'Dit mailtje staat er al' : `${n} van deze mailtjes staan er al`,
+  mdDupNewSuffix: (n) => `, ${n} ${n === 1 ? 'is' : 'zijn'} nieuw`,
+  mdCopiedCount: (n) => `${n} gekopieerd`,
+  mdSkippedSuffix: (n) => `, ${n} overgeslagen`,
+  mdNothingCopied: 'Er is niks gekopieerd',
+  mdWarningCount: (n) => (n === 1 ? '1 ding om te weten' : `${n} dingen om te weten`),
+  mdOrphanPending: 'Vorige keer gestopt — kies nog even',
+  mdJobPending: (label) => `Vorige keer gestopt — kies nog even over “${label}”`,
+  mdNothingSaved: 'Er is niks om te kopiëren',
+  mdChooseDestination: 'Kies waar het heen moet',
+  mdMessagesTo: (n) => `${n} ${n === 1 ? 'mailtje' : 'mailtjes'} naar`,
+
+  mdDropFailedTitle: 'Er is niks bewaard, dus er is ook niks om te kopiëren.',
+  mdExistingOne: 'Dit mailtje staat al in een postbus die je kunt kiezen.',
+  mdExistingSome: 'Een deel staat al in een postbus die je kunt kiezen.',
+  mdExistingAlready: 'staat er al',
+  mdExistingUnchecked: (list) => `Niet nagekeken: ${list}`,
+  mdDupIntroNew: (n) =>
+    `Een deel staat er al. “Alleen de nieuwe kopiëren” slaat die over en zet ${
+      n === 1 ? 'dat ene nieuwe mailtje' : `die ${n} nieuwe mailtjes`
+    } erbij. “Alles kopiëren” maakt van wat er al staat een tweede.`,
+  mdDupIntroAll: 'Alles wat je sleepte staat er al. Kopiëren maakt van elk een tweede.',
+  mdDupCount: (n) => (n === 1 ? 'staat er al' : `${n} mailtjes staan er al`),
+  mdAndMore: (n) => `en nog ${n}…`,
+  mdPausedTitle: 'Even gepauzeerd',
+  mdPausedNone: 'Er is nog niks gekopieerd.',
+  mdPausedSoFar: (n) =>
+    n === 1 ? 'Er staat al 1 mailtje in:' : `Er staan al ${n} mailtjes in:`,
+  mdMessages: (n) => `${n} ${n === 1 ? 'mailtje' : 'mailtjes'}`,
+  mdResume: 'Ga verder',
+  mdStopKeep: 'Stoppen, laten staan wat er staat',
+  mdStopTrash: 'Stoppen en in de prullenbak doen',
+  mdStopTrashBatch: (batch) => `Stoppen en alleen stapel ${batch} in de prullenbak`,
+  mdStopTrashJob: (n) => `Stoppen en alle ${n} mailtjes in de prullenbak`,
+  mdTrashNote: 'Weg is niet weg: Gmail bewaart het nog 30 dagen in de prullenbak.',
+  mdRollbackSlow: (n) =>
+    `Alles terugdraaien duurt even: ${n} mailtjes weghalen kost een paar minuten.`,
+  mdInterruptedTitle: 'Vorige keer gestopt',
+  mdOrphanNone: 'Er was toen nog niks gekopieerd.',
+  mdOrphanSoFar: (n) =>
+    n === 1 ? 'Er stond al 1 mailtje in:' : `Er stonden al ${n} mailtjes in:`,
+  mdKeep: 'Laten staan',
+  mdMoveToTrash: 'In de prullenbak doen',
+  mdTrashNoteBackground:
+    'Weg is niet weg: Gmail bewaart het nog 30 dagen in de prullenbak. De app maakt dit zelf af — je kunt gewoon verder.',
+  mdJobInterrupted: (label, done, total, batch, batches) =>
+    `Van label “${label}” zijn ${done} van ${total} mailtjes gekopieerd, tot stapel ${batch} van ${batches}.`,
+  mdJobDuplicateWarning: (batch) =>
+    `Deze klus kopieert ook mailtjes die er al staan, zo heb je het toen gekozen. Verdergaan betekent dat stapel ${batch} deels dubbel komt te staan.`,
+  mdJobContinue: (batch) => `Verder met stapel ${batch}`,
+  mdJobKeep: 'Laten staan en klaar',
+  mdJobTrash: (n) => `Alle ${n} mailtjes in de prullenbak`,
+  mdStoppedIncomplete: 'Gestopt, maar niet klaar',
+  mdRollbackFailed: 'Terugdraaien lukte niet',
+  mdStoppedKeptSentence: (n) =>
+    `Gestopt. ${n === 1 ? '1 mailtje blijft' : `${n} mailtjes blijven`} staan.`,
+  mdRollbackDone: 'Teruggedraaid. Alles wat gekopieerd was zit weer in de prullenbak.',
+  mdRollbackPartial: 'Niet alles kon terug.',
+  mdRefusedPermission: 'mag niet weggehaald worden, staat er nog',
+  mdRefusedAuth: 'kon niet open, staat er nog',
+  mdSweepPending: (n) =>
+    n === 1
+      ? 'Opruimen in 1 postbus is nog niet klaar.'
+      : `Opruimen in ${n} postbussen is nog niet klaar.`,
+  mdSweepResumes: 'De app maakt dit af zodra hij weer opstart — je hoeft niks te doen.',
+  mdWorking: 'Bezig…',
+  mdBatchesCopied: (done, total) => `${done} van ${total} stapels gedaan`,
+  mdAccountFailed: (copied, total, error) => `${copied} van ${total} gekopieerd — ${error}`,
+  mdAccountCopied: (n) => `${n} ${n === 1 ? 'mailtje' : 'mailtjes'} gekopieerd`,
+  mdAccountSkipped: (n) => `, ${n} stond er al`,
 };
 
 export const STRINGS_NL: UiStrings = {
@@ -980,10 +1612,33 @@ export const STRINGS_NL: UiStrings = {
   navUpdates: 'Updates',
   navVerificationCodes: 'Verificatiecodes',
   navAdvanced: 'Geavanceerd',
+  navLabelCleanup: 'Label leegmaken',
+  navFeedback: 'Feedback',
   navWhatsNew: 'Wat is er nieuw',
   navAbout: 'Over Gmail Desktop',
+  labelCleanupIntro:
+    'Verplaatst alle berichten onder een label naar de prullenbak. Het label zelf blijft bestaan.',
+  labelCleanupMailbox: 'Postvak',
+  labelCleanupLabel: 'Label',
+  labelCleanupCount: 'Tel wat erin zit',
+  labelCleanupCounting: 'Aan het tellen…',
+  labelCleanupNothing: 'Er staat niets onder dit label.',
+  labelCleanupCapped: 'Gestopt met tellen bij 50.000; er zijn er meer.',
+  labelCleanupTrashNote: 'De prullenbak is niet definitief: Gmail bewaart het daar nog 30 dagen.',
+  labelCleanupPerLabel: (count) => `${count} bericht(en)`,
+  labelCleanupTrashButton: (count) => `Verplaats ${count} berichten naar de prullenbak`,
+  labelCleanupMoved: (n) => `${n} bericht(en) naar de prullenbak.`,
+  labelCleanupPartial: (moved, failed, error) => `${moved} verplaatst, ${failed} niet: ${error}`,
+  feedbackIntro:
+    'Vertel wat er misging of wat je mist. Verzenden opent een mail vanuit je eigen postbus, dus je ziet precies wat er weggaat voordat je hem verstuurt.',
+  feedbackPlaceholder: 'Wat gebeurde er, en wat had je verwacht?',
+  feedbackIncludeDiagnostics: 'Versie, systeem en logboeken meesturen',
+  feedbackIncludeDiagnosticsDescription:
+    'Zet de versie, je besturingssysteem, het aantal gekoppelde postbussen en de laatste regels van beide logboeken onder je bericht. Wachtwoorden, tokens en de inhoud van je mail blijven eruit, en de rest staat in de mail zelf, dus je kunt het nalezen voor je verstuurt.',
+  feedbackSend: 'Feedbackmail opstellen',
+  feedbackNoMailbox: 'Koppel eerst een postbus: de mail wordt vanuit je eigen Gmail verstuurd.',
+  feedbackTooltip: 'Feedback geven',
   settingsAttention: 'vraagt je aandacht',
-  sectionEmpty: 'Hier is nog niets in te stellen.',
 
   defaultMailClient: 'Standaard mailprogramma',
   defaultMailClientDescription:
@@ -1101,7 +1756,7 @@ export const STRINGS_NL: UiStrings = {
     'Geef het venster van een Google-app tijdens het laden de kleur van het account, zodat je ziet van wie het is.',
   gaPinned: 'Vastgezette apps',
   gaPinnedDescription:
-    'Kies de apps die je het meest gebruikt. De balk bovenaan toont ze nog niet — dat is de volgende stap; voorlopig staan ze ook in het rechtsklikmenu van een accounttabblad.',
+    'Kies de apps die je het meest gebruikt. Elke app krijgt een knop in de balk bovenaan en blijft ook in het rechtsklikmenu van een accounttabblad staan.',
   gaPinnedHeading: 'Vastgezet',
   gaAvailableHeading: 'Beschikbaar',
   gaPin: (name) => `${name} vastzetten`,
@@ -1214,8 +1869,10 @@ export const STRINGS_NL: UiStrings = {
   updChecking: 'Controleren op updates…',
   updAvailable: (version) => `Update beschikbaar: v${version}`,
   updLatest: 'Je gebruikt de nieuwste versie.',
+  updNoRelease: (version) =>
+    `Er is nog geen definitieve versie uitgebracht, dus je blijft op${version ? ` ${version}` : ' je huidige versie'}.`,
   updDownloading: (percent) => `Update downloaden… ${percent}%`,
-  updDownloaded: 'Update gedownload — de app start opnieuw om te installeren…',
+  updDownloaded: 'Update klaar om te installeren — start opnieuw om toe te passen.',
   updError: (message) => `Controleren op updates is mislukt: ${message}`,
   updDev: 'Updates zijn alleen beschikbaar in de geïnstalleerde app.',
 
@@ -1223,6 +1880,12 @@ export const STRINGS_NL: UiStrings = {
   showOlder: 'Oudere versies weergeven',
   hideOlder: 'Oudere versies verbergen',
   changelogEmpty: 'Geen releasenotes beschikbaar.',
+  releaseNotesTitle: (version) => `Versie ${version} is beschikbaar`,
+  releaseNotesSubtitle: 'Wat er in deze versie zit',
+  releaseNotesEmpty: 'Deze versie heeft geen releasenotes.',
+  releaseNotesDownload: 'Downloaden',
+  releaseNotesLater: 'Niet nu',
+  releaseNotesDownloading: 'Bezig met downloaden…',
   changelogCategory: (heading) => {
     const key = categoryKey(heading);
     return key ? CATEGORY_NL[key] : '';
@@ -1236,10 +1899,16 @@ export const STRINGS_NL: UiStrings = {
   },
   removeAccount: 'Account verwijderen',
   removeConfirmBefore:
-    'Dit account uit de app verwijderen? Het blijft ingelogd bij Google — voeg het later opnieuw toe met de ',
+    'Dit postvak uit de app verwijderen? Het blijft ingelogd bij Google, en de app onthoudt dat je het niet wilt zien — terugzetten kan hieronder bij Verborgen postvakken, of met de ',
   removeConfirmAfter: '-knop.',
   remove: 'Verwijderen',
   cancel: 'Annuleren',
+
+  hiddenTitle: 'Verborgen postvakken',
+  hiddenDescription:
+    'Postvakken die je hebt verwijderd. Ze blijven weg tot je er een terugzet, ook na een update.',
+  hiddenRestore: 'Terugzetten',
+  hiddenReturnsOnRestart: 'verschijnt bij de volgende start',
   redetectLabel: 'Accounts zoeken',
   redetect: 'Accounts opnieuw zoeken',
   redetectDescription: 'Zoekt opnieuw in de Google-accounts waarop je bent ingelogd.',
@@ -1247,10 +1916,9 @@ export const STRINGS_NL: UiStrings = {
   oauthLinked: 'Verbonden',
   oauthUnlinked: 'Nog niet verbonden',
   oauthExpired: 'Verbinding verlopen',
-  oauthPushOnly: 'Meldingen staan stil',
+  oauthIncomplete: 'Nieuwe toestemming nodig',
   oauthConnect: 'Verbinden',
   oauthReconnect: 'Opnieuw verbinden',
-  oauthReallow: 'Opnieuw toestaan',
   oauthBusy: 'Bezig…',
   oauthFailed: 'Mislukt',
   oauthNotSetUpTitle: 'Op deze computer is de Google-koppeling niet ingesteld',
@@ -1267,7 +1935,10 @@ export const STRINGS_NL: UiStrings = {
   addAccountLabel: 'Account toevoegen',
   addDelegatedLabel: 'Gedelegeerd postvak toevoegen',
   delegatedTooltipSuffix: '(gedelegeerd — het postvak van iemand anders)',
+  moreAccounts: (n) => (n === 1 ? 'Nog 1 postvak' : `Nog ${n} postvakken`),
   delegatedNeedsClick: 'nog één keer openen in Gmail',
+  tabNewWindow: 'In een nieuw venster openen',
+  tabToMainWindow: 'Terug naar het hoofdvenster',
   settingsTooltip: 'Instellingen',
 
   composePickerTo: 'Nieuw bericht aan',
@@ -1275,6 +1946,188 @@ export const STRINGS_NL: UiStrings = {
   composePickerFrom: 'Verstuur vanaf',
   composePickerEsc: 'Esc sluit',
   composePickerCancel: 'Annuleren',
+
+  delegatedPickerTitle: 'Gedelegeerd postvak toevoegen',
+  delegatedPickerSubtitle: 'Vink aan welke postvakken in de balk moeten komen.',
+  delegatedPickerScanning: 'Bezig met navragen bij Google…',
+  delegatedPickerEmpty: 'Er is niets toe te voegen: elk postvak waar je gemachtigd voor bent staat er al.',
+  delegatedPickerNoAnswer: 'Navragen lukte niet. Controleer je verbinding en probeer het opnieuw.',
+  delegatedPickerAdd: 'Toevoegen',
+  delegatedPickerCancel: 'Annuleren',
+  delegatedPickerEsc: 'Esc sluit',
+
+  tourGroup: 'Rondleiding',
+  tourReplay: 'Rondleiding opnieuw tonen',
+  tourReplayDescription: 'Loop nog een keer langs de functies van de app.',
+  tourReplayButton: 'Start rondleiding',
+  tourBack: 'Terug',
+  tourNext: 'Volgende',
+  tourDone: 'Gereed',
+  tourSkip: 'Overslaan',
+  tourWelcomeTitle: 'Welkom bij Gmail Desktop',
+  tourWelcomeBody: 'Een rondleiding van een minuut langs wat deze app aan Gmail toevoegt.',
+  tourTabsTitle: 'Eén tab per postbus',
+  tourTabsBody:
+    'Elk account en elke gedeelde postbus krijgt een tab. Klik op een andere postbus om te wisselen.',
+  tourTabMenuTitle: 'Meer achter elke tab',
+  tourTabMenuBody:
+    'Klik met de rechtermuisknop op een tab om te zien wat die verder opent: de Agenda, en bij uw eigen accounts ook Drive en Contacten. Versleep een tab om de strook te herschikken.',
+  tourAddTitle: 'Een postbus toevoegen',
+  tourAddBody:
+    'De plus koppelt een volgend Google-account, of een postbus die iemand met u heeft gedeeld.',
+  tourPinnedTitle: 'Vastgezette Google-apps',
+  tourPinnedBody:
+    'Deze openen in de postbus die u nu bekijkt. Welke hier staan, kiest u bij Instellingen, Google-apps.',
+  tourMailDropTitle: 'Post op het venster slepen',
+  tourMailDropBody:
+    'Het is vanaf hier mogelijk om de gesleepte e-mails te kopiëren naar verschillende labels.',
+  tourFeedbackTitle: 'Een probleem melden',
+  tourFeedbackBody: 'De tekstballon schrijft een bericht aan de ontwikkelaar.',
+  tourGearTitle: 'Al het overige',
+  tourGearBody:
+    'Meldingen, downloads, updates en de rest zitten achter het tandwiel. Deze rondleiding start u opnieuw bij Instellingen, Algemeen.',
+  tourDemoTabName: 'Voorbeeldpostbus',
+  tourDemoLabels: 'Klanten,Facturen,Projecten,Archief 2026,Nieuwsbrieven,Te doen',
+  tourStripTitle: 'Mail uit Gmail slepen',
+  tourStripBody:
+    'Sleep in Gmail een gesprek en deze balk verschijnt bovenaan. Laat de mail daar los en de mail is te kopiëren naar de mailboxen waar u toegang tot hebt.',
+
+  mdCancel: 'Annuleren',
+  mdCopy: 'Kopieer',
+  mdCopyAll: 'Alles kopiëren',
+  mdCopyNew: (n) =>
+    n === 1 ? 'Alleen de nieuwe kopiëren' : `Alleen de ${n} nieuwe kopiëren`,
+  mdLoadingLabels: 'Labels ophalen…',
+  mdNoOtherAccount: 'Geen ander gekoppeld account.',
+  mdDismissNotice: 'Melding sluiten',
+  mdSearchPlaceholder: 'Zoek een label…',
+  mdSearchAria: 'Zoek een label',
+  mdSearchClear: 'Zoekopdracht wissen',
+  mdTopLevel: 'Bovenin',
+  mdMailboxRail: 'Postvakken',
+  mdKeepStructure: 'Structuur overnemen',
+  mdNoLabels: 'Geen labels',
+  mdNoLabelFound: 'Geen label gevonden',
+  mdRecent: 'Recent',
+  mdPlaceUnder: 'Plaats onder',
+  mdAlreadyInLabel: (n) =>
+    n === 1 ? 'Bericht bestaat al in label' : `${n} berichten bestaan al in label`,
+  mdTreeLabelCount: (n) => (n === 1 ? '1 label' : `${n} labels`),
+  mdTreeStructureOnly: 'alleen structuur',
+  mdTreeMergeInto: (name) => `Samenvoegen met "${name}"`,
+  mdTreeMergeHint: 'de labels die er al zijn worden hergebruikt',
+  mdTreeNewTop: (name) => `Nieuw bovenin: "${name}"`,
+  mdTreeNewTopHint: 'de structuur wordt hier aangemaakt',
+  mdKindInbox: 'Postvak',
+  mdKindStarred: 'Met ster',
+  mdKindImportant: 'Belangrijk',
+  mdKindUser: 'Eigen label',
+
+  mdDragFailed: 'Slepen mislukt',
+  mdCopyTitle: (n) => (n === 1 ? 'Kopieer 1 conversatie' : `Kopieer ${n} conversaties`),
+  mdCopyingTo: (names) => `Wordt gekopieerd naar ${names}`,
+  mdJobProgress: (batch, batches, done, total) =>
+    `Batch ${batch} van ${batches} — ${done} van ${total} gekopieerd`,
+  mdListAnd: 'en',
+  mdStopFailed: (why) => `Stoppen is niet gelukt — ${why}`,
+  mdControlNoAnswer: 'de kopieeractie reageerde niet',
+  mdJobDone: (done, total) => `Klus afgerond — ${done} van ${total} conversaties gekopieerd`,
+  mdJobStoppedKept: (done, total) =>
+    `Klus gestopt — ${done} van ${total} conversaties blijven gekopieerd`,
+  mdJobRolledBack: 'Klus gestopt en ongedaan gemaakt',
+  mdJobRolledBackPartial: 'Klus gestopt, ongedaan maken niet overal gelukt',
+  mdJobStuck: (batch, batches, error) =>
+    `Klus gestopt op batch ${batch} van ${batches}${error ? ` — ${error}` : ''}`,
+  mdJobStuckDefault: 'De klus is gestopt op een batch die mislukte',
+  mdJobUnknownOutcome: (outcome) => `De klus eindigde op een onbekende uitkomst (${outcome})`,
+
+  mdBatchRunning: (batch, batches, done, total) =>
+    `Batch ${batch} van ${batches} loopt — ${done} van ${total} gekopieerd`,
+  mdPaused: (n) => `Gepauzeerd — ${n} ${n === 1 ? 'bericht' : 'berichten'} al gekopieerd`,
+  mdPhaseCheck: 'Controleren',
+  mdPhaseCopy: 'Kopiëren',
+  mdPhaseRollback: 'Ongedaan maken',
+  mdPhaseProgress: (doing, done, total) => `${doing}: ${done} van ${total}`,
+  mdPhaseWorking: (doing) => `${doing}…`,
+  mdBatchPrefix: (batch, batches) => `Batch ${batch} van ${batches} — `,
+  mdJobTotalSuffix: (done, total) => ` (${done} van ${total} in totaal)`,
+  mdStoppedKept: (n) =>
+    `Gestopt, ${n} ${n === 1 ? 'bericht blijft' : 'berichten blijven'} gekopieerd`,
+  mdStoppedUndone: 'Gestopt en ongedaan gemaakt',
+  mdStoppedUndonePartial: 'Gestopt, ongedaan maken niet overal gelukt',
+  mdDupAlready: (n) =>
+    n === 1 ? 'Deze mail staat er al' : `${n} van deze berichten staan er al`,
+  mdDupNewSuffix: (n) => `, ${n} ${n === 1 ? 'is' : 'zijn'} nieuw`,
+  mdCopiedCount: (n) => `${n} gekopieerd`,
+  mdSkippedSuffix: (n) => `, ${n} overgeslagen`,
+  mdNothingCopied: 'Niets gekopieerd',
+  mdWarningCount: (n) => (n === 1 ? '1 waarschuwing' : `${n} waarschuwingen`),
+  mdOrphanPending: 'Vorige keer afgebroken — nog een keuze nodig',
+  mdJobPending: (label) => `Vorige keer afgebroken — nog een keuze nodig over “${label}”`,
+  mdNothingSaved: 'Niets opgeslagen om te kopiëren',
+  mdChooseDestination: 'Kies waar de mail naartoe moet',
+  mdMessagesTo: (n) => `${n} ${n === 1 ? 'bericht' : 'berichten'} naar`,
+
+  mdDropFailedTitle: 'Er is niets opgeslagen, dus er is ook niets om te kopiëren.',
+  mdExistingOne: 'Deze mail staat al in een postvak dat je kunt kiezen.',
+  mdExistingSome: 'Een deel van deze mail staat al in een postvak dat je kunt kiezen.',
+  mdExistingAlready: 'staat er al',
+  mdExistingUnchecked: (list) => `Niet nagekeken op dubbelen: ${list}`,
+  mdDupIntroNew: (n) =>
+    `Een deel staat op de bestemming al. “Alleen de nieuwe kopiëren” slaat die over en zet ${
+      n === 1 ? 'het ene nieuwe bericht' : `de ${n} nieuwe berichten`
+    } erbij; “Alles kopiëren” maakt van de bestaande een tweede exemplaar.`,
+  mdDupIntroAll:
+    'Alles wat je sleepte staat op de bestemming al. Kopiëren maakt er van elk een tweede exemplaar bij.',
+  mdDupCount: (n) => (n === 1 ? 'staat er al' : `${n} berichten staan er al`),
+  mdAndMore: (n) => `en nog ${n}…`,
+  mdPausedTitle: 'Kopiëren gepauzeerd',
+  mdPausedNone: 'Er is nog niets gekopieerd.',
+  mdPausedSoFar: (n) =>
+    n === 1 ? 'Er staat al 1 bericht in:' : `Er staan al ${n} berichten in:`,
+  mdMessages: (n) => `${n} ${n === 1 ? 'bericht' : 'berichten'}`,
+  mdResume: 'Kopiëren voortzetten',
+  mdStopKeep: 'Stoppen, wat er al staat laten staan',
+  mdStopTrash: 'Stoppen en naar de prullenbak verplaatsen',
+  mdStopTrashBatch: (batch) => `Stoppen en alleen batch ${batch} naar de prullenbak`,
+  mdStopTrashJob: (n) => `Stoppen en alle ${n} gekopieerde berichten naar de prullenbak`,
+  mdTrashNote: 'Naar de prullenbak is niet definitief: Gmail bewaart het daar nog 30 dagen.',
+  mdRollbackSlow: (n) =>
+    `Alles terugdraaien duurt even: ${n} berichten uit de prullenbak halen is nog een paar minuten werk.`,
+  mdInterruptedTitle: 'Vorige keer afgebroken',
+  mdOrphanNone: 'Er is toen nog niets gekopieerd.',
+  mdOrphanSoFar: (n) =>
+    n === 1 ? 'Er stond al 1 bericht in:' : `Er stonden al ${n} berichten in:`,
+  mdKeep: 'Laten staan',
+  mdMoveToTrash: 'Naar de prullenbak verplaatsen',
+  mdTrashNoteBackground:
+    'Naar de prullenbak is niet definitief: Gmail bewaart het daar nog 30 dagen. Dit wordt op de achtergrond afgemaakt — je kunt intussen verder.',
+  mdJobInterrupted: (label, done, total, batch, batches) =>
+    `Van label “${label}” zijn ${done} van ${total} berichten gekopieerd, tot batch ${batch} van ${batches}.`,
+  mdJobDuplicateWarning: (batch) =>
+    `Deze klus kopieert ook berichten die er al staan, zoals je toen gekozen hebt. Verdergaan betekent dat batch ${batch} deels dubbel komt te staan.`,
+  mdJobContinue: (batch) => `Verdergaan met batch ${batch}`,
+  mdJobKeep: 'Laten staan, klus afsluiten',
+  mdJobTrash: (n) => `Alle ${n} berichten naar de prullenbak`,
+  mdStoppedIncomplete: 'Gestopt, maar niet afgerond',
+  mdRollbackFailed: 'Ongedaan maken niet gelukt',
+  mdStoppedKeptSentence: (n) =>
+    `Gestopt. ${n === 1 ? '1 bericht blijft' : `${n} berichten blijven`} gekopieerd.`,
+  mdRollbackDone: 'Ongedaan gemaakt. Alles wat al gekopieerd was staat weer in de prullenbak.',
+  mdRollbackPartial: 'Ongedaan maken is niet overal gelukt.',
+  mdRefusedPermission: 'geen rechten om te verwijderen, staat er nog',
+  mdRefusedAuth: 'kon niet worden geopend, staat er nog',
+  mdSweepPending: (n) =>
+    n === 1
+      ? 'Opruimen in 1 postvak nog niet klaar.'
+      : `Opruimen in ${n} postvakken nog niet klaar.`,
+  mdSweepResumes:
+    'Wordt automatisch afgemaakt zodra de app weer opstart — hier hoeft niets voor gedaan te worden.',
+  mdWorking: 'Bezig…',
+  mdBatchesCopied: (done, total) => `${done} van ${total} batches gekopieerd`,
+  mdAccountFailed: (copied, total, error) => `${copied} van ${total} gekopieerd — ${error}`,
+  mdAccountCopied: (n) => `${n} ${n === 1 ? 'bericht' : 'berichten'} gekopieerd`,
+  mdAccountSkipped: (n) => `, ${n} stond er al`,
 };
 
 

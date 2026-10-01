@@ -2,7 +2,7 @@
 // stays up until dismissed. Pure, so it is testable without Electron.
 //
 // The master switches are checked before the per-account flags; only the mail surface
-// honours a per-account toggle, and pushCovered means the API already notifies.
+// honours a per-account toggle.
 import type { NotificationPrefs, Prefs, QuietHours } from '../core/prefs-store';
 import { surfacesForRef, type Surface } from '../../renderer/lib/surfaces';
 import type { AccountRef } from '../../renderer/lib/account-ref';
@@ -29,8 +29,26 @@ export function inQuietHours(start: string, end: string, minutes: number): boole
   return minutes >= s || minutes < e;
 }
 
-// The master switches (sound, googleApps) are checked before the per-account flags, and
-// only the mail surface honours a per-account toggle.
+/**
+ * Whether the master switches say nothing may be raised at this moment
+ *
+ * Account-independent on purpose: do-not-disturb and quiet hours are about the moment and not
+ * about a mailbox, which is what lets a card with no account behind it -- a finished download
+ * -- be held by exactly the same answer as a mail card.
+ *
+ * @param prefs
+ * @param now
+ * @returns true while nothing may be raised
+ */
+export function doNotDisturb(prefs: Prefs, now: Date): boolean {
+  const { dnd, dndUntil, quietHours } = prefs.notifications;
+  if (dnd) return true;
+  if (dndUntil && now.getTime() < dndUntil) return true;
+  return (
+    quietHours.enabled &&
+    inQuietHours(quietHours.start, quietHours.end, now.getHours() * 60 + now.getMinutes())
+  );
+}
 
 /**
  * Whether a notification may show at all
@@ -39,7 +57,6 @@ export function inQuietHours(start: string, end: string, minutes: number): boole
  * @param email
  * @param now
  * @param surface
- * @param pushCovered the API already notifies, so the webview must stay quiet
  * @returns true when the notification may be raised
  */
 export function notificationsAllowed(
@@ -47,23 +64,13 @@ export function notificationsAllowed(
   email: string,
   now: Date,
   surface: Surface = 'mail',
-  pushCovered = false,
 ): boolean {
-  const { dnd, dndUntil, quietHours } = prefs.notifications;
-  if (dnd) return false;
-  if (dndUntil && now.getTime() < dndUntil) return false;
-  if (
-    quietHours.enabled &&
-    inQuietHours(quietHours.start, quietHours.end, now.getHours() * 60 + now.getMinutes())
-  ) {
-    return false;
-  }
+  if (doNotDisturb(prefs, now)) return false;
   const account = prefs.accounts[email];
   if (surface === 'calendar') {
     return prefs.notifications.googleApps !== false && account?.calendarNotify === true;
   }
   if (surface !== 'mail') return false;
-  if (pushCovered) return false;
   return account?.notify !== false;
 }
 
@@ -80,8 +87,8 @@ export function sessionPermissionAllowed(permission: string): boolean {
 /**
  * Folds the panel's two fields onto the stored notification preferences
  *
- * ...current comes first, or the panel wipes the sound and content fields it knows
- * nothing about. A running dndUntil clears only when dnd itself is flipped.
+ * The stored preferences come first, or the panel wipes the sound and content fields it
+ * knows nothing about. A running dndUntil clears only when dnd itself is flipped.
  *
  * @param current
  * @param panel

@@ -5,13 +5,13 @@
 // Ordering that breaks if moved: disableHardwareAcceleration and the WSL rendering switch
 // must run before 'ready', which is what the throwaway PrefsStore is for; 'session-created'
 // and the context menu must be registered before createWindow; the nativeTheme listener
-// belongs here, since createWindow runs again and would leak one each time.
+// belongs here because it also refreshes the toast stack, which createWindow builds.
 //
 // The hooks. Four modules take a dependency pointing back up the stack, and each is wired
 // here rather than imported, because importing it would close a loop. All four are set
 // before createWindow, so nothing fires against the no-op defaults they start with.
 
-import { app, BrowserWindow, protocol, net, session, Menu, screen, nativeTheme } from 'electron';
+import { app, protocol, net, session, Menu, screen, nativeTheme } from 'electron';
 import { join } from 'node:path';
 import { release } from 'node:os';
 import { pathToFileURL } from 'node:url';
@@ -19,14 +19,14 @@ import { RENDERER_DIST } from './core/paths';
 import { PrefsStore } from './core/prefs-store';
 import { registerIpc } from './core/ipc-handlers';
 import { setOnProfilesPushed } from './core/broadcast';
+import { pickVariant } from './core/locale';
 import {
   currentLocale,
   mainWindow,
   prefs,
   messageIndex,
-  pushManager,
   setIsQuitting,
-  setPendingMailto,
+  pendingMailtos,
   toasts,
 } from './core/runtime';
 import { createWindow, openSettingsPanel } from './windows/main-window';
@@ -49,12 +49,13 @@ import {
 import { applyTraySetting, refreshTray, setTrayHooks } from './menus/tray-setup';
 import { applyAutoUpdateCheck, setUpdateHooks, setupUpdater } from './updates/update-controller';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menus/context-menu';
-import { setExternalOpener } from './system/external-links';
+import { setExternalOpener, setGoogleAppsRouting } from './system/external-links';
 import { extractMailtoFromArgv } from './mail/mailto';
 import { startMailDropCleanup } from './mail/mail-drop-cleanup';
 import { mailDropFolder, resumeOrphanedCopyRuns } from './mail/mail-drop-controller';
 import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
+import { flushCrashReports, installCrashReporting } from './feedback/crash-controller';
 
 
 //===========================
@@ -74,6 +75,12 @@ try {
   if (early.advanced.hardwareAcceleration === false) app.disableHardwareAcceleration();
 } catch {
 }
+
+// Before anything else that can fail: a crash while the switches above are being thrown, or
+// while the window is being built, is exactly the crash a user cannot report themselves --
+// there is no window to report it from. The queue this fills is sent once there is a mailbox
+// to send from, which is after createWindow.
+installCrashReporting();
 
 
 //===========================
@@ -121,18 +128,18 @@ if (!gotTheLock) {
 function wireModules(): void {
   setOnProfilesPushed(() => scheduleOAuthHealthCheck());
   setUpdateHooks({
-    openSettingsPanel: () => openSettingsPanel(),
+    openSettingsPanel: (section) => openSettingsPanel(section),
     onStatusChanged: () => refreshTray(),
   });
   setNotifyGatingHooks({ onDndCleared: () => refreshTray() });
   setToastActivationHooks({
-    reopenWindow: () => createWindow(),
-    openSettingsPanel: () => openSettingsPanel(),
+    openSettingsPanel: (section) => openSettingsPanel(section),
   });
   setTrayHooks({
     refreshNotifyAllowed: () => refreshNotifyAllowed(),
     activateAccount: (key) => activateNotification(key, 'mail'),
     setAutoStart: (v) => setAutoStart(v),
+    openFeedback: () => openSettingsPanel('feedback'),
   });
 }
 
@@ -150,14 +157,18 @@ app.whenReady().then(() => {
   if (!gotTheLock) return;
   Menu.setApplicationMenu(null);
   app.on('web-contents-created', (_e, wc) => {
-    attachContextMenu(wc, () => {
-      if (prefs?.getAll().reneMode) return LABELS_RENE;
-      return currentLocale() === 'nl' ? LABELS_NL : LABELS_NORMAL;
-    });
+    attachContextMenu(wc, () =>
+      pickVariant(currentLocale(), prefs?.getAll().reneMode === true, {
+        en: LABELS_NORMAL,
+        nl: LABELS_NL,
+        rene: LABELS_RENE,
+      }),
+    );
   });
   app.on('session-created', (s) => attachSessionHandlers(s));
   attachSessionHandlers(session.defaultSession);
   setExternalOpener(openExternalGuarded);
+  setGoogleAppsRouting(() => prefs?.getAll().googleApps ?? null);
   wireModules();
   registerAppProtocol();
   setupNotifications();
@@ -172,7 +183,7 @@ app.whenReady().then(() => {
 
   void ensureMailClientRegistered();
   const initialMailto = extractMailtoFromArgv(process.argv);
-  if (initialMailto) setPendingMailto(initialMailto);
+  if (initialMailto) pendingMailtos.push(initialMailto);
   startNotifyTimer();
   // After createWindow, which is what builds the prefs store the folder is read from.
   startMailDropCleanup(() => mailDropFolder());
@@ -181,22 +192,38 @@ app.whenReady().then(() => {
   // is left for the mail-drop window to ask about the next time it opens. If the oauth store
   // is not ready yet this early, its mailboxes simply fail to open and are picked up again on
   // the next start -- this never blocks startup on it.
-  void resumeOrphanedCopyRuns().catch((e) => notifyLog(`[maildrop] hervatten mislukt: ${e}`));
+  void resumeOrphanedCopyRuns().catch((e) => notifyLog(`[maildrop] resuming failed: ${e}`));
   app.setLoginItemSettings({ openAtLogin: prefs!.getAll().autoStart });
   applyTraySetting();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
   setupUpdater();
   applyAutoUpdateCheck();
+  // Whatever crashed on the last run, or before the window existed on this one. Never awaited
+  // and never fatal: it does nothing when the queue is empty, and leaves the queue alone when
+  // no mailbox can send yet.
+  void flushCrashReports();
 });
 
 app.on('window-all-closed', () => {
 });
-app.on('before-quit', () => {
+
+// Set the moment the flush starts, so a second quit while it is in flight does not start a
+// second one or cancel the exit that follows it.
+let quitFlushStarted = false;
+
+app.on('before-quit', (event) => {
+  if (quitFlushStarted) return;
+  quitFlushStarted = true;
+  event.preventDefault();
   setIsQuitting(true);
-  pushManager?.stop();
-  // The index writes on a short delay to stay off the main thread, so quitting straight after a
-  // drag would otherwise throw away what that drag just learned.
-  void messageIndex?.flush(Date.now());
+  void (async () => {
+    // Awaited so the write a drag just triggered lands on disk before the process is gone --
+    // Electron otherwise tears the app down while the writes are still in flight. A throwing
+    // flush must not block quitting.
+    try {
+      await messageIndex?.flush(Date.now());
+    } catch (e) {
+      console.warn(`[index] flush failed while quitting: ${e}`);
+    }
+    app.exit();
+  })();
 });

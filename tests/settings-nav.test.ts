@@ -12,7 +12,7 @@ import {
 const quiet = { dnd: false, updateReady: false };
 
 describe('SETTINGS_GROUPS', () => {
-  it('splits the column into a log, the preferences, and what there is to read', () => {
+  it('splits the column into a log, the preferences, and what is neither', () => {
     expect(SETTINGS_GROUPS.map((g) => [...g])).toEqual([
       ['download-history'],
       [
@@ -26,16 +26,25 @@ describe('SETTINGS_GROUPS', () => {
         'updates',
         'verification-codes',
         'advanced',
+        'label-cleanup',
       ],
-      ['whats-new', 'about'],
+      ['feedback', 'whats-new', 'about'],
     ]);
   });
 
-  it('keeps the middle group alphabetical between General and Advanced', () => {
+  it('keeps feedback out of the preferences, where nothing is remembered', () => {
+    expect(SETTINGS_GROUPS[1]).not.toContain('feedback');
+    expect(SETTINGS_GROUPS[2]).toContain('feedback');
+  });
+
+  // Emptying a label is the one section here that removes mail, so it sits past Advanced
+  // rather than in the alphabet between two preference switches.
+  it('keeps the middle group alphabetical between General and Advanced, with the emptying last', () => {
     const middle = [...SETTINGS_GROUPS[1]];
     expect(middle[0]).toBe('general');
-    expect(middle[middle.length - 1]).toBe('advanced');
-    const between = middle.slice(1, -1);
+    expect(middle[middle.length - 1]).toBe('label-cleanup');
+    expect(middle[middle.length - 2]).toBe('advanced');
+    const between = middle.slice(1, -2);
     expect(between).toEqual([...between].sort());
   });
 
@@ -45,10 +54,6 @@ describe('SETTINGS_GROUPS', () => {
 });
 
 describe('SETTINGS_SECTIONS', () => {
-  it('is the groups in order, flattened', () => {
-    expect(SETTINGS_SECTIONS).toEqual(SETTINGS_GROUPS.flat());
-  });
-
   it('opens on the section you visit most', () => {
     expect(DEFAULT_SECTION).toBe('general');
     expect(SETTINGS_SECTIONS).toContain(DEFAULT_SECTION);

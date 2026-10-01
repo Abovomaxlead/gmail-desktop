@@ -3,6 +3,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   MAX_ATTEMPTS,
+  MAX_QUOTA_WAIT_MS,
+  QUOTA_ATTEMPTS,
+  isRateLimit,
   retryAfterMs,
   retryWaitMs,
   withRetry,
@@ -229,5 +232,88 @@ describe('withRetry', () => {
       async () => {},
     );
     expect(seen).toEqual([1, 2, 3]);
+  });
+});
+
+describe('isRateLimit', () => {
+  it('reads a 429 as one whatever sits beside it', () => {
+    expect(isRateLimit(429, null)).toBe(true);
+    expect(isRateLimit(429, 'somethingElse')).toBe(true);
+  });
+
+  it('reads a 403 as one when it names a rate limit', () => {
+    expect(isRateLimit(403, 'rateLimitExceeded')).toBe(true);
+    expect(isRateLimit(403, 'userRateLimitExceeded')).toBe(true);
+    expect(isRateLimit(403, 'quotaExceeded')).toBe(true);
+    expect(isRateLimit(403, 'RESOURCE_EXHAUSTED')).toBe(true);
+  });
+
+  // The distinction the whole predicate exists for: a mailbox refusing us must fail at once,
+  // not sit out six quota windows first.
+  it('leaves a 403 that is a mailbox refusing us alone', () => {
+    expect(isRateLimit(403, 'forbidden')).toBe(false);
+    expect(isRateLimit(403, 'insufficientPermissions')).toBe(false);
+    expect(isRateLimit(403, null)).toBe(false);
+  });
+
+  // Admitting a 400 would let a malformed insert be repeated for six minutes before failing
+  // anyway, which is the one outcome worse than failing immediately.
+  it('never reads a 400 as one, however it is worded', () => {
+    expect(isRateLimit(400, 'quotaExceeded')).toBe(false);
+  });
+
+  it('says no when nothing came back at all', () => {
+    expect(isRateLimit(null, null)).toBe(false);
+    expect(isRateLimit(null, 'quotaExceeded')).toBe(false);
+  });
+});
+
+describe('retryWaitMs, rate limited', () => {
+  const limited = (over: Partial<RetryAttempt> = {}): RetryAttempt =>
+    attempt({ rateLimited: true, ...over });
+
+  // A whole minute rather than the remainder of one: the app cannot see where Gmail's window
+  // boundary falls, and the full width is the only wait guaranteed to clear it.
+  it('waits out a whole window rather than backing off', () => {
+    expect(retryWaitMs(limited(), 0, mid)).toBe(65_000);
+  });
+
+  it('gives an insert the same patience as a GET', () => {
+    expect(retryWaitMs(limited({ method: 'POST' }), 0, mid)).toBe(65_000);
+  });
+
+  // The behaviour change that fixes the live failure if it arrived as a 403: before this,
+  // zero retries.
+  it('repeats an insert a 403 rate limit refused, where it used to give up', () => {
+    expect(retryWaitMs(limited({ method: 'POST', status: 403 }), 0, mid)).toBe(65_000);
+    expect(retryWaitMs(attempt({ method: 'POST', status: 403 }), 0, mid)).toBeNull();
+  });
+
+  it('takes a longer Retry-After but never past the cap', () => {
+    expect(retryWaitMs(limited({ retryAfter: '70' }), 0, mid)).toBe(70_000);
+    expect(retryWaitMs(limited({ retryAfter: '600' }), 0, mid)).toBe(MAX_QUOTA_WAIT_MS);
+  });
+
+  it('ignores a Retry-After shorter than the window is wide', () => {
+    expect(retryWaitMs(limited({ retryAfter: '2' }), 0, mid)).toBe(65_000);
+  });
+
+  it('gets six attempts where an ordinary refusal gets three', () => {
+    expect(retryWaitMs(limited({ attempt: MAX_ATTEMPTS }), 0, mid)).toBe(65_000);
+    expect(retryWaitMs(limited({ attempt: QUOTA_ATTEMPTS }), 0, mid)).toBeNull();
+    expect(QUOTA_ATTEMPTS).toBeGreaterThan(MAX_ATTEMPTS);
+  });
+
+  // The user asked this run to stop. Sitting out a quota window on its behalf is going behind
+  // their back, rate limit or not.
+  it('is still refused outright when the run was cancelled', () => {
+    expect(retryWaitMs(limited({ cancelled: true }), 0, mid)).toBeNull();
+    expect(retryWaitMs(limited({ method: 'POST', cancelled: true }), 0, mid)).toBeNull();
+  });
+
+  // An ordinary 429 keeps its own backoff, so nothing that is not flagged changes shape.
+  it('leaves an unflagged refusal on the ordinary backoff', () => {
+    expect(retryWaitMs(attempt(), 0, mid)).toBe(500);
+    expect(retryWaitMs(attempt({ attempt: 2 }), 0, mid)).toBe(1500);
   });
 });

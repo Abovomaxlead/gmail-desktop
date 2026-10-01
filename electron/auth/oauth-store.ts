@@ -123,7 +123,7 @@ export class OAuthStore {
       renameSync(this.filePath, kept);
       console.warn(`[oauth] could not open the token file; kept it as ${kept}`);
     } catch {
-      // Nothing to move, or the move is refused. Either way the write below is what matters.
+      // Nothing to move, or the move is refused; either way the write below is what matters
     }
   }
 

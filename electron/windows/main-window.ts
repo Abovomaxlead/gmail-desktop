@@ -1,10 +1,9 @@
 // Building the main window and everything hung off it: the view manager, the toast stack,
 // and the handlers that keep them in step with the window's life.
 //
-// This runs more than once -- a notification click after the window closed rebuilds it, and
-// so does 'activate' on macOS. Everything it creates is published to the runtime rather than
-// held here, and every callback below reads the live binding, so a second window replaces
-// what they see. The locals are for this pass only.
+// createWindow runs exactly once per process: the main window is never destroyed while the
+// app lives, so nothing here rebuilds it. Everything it creates is published to the runtime
+// rather than held here, and every callback below reads the live binding.
 //
 // One ordering matters: the toast controller is built after the window it belongs to and
 // torn down with it.
@@ -17,9 +16,9 @@ import { IPC } from '../core/ipc';
 import { DEV_URL, ICON_PATH, PRELOAD_PATH, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import { RENE_ZOOM_FACTOR, RENE_ZOOM_LEVEL } from '../core/rene';
 import { PrefsStore } from '../core/prefs-store';
+import { viewCrashText, viewCrashUrl } from './view-crash-page';
 import {
   accountCacheLoaded,
-  coverage,
   currentLocale,
   detectionStarted,
   idxOfKey,
@@ -34,10 +33,13 @@ import {
   setAccountCache,
   setAccountCacheLoaded,
   setCachedAccounts,
+  setStartedWithoutAccounts,
   setColors,
   setDelegated,
   setDetectionStarted,
   setDownloadHistory,
+  setHidden,
+  setRecentLabels,
   setHistory,
   setMessageIndex,
   setMainWindow,
@@ -78,41 +80,21 @@ import { notifyLog, openNotifyLog } from '../notify/notify-log';
 import { ColorStore } from '../accounts/color-store';
 import { AccountCacheStore, rememberedOrder } from '../accounts/account-cache';
 import { DelegatedStore } from '../delegation/delegated-store';
+import { HiddenStore } from '../accounts/hidden-store';
+import { RecentLabelStore } from '../mail/recent-labels-store';
 import { OAuthStore, type ProtectResult } from '../auth/oauth-store';
 import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
 import { MessageIndexStore } from '../mail/message-index';
 import { DownloadHistoryStore } from '../system/download-history';
 import { shouldHideOnClose } from '../menus/tray-controller';
+import { windowForAccount } from './tab-window-registry';
+import { pushWindowTabs } from '../core/broadcast';
 import type { KeyInput } from '../menus/shortcuts';
 
 
 //===========================
-// Module state
-//===========================
-
-/** Only the first window of the session honours 'start minimised'; one rebuilt by a
- * notification click is being opened on purpose. */
-let firstWindow = true;
-
-
-//===========================
 // Exported functions
-//===========================
-
-function watchPreloadForReload(): void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    watch(PRELOAD_PATH, () => {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => manager?.reloadAll(), 250);
-    });
-  } catch {
-  }
-}
-
-//===========================
-// The main window
 //===========================
 
 export function createWindow(): void {
@@ -150,12 +132,18 @@ export function createWindow(): void {
   });
   setMainWindow(win);
   if (stored.maximized) win.maximize();
-  if (firstWindow && store.getAll().launchMinimized) win.minimize();
-  firstWindow = false;
+  if (store.getAll().launchMinimized) win.minimize();
   win.on('show', refreshBadge);
   win.on('restore', refreshBadge);
 
-  win.on('focus', () => void pushDefaultMailStatus());
+  win.on('focus', () => {
+    void pushDefaultMailStatus();
+    // A window brought back from the tray, from alt-tab or from a click on its frame is
+    // focused without anything inside it being focused, and the shortcuts then reach no
+    // handler. Measured with a probe on this exact layout: the keys were lost until the user
+    // clicked a page.
+    manager?.focusActiveSurface();
+  });
   setColors(new ColorStore(join(app.getPath('userData'), 'colors.json')));
   const tokens = new OAuthStore(join(app.getPath('userData'), 'google-tokens.json'));
 
@@ -169,6 +157,8 @@ export function createWindow(): void {
   setMessageIndex(new MessageIndexStore(join(app.getPath('userData'), 'message-index.json')));
   setDownloadHistory(new DownloadHistoryStore(join(app.getPath('userData'), 'downloads.json')));
   setDelegated(new DelegatedStore(join(app.getPath('userData'), 'delegated.json')));
+  setHidden(new HiddenStore(join(app.getPath('userData'), 'hidden.json')));
+  setRecentLabels(new RecentLabelStore(join(app.getPath('userData'), 'recent-labels.json')));
 
   const cache = new AccountCacheStore(join(app.getPath('userData'), 'accounts.json'));
 
@@ -176,6 +166,7 @@ export function createWindow(): void {
   if (!accountCacheLoaded) {
     setAccountCacheLoaded(true);
     const remembered = cache.list();
+    setStartedWithoutAccounts(remembered.length === 0);
     setCachedAccounts(remembered);
     setSeedOrder(rememberedOrder(remembered));
   }
@@ -183,14 +174,15 @@ export function createWindow(): void {
     win,
     PRELOAD_PATH,
     (accountKey, count) => {
-      const email = profiles.find((p) => keyOf(p) === accountKey)?.email;
-      if (email && coverage.has(email)) return;
+      // The page title is the authority while a view is up: it moves the moment mail is read,
+      // where the API sweep is five minutes behind. reportApiUnread only fills in an account
+      // this has never spoken for.
       unread.report(accountKey, count);
       pushUnread();
       refreshBadge();
     },
-    (accountKey, surface, threadId, subject) =>
-      activateNotification(accountKey, surface, threadId, subject),
+    (accountKey, surface, threadId, subject, messageId) =>
+      activateNotification(accountKey, surface, threadId, subject, messageId),
     (accountKey, identity) => {
       const idx = idxOfKey(accountKey);
       if (idx != null) onIdentity(idx, identity);
@@ -207,13 +199,25 @@ export function createWindow(): void {
     },
     () => prefs?.getAll().notificationOpen ?? 'app',
     () => (prefs?.getAll().reneMode ? RENE_ZOOM_FACTOR : 1),
-    (acctKey, payload) => void handleMailDrop(acctKey, payload),
+    (acctKey, payload) => void handleMailDrop(acctKey, payload).catch(() => {}),
     () => raiseOverlays(),
 
     (acctKey) => {
       const email = profiles.find((p) => keyOf(p) === acctKey)?.email;
       return email ? isAllowedAccount(email) : null;
     },
+    // What a view says once it has crashed too often to keep reloading. Built here because the
+    // wording needs the locale, Rene mode, the theme and the address -- none of which the view
+    // manager may reach into without importing runtime.ts, which imports it.
+    (acctKey) => {
+      const email = profiles.find((p) => keyOf(p) === acctKey)?.email ?? '';
+      const text = viewCrashText(currentLocale(), prefs?.getAll().reneMode === true);
+      return viewCrashUrl(text, email, nativeTheme.shouldUseDarkColors);
+    },
+    // Which window a mailbox's views belong in, which is this one until its tab is dragged
+    // out. Asked of the registry rather than remembered by the manager: an account with no
+    // view yet still has a window, and that is where its first view has to be built.
+    (acctKey) => windowForAccount(acctKey),
   );
   setManager(views);
 
@@ -263,9 +267,14 @@ export function createWindow(): void {
     loadDelegatedProfiles();
     pushProfiles();
     pushPrefs();
+    pushWindowTabs();
     void pushDefaultMailStatus();
     startDelegatedUrlRefreshOnce();
     applyReneZoom();
+    // The shell takes keyboard focus the moment it is drawn, so the shortcuts work in a
+    // window nobody has clicked in yet. A view that is already up wins it back through
+    // focusActiveSurface.
+    manager?.focusActiveSurface();
     mainWindow?.webContents.send(IPC.UPDATE_STATUS, { ...lastUpdateStatus, currentVersion: app.getVersion() });
     if (!detectionStarted) {
       setDetectionStarted(true);
@@ -274,7 +283,7 @@ export function createWindow(): void {
   });
 
   win.on('close', (e) => {
-    if (shouldHideOnClose({ isQuitting, platform: process.platform })) {
+    if (shouldHideOnClose({ isQuitting })) {
       e.preventDefault();
       mainWindow?.hide();
     }
@@ -296,14 +305,21 @@ export function createWindow(): void {
   });
 }
 
-export function openSettingsPanel(): void {
+/**
+ * Brings the settings panel up, optionally on one section
+ *
+ * @param section a section name from the renderer's nav, or nothing to leave the panel where
+ *   the user last had it. Typed loosely on purpose: the list of sections belongs to the
+ *   renderer and main has no business importing it.
+ */
+export function openSettingsPanel(section?: string): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
   setSettingsPanelOpen(true);
   manager?.hideAll();
-  mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN);
+  mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN, { section });
 }
 
 
@@ -324,5 +340,21 @@ function reportTokenProtection(result: ProtectResult): void {
   }
   if (result === 'unreadable') {
     notifyLog('[oauth] the token file was sealed elsewhere; the accounts need linking again');
+  }
+}
+
+/**
+ * Reloads every view when the preload script on disk changes, for local development
+ *
+ * @private
+ */
+function watchPreloadForReload(): void {
+  let timer: NodeJS.Timeout | null = null;
+  try {
+    watch(PRELOAD_PATH, () => {
+      clearTimeout(timer ?? undefined);
+      timer = setTimeout(() => manager?.reloadAll(), 250);
+    });
+  } catch {
   }
 }

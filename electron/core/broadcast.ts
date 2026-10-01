@@ -1,19 +1,23 @@
 // Everything the main process tells the interface about itself: the tab rows, the unread
 // counts, the settings, the active tab, the taskbar badge and the default-mail-client state.
 //
+// Every window that draws a tab strip is told, not just the main one: a mailbox dragged into
+// a window of its own draws the same shell there, off the same pushes. What differs per
+// window is which tabs it draws and which one of them is active -- see tab-window-registry.
+//
 // Nothing here decides anything — a caller that changed something calls the push for it.
 // decorate() is the only real work; the rest is a send.
 
-import { app } from 'electron';
+import { app, type BrowserWindow } from 'electron';
 import { IPC } from './ipc';
 import {
   accountCache,
-  activeTab,
+  activeTabIn,
   authIdx,
   cachedAccounts,
   colors,
-  coverage,
   currentLocale,
+  hidden,
   keyOf,
   mainWindow,
   prefs,
@@ -21,6 +25,7 @@ import {
   seedOrder,
   unread,
 } from './runtime';
+import { shellWindows, tabsFor } from '../windows/tab-window-registry';
 import { notifyLog } from '../notify/notify-log';
 import { seedable } from '../accounts/account-cache';
 import { sortByOrder } from '../accounts/account-order';
@@ -79,11 +84,16 @@ export function setOnProfilesPushed(fn: () => void): void {
   onProfilesPushed = fn;
 }
 
-export const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
+/**
+ * The row key for an account still seeded from cache, not yet confirmed by detection
+ *
+ * @private
+ */
+const seedKey = (email: string): string => `${SEED_KEY_PREFIX}${email}`;
 
 export function pushProfiles(): void {
   const rows = decorate([...profiles]);
-  mainWindow?.webContents.send(IPC.PROFILES_CHANGED, rows);
+  for (const win of shellWindows()) win.webContents.send(IPC.PROFILES_CHANGED, rows);
   saveAccountCache(rows);
   // the list of accounts is the only thing that says which counts are still somebody's
   if (unread.retain(profiles.map(keyOf))) {
@@ -93,18 +103,72 @@ export function pushProfiles(): void {
   onProfilesPushed();
 }
 
-export function pushUnread(): void {
-  mainWindow?.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
+/**
+ * Tells every window which tabs are its own
+ *
+ * The rows themselves are the same everywhere -- settings still lists every account, however
+ * the tabs are spread -- so this is the one push that differs per window.
+ */
+export function pushWindowTabs(): void {
+  for (const win of shellWindows()) win.webContents.send(IPC.WINDOW_TABS, tabsFor(win));
 }
 
+/**
+ * Tells every window whether a tab is being dragged right now
+ *
+ * A window that does not know cannot be dropped on: most of its bar is the window's own drag
+ * region, and the pointer never reaches the page there. Knowing, a bar turns that region off
+ * for as long as the drag lasts, so the whole strip of chrome is one drop target.
+ *
+ * @param dragging
+ */
+export function pushTabDrag(dragging: boolean): void {
+  for (const win of shellWindows()) win.webContents.send(IPC.TAB_DRAG_STATE, { dragging });
+}
+
+/**
+ * Tells one window everything it needs at once
+ *
+ * What a window opened halfway through the session gets instead of the pushes it was not
+ * there for.
+ *
+ * @param win
+ */
+export function pushWindowState(win: BrowserWindow): void {
+  if (win.isDestroyed()) return;
+  win.webContents.send(IPC.PROFILES_CHANGED, decorate([...profiles]));
+  win.webContents.send(IPC.UNREAD_CHANGED, unread.snapshot());
+  if (prefs) {
+    win.webContents.send(IPC.PREFS_CHANGED, { ...prefs.getAll(), locale: currentLocale() });
+  }
+  win.webContents.send(IPC.WINDOW_TABS, tabsFor(win));
+  win.webContents.send(IPC.ACTIVE_CHANGED, activeTabIn(win));
+}
+
+/**
+ * Tells settings which mailboxes are being kept off the screen
+ *
+ * The list is not part of the profiles: a hidden mailbox has no row, no view and no key, and
+ * the one place it appears is the block in settings that hands it back.
+ */
+export function pushHidden(): void {
+  mainWindow?.webContents.send(IPC.HIDDEN_CHANGED, hidden?.list() ?? []);
+}
+
+export function pushUnread(): void {
+  const counts = unread.snapshot();
+  for (const win of shellWindows()) win.webContents.send(IPC.UNREAD_CHANGED, counts);
+}
+
+/** The active tab is per window: each strip marks the mailbox that window is showing. */
 export function pushActive(): void {
-  mainWindow?.webContents.send(IPC.ACTIVE_CHANGED, activeTab());
+  for (const win of shellWindows()) win.webContents.send(IPC.ACTIVE_CHANGED, activeTabIn(win));
 }
 
 export function pushPrefs(): void {
-  if (prefs) {
-    mainWindow?.webContents.send(IPC.PREFS_CHANGED, { ...prefs.getAll(), locale: currentLocale() });
-  }
+  if (!prefs) return;
+  const payload = { ...prefs.getAll(), locale: currentLocale() };
+  for (const win of shellWindows()) win.webContents.send(IPC.PREFS_CHANGED, payload);
 }
 
 export async function pushDefaultMailStatus(): Promise<void> {
@@ -116,6 +180,14 @@ export async function pushDefaultMailStatus(): Promise<void> {
 }
 
 export function refreshBadge(): void {
+  // A view that opened for an account which never became a profile -- a probe during
+  // detection, a delegation scan that came up empty -- reports a count under a key nothing
+  // will ever zero. pushProfiles prunes those, but a report arriving after the last push
+  // would otherwise sit in the total for the rest of the session. Only once there is a
+  // profile to compare against: before that, a count belongs to an account detection has
+  // not confirmed yet, and dropping it would leave the badge behind until the page speaks
+  // again.
+  if (profiles.length > 0) unread.retain(profiles.map(keyOf));
   const counts = unread.snapshot();
   const excluded = excludedBadgeKeys();
   const total = applyBadge(counts, (n) => app.setBadgeCount(n), excluded, () => {
@@ -190,12 +262,12 @@ function saveAccountCache(rows: TabRow[]): void {
  * @private
  */
 function traceBadge(total: number, counts: Record<string, number>, excluded: Set<string>): void {
-  const live = new Map(profiles.map((p) => [keyOf(p), p.email]));
+  const live = new Map(profiles.map((p) => [keyOf(p), p]));
   const parts = Object.entries(counts).map(([key, n]) => {
-    const email = live.get(key);
-    if (!email) return `${key}=${n}(orphan)`;
-    const source = coverage.has(email) ? 'api' : 'title';
-    return `${key}=${n}(${email},${source}${excluded.has(key) ? ',excluded' : ''})`;
+    const profile = live.get(key);
+    if (!profile) return `${key}=${n}(orphan)`;
+    const source = unread.ownedByPage(key) ? 'title' : 'api';
+    return `${key}=${n}(${profile.email},${source}${excluded.has(key) ? ',excluded' : ''})`;
   });
   const line = `[badge] total=${total} ${parts.join(' ') || '(nothing counted)'}`;
   if (line === lastBadgeTrace) return;

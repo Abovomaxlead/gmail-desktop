@@ -93,15 +93,28 @@ export function writeJsonFile(filePath: string, value: unknown): void {
 /**
  * Writes any text file the same way, for the files that are not built from an object
  *
+ * Logs and continues rather than throwing, like the read path: a caller in the middle of a
+ * multi-step mutation (removing an account, say) must not be aborted by a locked disk. The
+ * backup write is attempted even when the primary one failed, and the other way round, since
+ * either alone still leaves the user with one usable copy.
+ *
  * @param filePath
  * @param text
  */
 export function writeFileAtomic(filePath: string, text: string): void {
-  mkdirSync(dirname(filePath), { recursive: true });
-  put(filePath, text);
+  try {
+    mkdirSync(dirname(filePath), { recursive: true });
+    put(filePath, text);
+  } catch (e) {
+    console.warn(`[store] failed to write ${filePath}: ${e}`);
+  }
   // The real file first, the backup after: a crash in between leaves a backup one version
   // behind, which is still a whole file and still the user's settings.
-  put(backupPath(filePath), text);
+  try {
+    put(backupPath(filePath), text);
+  } catch (e) {
+    console.warn(`[store] failed to write ${backupPath(filePath)}: ${e}`);
+  }
 }
 
 

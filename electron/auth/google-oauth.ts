@@ -43,6 +43,10 @@ export const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.insert',
   'https://www.googleapis.com/auth/gmail.modify',
+  // What an automatic crash report is sent with -- see feedback/crash-controller.ts. The report
+  // leaves from the mailbox on screen, so it needs the right to send as that account and
+  // nothing more; gmail.compose would also let the app draft, which it never does.
+  'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/userinfo.email',
 ];
 

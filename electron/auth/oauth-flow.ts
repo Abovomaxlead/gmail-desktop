@@ -19,7 +19,23 @@ import {
   type StoredToken,
 } from './google-oauth';
 import { ALLOWED_EMAIL_DOMAINS, isAllowedAccount } from './account-domain';
+import { memoise } from '../core/concurrency';
 import type { OAuthStore } from './oauth-store';
+
+
+//===========================
+// Constants
+//===========================
+
+// enough for a human to sign in, bounded so a dead consent page cannot hang the flow forever
+const CONSENT_TIMEOUT_MS = 2 * 60 * 1000;
+
+
+//===========================
+// Module state
+//===========================
+
+const inFlightRefresh = new Map<string, Promise<string | null>>();
 
 
 //===========================
@@ -80,17 +96,7 @@ export async function forceRefresh(
   email: string,
   now = Date.now(),
 ): Promise<string | null> {
-  const token = store.get(email);
-  if (!token) return null;
-  try {
-    const json = await postForm(TOKEN_ENDPOINT, refreshBody(cfg, token.refreshToken));
-    const next = applyTokenResponse(token, json, now);
-    if ('error' in next) return null;
-    if (!storeIfStillLinked(store, email, next)) return null;
-    return next.accessToken;
-  } catch {
-    return null;
-  }
+  return refreshAndStore(cfg, store, email, now);
 }
 
 /**
@@ -111,16 +117,7 @@ export async function accessTokenFor(
   const token = store.get(email);
   if (!token) return null;
   if (!isExpired(token, now)) return token.accessToken;
-
-  try {
-    const json = await postForm(TOKEN_ENDPOINT, refreshBody(cfg, token.refreshToken));
-    const next = applyTokenResponse(token, json, now);
-    if ('error' in next) return null;
-    if (!storeIfStillLinked(store, email, next)) return null;
-    return next.accessToken;
-  } catch {
-    return null;
-  }
+  return refreshAndStore(cfg, store, email, now);
 }
 
 /**
@@ -141,7 +138,7 @@ export async function postForm(url: string, body: string): Promise<Record<string
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
         const text = Buffer.concat(chunks).toString('utf8');
-        // A 2xx with no body (e.g. Google's revoke endpoint) is a success, not unparsable.
+        // A 2xx with no body (e.g. Google's revoke endpoint) is a success, not unparsable
         if (res.statusCode >= 200 && res.statusCode < 300 && !text.trim()) {
           resolve({});
           return;
@@ -200,6 +197,40 @@ function storeIfStillLinked(store: OAuthStore, email: string, next: StoredToken)
 }
 
 /**
+ * Refreshes the stored token and saves it, coalescing concurrent callers for the same account
+ *
+ * memoise keeps one in-flight request per email; the entry is cleared as soon as it settles,
+ * successfully or not, so a later expiry starts a fresh refresh instead of replaying this one.
+ *
+ * @param cfg
+ * @param store
+ * @param email
+ * @param now epoch ms
+ * @returns a fresh access token, or null when the account can no longer be refreshed
+ * @private
+ */
+function refreshAndStore(
+  cfg: OAuthConfig,
+  store: OAuthStore,
+  email: string,
+  now: number,
+): Promise<string | null> {
+  const token = store.get(email);
+  if (!token) return Promise.resolve(null);
+  return memoise(inFlightRefresh, email, async () => {
+    try {
+      const json = await postForm(TOKEN_ENDPOINT, refreshBody(cfg, token.refreshToken));
+      const next = applyTokenResponse(token, json, now);
+      if ('error' in next) return null;
+      if (!storeIfStillLinked(store, email, next)) return null;
+      return next.accessToken;
+    } catch {
+      return null;
+    }
+  }).finally(() => inFlightRefresh.delete(email));
+}
+
+/**
  * Shows the consent page and catches the code off the intercepted redirect
  *
  * @param win
@@ -223,27 +254,38 @@ async function consentCode(
   view.setBounds({ x: 0, y: 0, width, height });
   win.contentView.addChildView(view);
 
+  let settleWith: (r: { code: string } | { error: string }) => void = () => {};
+  let settled = false;
   const done = new Promise<{ code: string } | { error: string }>((resolve) => {
-    let settled = false;
-    const finish = (r: { code: string } | { error: string }) => {
+    settleWith = (r) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       resolve(r);
     };
     const onNavigate = (e: { preventDefault(): void }, url: string) => {
       const result = parseCallback(url);
       if (!result) return;
       e.preventDefault();
-      finish(result.code ? { code: result.code } : { error: result.error ?? 'onbekende fout' });
+      settleWith(result.code ? { code: result.code } : { error: result.error ?? 'onbekende fout' });
     };
     view.webContents.on('will-navigate', onNavigate);
     view.webContents.on('will-redirect', onNavigate);
-    view.webContents.on('destroyed', () => finish({ error: 'toestemmingsvenster gesloten' }));
+    view.webContents.on('destroyed', () => settleWith({ error: 'toestemmingsvenster gesloten' }));
+    view.webContents.on('did-fail-load', (_e, _code, _description, _url, isMainFrame) => {
+      // A sub-frame (ad, tracker, favicon) failing is routine noise; only the page itself matters.
+      if (isMainFrame) settleWith({ error: 'laden van de toestemmingspagina mislukt' });
+    });
+    const timer = setTimeout(
+      () => settleWith({ error: 'toestemmingsvenster verlopen' }),
+      CONSENT_TIMEOUT_MS,
+    );
   });
 
   try {
     await view.webContents.loadURL(authUrl({ clientId: cfg.clientId, challenge, loginHint }));
-  } catch {
+  } catch (e) {
+    settleWith({ error: `laden mislukt: ${(e as Error).message}` });
   }
 
   const result = await done;

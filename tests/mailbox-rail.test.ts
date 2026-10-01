@@ -73,9 +73,19 @@ describe('mailboxRows', () => {
 });
 
 describe('pickedChips', () => {
-  it('names the first label of every mailbox that has one, and counts the rest', () => {
+  // The picker's own resolver: a label by name, and anything else -- the top of the list --
+  // named by whatever the page decided to call it.
+  const nameFor = (email: string, labelId: string) =>
+    ACCOUNTS.find((a) => a.email === email)?.labels.find((l) => l.id === labelId)?.name ??
+    'Bovenin';
+
+  it('names the first place of every mailbox that has one, and counts the rest', () => {
     expect(
-      pickedChips({ 'johan@abovomaxlead.nl': ['L1', 'L3'], 'info@abovomaxlead.nl': ['M1'] }, ACCOUNTS),
+      pickedChips(
+        { 'johan@abovomaxlead.nl': ['L1', 'L3'], 'info@abovomaxlead.nl': ['M1'] },
+        ACCOUNTS,
+        nameFor,
+      ),
     ).toEqual([
       { email: 'johan@abovomaxlead.nl', label: 'Facturen', extra: 1 },
       { email: 'info@abovomaxlead.nl', label: 'Klanten', extra: 0 },
@@ -83,12 +93,12 @@ describe('pickedChips', () => {
   });
 
   it('leaves out a mailbox nothing is ticked in', () => {
-    expect(pickedChips({ 'johan@abovomaxlead.nl': [] }, ACCOUNTS)).toEqual([]);
+    expect(pickedChips({ 'johan@abovomaxlead.nl': [] }, ACCOUNTS, nameFor)).toEqual([]);
   });
 
-  it('falls back to the id of a label the lists do not name', () => {
-    expect(pickedChips({ 'johan@abovomaxlead.nl': ['Label_7'] }, ACCOUNTS)).toEqual([
-      { email: 'johan@abovomaxlead.nl', label: 'Label_7', extra: 0 },
+  it('shows a place that is not a label under the name it was given', () => {
+    expect(pickedChips({ 'johan@abovomaxlead.nl': ['\u0000bovenin'] }, ACCOUNTS, nameFor)).toEqual([
+      { email: 'johan@abovomaxlead.nl', label: 'Bovenin', extra: 0 },
     ]);
   });
 
@@ -96,6 +106,7 @@ describe('pickedChips', () => {
     const chips = pickedChips(
       { 'info@abovomaxlead.nl': ['M1'], 'johan@abovomaxlead.nl': ['L1'] },
       ACCOUNTS,
+      nameFor,
     );
     expect(chips.map((c) => c.email)).toEqual(['johan@abovomaxlead.nl', 'info@abovomaxlead.nl']);
   });

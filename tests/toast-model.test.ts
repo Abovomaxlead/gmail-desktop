@@ -9,7 +9,6 @@ import {
   addToast,
   collapse,
   delayExpiries,
-  dismissAll,
   dismissToast,
   expireToasts,
 } from '../electron/toast/toast-model';
@@ -101,16 +100,6 @@ describe('dismissToast', () => {
   it('does nothing to a collapsed stack', () => {
     const before = withMails(6);
     expect(dismissToast(before, 'm1')).toEqual(before);
-  });
-});
-
-describe('dismissAll', () => {
-  it('empties a stack of cards', () => {
-    expect(dismissAll(withMails(3))).toEqual(EMPTY_STACK);
-  });
-
-  it('clears the summary', () => {
-    expect(dismissAll(withMails(6))).toEqual(EMPTY_STACK);
   });
 });
 

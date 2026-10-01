@@ -5,10 +5,15 @@ import {
   labelFromHref,
   labelFromDragTarget,
   labelListUrl,
-  mergeThreads,
   scrapeSettled,
-  MAX_THREADS,
+  labelNamesFromHrefs,
+  mergeTreeThreads,
+  SCRAPE_MAX_THREADS,
+  API_MAX_THREADS,
+  MAX_PAGES,
+  PAGE_SIZE,
   type LabelThread,
+  type TreeThread,
 } from '../electron/mail/label-drop';
 
 const node = (attrs: Record<string, string>, parent: any = null, descendants: any[] = []): any => ({
@@ -133,24 +138,91 @@ describe('scrapeSettled', () => {
   });
 });
 
-describe('mergeThreads', () => {
-  const t = (id: string): LabelThread => ({ threadId: id, subject: `Onderwerp ${id}` });
+// Dragging a label takes its sublabels with it: the navigation is the only list of them
+// there is without the API, and one cap covers the whole tree rather than each label.
+describe('labelNamesFromHrefs', () => {
+  it('reads every label out of the navigation', () => {
+    expect(
+      labelNamesFromHrefs([
+        'https://mail.google.com/mail/u/0/#label/Klanten',
+        'https://mail.google.com/mail/u/0/#label/Klanten%2FAcme',
+        'https://mail.google.com/mail/u/0/#inbox',
+      ]),
+    ).toEqual(['Klanten', 'Klanten/Acme']);
+  });
 
-  it('adds new threads and reports how many', () => {
-    const acc = [t('a')];
-    expect(mergeThreads(acc, [t('b'), t('c')])).toEqual({ added: 2, total: 3 });
+  it('names a label once however often it is linked', () => {
+    expect(labelNamesFromHrefs(['#label/Klanten', '#label/Klanten/p2'])).toEqual(['Klanten']);
   });
-  it('reports zero when a page repeats what we already had', () => {
-    const acc = [t('a'), t('b')];
-    expect(mergeThreads(acc, [t('a'), t('b')])).toEqual({ added: 0, total: 2 });
+});
+
+describe('mergeTreeThreads', () => {
+  it('remembers which label a thread came from', () => {
+    const acc: TreeThread[] = [];
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    expect(acc).toEqual([{ threadId: 't1', subject: 'Een', labels: ['Klanten'] }]);
   });
+
+  it('adds the second label to a thread that is in both', () => {
+    const acc: TreeThread[] = [];
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    const second = mergeTreeThreads(acc, 'Klanten/Acme', [{ threadId: 't1', subject: 'Een' }]);
+    expect(acc).toHaveLength(1);
+    expect(acc[0].labels).toEqual(['Klanten', 'Klanten/Acme']);
+    expect(second.added).toBe(0);
+  });
+
+  it('does not repeat a label when a page is read twice', () => {
+    const acc: TreeThread[] = [];
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    mergeTreeThreads(acc, 'Klanten', [{ threadId: 't1', subject: 'Een' }]);
+    expect(acc[0].labels).toEqual(['Klanten']);
+  });
+
+  it('caps the whole tree, not each label', () => {
+    const acc: TreeThread[] = [];
+    const page = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ threadId: `t${from + i}`, subject: 's' }));
+    mergeTreeThreads(acc, 'A', page(0, SCRAPE_MAX_THREADS));
+    const over = mergeTreeThreads(acc, 'B', page(SCRAPE_MAX_THREADS, 5));
+    expect(over.added).toBe(0);
+    expect(over.total).toBe(SCRAPE_MAX_THREADS);
+  });
+
+  it('still lets a thread already in the accumulator gain a label at the cap', () => {
+    const acc: TreeThread[] = [];
+    const page = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ threadId: `t${from + i}`, subject: 's' }));
+    mergeTreeThreads(acc, 'A', page(0, SCRAPE_MAX_THREADS));
+    mergeTreeThreads(acc, 'B', [{ threadId: 't0', subject: 's' }]);
+    expect(acc[0].labels).toEqual(['A', 'B']);
+  });
+
   it('skips entries without an id', () => {
-    const acc: LabelThread[] = [];
-    expect(mergeThreads(acc, [{ threadId: '', subject: 'x' }, t('a')]).total).toBe(1);
+    const acc: TreeThread[] = [];
+    expect(
+      mergeTreeThreads(acc, 'Klanten', [
+        { threadId: '', subject: 'x' },
+        { threadId: 't1', subject: 'Een' },
+      ]).total,
+    ).toBe(1);
   });
-  it('stops at the cap instead of growing without bound', () => {
-    const acc: LabelThread[] = [];
-    const page = Array.from({ length: MAX_THREADS + 25 }, (_, i) => t(`id${i}`));
-    expect(mergeThreads(acc, page)).toEqual({ added: MAX_THREADS, total: MAX_THREADS });
+});
+
+describe('the two caps', () => {
+  // The scrape reads Gmail's own list view 50 rows at a time and it re-shows the last page for
+  // a page number past the end, so there is a real point past which paging stops being worth
+  // it. That is what this number is, and MAX_PAGES derives from it.
+  it('bounds the scrape at what paging Gmail\'s list view is worth', () => {
+    expect(SCRAPE_MAX_THREADS).toBe(2000);
+    expect(MAX_PAGES).toBe(Math.ceil(SCRAPE_MAX_THREADS / PAGE_SIZE));
+  });
+
+  // Not a limit anyone should meet: threads.list pages 100 ids for 10 units, so a full one is
+  // 500 pages and 5,000 units to plan. It exists so a runaway page loop cannot allocate without
+  // end, which is a different job from the scrape's ceiling.
+  it('bounds the API path far above anything a mailbox holds', () => {
+    expect(API_MAX_THREADS).toBe(50_000);
+    expect(API_MAX_THREADS).toBeGreaterThan(SCRAPE_MAX_THREADS);
   });
 });

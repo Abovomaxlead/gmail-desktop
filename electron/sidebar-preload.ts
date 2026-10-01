@@ -1,15 +1,18 @@
-// The contextBridge surface of the sidebar page. That same page also runs as the
-// modal overlay, told apart by the --gmd-overlay argument main sets on that view
-// only. Preference patches are typed unknown on purpose: main revalidates them with
-// the same readers it uses for the file on disk, so a wrong value falls back to a
-// default there instead of being caught here. The renderer holds the real types.
+// The contextBridge surface of the sidebar page, which also runs as the modal overlay.
+// Preference patches are typed unknown on purpose: main revalidates them with the same
+// readers it uses for the file on disk, so a wrong value falls back to a default there
+// instead of being caught here. The renderer holds the real types.
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type MailDropFolderStatus } from './core/ipc';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
-import type { ReconnectAccount } from './auth/oauth-health';
+import type { ReconnectAccount } from '../renderer/lib/reconnect';
 import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
+import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
+import type { DelegatedPickerAsk } from '../renderer/lib/delegated-picker';
+import type { WindowTabs } from '../renderer/lib/window-tabs';
+import type { RecentLabelUse } from '../renderer/app/recent-labels';
 
 
 //===========================
@@ -33,9 +36,6 @@ interface Profile {
 // Constants
 //===========================
 
-// the same page runs as the modal overlay, told apart by the argument main sets on that
-// view only
-const isOverlay = process.argv.includes('--gmd-overlay');
 
 
 //===========================
@@ -43,7 +43,6 @@ const isOverlay = process.argv.includes('--gmd-overlay');
 //===========================
 
 contextBridge.exposeInMainWorld('desktop', {
-  isOverlay,
   onProfilesChanged: (cb: (profiles: Profile[]) => void): void => {
     ipcRenderer.on(IPC.PROFILES_CHANGED, (_e, profiles) => cb(profiles));
   },
@@ -57,27 +56,62 @@ contextBridge.exposeInMainWorld('desktop', {
   },
   getActive: (): Promise<{ key: string; surface: Surface } | null> =>
     ipcRenderer.invoke(IPC.ACTIVE_GET),
+  onWindowTabs: (cb: (tabs: WindowTabs) => void): void => {
+    ipcRenderer.on(IPC.WINDOW_TABS, (_e, tabs) => cb(tabs));
+  },
+  getWindowTabs: (): Promise<WindowTabs> => ipcRenderer.invoke(IPC.WINDOW_TABS_GET),
+  onTabDragState: (cb: (state: { dragging: boolean }) => void): void => {
+    ipcRenderer.on(IPC.TAB_DRAG_STATE, (_e, state) => cb(state));
+  },
+  // The drag of a tab, told in three parts. The window a tab was dropped on cannot read the
+  // drag's data on every platform, so it only reports that something landed on it and main
+  // answers with what: the account named at the start of the drag.
+  tabDragStart: (key: string): void => ipcRenderer.send(IPC.TAB_DRAG_START, { key }),
+  tabDragEnd: (dropped: boolean): void => ipcRenderer.send(IPC.TAB_DRAG_END, { dropped }),
+  tabDropped: (): void => ipcRenderer.send(IPC.TAB_DROP),
+  detachTab: (key: string): void => ipcRenderer.send(IPC.TAB_DETACH, { key }),
+  tabToMainWindow: (key: string): void => ipcRenderer.send(IPC.TAB_TO_MAIN, { key }),
   redetect: (): void => ipcRenderer.send(IPC.REDETECT),
   addAccount: (): void => ipcRenderer.send(IPC.ADD_ACCOUNT),
   addDelegated: (): void => ipcRenderer.send(IPC.ADD_DELEGATED),
+  onDelegatedPickerAsk: (cb: (ask: DelegatedPickerAsk) => void): void => {
+    ipcRenderer.on(IPC.DELEGATED_PICK_ASK, (_e, ask) => cb(ask));
+  },
+  pickDelegated: (emails: string[]): void => ipcRenderer.send(IPC.DELEGATED_PICK, { emails }),
+  closeDelegatedPicker: (): void => ipcRenderer.send(IPC.DELEGATED_PICK_CLOSE),
   setColor: (email: string, color: string): void =>
     ipcRenderer.send(IPC.SET_COLOR, { email, color }),
   removeAccount: (email: string): void => ipcRenderer.send(IPC.REMOVE_ACCOUNT, { email }),
+  getHiddenAccounts: (): Promise<HiddenAccount[]> => ipcRenderer.invoke(IPC.HIDDEN_GET),
+  unhideAccount: (email: string): void => ipcRenderer.send(IPC.UNHIDE_ACCOUNT, { email }),
+  onHiddenAccounts: (cb: (arg: HiddenAccount[]) => void): void => {
+    ipcRenderer.on(IPC.HIDDEN_CHANGED, (_e, arg) => cb(arg));
+  },
   checkForUpdate: (): void => ipcRenderer.send(IPC.UPDATE_CHECK),
   downloadUpdate: (): void => ipcRenderer.send(IPC.UPDATE_DOWNLOAD),
   installUpdate: (): void => ipcRenderer.send(IPC.UPDATE_INSTALL),
+  onReleaseNotes: (cb: (ask: unknown) => void): void => {
+    ipcRenderer.on(IPC.RELEASE_NOTES_ASK, (_e, ask) => cb(ask));
+  },
+  closeReleaseNotes: (): void => ipcRenderer.send(IPC.RELEASE_NOTES_CLOSE),
   onUpdateStatus: (cb: (status: unknown) => void): void => {
     ipcRenderer.on(IPC.UPDATE_STATUS, (_e, status) => cb(status));
   },
   toggleSettings: (open: boolean): void => ipcRenderer.send(IPC.SETTINGS_TOGGLE, { open }),
-  popupMenu: (items: NativeMenuItem[]): Promise<string | null> =>
-    ipcRenderer.invoke(IPC.MENU_POPUP, items),
+  setTourActive: (active: boolean): void => ipcRenderer.send(IPC.TOUR_ACTIVE, { active }),
+  isFirstRun: (): Promise<boolean> => ipcRenderer.invoke(IPC.TOUR_FIRST_RUN),
+  setTourSeen: (v: boolean): void => ipcRenderer.send(IPC.SET_TOUR_SEEN, v),
+  popupMenu: (items: NativeMenuItem[], anchor?: { x: number; y: number }): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.MENU_POPUP, items, anchor),
   onSettingsForceClose: (cb: () => void): void => {
     ipcRenderer.on(IPC.SETTINGS_FORCE_CLOSE, () => cb());
   },
-  onSettingsForceOpen: (cb: () => void): void => {
-    ipcRenderer.on(IPC.SETTINGS_FORCE_OPEN, () => cb());
+  // The section is optional: the tray and the toolbar send you to one, a plain reopen does not.
+  onSettingsForceOpen: (cb: (section?: string) => void): void => {
+    ipcRenderer.on(IPC.SETTINGS_FORCE_OPEN, (_e, arg) => cb((arg as { section?: string })?.section));
   },
+  sendFeedback: (input: { text: string; includeDiagnostics: boolean }): Promise<boolean> =>
+    ipcRenderer.invoke(IPC.FEEDBACK_COMPOSE, input),
   setAutoStart: (v: boolean): void => ipcRenderer.send(IPC.SET_AUTO_START, v),
   setLaunchMinimized: (v: boolean): void => ipcRenderer.send(IPC.SET_LAUNCH_MINIMIZED, v),
   setAppearance: (patch: unknown): void => ipcRenderer.send(IPC.SET_APPEARANCE, patch),
@@ -85,6 +119,25 @@ contextBridge.exposeInMainWorld('desktop', {
   setPhishing: (patch: unknown): void => ipcRenderer.send(IPC.SET_PHISHING, patch),
   setUpdatePrefs: (patch: unknown): void => ipcRenderer.send(IPC.SET_UPDATE_PREFS, patch),
   setAdvanced: (patch: unknown): void => ipcRenderer.send(IPC.SET_ADVANCED, patch),
+  countLabelPurge: (
+    email: string,
+    label: string,
+  ): Promise<
+    | {
+        handle: string;
+        email: string;
+        label: string;
+        labels: { name: string; labelId: string; messages: number }[];
+        total: number;
+        capped: boolean;
+      }
+    | { error: string }
+  > => ipcRenderer.invoke(IPC.LABEL_PURGE_COUNT, { email, label }),
+  runLabelPurge: (
+    handle: string,
+    labels: string[],
+  ): Promise<{ trashed: number; failed: number; error?: string }> =>
+    ipcRenderer.invoke(IPC.LABEL_PURGE_RUN, { handle, labels }),
   setVerificationCodes: (patch: unknown): void =>
     ipcRenderer.send(IPC.SET_VERIFICATION_CODES, patch),
   getDownloadHistory: (): Promise<unknown> => ipcRenderer.invoke(IPC.DOWNLOAD_HISTORY_GET),
@@ -116,13 +169,14 @@ contextBridge.exposeInMainWorld('desktop', {
   setNotificationOpen: (v: 'app' | 'window'): void => ipcRenderer.send(IPC.SET_NOTIFICATION_OPEN, v),
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
   requestDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
-  onMailDropPreview: (cb: (arg: { items: unknown[] }) => void): void => {
+  onMailDropPreview: (cb: (arg: unknown) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
   },
   closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
-  getMailDropPreview: (): Promise<{ items: unknown[] }> =>
-    ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
-  getLabels: (): Promise<{ accounts: unknown[] }> => ipcRenderer.invoke(IPC.LABELS_GET),
+  getMailDropPreview: (): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
+  getLabels: (opts?: { everyMailbox?: boolean }): Promise<{ accounts: unknown[] }> =>
+    ipcRenderer.invoke(IPC.LABELS_GET, opts),
+  getRecentLabels: (): Promise<RecentLabelUse[]> => ipcRenderer.invoke(IPC.MAIL_DROP_RECENT_GET),
   getMailDropExisting: (): Promise<{
     accounts: unknown[];
     scanned: number;
@@ -143,7 +197,7 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
   },
   controlMailDropCopy: (
-    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback',
+    action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',
   ): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_COPY_CONTROL, { action }),
   getPendingOrphan: (): Promise<{
     runId: string;
@@ -151,6 +205,19 @@ contextBridge.exposeInMainWorld('desktop', {
   } | null> => ipcRenderer.invoke(IPC.MAIL_DROP_ORPHAN_GET),
   decideOrphanRun: (runId: string, mode: 'keep' | 'rollback'): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_ORPHAN_DECIDE, { runId, mode }),
+  getPendingJob: (): Promise<{
+    jobId: string;
+    label: string;
+    batch: number;
+    batches: number;
+    done: number;
+    total: number;
+    mode: 'new' | 'all';
+  } | null> => ipcRenderer.invoke(IPC.MAIL_DROP_JOB_GET),
+  decideJobRun: (
+    jobId: string,
+    choice: 'continue' | 'keep' | 'rollback',
+  ): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.MAIL_DROP_JOB_DECIDE, { jobId, choice }),
   onReconnectList: (cb: (arg: { accounts: ReconnectAccount[] }) => void): void => {
     ipcRenderer.on(IPC.OAUTH_RECONNECT_LIST, (_e, arg) => cb(arg));
   },
@@ -195,4 +262,33 @@ contextBridge.exposeInMainWorld('desktop', {
   runToastAction: (arg: { id: string; action: 'archive' | 'read' }): void =>
     ipcRenderer.send(IPC.TOAST_ACTION, arg),
   setToastHovered: (hovered: boolean): void => ipcRenderer.send(IPC.TOAST_HOVER, hovered),
+});
+
+
+//===========================
+// Crash reporting
+//===========================
+
+// Registered here rather than in the pages, because a page that fails while it is loading has
+// no code of its own running yet -- and that is the failure worth hearing about, since it shows
+// up as an empty window. Only this app's own surfaces run this preload; the Gmail views run
+// preload.ts, so Google's script errors never come through here.
+//
+// Every error is sent; whether it is worth a mail is decided in main (crash-report.ts), which
+// is the only place that knows what has already been reported.
+window.addEventListener('error', (e: ErrorEvent) => {
+  ipcRenderer.send(IPC.CRASH_REPORT, {
+    message: e.message || String(e.error ?? 'script error'),
+    stack: e.error instanceof Error ? e.error.stack : undefined,
+    where: `${location.href} ${e.filename}:${e.lineno}`,
+  });
+});
+
+window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
+  const reason = e.reason as Error | undefined;
+  ipcRenderer.send(IPC.CRASH_REPORT, {
+    message: String(reason?.message ?? e.reason ?? 'unhandled rejection'),
+    stack: reason?.stack,
+    where: location.href,
+  });
 });

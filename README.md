@@ -7,7 +7,8 @@ that keeps the app running in the background.
 
 ## Requirements
 
-- Node.js >= 22
+- Node.js >= 22.12 — Electron 44's own npm scripts require it, and
+  electron-builder loads ESM through `require()`
 - npm >= 10
 
 ## Development

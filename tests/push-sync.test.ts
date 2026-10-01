@@ -147,7 +147,7 @@ describe('createSyncRunner — delta', () => {
     expect(t.outcomes[0].unread).toBe(3);
   });
 
-  it('keeps the count right when one message metadata fetch fails', async () => {
+  it('holds the cursor when one message metadata fetch fails, so the mail is not lost', async () => {
     const t = runner({
       stored: '4900',
       pages: {
@@ -161,7 +161,7 @@ describe('createSyncRunner — delta', () => {
     await t.r.run();
     expect(t.outcomes[0].notify.map((m) => m.id)).toEqual(['m2']);
     expect(t.outcomes[0].unread).toBe(3);
-    expect(t.cursor()).toBe('5000');
+    expect(t.cursor()).toBe('4900');
   });
 
   it('still notifies when the unread count fetch itself fails', async () => {

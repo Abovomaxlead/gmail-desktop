@@ -4,7 +4,13 @@ import type { Surface } from '../lib/surfaces';
 import { APP_ICONS } from './app-icons';
 import { CALENDAR_ICON_DATA_URI } from '../lib/calendar-icon-data';
 import { unreadLabel } from './unread-label';
+import { Avatar } from './Avatar';
+import { TAB_AVATAR_ONLY } from './topbar-tabs';
+import { createTabDragImage, TAB_GHOST_GRAB } from './tab-drag-image';
 import type { Profile } from './page';
+
+/** The drag format a tab carries. Ours alone, so no page can be dropped a tab by accident. */
+export const TAB_DRAG_MIME = 'application/x-gmail-desktop-tab';
 
 
 //===========================
@@ -14,6 +20,7 @@ import type { Profile } from './page';
 export function AccountTab({
   profile,
   label,
+  labelWidth,
   unread,
   showUnread,
   active,
@@ -23,11 +30,16 @@ export function AccountTab({
   onOpen,
   onMenu,
   onDragStart,
+  onDragOver,
+  onDragLeave,
+  dropSide,
   onDrop,
   onDragEnd,
 }: {
   profile: Profile;
   label: string;
+  /** How wide the name may be, from tabLabelWidth; TAB_AVATAR_ONLY draws the avatar alone */
+  labelWidth: number;
   unread: number;
   showUnread: boolean;
   active: boolean;
@@ -36,23 +48,53 @@ export function AccountTab({
   strings: { delegatedTooltipSuffix: string; delegatedNeedsClick: string; numberLocale: string };
   onOpen(): void;
   onMenu(): void;
-  onDragStart(): void;
-  onDrop(): void;
-  onDragEnd(): void;
+  onDragStart(e: React.DragEvent): void;
+  /** The pointer is over this tab during a drag, so the bar can say where it would land */
+  onDragOver(e: React.DragEvent): void;
+  onDragLeave(): void;
+  onDrop(e: React.DragEvent): void;
+  onDragEnd(e: React.DragEvent): void;
+  /** Which side of this tab the line goes that marks where the dragged tab lands */
+  dropSide: 'before' | 'after' | null;
 }) {
   const delegated = profile.kind === 'delegated';
   const needsUrl = delegated && profile.hasMail === false;
   const surface = activeSurface && activeSurface !== 'mail' ? activeSurface : null;
+  const named = labelWidth > TAB_AVATAR_ONLY;
+  const badge = showUnread && unread > 0;
   return (
     <button
       draggable
+      data-tab-key={profile.key}
       onClick={onOpen}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu();
       }}
-      onDragStart={onDragStart}
-      onDragOver={(e) => e.preventDefault()}
+      onDragStart={(e) => {
+        // A format of our own and no text/plain: dropped on a Gmail view rather than a strip,
+        // plain text would be pasted into whatever was under the pointer. Nothing else in the
+        // app reads it -- the window that receives the drop asks main what was dragged -- but
+        // a drag with no data at all does not start on Windows.
+        //
+        // copyMove rather than move: a strip that will take the tab answers with 'copy', which
+        // is the plus the OS draws, and the tab is not copied by anyone -- the effect is the
+        // only way to ask for that cursor.
+        e.dataTransfer.effectAllowed = 'copyMove';
+        e.dataTransfer.setData(TAB_DRAG_MIME, profile.key);
+        const ghost = createTabDragImage(
+          document,
+          { label, color: profile.color, avatarUrl: profile.avatarUrl },
+          document.documentElement.classList.contains('dark'),
+        );
+        e.dataTransfer.setDragImage(ghost, TAB_GHOST_GRAB.x, TAB_GHOST_GRAB.y);
+        // Chromium has its snapshot by the next tick; leaving it in the page would park a card
+        // off screen for the rest of the session.
+        setTimeout(() => ghost.remove(), 0);
+        onDragStart(e);
+      }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
       title={
@@ -63,16 +105,39 @@ export function AccountTab({
             : profile.email
       }
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-      className={`group relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[13px] transition ${
+      className={`group relative flex h-[30px] shrink-0 items-center gap-1.5 rounded-md text-[13px] transition ${
+        named ? 'px-2.5' : 'px-1.5'
+      } ${
         active
           ? 'bg-black/10 text-neutral-900 dark:bg-white/15 dark:text-white'
           : 'text-neutral-600 hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10'
       } ${dragging ? 'opacity-40' : ''} ${needsUrl ? 'opacity-50' : ''}`}
     >
-      {delegated && <DelegatedIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />}
+      {/* Without a name the avatar is the account: its picture, its colour, its first letter.
+          A delegated mailbox keeps its mark on top of that, since the two kinds must not look
+          alike once the address is gone. */}
+      {!named && (
+        <span className="relative flex shrink-0 items-center">
+          <Avatar url={profile.avatarUrl} color={profile.color} name={label} size="sm" />
+          {delegated && (
+            <DelegatedIcon className="absolute -bottom-px -right-px h-3 w-3 rounded-full bg-neutral-100 p-px text-neutral-700 dark:bg-neutral-950 dark:text-neutral-300" />
+          )}
+          {badge && (
+            <span
+              aria-hidden
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-blue-500 ring-2 ring-neutral-100 dark:ring-neutral-950"
+            />
+          )}
+        </span>
+      )}
+      {named && delegated && <DelegatedIcon className="h-3.5 w-3.5 shrink-0 opacity-60" />}
       {surface && <SurfaceIcon surface={surface} className="h-3.5 w-3.5 shrink-0" />}
-      <span className="max-w-[160px] truncate">{label}</span>
-      {showUnread && unread > 0 && (
+      {named && (
+        <span className="truncate" style={{ maxWidth: labelWidth }}>
+          {label}
+        </span>
+      )}
+      {named && badge && (
         <span className="shrink-0 rounded-full bg-blue-500 px-1.5 text-[10px] font-bold leading-[15px] text-white">
           {unreadLabel(unread, strings.numberLocale)}
         </span>
@@ -84,6 +149,18 @@ export function AccountTab({
         }`}
         style={{ backgroundColor: profile.color }}
       />
+      {/* Where the tab being dragged will land. On the edge of the tab it would sit next to,
+          because the bar reorders by dropping one tab on another and the gap is the answer. */}
+      {dropSide && (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute inset-y-0 w-[3px] rounded-full bg-blue-500 ${
+            // On the tab's own edge rather than in the gap beside it: the strip scrolls, and a
+            // line drawn outside the last tab is clipped away exactly when it matters.
+            dropSide === 'before' ? 'left-0' : 'right-0'
+          }`}
+        />
+      )}
     </button>
   );
 }

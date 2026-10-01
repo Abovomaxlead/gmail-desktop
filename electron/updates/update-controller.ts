@@ -6,6 +6,12 @@
 // check started from the tray owes an answer even when it is "nothing new", so that one
 // check remembers it has a dialog to pop.
 //
+// A third, about error text. What reaches the panel goes through updateErrorText:
+// electron-updater's message is written for a log and carries the response headers as JSON,
+// which the Updates section rendered verbatim. The full text is never lost — autoUpdater
+// writes update.log — so the retry decision and the log line keep the raw message and only
+// the panel gets the shortened one.
+//
 // The status lives in runtime, because the tray and the settings panel both draw from it
 // and it must survive the window this module has no hand in creating.
 
@@ -24,11 +30,15 @@ import {
   setLastUpdateStatus,
 } from '../core/runtime';
 import { nativeLabels } from '../menus/native-labels';
-import { parseChangelog, type ChangelogVersion } from './changelog';
+import { parseChangelog } from './changelog';
+import type { ChangelogVersion } from '../../renderer/lib/changelog-types';
 import { prereleaseAllowed } from './update-channel';
 import { shouldNotifyUpdate } from './update-notifier';
 import { updateCheckPopup } from './update-popup';
 import { UPDATE_RETRY_DELAY_MS, shouldRetryDownload } from './update-retry';
+import { NO_RELEASE_ERROR, updateErrorText } from './update-error';
+import { releaseNotesMarkdown } from './changelog';
+import { openReleaseNotes } from './release-notes-overlay';
 import { createUpdateLog, type UpdateLogger } from './update-log';
 import { showToast } from '../toast/toast-presenter';
 import { playNotificationSound } from '../notify/notify-gating';
@@ -42,7 +52,7 @@ import { playNotificationSound } from '../notify/notify-gating';
  * because each of these already reaches down for the functions here — the tray menu offers
  * check, download and install, and the settings panel is where a check reports back. */
 export interface UpdateHooks {
-  openSettingsPanel(): void;
+  openSettingsPanel(section?: string): void;
   onStatusChanged(): void;
 }
 
@@ -56,7 +66,6 @@ let hooks: UpdateHooks = {
   onStatusChanged: () => {},
 };
 
-let updateRequested = false;
 let downloadAttempt = 0;
 let downloadInFlight = false;
 let downloadRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -81,8 +90,8 @@ export function setUpdateHooks(h: UpdateHooks): void {
 /**
  * The release notes the settings panel shows
  *
- * @returns {ChangelogVersion[]} empty when the file is missing, which it is in a checkout
- *   that has never been packaged
+ * @returns empty when the file is missing, which it is in a checkout that has never been
+ *   packaged
  */
 export function loadChangelog(): ChangelogVersion[] {
   try {
@@ -96,19 +105,18 @@ export function checkForUpdate(opts?: { background?: boolean }): void {
   lastCheckBackground = opts?.background === true;
   if (!app.isPackaged) return sendUpdate({ state: 'dev' });
   sendUpdate({ state: 'checking' });
-  autoUpdater
-    .checkForUpdates()
-    .catch((err) => sendUpdate({ state: 'error', message: String(err?.message || err) }));
+  autoUpdater.checkForUpdates().catch((err) => reportCheckFailure(String(err?.message || err)));
 }
 
 export function checkForUpdateFromTray(): void {
-  hooks.openSettingsPanel();
+  // The same reasoning as the update card: somebody who asked for a check from the tray is
+  // owed the section that answers, not the one they happened to leave open.
+  hooks.openSettingsPanel('updates');
   pendingTrayUpdateCheck = true;
   checkForUpdate();
 }
 
 export function downloadUpdate(): void {
-  updateRequested = true;
   if (downloadRetryTimer) {
     clearTimeout(downloadRetryTimer);
     downloadRetryTimer = null;
@@ -129,10 +137,7 @@ export function installUpdate(): void {
  * next check instead of the next launch.
  */
 export function applyUpdateChannel(): void {
-  autoUpdater.allowPrerelease = prereleaseAllowed(
-    prefs?.getAll().updates.allowPrerelease,
-    app.getVersion(),
-  );
+  autoUpdater.allowPrerelease = prereleaseAllowed(prefs?.getAll().updates.allowPrerelease);
   // Set explicitly although false is already the default, because this is the promise that an
   // update never walks backwards -- and autoUpdater's `channel` setter turns it on behind your
   // back, so the intent belongs in writing next to the flag it guards.
@@ -161,24 +166,26 @@ export function setupUpdater(): void {
   autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
   autoUpdater.on('update-available', (info) => {
     sendUpdate({ state: 'available', version: info.version });
-    maybeNotifyUpdate(info.version);
+    maybeNotifyUpdate(info.version, releaseNotesMarkdown(info.releaseNotes));
   });
   autoUpdater.on('update-not-available', (info) =>
     sendUpdate({ state: 'not-available', version: info.version }),
   );
   autoUpdater.on('error', (err) => {
     if (downloadInFlight) return;
-    sendUpdate({ state: 'error', message: String(err?.message || err) });
+    reportCheckFailure(String(err?.message || err));
   });
   autoUpdater.on('download-progress', (p) =>
     sendUpdate({ state: 'downloading', percent: Math.round(p.percent) }),
   );
+  // Downloaded is where a download stops. It used to install from here, which made
+  // "download" mean "restart and install now" -- and the flag it hung on could never be
+  // false, since attemptUpdateDownload is reachable only from downloadUpdate. Publishing the
+  // state is the whole of the offer: the Updates section draws its 'restart and install'
+  // button on it and the tray item becomes an install item. installUpdate is the only thing
+  // that quits, and autoInstallOnAppQuit covers the user who simply closes the app.
   autoUpdater.on('update-downloaded', (info) => {
     sendUpdate({ state: 'downloaded', version: info.version });
-    if (updateRequested) {
-      setIsQuitting(true);
-      autoUpdater.quitAndInstall();
-    }
   });
 }
 
@@ -187,12 +194,33 @@ export function setupUpdater(): void {
 // Helper functions
 //===========================
 
-/** The one place the update state is written and published. */
+/** The one place the update state is written and published */
 function sendUpdate(status: Record<string, unknown>): void {
   setLastUpdateStatus({ ...status, currentVersion: app.getVersion() });
   mainWindow?.webContents.send(IPC.UPDATE_STATUS, lastUpdateStatus);
   hooks.onStatusChanged();
   maybeShowTrayUpdatePopup();
+}
+
+/**
+ * Publishes the outcome of a check that came back with an error
+ *
+ * A stable channel on a repository whose only releases are prereleases -- the state you land
+ * in the moment the prerelease switch goes off on a beta build -- makes GitHub answer with an
+ * error, and it used to reach the panel as one: a red line naming a URL and an HTTP status
+ * about a release that was never published. There is nothing wrong and nothing to retry, so
+ * it gets a state of its own that says what is actually true, and the raw text still goes to
+ * update.log for anyone reading it.
+ *
+ * @param raw electron-updater's own message
+ * @private
+ */
+function reportCheckFailure(raw: string): void {
+  if (NO_RELEASE_ERROR.test(raw)) {
+    updateLog?.info(`no release to update to: ${updateErrorText(raw)}`);
+    return sendUpdate({ state: 'no-release' });
+  }
+  sendUpdate({ state: 'error', message: updateErrorText(raw) });
 }
 
 /** The answer to a check the user started from the tray. Nothing else pops a dialog: a
@@ -222,7 +250,18 @@ function maybeShowTrayUpdatePopup(): void {
     });
 }
 
-function maybeNotifyUpdate(version: string): void {
+/**
+ * Announces a version the app just found
+ *
+ * The notes themselves where they can be shown, a card in the corner where they cannot: a
+ * release with an empty body has nothing to put in a modal, and an app with no window yet
+ * has nowhere to put one. Never both -- one found version is one announcement.
+ *
+ * @param version
+ * @param notes the release body, empty when the release carried none
+ * @private
+ */
+function maybeNotifyUpdate(version: string, notes: string): void {
   if (prefs?.getAll().updates.notify === false) return;
   if (
     !shouldNotifyUpdate({
@@ -234,13 +273,15 @@ function maybeNotifyUpdate(version: string): void {
   )
     return;
   notifiedUpdateVersion = version;
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
-  showToast({
-    kind: 'update',
-    title: L.updateAvailableTitle,
-    body: L.updateAvailableBody(version),
-    persist: true,
-  });
+  if (!openReleaseNotes(version, notes)) {
+    const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+    showToast({
+      kind: 'update',
+      title: L.updateAvailableTitle,
+      body: L.updateAvailableBody(version),
+      persist: true,
+    });
+  }
   if (prefs) playNotificationSound(prefs.getAll());
 }
 
@@ -260,7 +301,7 @@ function attemptUpdateDownload(): void {
       const message = String(err?.message || err);
       if (!shouldRetryDownload(message, attempt)) {
         updateLog?.error(`download failed after ${attempt} attempt(s): ${message}`);
-        sendUpdate({ state: 'error', message });
+        sendUpdate({ state: 'error', message: updateErrorText(message) });
         return;
       }
       updateLog?.warn(`download attempt ${attempt} failed, retrying: ${message}`);

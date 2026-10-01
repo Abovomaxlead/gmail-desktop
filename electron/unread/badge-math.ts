@@ -1,6 +1,16 @@
 // Sums the per-account unread counts for the taskbar badge, skipping accounts the
 // user excluded and any non-finite value.
 
+
+//===========================
+// Constants
+//===========================
+
+
+//===========================
+// Exported functions
+//===========================
+
 /**
  * Sums the unread counts that belong in the badge
  *

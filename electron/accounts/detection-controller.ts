@@ -4,28 +4,9 @@
 // until detection-planner says to stop. Index 0 is exempt from the probe timeout, since
 // giving up on it would leave the app showing nothing at all.
 
-import { pushActive, pushProfiles, pushUnread, refreshBadge } from '../core/broadcast';
-import {
-  SESSION_PARTITION,
-  accountCache,
-  authIdx,
-  authRef,
-  colors,
-  coverage,
-  delegated,
-  currentLocale,
-  history,
-  keyOf,
-  keyOfIndex,
-  mainWindow,
-  manager,
-  oauthTokens,
-  prefs,
-  profiles,
-  setCachedAccounts,
-  syncRunners,
-  unread,
-} from '../core/runtime';
+import { pushActive, pushHidden, pushProfiles, pushUnread, refreshBadge } from '../core/broadcast';
+import { SESSION_PARTITION } from '../core/session-partition';
+import { accountCache, authIdx, authRef, colors, delegated, currentLocale, hidden, history, keyOf, keyOfIndex, mainWindow, manager, oauthTokens, prefs, profiles, setCachedAccounts, unread } from '../core/runtime';
 import {
   showAccount,
   syncCalendarViews,
@@ -34,8 +15,8 @@ import {
 } from '../windows/view-surfaces';
 import { refreshNotifyAllowed, playNotificationSound } from '../notify/notify-gating';
 import { showToast } from '../toast/toast-presenter';
-import { startMailSync } from '../push/mail-sync-controller';
-import { maybeStartDelegatedApiScan } from '../delegation/delegated-controller';
+import { startMailSync, stopMailboxSync } from '../push/mail-sync-controller';
+import { addDelegatedMailboxes, maybeStartDelegatedApiScan } from '../delegation/delegated-controller';
 import { connectAccount } from '../auth/oauth-flow';
 import { isAllowedAccount } from '../auth/account-domain';
 import { revokeRefreshToken } from '../auth/token-revoke';
@@ -65,7 +46,15 @@ const seenEmails = new Set<string>();
 let probeTimer: ReturnType<typeof setTimeout> | null = null;
 let probingIndex: number | null = null;
 
+// bumped by redetect()/addAccount() so a walk started before it can tell it has been
+// superseded and must abandon instead of touching this walk's bookkeeping
+let runToken = 0;
+
 let visibleProbe: number | null = null;
+
+// The indexes whose consent screen is up. The page keeps polling its identity every second,
+// and a report accepted while consent is pending would register the account behind it.
+const consentPending = new Set<number>();
 
 
 //===========================
@@ -86,8 +75,12 @@ export function redetect(): void {
     manager?.discardView(keyOfIndex(probingIndex), 'mail');
   }
   probingIndex = null;
+  consentPending.clear();
+  // A new walk invalidates the last one: a consent continuation still awaiting the user
+  // sees its captured token go stale and abandons instead of clobbering this walk.
+  runToken += 1;
   const maxIndex = profiles.length ? Math.max(...profiles.map((p) => authIdx(p))) : -1;
-  probe(maxIndex + 1);
+  probe(maxIndex + 1, runToken);
 }
 
 export function addAccount(): void {
@@ -95,6 +88,8 @@ export function addAccount(): void {
   if (probingIndex !== null && !profiles.some((p) => authIdx(p) === probingIndex)) {
     manager?.discardView(keyOfIndex(probingIndex), 'mail');
   }
+  runToken += 1;
+  consentPending.clear();
   const nextIndex = profiles.length ? Math.max(...profiles.map((p) => authIdx(p))) + 1 : 0;
   probingIndex = nextIndex;
   visibleProbe = nextIndex;
@@ -119,12 +114,14 @@ function clearProbeTimer(): void {
   }
 }
 
-function probe(index: number): void {
+function probe(index: number, token: number): void {
+  if (token !== runToken) return;
   probingIndex = index;
   manager?.ensureView(authRef(index), 'mail', false);
   clearProbeTimer();
   if (index > 0) {
     probeTimer = setTimeout(() => {
+      if (token !== runToken) return;
       manager?.discardView(keyOfIndex(index), 'mail');
       probeTimer = null;
       settleDetection();
@@ -133,9 +130,11 @@ function probe(index: number): void {
 }
 
 export function onIdentity(index: number, identity: { email: string; name: string; avatarUrl: string }): void {
+  if (consentPending.has(index)) return;
   if (profiles.some((p) => authIdx(p) === index)) return;
 
   const isVisibleAdd = visibleProbe === index;
+  const token = runToken;
 
   const decision = planNext([...seenEmails], index, identity);
   clearProbeTimer();
@@ -143,12 +142,24 @@ export function onIdentity(index: number, identity: { email: string; name: strin
   if (decision.register && identity.email) {
     if (isVisibleAdd) {
       visibleProbe = null;
-      void addAccountAfterConsent(index, identity, decision.stop);
+      // Asking for an account by name outranks having waved it away: the + button is how a
+      // hidden own account comes back, and it must not be gated on the list below.
+      hidden?.remove(identity.email);
+      consentPending.add(index);
+      void addAccountAfterConsent(index, identity, decision.stop, token);
       return;
     }
-    registerAccount(index, identity);
-    if (manager?.activeKey() == null) {
-      switchSurface(index, 'mail');
+    // Found again, as it will be at every launch: no API lists the signed-in accounts, so the
+    // probe cannot be told to skip an index. Seen, so the planner still recognises a repeat and
+    // knows where the list ends; never registered, so it draws no row.
+    if (hidden?.has(identity.email)) {
+      seenEmails.add(identity.email);
+      manager?.discardView(keyOfIndex(index), 'mail');
+    } else {
+      registerAccount(index, identity);
+      if (manager?.activeKey() == null) {
+        switchSurface(index, 'mail');
+      }
     }
   } else if (index > 0) {
     manager?.discardView(keyOfIndex(index), 'mail');
@@ -157,8 +168,8 @@ export function onIdentity(index: number, identity: { email: string; name: strin
       if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
     }
   }
-  if (!decision.stop) probe(index + 1);
-  else if (identity?.email) settleDetection();
+  if (!decision.stop) probe(index + 1, token);
+  else if (identity.email) settleDetection();
 }
 
 function registerAccount(
@@ -185,6 +196,9 @@ function registerAccount(
   profiles.push(profile);
   profiles.sort((a, b) => authIdx(a) - authIdx(b));
   pushProfiles();
+  // A view that loaded before this account registered stopped asking after fifteen tries;
+  // this is the push that lets drag-to-save arrive once the answer is finally knowable.
+  manager?.pushMailDropAllowed(keyOf(profile));
   refreshNotifyAllowed();
   startMailSync();
   syncCalendarViews();
@@ -195,6 +209,7 @@ async function addAccountAfterConsent(
   index: number,
   identity: { email: string; name: string; avatarUrl: string },
   stopProbing: boolean,
+  token: number,
 ): Promise<void> {
   const email = identity.email;
   const cfg = oauthConfig();
@@ -208,6 +223,11 @@ async function addAccountAfterConsent(
 
   if (needsConsent) {
     const result = await connectAccount(mainWindow!, SESSION_PARTITION, cfg!, oauthTokens!, email);
+    // The screen is gone either way, so the page's identity polls count again from here
+    consentPending.delete(index);
+    // A redetect() during the wait for consent started a new walk; this chain's captured
+    // token is stale and it must not touch that walk's probingIndex or timer.
+    if (token !== runToken) return;
     if (!result.ok) {
       manager?.discardView(keyOfIndex(index), 'mail');
       if (profiles[0]) switchSurface(authIdx(profiles[0]), 'mail');
@@ -219,31 +239,38 @@ async function addAccountAfterConsent(
         persist: true,
       });
       if (prefs) playNotificationSound(prefs.getAll());
-      if (!stopProbing) probe(index + 1);
+      if (!stopProbing) probe(index + 1, token);
       else settleDetection();
       return;
     }
   }
 
+  consentPending.delete(index);
   registerAccount(index, identity);
   switchSurface(index, 'mail');
-  if (!stopProbing) probe(index + 1);
+  if (!stopProbing) probe(index + 1, token);
   else settleDetection();
 }
 
 export function removeAccount(email: string): void {
+  // Remembered before anything else is undone, because both discovery paths keep running: the
+  // probe finds a signed-in account again at the next launch, and the relay names a delegation
+  // again the moment it is asked. This list is the only thing that makes a removal outlast the
+  // session it happened in. A row that is already gone reads as an own account -- the delegated
+  // half is prunable and would be dropped again by the first scan.
+  const profile = profiles.find((p) => p.email === email);
+  hidden?.add(email, profile?.kind === 'delegated' ? 'delegated' : 'authuser');
+  pushHidden();
   accountCache?.remove(email);
   const doomed = oauthTokens?.get(email);
   if (doomed?.accessToken) void stopWatch(doomed.accessToken).catch(() => undefined);
   history?.remove(email);
-  coverage.forget(email);
-  syncRunners.delete(email);
+  stopMailboxSync(email);
   oauthTokens?.remove(email);
   // Deleting our copy leaves the grant standing at Google, so a refresh token that leaked
   // before the unlink would keep working. Told separately, and never waited on: unlinking is
   // a local act and must finish with the network down.
-  if (doomed?.refreshToken) void reportRevoke(email, doomed.refreshToken);
-  const profile = profiles.find((p) => p.email === email);
+  if (doomed?.refreshToken) void reportRevoke(email, doomed.refreshToken).catch(() => undefined);
   if (!profile) {
     pushProfiles();
     return;
@@ -263,6 +290,26 @@ export function removeAccount(email: string): void {
     if (next) showAccount(next.ref, 'mail');
     else pushActive();
   }
+}
+
+/**
+ * Lets a mailbox be found again, and goes looking for it where that is possible
+ *
+ * The two halves differ in how soon it comes back. A delegation can be asked for on the spot,
+ * so the row returns within seconds. An own account cannot: the probe walks /mail/u/0 upward
+ * from an empty list, and once accounts hold the indexes below it there is no way back into
+ * that walk -- so it returns at the next start, which is what the line under the list says.
+ *
+ * @param email
+ */
+export function unhideAccount(email: string): void {
+  const entry = hidden?.list().find((h) => h.email === email.trim().toLowerCase());
+  if (!entry) return;
+  hidden?.remove(entry.email);
+  pushHidden();
+  // Unhiding is a person asking for the row back, which is the one other place a delegated
+  // mailbox may be added; the hourly relay sweep takes it away again if it is not theirs.
+  if (entry.kind === 'delegated') addDelegatedMailboxes([entry.email]);
 }
 
 

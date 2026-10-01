@@ -7,6 +7,8 @@
 // cached per mailbox, or every drag would cost a fresh mint and a delegates-list read.
 
 
+import { NOT_A_DELEGATE, REQUESTER_TOKEN_INVALID } from './delegated-access';
+
 
 //===========================
 // Constants
@@ -74,11 +76,15 @@ export function cacheEntry(accessToken: string, expiresInSeconds: number, now: n
 /**
  * Whether the relay's refusal is worth retrying as a different account
  *
+ * A refusal that names this requester -- their own token, or their lack of the delegation --
+ * says nothing about whether another own account holds it, so the walk continues. Only a
+ * refusal that is not about any one requester ends it.
+ *
  * @param status the relay's HTTP status
- * @returns true for 403 only
+ * @returns true for statuses that are specific to the requester just asked
  */
 export function shouldTryAnotherRequester(status: number): boolean {
-  return status === 403;
+  return status === NOT_A_DELEGATE || status === REQUESTER_TOKEN_INVALID;
 }
 
 export interface DelegatedTokenDeps {

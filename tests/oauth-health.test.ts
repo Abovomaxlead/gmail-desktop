@@ -1,4 +1,4 @@
-// Which accounts need reconnecting, why, and the size of the reconnect banner.
+// Which accounts need reconnecting, and the size of the reconnect banner.
 
 import { describe, it, expect } from 'vitest';
 import { accountOAuthStatuses, accountsNeedingReconnect, bannerBounds } from '../electron/auth/oauth-health';
@@ -7,14 +7,11 @@ const input = (over: Partial<Parameters<typeof accountsNeedingReconnect>[0]> = {
   ownEmails: ['a@x.nl', 'b@x.nl'],
   hasToken: () => true,
   refreshFailed: () => false,
-  pushConfigured: true,
-  missingScopes: () => false,
-  pushRefused: () => false,
+  scopesComplete: () => true,
   ...over,
 });
 
-const expired = (email: string) => ({ email, reason: 'expired' });
-const push = (email: string) => ({ email, reason: 'push' });
+const named = (email: string) => ({ email });
 
 describe('accountsNeedingReconnect', () => {
   it('is empty when every account has a working token', () => {
@@ -23,79 +20,31 @@ describe('accountsNeedingReconnect', () => {
 
   it('flags an account without a token', () => {
     expect(accountsNeedingReconnect(input({ hasToken: (e) => e !== 'b@x.nl' }))).toEqual([
-      expired('b@x.nl'),
+      named('b@x.nl'),
     ]);
   });
 
   it('flags an account whose refresh failed', () => {
     expect(accountsNeedingReconnect(input({ refreshFailed: (e) => e === 'a@x.nl' }))).toEqual([
-      expired('a@x.nl'),
+      named('a@x.nl'),
     ]);
   });
 
   it('flags several at once, in the order given', () => {
     expect(accountsNeedingReconnect(input({ hasToken: () => false }))).toEqual([
-      expired('a@x.nl'),
-      expired('b@x.nl'),
+      named('a@x.nl'),
+      named('b@x.nl'),
     ]);
+  });
+
+  it('reports an account once when both faults apply to it', () => {
+    expect(
+      accountsNeedingReconnect(input({ ownEmails: ['a@x.nl'], hasToken: () => false, refreshFailed: () => true })),
+    ).toEqual([named('a@x.nl')]);
   });
 
   it('ignores accounts that are not listed as own (delegated mailboxes)', () => {
     expect(accountsNeedingReconnect(input({ ownEmails: [], hasToken: () => false }))).toEqual([]);
-  });
-});
-
-describe('accountsNeedingReconnect — scopes', () => {
-  const base = {
-    ownEmails: ['a@x.nl'],
-    hasToken: () => true,
-    refreshFailed: () => false,
-    pushConfigured: true,
-    missingScopes: () => false,
-    pushRefused: () => false,
-  };
-
-  it('leaves a healthy account alone', () => {
-    expect(accountsNeedingReconnect(base)).toEqual([]);
-  });
-
-  it('asks to reconnect an account whose token predates a new scope', () => {
-    expect(accountsNeedingReconnect({ ...base, missingScopes: () => true })).toEqual([
-      push('a@x.nl'),
-    ]);
-  });
-
-  it('says nothing about a missing scope when push is not configured at all', () => {
-    expect(
-      accountsNeedingReconnect({ ...base, pushConfigured: false, missingScopes: () => true }),
-    ).toEqual([]);
-  });
-
-  it('says nothing about a refused token when push is not configured', () => {
-    expect(
-      accountsNeedingReconnect({ ...base, pushConfigured: false, pushRefused: () => true }),
-    ).toEqual([]);
-  });
-
-  it('asks to reconnect an account the relay refused for good', () => {
-    expect(accountsNeedingReconnect({ ...base, pushRefused: () => true })).toEqual([push('a@x.nl')]);
-  });
-
-  it('reports an account once, with the reason that weighs heaviest', () => {
-    expect(
-      accountsNeedingReconnect({ ...base, hasToken: () => false, missingScopes: () => true }),
-    ).toEqual([expired('a@x.nl')]);
-  });
-
-  it('keeps the reasons apart when both kinds are in the list', () => {
-    expect(
-      accountsNeedingReconnect({
-        ...base,
-        ownEmails: ['a@x.nl', 'b@x.nl'],
-        hasToken: (e) => e !== 'a@x.nl',
-        missingScopes: (e) => e === 'b@x.nl',
-      }),
-    ).toEqual([expired('a@x.nl'), push('b@x.nl')]);
   });
 });
 
@@ -125,23 +74,21 @@ describe('bannerBounds', () => {
   });
 });
 
-// The status the accounts panel draws. The precedence between the states is the part worth
-// pinning down: a link that is gone outranks a scope that is missing, because re-granting
-// a scope on an account with no token cannot succeed.
+// The status the accounts panel draws. The precedence is the part worth pinning down: a link
+// that was never made outranks one that stopped working, which outranks one that is merely
+// short of rights, because the panel has to answer whether this account was ever connected.
 describe('accountOAuthStatuses', () => {
   const one = (over: Partial<Parameters<typeof accountOAuthStatuses>[0]> = {}) => ({
     ownEmails: ['a@x.nl'],
     hasToken: () => true,
     refreshFailed: () => false,
-    pushConfigured: true,
-    missingScopes: () => false,
-    pushRefused: () => false,
+    scopesComplete: () => true,
     ...over,
   });
   const statusOf = (over: Partial<Parameters<typeof accountOAuthStatuses>[0]> = {}) =>
     accountOAuthStatuses(one(over))[0].status;
 
-  it('is linked when the token works and push is happy', () => {
+  it('is linked when the token works', () => {
     expect(statusOf()).toBe('linked');
   });
 
@@ -153,28 +100,18 @@ describe('accountOAuthStatuses', () => {
     expect(statusOf({ refreshFailed: () => true })).toBe('expired');
   });
 
-  it('is push-only when the token predates a scope push needs', () => {
-    expect(statusOf({ missingScopes: () => true })).toBe('push-only');
+  // A release that adds a scope leaves every stored token like this, and only a fresh consent
+  // fixes it: a refresh returns the scopes that were granted, never the ones that were not.
+  it('is incomplete when the token predates a scope the app now needs', () => {
+    expect(statusOf({ scopesComplete: () => false })).toBe('incomplete');
   });
 
-  it('is push-only when the relay refused the token for good', () => {
-    expect(statusOf({ pushRefused: () => true })).toBe('push-only');
+  it('prefers unlinked over expired', () => {
+    expect(statusOf({ hasToken: () => false, refreshFailed: () => true })).toBe('unlinked');
   });
 
-  // Same rule the banner has always had: every pre-existing token predates the push scope,
-  // so counting that as a fault would flag every machine after an update.
-  it('is linked despite a push problem when push is not configured at all', () => {
-    expect(
-      statusOf({ pushConfigured: false, missingScopes: () => true, pushRefused: () => true }),
-    ).toBe('linked');
-  });
-
-  it('prefers unlinked over a push problem', () => {
-    expect(statusOf({ hasToken: () => false, missingScopes: () => true })).toBe('unlinked');
-  });
-
-  it('prefers expired over a push problem', () => {
-    expect(statusOf({ refreshFailed: () => true, pushRefused: () => true })).toBe('expired');
+  it('prefers expired over incomplete, since one consent fixes both', () => {
+    expect(statusOf({ refreshFailed: () => true, scopesComplete: () => false })).toBe('expired');
   });
 
   it('has one entry per own account, in the order given', () => {
@@ -191,38 +128,30 @@ describe('accountOAuthStatuses', () => {
   });
 });
 
-// The test that protects the decision this change is built on. The banner and the accounts
-// panel must never disagree about the same account, which is guaranteed only while the
-// reconnect list is a projection of the statuses. Every combination of the five inputs is
-// checked, which pins the mapping for the four states those five booleans can actually
-// produce. It does not guard against a fifth OAuthStatus: that state would need a new field
-// on HealthInput, so no table of these five booleans could ever construct it, and this suite
-// would stay green. What catches an unmapped fifth state is the total Record type on
-// RECONNECT_REASON in electron/oauth-health.ts, which turns the omission into a compile
-// error there instead.
+// The banner and the accounts panel must never disagree about the same account, which holds
+// only while the reconnect list stays a projection of the statuses. Every combination of the
+// three inputs is checked, which pins the mapping for every state they can produce. What
+// catches a status nobody mapped is the total Record type on NEEDS_RECONNECT in
+// electron/auth/oauth-health.ts, which turns the omission into a compile error there.
 describe('accountsNeedingReconnect follows accountOAuthStatuses', () => {
   const bools = [true, false];
   const cases: Parameters<typeof accountsNeedingReconnect>[0][] = [];
   for (const token of bools)
     for (const failed of bools)
-      for (const configured of bools)
-        for (const scopes of bools)
-          for (const refused of bools)
-            cases.push({
-              ownEmails: ['a@x.nl'],
-              hasToken: () => token,
-              refreshFailed: () => failed,
-              pushConfigured: configured,
-              missingScopes: () => scopes,
-              pushRefused: () => refused,
-            });
+      for (const scopes of bools)
+        cases.push({
+          ownEmails: ['a@x.nl'],
+          hasToken: () => token,
+          refreshFailed: () => failed,
+          scopesComplete: () => scopes,
+        });
 
   it.each(cases.map((input, i) => ({ i, input })))(
     'case $i reports exactly what the statuses imply',
     ({ input }) => {
       const expected = accountOAuthStatuses(input)
         .filter((s) => s.status !== 'linked')
-        .map((s) => ({ email: s.email, reason: s.status === 'push-only' ? 'push' : 'expired' }));
+        .map((s) => ({ email: s.email }));
       expect(accountsNeedingReconnect(input)).toEqual(expected);
     },
   );

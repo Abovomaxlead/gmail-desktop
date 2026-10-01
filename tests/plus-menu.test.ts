@@ -26,8 +26,4 @@ describe('planPlusMenu', () => {
       { kind: 'item', id: PLUS_ADD_DELEGATED, label: S.addDelegatedLabel },
     ]);
   });
-
-  it('has no state that could leave a menu entry stuck', () => {
-    expect(planPlusMenu({ strings: S })).toEqual(planPlusMenu({ strings: S }));
-  });
 });

@@ -93,7 +93,7 @@ export async function mailboxToken(email: string): Promise<DelegatedTokenOutcome
   return token ? { ok: true, token } : { ok: false, error: 'Verbinding verlopen' };
 }
 
-export async function freshTokenAfter401(email: string): Promise<string | null> {
+async function freshTokenAfter401(email: string): Promise<string | null> {
   if (isDelegatedMailbox(email)) {
     forgetDelegatedToken(email);
     const again = await delegatedTokenFor(email);
@@ -134,6 +134,35 @@ export async function withMailboxToken(
       const fresh = await freshTokenAfter401(email);
       if (!fresh) throw e;
       token = fresh;
+      return await fn(fresh);
+    }
+  };
+}
+
+/**
+ * Runs calls against a delegated mailbox, minting per call
+ *
+ * The counterpart of withTokenFor for a mailbox that has no login of its own. withMailboxToken
+ * captures one token and may recover from a 401 once, which is right for a drag and wrong for
+ * the sync runner: that lives as long as the app does, so the token it started with is dead
+ * long before it stops being called. delegatedTokenFor caches until the hour is nearly up, so
+ * asking per call costs a map lookup rather than a relay round trip.
+ *
+ * @param email the delegated mailbox to run against
+ * @returns a runner; it throws the relay's own words when no token can be had
+ */
+export function withDelegatedToken(
+  email: string,
+): <T>(fn: (token: string) => Promise<T>) => Promise<T> {
+  return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
+    const granted = await delegatedTokenFor(email);
+    if (!granted.ok) throw new Error(granted.error);
+    try {
+      return await fn(granted.token);
+    } catch (e) {
+      if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
+      const fresh = await freshTokenAfter401(email);
+      if (!fresh) throw e;
       return await fn(fresh);
     }
   };

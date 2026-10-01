@@ -201,10 +201,10 @@ export function attachContextMenu(webContents: WebContents, getLabels: () => Con
       paste: () => webContents.paste(),
       pasteMatchStyle: () => webContents.pasteAndMatchStyle(),
       selectAll: () => webContents.selectAll(),
-      copyLink: () => clipboard.writeText(params.linkURL),
+      copyLink: () => copyToClipboard(params.linkURL),
       openLink: () => openExternalLink(params.linkURL),
       copyImage: () => webContents.copyImageAt(params.x, params.y),
-      copyImageAddress: () => clipboard.writeText(params.srcURL),
+      copyImageAddress: () => copyToClipboard(params.srcURL),
       searchGoogle: () => void shell.openExternal(googleSearchUrl(params.selectionText)),
     };
 
@@ -221,5 +221,26 @@ export function attachContextMenu(webContents: WebContents, getLabels: () => Con
           },
     );
     Menu.buildFromTemplate(template).popup();
+  });
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Puts text on the clipboard without letting a failure reach the process
+ *
+ * Electron 44 made every clipboard write asynchronous, and main has no
+ * unhandledRejection handler -- a clipboard another app holds open would take the
+ * process down instead of losing one copy
+ *
+ * @param text
+ * @private
+ */
+function copyToClipboard(text: string): void {
+  void clipboard.writeText(text).catch((e: unknown) => {
+    console.warn('[menu] could not write to the clipboard:', e);
   });
 }

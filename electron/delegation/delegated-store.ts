@@ -1,8 +1,5 @@
-// Durable storage for delegated mailboxes, holding Google's real URLs. Detection only ever
-// adds; only an explicit user removal deletes.
-//
-// mergeScan carries the health check: it never removes an entry a scan missed, and reports
-// healthOk false when a scan returns fewer entries than are held, which reads as breakage.
+// Durable storage for delegated mailboxes, holding Google's real mail URL. Detection only
+// ever adds; only an explicit user removal deletes.
 
 import { readJsonFile, writeJsonFile } from '../core/json-store';
 
@@ -14,31 +11,6 @@ import { readJsonFile, writeJsonFile } from '../core/json-store';
 export interface StoredDelegate {
   email: string;
   mailUrl: string | null;
-  calendarUrl: string | null;
-}
-
-
-//===========================
-// Exported functions
-//===========================
-
-/**
- * Folds a scan onto what is already stored
- *
- * @param existing
- * @param scanned
- * @returns the merged list, and healthOk false when the scan looks broken
- */
-export function mergeScan(
-  existing: StoredDelegate[],
-  scanned: StoredDelegate[],
-): { next: StoredDelegate[]; healthOk: boolean } {
-  const byEmail = new Map(existing.map((d) => [d.email.toLowerCase(), d]));
-  for (const s of scanned) {
-    const key = s.email.toLowerCase();
-    byEmail.set(key, keepUrls(byEmail.get(key), s));
-  }
-  return { next: [...byEmail.values()], healthOk: scanned.length >= existing.length };
 }
 
 
@@ -64,7 +36,7 @@ export class DelegatedStore {
   }
 
   /**
-   * Adds or updates one mailbox, keeping URLs the incoming entry does not know
+   * Adds or updates one mailbox, keeping the URL the incoming entry does not know
    *
    * @param d
    */
@@ -72,7 +44,7 @@ export class DelegatedStore {
     const items = this.list();
     const held = items.find((x) => x.email.toLowerCase() === d.email.toLowerCase());
     const rest = items.filter((x) => x.email.toLowerCase() !== d.email.toLowerCase());
-    rest.push(keepUrls(held, d));
+    rest.push(keepUrl(held, d));
     this.write(rest);
   }
 
@@ -96,18 +68,17 @@ export class DelegatedStore {
 // stops opening because something wrote its address again.
 
 /**
- * Merges one mailbox onto the held entry without losing known URLs
+ * Merges one mailbox onto the held entry without losing a known URL
  *
  * @param held the entry already stored, if any
  * @param incoming
  * @returns the entry to store
  * @private
  */
-function keepUrls(held: StoredDelegate | undefined, incoming: StoredDelegate): StoredDelegate {
+function keepUrl(held: StoredDelegate | undefined, incoming: StoredDelegate): StoredDelegate {
   return {
     ...held,
     ...incoming,
     mailUrl: incoming.mailUrl ?? held?.mailUrl ?? null,
-    calendarUrl: incoming.calendarUrl ?? held?.calendarUrl ?? null,
   };
 }

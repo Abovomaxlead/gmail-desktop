@@ -8,6 +8,8 @@
 // Everything matches on structure, role/aria-* and hrefs, never on visible text or Gmail's
 // obfuscated class names.
 
+import { NOTHING_SAVED } from '../../renderer/lib/drop-outcome';
+
 
 //===========================
 // Types
@@ -16,9 +18,27 @@
 export interface DragNode {
   getAttribute(name: string): string | null;
   textContent?: string | null;
-  querySelectorAll?(sel: string): ArrayLike<{ getAttribute(name: string): string | null }>;
+  // Full nodes rather than something that only reads attributes: telling the subject line of
+  // an opened conversation from a row of the list is a question about what encloses an
+  // element, so a candidate found downwards has to be walkable upwards as well.
+  querySelectorAll?(sel: string): ArrayLike<DragNode>;
   parentElement: DragNode | null;
 }
+
+/** What a press turned out to be.
+ *
+ * 'row' names one conversation and is the only one that arms the strip. 'refused' is a press
+ * on mail that is no drag -- an opened message, its subject line, a card Gmail drew beside
+ * it. 'none' is a press that is not on mail at all, and it is the only one another gesture
+ * may still claim: preload.ts offers exactly that one to the label drag.
+ *
+ * The two halves of "no row" have to stay apart. While both answered null, a press the
+ * guards refused inside an opened conversation reached the label branch, where one label
+ * link in reach turned selecting the subject into a drag of every mail under that label. */
+export type DragPress =
+  | { kind: 'row'; threadId: string }
+  | { kind: 'refused' }
+  | { kind: 'none' };
 
 export interface MessageRef {
   legacyId?: string;
@@ -59,6 +79,32 @@ export const DROPZONE_ID = 'gmd-dropzone';
 export const DROPZONE_Z = 2147483646;
 export const DRAG_CHROME_Z = 2147483647;
 
+export const CANCEL_ID = 'gmd-dropzone-cancel';
+
+export const CANCEL_LABEL = 'Annuleren';
+
+// The strip passes clicks through to Gmail and one element inside it does not. A child may set
+// pointer-events: auto under a parent that set none -- the property is inherited but not
+// binding, so each element decides for itself -- which is what lets the strip stay a label
+// while the button in it is a button. The surface around it goes on letting Gmail have the
+// click, so nothing of the promise below is given up beyond this one element.
+//
+// Whether the button is on screen is decided here rather than in the page's own script: that
+// script draws the report a finished drop ends on, and hiding the button would be one more
+// thing it had to remember. A report has nothing left to cancel, so the two states that draw
+// one -- done and failed -- match no rule that shows it.
+//
+// The strip is display: flex, which makes the button a flex item, and a flex item shrinks
+// below its own content by default. A long line beside it would squeeze the box the click has
+// to land in while the label went on spilling out of it -- there to read, smaller to hit --
+// so it is fixed at its content width with flex: 0 0 auto. The padding is what makes it a
+// target rather than a line of text: 8px above and below carries it to roughly 35px inside a
+// strip whose content box is 52px, so it stays clear of the border either side.
+//
+// Hover and active are not decoration here. Without them a press gives no answer at all, and
+// a user who cannot tell whether it registered presses again -- which is one of the ways this
+// reads as "cancelling needs several clicks". Neutral black rather than the strip's blue,
+// because the four states draw four different backgrounds behind this same button.
 export const DROPZONE_CSS = `
 #${DROPZONE_ID} {
   position: fixed; top: 0; left: 0; right: 0; height: 56px;
@@ -73,13 +119,27 @@ export const DROPZONE_CSS = `
 #${DROPZONE_ID}[data-state="over"] { display: flex; background: #d2e3fc; border-style: solid; }
 #${DROPZONE_ID}[data-state="done"] { display: flex; color: #188038; border-color: #188038; background: rgba(230, 244, 234, 0.97); }
 #${DROPZONE_ID}[data-state="failed"] { display: flex; color: #c5221f; border-color: #c5221f; background: rgba(252, 232, 230, 0.97); }
+#${CANCEL_ID} {
+  display: none; pointer-events: auto;
+  flex: 0 0 auto;
+  margin-left: 16px; padding: 8px 14px;
+  font: inherit; color: inherit;
+  background: transparent; border: 1px solid currentColor; border-radius: 8px;
+  cursor: pointer; user-select: none;
+}
+#${CANCEL_ID}:hover { background: rgba(0, 0, 0, 0.06); }
+#${CANCEL_ID}:active { background: rgba(0, 0, 0, 0.14); }
+#${DROPZONE_ID}[data-state="armed"] #${CANCEL_ID} { display: inline-block; }
+#${DROPZONE_ID}[data-state="over"] #${CANCEL_ID} { display: inline-block; }
 `;
 
 export const DROPZONE_LABEL = 'Sleep hier om de mail op te slaan';
 
 export const NO_SUBJECT = '(geen onderwerp)';
 
-export const NOTHING_SAVED = 'Niets opgeslagen';
+// The line itself lives in renderer/lib/drop-outcome.ts, where the modal's own reason list
+// reads it too; re-exported here so this file stays the one import a Gmail view needs.
+export { NOTHING_SAVED };
 
 export const DRAG_THRESHOLD = 15;
 
@@ -89,9 +149,12 @@ export const DROPLOCK_ID = 'gmd-droplock';
  * on top of it. */
 export const DROPLOCK_Z = DROPZONE_Z - 1;
 
-// The one layer in this file that does swallow clicks: while mail is being pulled the page
-// underneath must not answer a second drag, and a strip that only says so does not stop one.
-// Apart, so the strip's own stylesheet keeps its promise of never taking a click.
+// The one layer in this file that swallows clicks wholesale: while mail is being pulled the
+// page underneath must not answer a second drag, and a strip that only says so does not stop
+// one. Apart, so the strip's own stylesheet keeps its promise -- which is no longer "never a
+// click" but "no click but the cancel button's": the rule for DROPZONE_ID is still
+// pointer-events none and passes everything through, and the rule for CANCEL_ID is the only
+// one in that sheet setting auto.
 export const DROPLOCK_CSS = `
 #${DROPLOCK_ID} {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
@@ -112,11 +175,22 @@ export const BUSY_TEXT = 'Er wordt al mail opgehaald';
 
 export const SLOW_TEXT = 'Ophalen duurde te lang';
 
+/** A cancel that caught the pull before a single conversation landed. Its own line rather than
+ * a count of nothing, the same way NOTHING_SAVED is not "0 opgeslagen". */
+export const CANCELLED_NOTHING = 'Geannuleerd, niets opgehaald';
+
 const MESSAGE_ID_ATTR = 'data-legacy-message-id';
 const MESSAGE_PERM_ATTR = 'data-message-id';
 
 const ROW_MESSAGE_ID_ATTR = 'data-legacy-last-message-id';
 const ROW_THREAD_ATTR = 'data-thread-id';
+
+const HEADING_THREAD_ATTR = 'data-thread-perm-id';
+
+/** Held as constants so the two kinds that carry nothing are one object each rather than a
+ * fresh one per press. */
+const REFUSED: DragPress = { kind: 'refused' };
+const NONE: DragPress = { kind: 'none' };
 
 
 //===========================
@@ -124,38 +198,57 @@ const ROW_THREAD_ATTR = 'data-thread-id';
 //===========================
 
 /**
- * Finds the conversation a drag started on
+ * Works out what a press was on
  *
  * The id sits deep inside the row and never on the drag target, so ancestors are searched
- * downwards too and a hit counts only when exactly one id is found — two mean the search
- * climbed into the list. A press inside an opened message is no drag, or the strip would
- * arm on selecting a line of text.
+ * downwards too and a hit counts only when exactly one id is found. Everything that is not
+ * that one row is then sorted into the two kinds the caller has to tell apart: a press on
+ * mail that is no drag is refused, and only a press on nothing at all answers 'none'.
+ *
+ * Several ids is 'none' and not a refusal, deliberately. The navigation stands beside the
+ * list, so the walk from a label link reaches a container holding every row within a few
+ * levels; reading that as "on mail" would end the label drag.
  *
  * @param el the element under the cursor when the press began
- * @returns the thread id, or null when the drag did not start on one row
+ * @returns the row, a refusal, or nothing
  */
-export function threadIdFromDragTarget(el: DragNode | null): string | null {
+export function pressFromDragTarget(el: DragNode | null): DragPress {
   let cur = el;
   for (let depth = 0; cur && depth < 30; depth++) {
-    if (cur.getAttribute(MESSAGE_ID_ATTR)) return null;
+    if (cur.getAttribute(MESSAGE_ID_ATTR)) return REFUSED;
+    if (isOpenedHeading(cur)) return REFUSED;
     const own = cur.getAttribute('data-legacy-thread-id');
-    if (own) return own;
+    // The same test as the downward answer below. Without it here, a layout that names the
+    // conversation on the pane rather than on the heading armed on every card beside the
+    // message: the walk answered with the ancestor it found the id on and no guard ran.
+    if (own) return isOpenedConversation(cur) ? REFUSED : { kind: 'row', threadId: own };
     const inside = cur.querySelectorAll?.('[data-legacy-thread-id]');
     if (inside && inside.length > 0) {
       const ids = new Set<string>();
+      let heading = false;
       for (let i = 0; i < inside.length; i++) {
+        if (isOpenedHeading(inside[i])) {
+          heading = true;
+          continue;
+        }
         const id = inside[i].getAttribute('data-legacy-thread-id');
         if (id) ids.add(id);
       }
-      if (ids.size === 1) return [...ids][0];
-      if (ids.size > 1) return null;
+      if (ids.size === 1) {
+        return isOpenedConversation(cur) ? REFUSED : { kind: 'row', threadId: [...ids][0] };
+      }
+      if (ids.size > 1) return NONE;
+      // A heading and nothing else below: the reading pane, whose only named conversation is
+      // the one it has open. This is the press beside the subject line.
+      if (heading) return REFUSED;
     }
     const next: DragNode | null = cur.parentElement;
     if (next === cur) break;
     cur = next;
   }
-  return null;
+  return NONE;
 }
+
 
 /**
  * Finds the message of a conversation a drag started on
@@ -355,15 +448,35 @@ export function dropOutcome(
  *
  * Conversations, not mails: both pull paths loop over conversations, and how many mails a
  * label holds is not known until every one of them has been fetched. A total of nothing means
- * the label is still being listed, which is the one moment there is nothing to count.
+ * the label is still being listed, and while that walk is running `done` counts what it has
+ * found rather than what has been fetched -- a label of thousands used to leave this line on
+ * its opening three words for minutes, which is what a pull that hung looks like.
  *
- * @param done conversations pulled so far
+ * @param done conversations pulled so far, or found so far while the total is still unknown
  * @param total conversations this pull will fetch, or 0 while that is not known yet
  * @returns the line for the strip
  */
 export function savingText(done: number, total: number): string {
-  if (total <= 0) return SEARCHING_TEXT;
+  if (total <= 0) {
+    if (done < 1) return SEARCHING_TEXT;
+    return `${done} gesprek${done === 1 ? '' : 'ken'} gevonden…`;
+  }
   return `${done} van ${total} opgehaald`;
+}
+
+/**
+ * What the strip says once a pull has been cancelled
+ *
+ * Conversations, because that is what the line was counting a moment earlier -- see
+ * savingText. The total is left out: a cancelled pull was never going to reach it, and naming
+ * it invites the reading that the rest still follows.
+ *
+ * @param done conversations pulled before the cancel took effect
+ * @returns the line for the strip, which counts what was kept
+ */
+export function cancelledText(done: number): string {
+  if (done < 1) return CANCELLED_NOTHING;
+  return `Geannuleerd — ${done} conversatie${done === 1 ? '' : 's'} opgehaald`;
 }
 
 /**
@@ -405,6 +518,83 @@ function insideOneRow(el: DragNode | null): boolean {
     const next: DragNode | null = cur.parentElement;
     if (next === cur) break;
     cur = next;
+  }
+  return false;
+}
+
+// The subject line of an opened conversation carries the thread id itself, so a press on it
+// never reaches the guards below and selecting the subject armed the strip. Beside it the
+// header holds no message either, so a press next to the subject found that same heading
+// downwards and read it as the one row of a list.
+//
+// The heading is known by what it has, never by what a row is missing. Keying it on the perm
+// id together with the absence of data-legacy-last-message-id read any row Gmail wrote
+// without that attribute -- or with it empty -- as the heading, and since the check aborts
+// the walk rather than skipping the element, every press point in such a row went dead and
+// the row vanished from a selection without a word. Gmail was measured writing a row's ids
+// incompletely, so that was reachable.
+//
+// What the heading has is the perm id. What a row has is its own data-thread-id and a
+// role="row" around it; either one is enough to know a row, and the heading shows neither.
+
+/**
+ * Whether an element is the subject line of an opened conversation
+ *
+ * @param el
+ * @returns true when it names a thread permanently while showing no mark of a list row
+ * @private
+ */
+function isOpenedHeading(el: DragNode): boolean {
+  if (!el.getAttribute(HEADING_THREAD_ATTR)) return false;
+  return !el.getAttribute(ROW_THREAD_ATTR) && !insideListRow(el);
+}
+
+/**
+ * Whether a list row encloses an element, or is one
+ *
+ * Apart from insideOneRow, which also accepts an element that carries a thread id: the
+ * heading carries one, so that test cannot be used to tell it from a row.
+ *
+ * @param el
+ * @returns true when a role="row" stands at or above it
+ * @private
+ */
+function insideListRow(el: DragNode): boolean {
+  let cur: DragNode | null = el;
+  for (let depth = 0; cur && depth < 30; depth++) {
+    if (cur.getAttribute('role') === 'row') return true;
+    const next: DragNode | null = cur.parentElement;
+    if (next === cur) break;
+    cur = next;
+  }
+  return false;
+}
+
+// Gmail hangs more under an opened conversation than its messages. A calendar invite gets a
+// card of Gmail's own beside the message rather than inside it, and a press on that card
+// passes no message id on its way up, so the guard above never fires. This is what still
+// answers for two shapes the heading check cannot reach: a pane that names the conversation
+// somewhere other than on its heading, and an ancestor that carries the id itself, which the
+// upward walk answers with before anything else is asked.
+//
+// Narrowed to elements no row encloses. Unnarrowed it refused any row whose subtree happened
+// to hold a message id -- an attachment chip naming the mail it belongs to would do it -- and
+// that row then armed from its subject span, where the id is carried, and refused from every
+// other cell, where it is found downwards. One row answering two ways.
+
+/**
+ * Whether an element stands for an opened conversation rather than a row of the list
+ *
+ * @param el the element the walk is about to answer with
+ * @returns true when a message of an opened conversation hangs below it and no row encloses it
+ * @private
+ */
+function isOpenedConversation(el: DragNode): boolean {
+  if (insideListRow(el)) return false;
+  const found = el.querySelectorAll?.(`[${MESSAGE_ID_ATTR}]`);
+  if (!found) return false;
+  for (let i = 0; i < found.length; i++) {
+    if (found[i].getAttribute(MESSAGE_ID_ATTR)) return true;
   }
   return false;
 }
@@ -460,4 +650,16 @@ function rowRefOf(el: { getAttribute(name: string): string | null }): MessageRef
   const legacyId = el.getAttribute(ROW_MESSAGE_ID_ATTR) ?? '';
   if (!legacyId && !permId) return null;
   return { ...(legacyId ? { legacyId } : {}), ...(permId ? { permId } : {}) };
+}
+
+/**
+ * Finds the conversation a drag started on
+ *
+ * @param el the element under the cursor when the press began
+ * @returns the thread id, or null when the press did not name one row
+ * @private
+ */
+function threadIdFromDragTarget(el: DragNode | null): string | null {
+  const press = pressFromDragTarget(el);
+  return press.kind === 'row' ? press.threadId : null;
 }

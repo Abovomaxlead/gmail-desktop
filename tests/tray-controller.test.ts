@@ -15,10 +15,10 @@ const L = trayLabels('en', false);
 
 describe('shouldHideOnClose', () => {
   it('hides to tray during a normal close', () => {
-    expect(shouldHideOnClose({ isQuitting: false, platform: 'linux' })).toBe(true);
+    expect(shouldHideOnClose({ isQuitting: false })).toBe(true);
   });
   it('does not hide when the app is quitting', () => {
-    expect(shouldHideOnClose({ isQuitting: true, platform: 'linux' })).toBe(false);
+    expect(shouldHideOnClose({ isQuitting: true })).toBe(false);
   });
 });
 
@@ -38,6 +38,7 @@ function state(overrides: Partial<TrayState> = {}): TrayState {
     now: new Date(2026, 0, 1, 12, 0).getTime(),
     onSnooze: vi.fn(),
     onClearSnooze: vi.fn(),
+    onFeedback: vi.fn(),
     labels: L,
     ...overrides,
   };
@@ -64,6 +65,7 @@ describe('updateItemLabel', () => {
   it('maps each updater state to a label', () => {
     expect(updateItemLabel({ state: 'idle' }, true, L)).toBe('Check for updates');
     expect(updateItemLabel({ state: 'not-available' }, true, L)).toBe('Check for updates');
+    expect(updateItemLabel({ state: 'no-release' }, true, L)).toBe('Check for updates');
     expect(updateItemLabel({ state: 'checking' }, true, L)).toBe('Checking for updates…');
     expect(updateItemLabel({ state: 'available', version: '0.2.0' }, true, L)).toBe('Download update v0.2.0');
     expect(updateItemLabel({ state: 'downloading', percent: 42 }, true, L)).toBe('Downloading update… 42%');
@@ -103,9 +105,18 @@ describe('trayMenuTemplate', () => {
       'Open',
       'Snooze notifications',
       'Check for updates',
+      'Send feedback',
       'Start at login',
       'Quit',
     ]);
+  });
+
+  it('offers feedback, and clicking it takes you to the panel', () => {
+    const onFeedback = vi.fn();
+    const items = byLabel(trayMenuTemplate(state({ onFeedback })));
+    expect(items[L.feedback]).toBeTruthy();
+    items[L.feedback].click();
+    expect(onFeedback).toHaveBeenCalledTimes(1);
   });
 
   it('wires Open and Quit', () => {

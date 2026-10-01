@@ -18,3 +18,20 @@ export function resolveLocale(pref: LanguagePref, systemLocale: string): Locale 
   if (typeof systemLocale !== 'string') return 'en';
   return systemLocale.toLowerCase().split('-')[0] === 'nl' ? 'nl' : 'en';
 }
+
+/**
+ * Picks the label set for a locale, with Rene mode taking precedence over the locale
+ *
+ * @param locale
+ * @param reneMode
+ * @param variants
+ * @returns the variant every label set must agree on
+ */
+export function pickVariant<T>(
+  locale: Locale,
+  reneMode: boolean,
+  variants: { en: T; nl: T; rene: T },
+): T {
+  if (reneMode) return variants.rene;
+  return locale === 'nl' ? variants.nl : variants.en;
+}

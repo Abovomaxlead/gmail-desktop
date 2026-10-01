@@ -10,43 +10,47 @@ import { IPC, type MailDropCopyControlAction, type MailDropCopyTarget } from './
 import type { CopyStopMode } from '../mail/copy-run-types';
 import { writeFileAtomic } from './json-store';
 import { OAUTH_CONFIG_PATH } from './paths';
+import { SESSION_PARTITION } from './session-partition';
+import { activeTab, activeTabIn, colors, currentLocale, downloadHistory, hidden, mainWindow, manager, oauthStatuses, oauthTokens, prefs, profiles, keyOf, recentLabels, reconnectAccounts, setSettingsPanelOpen, settingsPanelOpen, startedWithoutAccounts, toastWindow, toasts } from './runtime';
+import { pushPrefs, pushProfiles, pushUnread, pushWindowState, refreshBadge } from './broadcast';
+import { tabsFor } from '../windows/tab-window-registry';
 import {
-  activeTab,
-  colors,
-  currentLocale,
-  downloadHistory,
-  mainWindow,
-  manager,
-  oauthStatuses,
-  oauthTokens,
-  prefs,
-  profiles,
-  keyOf,
-  reconnectAccounts,
-  setSettingsPanelOpen,
-  toastWindow,
-  toasts,
-  SESSION_PARTITION,
-} from './runtime';
-import { pushPrefs, pushProfiles, pushUnread, refreshBadge } from './broadcast';
+  adoptAccount,
+  clearTabDrag,
+  draggingAccount,
+  noteTabDrag,
+  tearOffAccount,
+} from '../windows/tab-windows';
 import { type LanguagePref } from './locale';
-import { type AppearancePatch, type PrefsStore } from './prefs-store';
-import { addAccount, redetect, removeAccount } from '../accounts/detection-controller';
-import { refreshDelegatedFromApi } from '../delegation/delegated-controller';
+import { type AccountPref, type AppearancePatch, type PrefsStore } from './prefs-store';
+import { addAccount, redetect, removeAccount, unhideAccount } from '../accounts/detection-controller';
 import {
+  applyDelegatedPick,
+  closeDelegatedPicker,
+  openDelegatedPicker,
+} from '../delegation/delegated-picker';
+import { closeReleaseNotes } from '../updates/release-notes-overlay';
+import {
+  cancelMailDropPull,
   closeDropPreview,
   controlCopyRun,
   copyToMailboxes,
+  decideJobRun,
   decideOrphanRun,
   dropPreviewItems,
   existingForCopyTargets,
   labelsForCopyTargets,
+  labelsForEveryMailbox,
   mailDropFolder,
   mailDropStatus,
+  pendingJobDecision,
   pendingOrphanDecision,
 } from '../mail/mail-drop-controller';
+import { countLabelForPurge, purgeCountedLabel } from '../mail/label-purge-controller';
 import { type CopyMode } from '../mail/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
+import { openFeedbackCompose } from '../feedback/feedback-controller';
+import { reportRendererError } from '../feedback/crash-controller';
 import { openSurfaceForAccount, showTestNotification } from '../windows/surface-opener';
 import { applyViewBudget, syncCalendarViews } from '../windows/view-surfaces';
 import { applyMinWindowSize, applyReneZoom, applyTitleBarOverlay } from '../windows/window-chrome';
@@ -65,7 +69,7 @@ import {
 import { notifyLog } from '../notify/notify-log';
 import { type NotifiedMail } from '../notify/notify-match';
 import { applyTraySetting, refreshTray } from '../menus/tray-setup';
-import { popupNativeMenu } from '../menus/native-menu';
+import { popupNativeMenu, type MenuAnchor } from '../menus/native-menu';
 import { nativeLabels } from '../menus/native-labels';
 import {
   applyAutoUpdateCheck,
@@ -75,7 +79,7 @@ import {
   installUpdate,
   loadChangelog,
 } from '../updates/update-controller';
-import { checkOAuthHealth, clearPushRefusal, clearRefreshFailure } from '../auth/oauth-health-check';
+import { checkOAuthHealth, clearRefreshFailure } from '../auth/oauth-health-check';
 import { oauthConfig } from '../auth/oauth-config';
 import { connectAccount } from '../auth/oauth-flow';
 import { checkOAuthConfigFile } from '../auth/oauth-config-file';
@@ -92,16 +96,58 @@ import type { Surface } from '../windows/profile-view-manager';
 //===========================
 
 export function registerIpc(): void {
-  ipcMain.on(IPC.SWITCH_SURFACE, (_e, arg: { key: string; surface: Surface }) => {
+  ipcMain.on(IPC.SWITCH_SURFACE, (e, arg: { key: string; surface: Surface }) => {
     const p = profiles.find((x) => keyOf(x) === arg.key);
     if (!p) return;
+    // A tab clicked in a window that does not hold it -- the same mailbox opened from a
+    // notification, say -- is brought to that window rather than lit up in another one.
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) adoptAccount(arg.key, win);
     openSurfaceForAccount(p.ref, arg.surface);
+  });
+
+  // The two ends of a tab drag. The strip that was dropped on says so, the tab that was
+  // dragged says how the drag ended, and whichever arrives first decides: a drop moves the
+  // mailbox into the window under the pointer, an end with no drop gives it a window of its
+  // own at the pointer -- which is what dragging a tab off a browser does.
+  ipcMain.on(IPC.TAB_DRAG_START, (_e, arg: { key?: unknown }) => {
+    if (typeof arg?.key === 'string') noteTabDrag(arg.key);
+  });
+  ipcMain.on(IPC.TAB_DROP, (e) => {
+    const key = draggingAccount();
+    const win = BrowserWindow.fromWebContents(e.sender);
+    clearTabDrag();
+    if (key && win) adoptAccount(key, win);
+  });
+  ipcMain.on(IPC.TAB_DRAG_END, (_e, arg: { dropped?: unknown }) => {
+    const key = draggingAccount();
+    clearTabDrag();
+    if (key && arg?.dropped !== true) tearOffAccount(key);
+  });
+  ipcMain.on(IPC.TAB_DETACH, (_e, arg: { key?: unknown }) => {
+    if (typeof arg?.key === 'string') tearOffAccount(arg.key);
+  });
+  ipcMain.on(IPC.TAB_TO_MAIN, (_e, arg: { key?: unknown }) => {
+    if (typeof arg?.key === 'string' && mainWindow) adoptAccount(arg.key, mainWindow);
+  });
+  // Asked rather than only pushed, for the same reason the tour's first-run answer is: a
+  // window made halfway through the session is pushed its state on did-finish-load, which is
+  // before the page has subscribed to anything. The answer carries the tabs, and the rest of
+  // what the window missed is pushed right behind it.
+  ipcMain.handle(IPC.WINDOW_TABS_GET, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return { detached: false, own: [], foreign: [] };
+    pushWindowState(win);
+    return tabsFor(win);
   });
   ipcMain.on(IPC.REDETECT, () => redetect());
   ipcMain.on(IPC.ADD_ACCOUNT, () => addAccount());
-  ipcMain.on(IPC.ADD_DELEGATED, () => {
-    void refreshDelegatedFromApi({ asked: true });
+  ipcMain.on(IPC.ADD_DELEGATED, () => openDelegatedPicker());
+  ipcMain.on(IPC.DELEGATED_PICK, (_e, arg: { emails: string[] }) => {
+    applyDelegatedPick(Array.isArray(arg?.emails) ? arg.emails : []);
   });
+  ipcMain.on(IPC.DELEGATED_PICK_CLOSE, () => closeDelegatedPicker());
+  ipcMain.on(IPC.RELEASE_NOTES_CLOSE, () => closeReleaseNotes());
   ipcMain.on(IPC.SET_COLOR, (_e, arg: { email: string; color: string }) => {
     colors!.set(arg.email, arg.color);
     const p = profiles.find((x) => x.email === arg.email);
@@ -109,18 +155,48 @@ export function registerIpc(): void {
     pushProfiles();
   });
   ipcMain.on(IPC.REMOVE_ACCOUNT, (_e, arg: { email: string }) => removeAccount(arg.email));
+  ipcMain.handle(IPC.HIDDEN_GET, () => hidden?.list() ?? []);
+  ipcMain.on(IPC.UNHIDE_ACCOUNT, (_e, arg: { email: string }) => unhideAccount(arg.email));
   ipcMain.on(IPC.UPDATE_CHECK, () => checkForUpdate());
   ipcMain.on(IPC.UPDATE_DOWNLOAD, () => downloadUpdate());
   ipcMain.on(IPC.UPDATE_INSTALL, () => installUpdate());
-  ipcMain.on(IPC.SETTINGS_TOGGLE, (_e, arg: { open: boolean }) => {
+  // Per window: the panel and the tour draw in one shell page, and hiding the mailbox behind
+  // another window's tab would blank a window nobody touched.
+  ipcMain.on(IPC.SETTINGS_TOGGLE, (e, arg: { open: boolean }) => {
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWindow ?? undefined;
     setSettingsPanelOpen(arg.open);
-    if (arg.open) manager?.hideAll();
-    else manager?.showActive();
+    if (arg.open) manager?.hideAll(win);
+    else manager?.showActive(win);
   });
-  ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[]) => {
+  // The tour draws in the renderer page, and the Gmail views are painted on top of it, so
+  // they have to be out of the way or the tour is invisible. Same two calls the settings
+  // panel makes. The settingsPanelOpen guard is what stops a tour that ends while the panel
+  // happens to be open from painting Gmail over the panel.
+  ipcMain.on(IPC.TOUR_ACTIVE, (e, arg: { active: boolean }) => {
+    // Logged because the one way this feature fails is invisibly: the tour draws in the
+    // renderer page and every Gmail view is painted over it, so a hide that does not arrive
+    // looks exactly like a tour that never started.
+    console.info(`[tour] views ${arg.active ? 'hidden' : 'shown'}`);
+    const win = BrowserWindow.fromWebContents(e.sender) ?? mainWindow ?? undefined;
+    if (arg.active) manager?.hideAll(win);
+    else if (!settingsPanelOpen) manager?.showActive(win);
+  });
+  // Asked rather than pushed: the renderer can ask whenever it is ready, so there is no race
+  // between this answer and the first profiles push. Logged for the same reason the line above
+  // is: a tour that never arms is indistinguishable from a tour that never triggers.
+  ipcMain.handle(IPC.TOUR_FIRST_RUN, () => {
+    console.info(`[tour] first run: ${startedWithoutAccounts}`);
+    return startedWithoutAccounts;
+  });
+  ipcMain.on(IPC.SET_TOUR_SEEN, (_e, v: boolean) => {
+    if (!prefs) return;
+    prefs.setTour({ seen: v });
+    pushPrefs();
+  });
+  ipcMain.handle(IPC.MENU_POPUP, (e, items: NativeMenuItem[], anchor?: MenuAnchor) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return null;
-    return popupNativeMenu(win, items);
+    return popupNativeMenu(win, items, anchor);
   });
   ipcMain.on(IPC.SET_AUTO_START, (_e, v: boolean) => setAutoStart(v));
   ipcMain.on(IPC.SET_LAUNCH_MINIMIZED, (_e, v: boolean) => setLaunchMinimized(v));
@@ -156,6 +232,16 @@ export function registerIpc(): void {
     // already published should show it now, not at the next half-hourly check.
     if (typeof next.allowPrerelease === 'boolean') checkForUpdate({ background: true });
   });
+  ipcMain.handle(IPC.FEEDBACK_COMPOSE, (_e, input: unknown) => {
+    const { text, includeDiagnostics } = (input ?? {}) as {
+      text?: unknown;
+      includeDiagnostics?: unknown;
+    };
+    return openFeedbackCompose({
+      text: typeof text === 'string' ? text : '',
+      includeDiagnostics: includeDiagnostics === true,
+    });
+  });
   ipcMain.on(IPC.SET_ADVANCED, (_e, patch: unknown) => {
     if (!prefs) return;
     const next = (patch ?? {}) as Parameters<PrefsStore['setAdvanced']>[0];
@@ -188,6 +274,8 @@ export function registerIpc(): void {
     const who = profiles.find((p) => keyOf(p) === key)?.email ?? key ?? `view ${e.sender.id}`;
     notifyLog(`[view ${who}] ${message.slice(0, 300)}`);
   });
+  // The app's own pages only -- the Gmail views run preload.ts, which never sends this
+  ipcMain.on(IPC.CRASH_REPORT, (_e, arg: unknown) => reportRendererError(arg));
   ipcMain.on(IPC.TOAST_READY, () => toasts?.markReady());
   ipcMain.on(IPC.TOAST_SIZE, (_e, size: { width: number; height: number }) =>
     toasts?.applySize(size.width, size.height),
@@ -202,43 +290,52 @@ export function registerIpc(): void {
   );
   ipcMain.on(IPC.TOAST_HOVER, (_e, hovered: boolean) => toasts?.setHovered(Boolean(hovered)));
 
-  ipcMain.on(IPC.WEB_NOTIFY_SHOW, (e, arg: { id: string; title: string; body: string }) => {
-    if (!prefs) return;
+  ipcMain.on(
+    IPC.WEB_NOTIFY_SHOW,
+    (e, arg: { id: string; title: string; body: string; requireInteraction?: boolean }) => {
+      if (!prefs) return;
 
-    if (typeof arg?.id !== 'string') {
-      notifyLog(`[notify] a view raised a notification with a ${typeof arg?.id} id — dropped`);
-      return;
-    }
-    const accountKey = manager?.keyForWebContents(e.sender) ?? null;
-    const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
-    if (!profile) {
+      if (typeof arg?.id !== 'string') {
+        notifyLog(`[notify] a view raised a notification with a ${typeof arg?.id} id — dropped`);
+        return;
+      }
+      const accountKey = manager?.keyForWebContents(e.sender) ?? null;
+      const profile = accountKey ? profiles.find((p) => keyOf(p) === accountKey) : undefined;
+      if (!profile) {
+        notifyLog(
+          `[notify] a notification arrived from a view with no account (key=${accountKey ?? 'unknown'}) — dropped`,
+        );
+        return;
+      }
+      const p = prefs.getAll();
+      const hidden = hiddenNotificationText(p);
+      const L = nativeLabels(currentLocale(), p.reneMode === true);
+      const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
+      const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
+      rememberWebNotifySource(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
+      // The page's own word wins over the per-account default, in one direction only: it may
+      // keep a card up, never take one down. Google Agenda marks every event reminder this
+      // way, and six seconds of a reminder is the same as no reminder -- there is no badge and
+      // no list to find it back in afterwards, the way there is for mail.
+      const persist = notificationPersist(p, profile.email) || arg.requireInteraction === true;
       notifyLog(
-        `[notify] a notification arrived from a view with no account (key=${accountKey ?? 'unknown'}) — dropped`,
+        `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
+          ` persist=${persist}${arg.requireInteraction === true ? ' (the page asked for it)' : ''}` +
+          ` silent=${notificationSilent(p, profile.email, 'mail')}` +
+          `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
       );
-      return;
-    }
-    const p = prefs.getAll();
-    const hidden = hiddenNotificationText(p);
-    const L = nativeLabels(currentLocale(), p.reneMode === true);
-    const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
-    const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
-    rememberWebNotifySource(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
-    notifyLog(
-      `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
-        ` persist=${notificationPersist(p, profile.email)} silent=${notificationSilent(p, profile.email, 'mail')}` +
-        `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
-    );
-    showToast({
-      kind: 'mail',
-      title: hidden.hiddenSender ?? arg.title,
-      body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
-      account: toastAccountFor(profile.email),
-      webNotifyId: sourceKey,
-      persist: notificationPersist(p, profile.email),
-    });
-    if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
-    void syncRunnerFor(profile.email)?.run();
-  });
+      showToast({
+        kind: 'mail',
+        title: hidden.hiddenSender ?? arg.title,
+        body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
+        account: toastAccountFor(profile.email),
+        webNotifyId: sourceKey,
+        persist,
+      });
+      if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
+      void syncRunnerFor(profile.email)?.run();
+    },
+  );
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {
     const current = downloadFolder();
     const res = await dialog.showOpenDialog({
@@ -265,8 +362,20 @@ export function registerIpc(): void {
   ipcMain.on(IPC.SET_DEFAULT_MAIL, () => requestDefaultMail());
   ipcMain.handle(IPC.MAIL_DROP_PREVIEW_GET, () => dropPreviewItems());
   ipcMain.on(IPC.MAIL_DROP_PREVIEW_CLOSE, () => closeDropPreview());
-  ipcMain.handle(IPC.LABELS_GET, () => labelsForCopyTargets());
+  ipcMain.on(IPC.MAIL_DROP_PULL_CANCEL, () => cancelMailDropPull());
+  // Two audiences, one channel: the copy window wants the drag's source left out, the label
+  // cleanup section wants every mailbox it can reach.
+  ipcMain.handle(IPC.LABELS_GET, (_e, arg?: { everyMailbox?: boolean }) =>
+    arg?.everyMailbox === true ? labelsForEveryMailbox() : labelsForCopyTargets(),
+  );
+  ipcMain.handle(IPC.LABEL_PURGE_COUNT, (_e, arg: { email: string; label: string }) =>
+    countLabelForPurge(arg.email, arg.label),
+  );
+  ipcMain.handle(IPC.LABEL_PURGE_RUN, (_e, arg: { handle: string; labels: string[] }) =>
+    purgeCountedLabel(arg.handle, arg.labels),
+  );
   ipcMain.handle(IPC.MAIL_DROP_EXISTING_GET, () => existingForCopyTargets());
+  ipcMain.handle(IPC.MAIL_DROP_RECENT_GET, () => recentLabels?.today() ?? []);
   ipcMain.handle(IPC.MAIL_DROP_COPY, (_e, arg: { targets: MailDropCopyTarget[]; mode?: CopyMode }) =>
     copyToMailboxes(arg),
   );
@@ -277,7 +386,16 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.MAIL_DROP_ORPHAN_DECIDE, (_e, arg: { runId: string; mode: CopyStopMode }) =>
     decideOrphanRun(arg?.runId, arg?.mode),
   );
-  ipcMain.handle(IPC.ACTIVE_GET, () => activeTab());
+  ipcMain.handle(IPC.MAIL_DROP_JOB_GET, () => pendingJobDecision());
+  ipcMain.handle(
+    IPC.MAIL_DROP_JOB_DECIDE,
+    (_e, arg: { jobId: string; choice: 'continue' | 'keep' | 'rollback' }) =>
+      decideJobRun(arg.jobId, arg.choice),
+  );
+  ipcMain.handle(IPC.ACTIVE_GET, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    return win ? activeTabIn(win) : activeTab();
+  });
   ipcMain.handle(IPC.OAUTH_RECONNECT_GET, () => ({ accounts: reconnectAccounts }));
   ipcMain.handle(IPC.OAUTH_STATUS_GET, () => ({
     configured: oauthConfig() !== null,
@@ -315,7 +433,6 @@ export function registerIpc(): void {
     const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
     if (!result.ok) return result;
     clearRefreshFailure(arg.email);
-    clearPushRefusal(arg.email);
     void checkOAuthHealth();
     startMailSync();
     return { ok: true };
@@ -334,7 +451,7 @@ export function registerIpc(): void {
     // In the log as well as on the page: the page says it while it is open, and this is the
     // record of when the mail started leaving the machine again.
     if (picked.remote) {
-      notifyLog(`[maildrop] gekozen map staat op een netwerk- of synclocatie: ${picked.folder}`);
+      notifyLog(`[maildrop] chosen folder is on a network or sync location: ${picked.folder}`);
     }
     return picked;
   });
@@ -346,14 +463,19 @@ export function registerIpc(): void {
     }
     void shell.openPath(dir);
   });
-  ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string; label?: string; notify?: boolean; calendarNotify?: boolean; badgeCount?: boolean; notifySound?: boolean; notifyPersist?: boolean }) => {
-    const patch: Record<string, unknown> = {};
-    if ('label' in arg) patch.label = arg.label;
-    if ('notify' in arg) patch.notify = arg.notify;
-    if ('calendarNotify' in arg) patch.calendarNotify = arg.calendarNotify;
-    if ('badgeCount' in arg) patch.badgeCount = arg.badgeCount;
-    if ('notifySound' in arg) patch.notifySound = arg.notifySound;
-    if ('notifyPersist' in arg) patch.notifyPersist = arg.notifyPersist;
+  const ACCOUNT_PREF_KEYS = [
+    'label',
+    'notify',
+    'calendarNotify',
+    'badgeCount',
+    'notifySound',
+    'notifyPersist',
+  ] as const;
+  ipcMain.on(IPC.SET_ACCOUNT_PREF, (_e, arg: { email: string } & Partial<AccountPref>) => {
+    const patch: Partial<AccountPref> = {};
+    for (const key of ACCOUNT_PREF_KEYS) {
+      if (key in arg) (patch as Record<string, unknown>)[key] = arg[key];
+    }
     prefs!.setAccount(arg.email, patch);
     pushProfiles();
     pushPrefs();

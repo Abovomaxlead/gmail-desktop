@@ -8,7 +8,8 @@
 import { BrowserWindow, dialog, shell } from 'electron';
 import { pushPrefs } from '../core/broadcast';
 import { accountKey, type AccountRef } from '../accounts/account-ref';
-import { activeView, currentLocale, mainWindow, prefs, profiles } from '../core/runtime';
+import { SESSION_PARTITION } from '../core/session-partition';
+import { activeView, currentLocale, mainWindow, manager, prefs, profiles } from '../core/runtime';
 import { showAccount } from './view-surfaces';
 import { hiddenNotificationText, playNotificationSound, resetSoundThrottle } from '../notify/notify-gating';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
@@ -79,12 +80,17 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
       g?.showAccountColor !== false && profiles.find((p) => p.email === email)?.color
         ? profiles.find((p) => p.email === email)!.color
         : '#ffffff',
-    webPreferences: { partition: 'persist:google', contextIsolation: true },
+    webPreferences: { partition: SESSION_PARTITION, contextIsolation: true },
   });
   win.on('page-title-updated', (e) => {
     if (showLabel) e.preventDefault();
   });
-  attachExternalLinkHandling(win.webContents);
+  attachExternalLinkHandling(win.webContents, {
+    surface,
+    // A link out of this window into another app obeys the setting like anywhere else, and
+    // one that belongs in the app lands in the shared view rather than in a third window.
+    openInApp: (target) => manager?.openInOwningSurface(ref, surface, target),
+  });
   void win.loadURL(url);
 }
 
@@ -120,6 +126,6 @@ export function openExternalGuarded(url: string): void {
     }
     void shell.openExternal(url);
   };
-  if (parent) void dialog.showMessageBox(parent, box).then(done);
-  else void dialog.showMessageBox(box).then(done);
+  if (parent) void dialog.showMessageBox(parent, box).then(done).catch(() => {});
+  else void dialog.showMessageBox(box).then(done).catch(() => {});
 }

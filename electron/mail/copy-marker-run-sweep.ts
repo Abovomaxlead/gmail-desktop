@@ -15,6 +15,7 @@ import { GmailHttpError } from '../gmail/gmail-api';
 import { sweepMarker, type SweepAction, type SweepDeps } from './copy-marker-sweep';
 import type {
   CopyRunId,
+  CreatedLabel,
   MarkerLabel,
   RollbackMailboxOutcome,
   RollbackOutcome,
@@ -102,4 +103,47 @@ export async function sweepRunMarkers(
     }),
   );
   return { runId, mailboxes, complete: mailboxes.every((m) => m.converged && !m.refused) };
+}
+
+/**
+ * Deletes the labels one run created, once its mail has been trashed
+ *
+ * Only ever the labels the run made itself -- a reused label is not in this list at all. A
+ * label that has since been used by hand goes too: the user asked for the run to be undone,
+ * and leaving half of it behind is the worse answer. Children before parents, so Gmail is
+ * never left showing a parent whose child outlived it.
+ *
+ * @param created from the run's journal
+ * @param deps
+ * @returns the names it could not delete, for the outcome to report
+ */
+export async function deleteCreatedLabels(
+  created: CreatedLabel[],
+  deps: SweepRunDeps,
+): Promise<string[]> {
+  const deepestFirst = [...created].sort(
+    (a, b) => b.name.split('/').length - a.name.split('/').length,
+  );
+  const failed: string[] = [];
+  const tokens = new Map<string, string>();
+  // Sequential on purpose: a parent must not be deleted while a child of it is still in
+  // flight, which is the one ordering a parallel pass cannot promise.
+  for (const label of deepestFirst) {
+    let token = tokens.get(label.email);
+    if (!token) {
+      const got = await deps.token(label.email);
+      if (!got.ok) {
+        failed.push(label.name);
+        continue;
+      }
+      token = got.token;
+      tokens.set(label.email, token);
+    }
+    try {
+      await deps.deleteLabel(token, label.labelId);
+    } catch {
+      failed.push(label.name);
+    }
+  }
+  return failed;
 }

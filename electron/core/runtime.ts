@@ -4,19 +4,21 @@
 // nothing outside this file may replace.
 //
 // The rule that matters: read these when you need them, never capture them at construction.
-// Nearly all of it is born in createWindow(), which runs again after the window closes.
+// Nearly all of it is born once in createWindow(), when the app starts.
 
-import { app } from 'electron';
+import { app, nativeTheme } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { accountKey, parseAccountKey, type AccountRef } from '../accounts/account-ref';
 import { colorForIndex } from '../accounts/palette';
 import { resolveLocale, type Locale } from './locale';
+import { isDarkTheme } from '../windows/titlebar';
 import { SURFACES } from '../../renderer/lib/surfaces';
 import { UnreadStore } from '../unread/unread-store';
-import { PushCoverage } from '../push/push-coverage';
 import type { ProfileViewManager, Profile, Surface } from '../windows/profile-view-manager';
 import type { ColorStore } from '../accounts/color-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
+import type { HiddenStore } from '../accounts/hidden-store';
+import type { RecentLabelStore } from '../mail/recent-labels-store';
 import type { PrefsStore } from './prefs-store';
 import type { OAuthStore } from '../auth/oauth-store';
 import type { HistoryStore } from '../gmail/history-store';
@@ -26,7 +28,7 @@ import type { AccountCacheStore, CachedAccount } from '../accounts/account-cache
 import type { OverlayView } from '../windows/overlay-view';
 import type { ToastController } from '../toast/toast-controller';
 import type { ToastWindow } from '../toast/toast-window';
-import type { ReconnectAccount } from '../auth/oauth-health';
+import type { ReconnectAccount } from '../../renderer/lib/reconnect';
 import type { AccountOAuthStatus } from '../../renderer/lib/oauth-status';
 
 
@@ -34,21 +36,10 @@ import type { AccountOAuthStatus } from '../../renderer/lib/oauth-status';
 // Types
 //===========================
 
-export interface PushManagerHandle {
-  stop(): void;
-  refresh(): void;
-}
-
 export interface SyncRunner {
   run(): Promise<void>;
 }
 
-
-//===========================
-// Constants
-//===========================
-
-export const SESSION_PARTITION = 'persist:google';
 
 
 //===========================
@@ -60,22 +51,29 @@ export let manager: ProfileViewManager | null = null;
 export let prefs: PrefsStore | null = null;
 export let colors: ColorStore | null = null;
 export let delegated: DelegatedStore | null = null;
+export let hidden: HiddenStore | null = null;
+export let recentLabels: RecentLabelStore | null = null;
 export let oauthTokens: OAuthStore | null = null;
 export let history: HistoryStore | null = null;
 
-/** Shared on purpose: the store keeps the whole index in memory and writes all of it, so a
- * second instance would overwrite what the first remembered. */
+/** The one instance for the process's whole life: it keeps the whole index in memory and
+ * writes all of it on flush, so there is never a second one to reconcile with. */
 export let messageIndex: MessageIndexStore | null = null;
 export let downloadHistory: DownloadHistoryStore | null = null;
 export let accountCache: AccountCacheStore | null = null;
+
+// Whether this process started with no own account remembered on disk, which is the one honest
+// answer to "has this installation ever had a mailbox". Captured once, when the cache is first
+// read, so reopening the window cannot change it.
+export let startedWithoutAccounts = false;
 export let toasts: ToastController | null = null;
 export let toastWindow: ToastWindow | null = null;
 export let dropOverlay: OverlayView | null = null;
 export let reconnectBanner: OverlayView | null = null;
-export let pushManager: PushManagerHandle | null = null;
+export let delegatedPicker: OverlayView | null = null;
+export let releaseNotesOverlay: OverlayView | null = null;
 export const profiles: Profile[] = [];
 export const unread = new UnreadStore();
-export const coverage = new PushCoverage();
 export const syncRunners = new Map<string, SyncRunner>();
 export let cachedAccounts: CachedAccount[] = [];
 export let accountCacheLoaded = false;
@@ -85,7 +83,9 @@ export let settingsPanelOpen = false;
 export let detectionStarted = false;
 export let reconnectAccounts: ReconnectAccount[] = [];
 export let oauthStatuses: AccountOAuthStatus[] = [];
-export let pendingMailto: string | null = null;
+// A queue, not a slot: a cold start with a mailto: in argv followed by a second-instance
+// mailto: before detection finishes must not lose the first one.
+export const pendingMailtos: string[] = [];
 export let lastUpdateStatus: Record<string, unknown> = { state: 'idle' };
 
 
@@ -108,6 +108,12 @@ export function setColors(v: ColorStore | null): void {
 export function setDelegated(v: DelegatedStore | null): void {
   delegated = v;
 }
+export function setHidden(v: HiddenStore | null): void {
+  hidden = v;
+}
+export function setRecentLabels(v: RecentLabelStore | null): void {
+  recentLabels = v;
+}
 export function setOauthTokens(v: OAuthStore | null): void {
   oauthTokens = v;
 }
@@ -119,6 +125,9 @@ export function setMessageIndex(v: MessageIndexStore | null): void {
 }
 export function setDownloadHistory(v: DownloadHistoryStore | null): void {
   downloadHistory = v;
+}
+export function setStartedWithoutAccounts(v: boolean): void {
+  startedWithoutAccounts = v;
 }
 export function setAccountCache(v: AccountCacheStore | null): void {
   accountCache = v;
@@ -135,8 +144,11 @@ export function setDropOverlay(v: OverlayView | null): void {
 export function setReconnectBanner(v: OverlayView | null): void {
   reconnectBanner = v;
 }
-export function setPushManager(v: PushManagerHandle | null): void {
-  pushManager = v;
+export function setDelegatedPicker(v: OverlayView | null): void {
+  delegatedPicker = v;
+}
+export function setReleaseNotesOverlay(v: OverlayView | null): void {
+  releaseNotesOverlay = v;
 }
 export function setCachedAccounts(v: CachedAccount[]): void {
   cachedAccounts = v;
@@ -162,9 +174,6 @@ export function setReconnectAccounts(v: ReconnectAccount[]): void {
 export function setOauthStatuses(v: AccountOAuthStatus[]): void {
   oauthStatuses = v;
 }
-export function setPendingMailto(v: string | null): void {
-  pendingMailto = v;
-}
 export function setLastUpdateStatus(v: Record<string, unknown>): void {
   lastUpdateStatus = v;
 }
@@ -172,6 +181,8 @@ export function setLastUpdateStatus(v: Record<string, unknown>): void {
 export function raiseOverlays(): void {
   dropOverlay?.raise();
   reconnectBanner?.raise();
+  delegatedPicker?.raise();
+  releaseNotesOverlay?.raise();
 }
 
 export const authRef = (index: number): AccountRef => ({ kind: 'authuser', index });
@@ -196,7 +207,21 @@ export function currentLocale(): Locale {
 }
 
 /**
- * What the window is showing, for the bar that draws the active tab
+ * Whether the app is drawing dark right now
+ *
+ * The pages main opens for itself -- the copy picker, the delegated picker, the compose
+ * chooser, the toast stack -- get this in their payload: they run in their own window, where
+ * the class the sidebar page puts on its own `<html>` means nothing, and a page that reads
+ * `prefers-color-scheme` itself would ignore a user who chose light or dark by hand.
+ *
+ * @returns true when the theme in use is the dark one
+ */
+export function currentlyDark(): boolean {
+  return isDarkTheme(prefs?.getAll().theme ?? 'system', nativeTheme.shouldUseDarkColors);
+}
+
+/**
+ * What the user is looking at, for the bar that draws the active tab
  *
  * Read off the manager rather than through `profiles`: detection shows account 0 before it
  * is registered, and the bar highlights the key as soon as its tab arrives.
@@ -208,6 +233,24 @@ export function activeTab(): { key: string; surface: Surface } | null {
   const key = m?.activeKey();
   if (!m || !key) return null;
   const surface = SURFACES.find((s) => m.isShowing(key, s));
+  return surface ? { key, surface } : null;
+}
+
+/**
+ * What one window is showing
+ *
+ * Each window draws its own strip and marks its own tab, so the answer is per window and not
+ * per app: the main window's highlight must not move because a mailbox in a window of its
+ * own was clicked.
+ *
+ * @param win
+ * @returns the active key and surface in that window, or null when it shows nothing
+ */
+export function activeTabIn(win: BrowserWindow): { key: string; surface: Surface } | null {
+  const m = manager;
+  const key = m?.activeKeyIn(win);
+  if (!m || !key) return null;
+  const surface = SURFACES.find((s) => m.isShowingIn(win, key, s));
   return surface ? { key, surface } : null;
 }
 

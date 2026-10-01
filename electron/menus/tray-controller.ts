@@ -22,6 +22,7 @@ export interface TrayState {
   onOpen: () => void;
   onIconClick?: () => void;
   onQuit: () => void;
+  onFeedback: () => void;
   isPackaged: boolean;
   updateStatus: TrayUpdateStatus;
   onCheckUpdate: () => void;
@@ -48,10 +49,7 @@ export interface TrayState {
  * @param state
  * @returns false only once the app is on its way out
  */
-export function shouldHideOnClose(state: {
-  isQuitting: boolean;
-  platform: NodeJS.Platform;
-}): boolean {
+export function shouldHideOnClose(state: { isQuitting: boolean }): boolean {
   return !state.isQuitting;
 }
 
@@ -116,6 +114,7 @@ export function trayMenuTemplate(state: TrayState): MenuItemConstructorOptions[]
     { type: 'separator' },
     { label: snoozeStatusLabel(state), submenu: snoozeSubmenu(state) },
     updateItem(state),
+    { label: state.labels.feedback, click: state.onFeedback },
     {
       label: state.labels.startAtLogin,
       type: 'checkbox',
@@ -125,11 +124,6 @@ export function trayMenuTemplate(state: TrayState): MenuItemConstructorOptions[]
     { type: 'separator' },
     { label: state.labels.quit, click: state.onQuit },
   ];
-}
-
-export function buildTrayMenu(state: TrayState): Menu {
-  const { Menu } = require('electron') as typeof import('electron');
-  return Menu.buildFromTemplate(trayMenuTemplate(state));
 }
 
 /**
@@ -162,6 +156,18 @@ export function updateTrayMenu(tray: Tray, state: TrayState): void {
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * Builds the tray's Menu from its template
+ *
+ * @param state
+ * @returns {Menu}
+ * @private
+ */
+function buildTrayMenu(state: TrayState): Menu {
+  const { Menu } = require('electron') as typeof import('electron');
+  return Menu.buildFromTemplate(trayMenuTemplate(state));
+}
 
 /**
  * Whether a snooze is still running

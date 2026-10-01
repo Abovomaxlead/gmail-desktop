@@ -228,8 +228,8 @@ function statusLabel(status: OAuthStatus, S: UiStrings): string {
       return S.oauthUnlinked;
     case 'expired':
       return S.oauthExpired;
-    case 'push-only':
-      return S.oauthPushOnly;
+    case 'incomplete':
+      return S.oauthIncomplete;
   }
 }
 
@@ -241,7 +241,7 @@ function actionLabel(status: OAuthStatus, S: UiStrings): string | null {
       return S.oauthConnect;
     case 'expired':
       return S.oauthReconnect;
-    case 'push-only':
-      return S.oauthReallow;
+    case 'incomplete':
+      return S.oauthReconnect;
   }
 }

@@ -15,6 +15,7 @@ export function GeneralSection({
   onSetAutoStart,
   onSetLaunchMinimized,
   onRequestDefaultMail,
+  onReplayTour,
 }: {
   S: UiStrings;
   prefs: Prefs | null;
@@ -22,6 +23,7 @@ export function GeneralSection({
   onSetAutoStart: (v: boolean) => void;
   onSetLaunchMinimized: (v: boolean) => void;
   onRequestDefaultMail: () => void;
+  onReplayTour: () => void;
 }) {
   return (
     <Section title={S.navGeneral}>
@@ -58,6 +60,14 @@ export function GeneralSection({
             checked={!!prefs?.launchMinimized}
             onChange={onSetLaunchMinimized}
           />
+        </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={S.tourGroup}>
+        <SettingRow label={S.tourReplay} description={S.tourReplayDescription}>
+          <button type="button" className={BUTTON} onClick={onReplayTour}>
+            {S.tourReplayButton}
+          </button>
         </SettingRow>
       </SettingsGroup>
     </Section>

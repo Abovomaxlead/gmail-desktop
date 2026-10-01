@@ -71,6 +71,8 @@ const { FakeWebContentsView, views } = vi.hoisted(() => {
     loadURL(): Promise<void> {
       return Promise.resolve();
     }
+    /** Keyboard focus, which the manager hands to whatever is on screen. */
+    focus(): void {}
     setZoomLevel(): void {}
     setAudioMuted(): void {}
     isDestroyed(): boolean {
@@ -112,7 +114,11 @@ const { accountKey } = await import('../renderer/lib/account-ref');
 function fakeWin() {
   return {
     isDestroyed: () => false,
+    id: 1,
     on: () => {},
+    once: () => {},
+    isFocused: () => true,
+    webContents: { focus: () => {}, isDestroyed: () => false },
     contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
     getContentSize: () => [1024, 768],
   };

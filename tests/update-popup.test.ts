@@ -38,6 +38,14 @@ describe('updateCheckPopup', () => {
     expect(p!.downloadButtonIndex).toBeUndefined();
   });
 
+  it('explains that no final version exists yet instead of reporting a failure', () => {
+    const p = updateCheckPopup({ state: 'no-release', currentVersion: '1.0.0-beta.1' }, L);
+    expect(p!.message).toContain('1.0.0-beta.1');
+    expect(p!.message.toLowerCase()).not.toContain('httperror');
+    expect(p!.detail).toBeUndefined();
+    expect(p!.buttons).toEqual(['OK']);
+  });
+
   it('reports a check failure with the error detail', () => {
     const p = updateCheckPopup({ state: 'error', message: 'network down' }, L);
     expect(p!.message.toLowerCase()).toContain("couldn't");

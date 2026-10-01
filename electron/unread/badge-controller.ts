@@ -4,6 +4,16 @@
 
 import { totalUnread } from './badge-math';
 
+
+//===========================
+// Constants
+//===========================
+
+
+//===========================
+// Exported functions
+//===========================
+
 /**
  * Pushes the unread total to the OS badge
  *

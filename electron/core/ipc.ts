@@ -7,6 +7,7 @@
 import type { MessageRef } from '../mail/dropzone';
 import type { CopyResult } from '../mail/mail-copy';
 import type { CopyStopMode, RollbackOutcome } from '../mail/copy-run-types';
+import type { ByMailbox, JobLine } from '../../renderer/lib/maildrop-copy';
 
 
 //===========================
@@ -19,17 +20,29 @@ export const IPC = {
   ACCOUNT_IDENTITY: 'account:identity',
   MAIL_DROP: 'mail:drop',
   MAIL_DROP_ALLOWED_GET: 'maildrop:allowed-get',
+  MAIL_DROP_RECENT_GET: 'maildrop:recent-get',
   SWITCH_SURFACE: 'switch:surface',
   REDETECT: 'accounts:redetect',
   ADD_ACCOUNT: 'accounts:add',
   ADD_DELEGATED: 'delegated:add',
+  DELEGATED_PICK_ASK: 'delegated:pick-ask',
+  DELEGATED_PICK: 'delegated:pick',
+  DELEGATED_PICK_CLOSE: 'delegated:pick-close',
   SET_COLOR: 'color:set',
   REMOVE_ACCOUNT: 'accounts:remove',
+  HIDDEN_GET: 'accounts:hidden-get',
+  HIDDEN_CHANGED: 'accounts:hidden-changed',
+  UNHIDE_ACCOUNT: 'accounts:unhide',
   SETTINGS_TOGGLE: 'settings:toggle',
+  TOUR_ACTIVE: 'tour:active',
+  TOUR_FIRST_RUN: 'tour:first-run',
+  SET_TOUR_SEEN: 'prefs:tour-seen',
   MENU_POPUP: 'menu:popup',
   UPDATE_CHECK: 'update:check',
   UPDATE_DOWNLOAD: 'update:download',
   UPDATE_INSTALL: 'update:install',
+  RELEASE_NOTES_ASK: 'release-notes:ask',
+  RELEASE_NOTES_CLOSE: 'release-notes:close',
   SET_AUTO_START: 'prefs:auto-start',
   SET_LAUNCH_MINIMIZED: 'prefs:launch-minimized',
   SET_APPEARANCE: 'prefs:appearance',
@@ -57,6 +70,8 @@ export const IPC = {
   SET_RENE_MODE: 'prefs:rene-mode',
   SET_DEFAULT_MAIL: 'mail:set-default',
   LABELS_GET: 'gmail:labels-get',
+  LABEL_PURGE_COUNT: 'label:purge-count',
+  LABEL_PURGE_RUN: 'label:purge-run',
   OAUTH_RECONNECT_GET: 'oauth:reconnect-get',
   OAUTH_RECONNECT: 'oauth:reconnect',
   OAUTH_STATUS_GET: 'oauth:status-get',
@@ -67,6 +82,14 @@ export const IPC = {
   MAIL_DROP_FOLDER_OPEN: 'maildrop:folder-open',
   CHANGELOG_GET: 'changelog:get',
   PROFILES_CHANGED: 'profiles:changed',
+  WINDOW_TABS: 'window:tabs',
+  WINDOW_TABS_GET: 'window:tabs-get',
+  TAB_DRAG_START: 'tab:drag-start',
+  TAB_DRAG_STATE: 'tab:drag-state',
+  TAB_DRAG_END: 'tab:drag-end',
+  TAB_DROP: 'tab:drop',
+  TAB_DETACH: 'tab:detach',
+  TAB_TO_MAIN: 'tab:to-main',
   ACTIVE_CHANGED: 'active:changed',
   ACTIVE_GET: 'active:get',
   UNREAD_CHANGED: 'unread:changed',
@@ -80,6 +103,7 @@ export const IPC = {
   MAIL_DROP_RESULT: 'mail:drop-result',
   MAIL_DROP_SAVE_PROGRESS: 'maildrop:save-progress',
   MAIL_DROP_LOCK: 'maildrop:lock',
+  MAIL_DROP_PULL_CANCEL: 'maildrop:pull-cancel',
   MAIL_DROP_PREVIEW: 'maildrop:preview',
   MAIL_DROP_PREVIEW_CLOSE: 'maildrop:preview-close',
   MAIL_DROP_PREVIEW_GET: 'maildrop:preview-get',
@@ -90,7 +114,10 @@ export const IPC = {
   MAIL_DROP_EXISTING: 'maildrop:existing',
   MAIL_DROP_ORPHAN_GET: 'maildrop:orphan-get',
   MAIL_DROP_ORPHAN_DECIDE: 'maildrop:orphan-decide',
+  MAIL_DROP_JOB_GET: 'maildrop:job-get',
+  MAIL_DROP_JOB_DECIDE: 'maildrop:job-decide',
   OAUTH_RECONNECT_LIST: 'oauth:reconnect-list',
+  FEEDBACK_COMPOSE: 'feedback:compose',
   COMPOSE_ACCOUNT_ASK: 'compose:account-ask',
   COMPOSE_ACCOUNT_PICK: 'compose:account-pick',
   COMPOSE_ACCOUNT_SIZE: 'compose:account-size',
@@ -106,6 +133,7 @@ export const IPC = {
   WEB_NOTIFY_SHOW: 'web-notify:show',
   WEB_NOTIFY_CLICK: 'web-notify:click',
   VIEW_LOG: 'view:log',
+  CRASH_REPORT: 'crash:report',
 } as const;
 
 
@@ -137,6 +165,12 @@ export interface MailDropPreviewItem {
   error?: string;
 }
 
+/** What a dragged label turned out to carry: the label itself and every label nested under it,
+ * with how many conversations each holds. Absent for a drag that was not a label drag, which
+ * is what tells the picker to draw its ordinary ticking screen. Declared in
+ * renderer/lib/maildrop-copy.ts, where the picker reads the same shape. */
+export type { MailDropTree } from '../../renderer/lib/maildrop-copy';
+
 export type {
   CopyTarget as MailDropCopyTarget,
   CopyAccountResult as MailDropCopyAccountResult,
@@ -156,12 +190,23 @@ export interface MailDropCopyProgress {
   done: number;
   total: number;
   paused?: boolean;
-  byMailbox?: { email: string; copied: number }[];
+  byMailbox?: ByMailbox[];
+  /** Present only while a batched job is running. `done` and `total` above count the batch on
+   * screen; these count the whole job, in conversations, so a bar that fills five times still
+   * reads as one piece of work. */
+  job?: JobLine;
 }
 
-/** What the paused dialog may ask the copy in flight to do. The two stop actions map onto
- * CopyStopMode ('keep' / 'rollback') once the gate has drained. */
-export type MailDropCopyControlAction = 'pause' | 'resume' | 'stop-keep' | 'stop-rollback';
+/** What the paused dialog may ask the copy in flight to do. The two stop actions used to be
+ * one: inside a batched job 'stop-rollback' is ambiguous, so it names its scope. A plain drag is
+ * one batch, where the two scopes mean the same thing, and the picker offers only the batch one
+ * there. */
+export type MailDropCopyControlAction =
+  | 'pause'
+  | 'resume'
+  | 'stop-keep'
+  | 'stop-rollback-batch'
+  | 'stop-rollback-job';
 
 export type MailDropCopyControlResult = { ok: true } | { ok: false; error: string };
 
@@ -172,7 +217,7 @@ export interface MailDropCopyStoppedResult {
   stopped: true;
   mode: CopyStopMode;
   copied: number;
-  byMailbox: { email: string; copied: number }[];
+  byMailbox: ByMailbox[];
   /** Only set for mode 'rollback' */
   rollback?: RollbackOutcome;
   /** Set when the stop itself could not be completed safely -- the closing journal line
@@ -183,14 +228,6 @@ export interface MailDropCopyStoppedResult {
   /** Something else did not itself succeed -- the audit log, most often -- even though the
    * stop did. Never what decides whether this is a clean stop; `error` is what does that. */
   warnings?: string[];
-}
-
-/** A run this app never heard the end of, waiting for the same keep-or-rollback answer a live
- * run's stop dialog already asks -- surfaced when the mail-drop window opens, since nothing
- * else in this app can put a question in front of the user on its own. */
-export interface MailDropPendingOrphan {
-  runId: string;
-  byMailbox: { email: string; inserted: number }[];
 }
 
 /** A copy that fully succeeded, but where writing the record of that success did not fully

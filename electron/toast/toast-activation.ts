@@ -12,19 +12,16 @@ import { shell } from 'electron';
 import { IPC } from '../core/ipc';
 import { mapLimit } from '../core/concurrency';
 import {
-  authRef,
   idxOfKey,
-  isQuitting,
   keyOf,
   mainWindow,
   manager,
   prefs,
   profiles,
-  setDetectionStarted,
   setSettingsPanelOpen,
   settingsPanelOpen,
 } from '../core/runtime';
-import { showAccount } from '../windows/view-surfaces';
+import { openSurfaceForAccount } from '../windows/surface-opener';
 import { openFullThreadWindow } from '../compose/compose-window';
 import { withTokenFor } from '../auth/mailbox-token';
 import { forgetDownloadClickPath, takeDownloadClickAction } from '../system/session-setup';
@@ -37,6 +34,7 @@ import {
   markMessageRead,
   type MessageMeta,
 } from '../gmail/gmail-api';
+import { surfacesForRef } from '../../renderer/lib/surfaces';
 import type { Surface } from '../windows/profile-view-manager';
 import type { Toast, ToastAction } from '../../renderer/lib/toast';
 
@@ -45,13 +43,14 @@ import type { Toast, ToastAction } from '../../renderer/lib/toast';
 // Types
 //===========================
 
-/** The two things above this module that a click can reach. The main window is rebuilt by
- * a click that arrives after it closed, and an update or error card opens the settings
- * panel; both belong to the window layer, which wires the click handlers in the first
- * place. */
+/** The one thing above this module that a click can reach: an update or error card opens the
+ * settings panel, which belongs to the window layer that wires the click handlers in the
+ * first place.
+ *
+ * The section is optional because only a card that knows where it is going names one: the
+ * list of sections belongs to the renderer, so it travels as a string. */
 export interface ToastActivationHooks {
-  reopenWindow(): void;
-  openSettingsPanel(): void;
+  openSettingsPanel(section?: string): void;
 }
 
 
@@ -59,7 +58,7 @@ export interface ToastActivationHooks {
 // Module state
 //===========================
 
-let hooks: ToastActivationHooks = { reopenWindow: () => {}, openSettingsPanel: () => {} };
+let hooks: ToastActivationHooks = { openSettingsPanel: () => {} };
 
 
 //===========================
@@ -87,26 +86,25 @@ export function activateNotification(
   surface: Surface,
   threadId?: string,
   subject?: string,
+  messageId?: string,
 ): void {
   const idx = idxOfKey(accountKey);
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    if (isQuitting) return;
-    setDetectionStarted(false);
-    hooks.reopenWindow();
-    return;
-  }
-  if (!profiles.some((p) => keyOf(p) === accountKey)) return;
+  // A click shows the window that is there; it never builds one. Without a window there is
+  // nothing to open the mail in, and the card has already been taken off the stack.
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const profile = profiles.find((p) => keyOf(p) === accountKey);
+  if (!profile) return;
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
   const windowMode = prefs?.getAll().notificationOpen === 'window';
 
   notifyLog(
-    `[notify] activate ${accountKey} surface=${surface} thread=${threadId ?? 'none'} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}`,
+    `[notify] activate ${accountKey} surface=${surface} thread=${JSON.stringify(threadId ?? 'none')} message=${JSON.stringify(messageId ?? 'none')} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}`,
   );
 
   if (threadId && surface === 'mail' && windowMode) {
 
-    void manager?.popOutThread(accountKey, threadId, subject).then((ok) => {
-      if (!ok && idx != null) openFullThreadWindow(idx, threadId);
+    void manager?.popOutThread(accountKey, threadId, subject, messageId).then((ok) => {
+      if (!ok && idx != null) openFullThreadWindow(idx, threadId, messageId);
     });
     return;
   }
@@ -119,9 +117,16 @@ export function activateNotification(
     setSettingsPanelOpen(false);
     mainWindow?.webContents.send(IPC.SETTINGS_FORCE_CLOSE);
   }
-  if (idx != null) showAccount(authRef(idx), surface);
+  // The profile's own ref, never one rebuilt from the index: a delegated mailbox has no
+  // index, so idx is null for it and the mailbox that raised the card would stay off screen
+  // while the thread opened in a view nobody was looking at.
+  //
+  // Which is not the same as deciding where it lands: a card from Calendar or Chat opens
+  // that app, and an app the user sent to the browser belongs in the browser here too, so
+  // this goes through the same funnel as the button in the bar. Mail is exempt inside it.
+  if (surfacesForRef(profile.ref).includes(surface)) openSurfaceForAccount(profile.ref, surface);
   if (surface !== 'mail') return;
-  if (threadId) manager?.openMailThread(accountKey, threadId);
+  if (threadId) manager?.openMailThread(accountKey, threadId, messageId);
   else if (subject) manager?.openMailSearch(accountKey, subject);
 }
 
@@ -174,8 +179,14 @@ async function openNotifiedThread(toast: Toast): Promise<void> {
       null,
     );
     if (found && toast.account) {
-      notifyLog(`[notify] click ${key}: the api says thread=${found.threadId}`);
-      activateNotification(toast.account.key, 'mail', found.threadId, source.notified.subject);
+      notifyLog(`[notify] click ${key}: the api says thread=${found.threadId} message=${found.id}`);
+      activateNotification(
+        toast.account.key,
+        'mail',
+        found.threadId,
+        source.notified.subject,
+        found.id,
+      );
       return;
     }
 
@@ -196,7 +207,7 @@ export function activateToast(toast: Toast): void {
     return;
   }
   if (toast.kind === 'mail' && toast.account) {
-    activateNotification(toast.account.key, 'mail', toast.threadId);
+    activateNotification(toast.account.key, 'mail', toast.threadId, undefined, toast.messageId);
     return;
   }
   if (toast.kind === 'download' && toast.threadId) {
@@ -205,7 +216,15 @@ export function activateToast(toast: Toast): void {
     else if (action === 'show-in-folder') shell.showItemInFolder(toast.threadId);
     return;
   }
-  if (toast.kind === 'update' || toast.kind === 'error') {
+  // Named, because getting the user to the new version is the whole point of this card and
+  // openSettingsPanel without a section leaves the panel wherever it last was.
+  if (toast.kind === 'update') {
+    hooks.openSettingsPanel('updates');
+    return;
+  }
+  // Deliberately unnamed. This card is raised when adding an account failed, so Updates
+  // would be the wrong place to send it.
+  if (toast.kind === 'error') {
     hooks.openSettingsPanel();
     return;
   }

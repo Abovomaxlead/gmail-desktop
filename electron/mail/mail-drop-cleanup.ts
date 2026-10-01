@@ -26,7 +26,6 @@ import { notifyLog } from '../notify/notify-log';
  * without a disk. */
 export interface DropEntry {
   name: string;
-  isDirectory: boolean;
   mtimeMs: number;
 }
 
@@ -126,7 +125,7 @@ export async function cleanMailDrop(
       removed.push(name);
     } catch (e) {
       failed.push(name);
-      console.warn(`[maildrop] kan ${name} niet opruimen:`, e);
+      console.warn(`[maildrop] could not clean up ${name}:`, e);
     }
   }
 
@@ -134,9 +133,9 @@ export async function cleanMailDrop(
 
   if (removed.length > 0 || failed.length > 0 || stripped > 0) {
     notifyLog(
-      `[maildrop] opgeruimd na ${KEEP_DAYS} dagen: ${removed.length} verwijderd` +
-        `${failed.length > 0 ? `, ${failed.length} mislukt` : ''}` +
-        `${stripped > 0 ? `, ${stripped} logregels zonder tekst` : ''}`,
+      `[maildrop] cleaned up after ${KEEP_DAYS} days: ${removed.length} removed` +
+        `${failed.length > 0 ? `, ${failed.length} failed` : ''}` +
+        `${stripped > 0 ? `, ${stripped} log lines without text` : ''}`,
     );
   }
   return { removed, failed, stripped };
@@ -152,7 +151,7 @@ export async function cleanMailDrop(
  */
 export function startMailDropCleanup(folderOf: () => string): void {
   const sweep = () => {
-    void cleanMailDrop(folderOf()).catch((e) => console.warn('[maildrop] opruimen mislukt:', e));
+    void cleanMailDrop(folderOf()).catch((e) => console.warn('[maildrop] cleanup failed:', e));
   };
   sweep();
   setInterval(sweep, SWEEP_MS);
@@ -186,15 +185,16 @@ function ageStamp(name: string, mtimeMs: number): number {
  * @private
  */
 async function readEntries(root: string): Promise<DropEntry[]> {
-  const names = await readdir(root, { withFileTypes: true });
+  const names = await readdir(root);
   return await Promise.all(
-    names.map(async (d) => {
+    names.map(async (name) => {
       let mtimeMs = Date.now();
       try {
-        mtimeMs = (await stat(join(root, d.name))).mtimeMs;
+        mtimeMs = (await stat(join(root, name))).mtimeMs;
       } catch {
+        // a failed stat leaves now, so the entry looks fresh and is kept rather than removed
       }
-      return { name: d.name, isDirectory: d.isDirectory(), mtimeMs };
+      return { name, mtimeMs };
     }),
   );
 }
@@ -227,7 +227,7 @@ async function pruneLog(root: string): Promise<number> {
     await writeFile(tmp, body, 'utf8');
     await rename(tmp, path);
   } catch (e) {
-    console.warn('[maildrop] kan log.jsonl niet herschrijven:', e);
+    console.warn('[maildrop] could not rewrite log.jsonl:', e);
     return 0;
   }
   return stripped;

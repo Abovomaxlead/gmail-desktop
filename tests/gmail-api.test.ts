@@ -12,27 +12,23 @@ import {
   apiHeaders,
   parseThreadList,
   parseThreadMessageIds,
-  collectThreadMessages,
+  parseThreadMessageRefs,
   parseMessageRaw,
   threadsListUrl,
+  THREADS_PAGE_SIZE,
+  walkThreadPages,
   threadMessagesUrl,
   messageRawUrl,
   messageModifyUrl,
-  archiveMessage,
   messageIdQuery,
-  searchInLabelUrl,
-  parseHasMessage,
   searchAnywhereUrl,
   messageLabelsUrl,
   parseMessageIds,
   parseMessageLabelIds,
   labelsHoldingMessage,
-  WATCH_URL,
   STOP_URL,
   PROFILE_URL,
   HISTORY_URL,
-  watchBody,
-  parseWatch,
   parseProfileHistoryId,
   historyListUrl,
   parseHistoryPage,
@@ -54,18 +50,17 @@ import {
   isMarkerLabelName,
   labelCreateBody,
   parseCreatedLabel,
-  createHiddenLabel,
   findLabelByExactName,
   looksLikeOwnMarker,
   resolveConflictedMarker,
-  fetchLabel,
-  deleteLabel,
   messagesUnderLabelUrl,
   parseMessageListPage,
-  fetchMessageListPage,
   messagesBatchModifyUrl,
   batchModifyBody,
-  batchModifyMessages,
+  visibleLabelCreateBody,
+  userLabelMap,
+  parseErrorReason,
+  GmailHttpError,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
@@ -187,20 +182,8 @@ describe('marker labels', () => {
     expect(parseCreatedLabel(null)).toBeNull();
   });
 
-  it('exists and takes a token and a name', () => {
-    expect(typeof createHiddenLabel).toBe('function');
-    expect(createHiddenLabel.length).toBe(2);
-  });
-
-  it('deletes by the label-get URL, and exists with a token and an id', () => {
+  it('deletes by the label-get URL', () => {
     expect(labelGetUrl('L9')).toBe('https://gmail.googleapis.com/gmail/v1/users/me/labels/L9');
-    expect(typeof deleteLabel).toBe('function');
-    expect(deleteLabel.length).toBe(2);
-  });
-
-  it('exists and takes a token and a name', () => {
-    expect(typeof fetchLabel).toBe('function');
-    expect(fetchLabel.length).toBe(2);
   });
 });
 
@@ -318,11 +301,6 @@ describe('messages under a label', () => {
   it('reads an empty listing as no ids at all', () => {
     expect(parseMessageListPage({})).toEqual({ ids: [] });
   });
-
-  it('exists and takes a token, a label id and an optional page token', () => {
-    expect(typeof fetchMessageListPage).toBe('function');
-    expect(fetchMessageListPage.length).toBe(3);
-  });
 });
 
 describe('batchModify', () => {
@@ -341,11 +319,6 @@ describe('batchModify', () => {
 
   it('is at most BATCH_MODIFY_LIMIT ids per call, per Gmail\'s own ceiling', () => {
     expect(BATCH_MODIFY_LIMIT).toBe(1000);
-  });
-
-  it('exists and takes a token, ids and an action', () => {
-    expect(typeof batchModifyMessages).toBe('function');
-    expect(batchModifyMessages.length).toBe(3);
   });
 });
 
@@ -383,9 +356,10 @@ describe('findLabelId', () => {
 });
 
 describe('threads urls', () => {
-  it('asks for a page of the label', () => {
+  it('asks for a page of the label, at the largest page Gmail allows', () => {
+    expect(THREADS_PAGE_SIZE).toBe(500);
     expect(threadsListUrl('L1')).toBe(
-      'https://gmail.googleapis.com/gmail/v1/users/me/threads?labelIds=L1&maxResults=100',
+      'https://gmail.googleapis.com/gmail/v1/users/me/threads?labelIds=L1&maxResults=500',
     );
   });
 
@@ -408,6 +382,77 @@ describe('threads urls', () => {
   it('escapes an id instead of building a broken url', () => {
     expect(threadMessagesUrl('a/b')).toContain('/threads/a%2Fb?');
     expect(messageRawUrl('a/b')).toContain('/messages/a%2Fb?');
+  });
+});
+
+describe('walkThreadPages', () => {
+  const pager = (pages: string[][]) => {
+    const asked: Array<string | undefined> = [];
+    const read = async (pageToken?: string) => {
+      asked.push(pageToken);
+      const i = pageToken ? Number(pageToken) : 0;
+      const threadIds = pages[i] ?? [];
+      return i + 1 < pages.length ? { threadIds, nextPageToken: String(i + 1) } : { threadIds };
+    };
+    return { asked, read };
+  };
+
+  it('walks every page and keeps the order the pages gave', async () => {
+    const { asked, read } = pager([['t1', 't2'], ['t3'], ['t4']]);
+    expect(await walkThreadPages(50, read)).toEqual({
+      threadIds: ['t1', 't2', 't3', 't4'],
+      capped: false,
+      stopped: false,
+    });
+    expect(asked).toEqual([undefined, '1', '2']);
+  });
+
+  it('keeps a thread once when two pages carry it', async () => {
+    const { read } = pager([['t1', 't2'], ['t2', 't3']]);
+    expect((await walkThreadPages(50, read)).threadIds).toEqual(['t1', 't2', 't3']);
+  });
+
+  it('stops at the cap and says so', async () => {
+    const { asked, read } = pager([['t1', 't2'], ['t3', 't4']]);
+    expect(await walkThreadPages(3, read)).toEqual({
+      threadIds: ['t1', 't2', 't3'],
+      capped: true,
+      stopped: false,
+    });
+    expect(asked).toEqual([undefined, '1']);
+  });
+
+  it('reports the running total after every page', async () => {
+    const { read } = pager([['t1', 't2'], ['t3'], ['t4']]);
+    const seen: number[] = [];
+    await walkThreadPages(50, read, (soFar) => {
+      seen.push(soFar);
+      return true;
+    });
+    expect(seen).toEqual([2, 3, 4]);
+  });
+
+  it('stops paging the moment the caller refuses, and keeps what it had', async () => {
+    const { asked, read } = pager([['t1'], ['t2'], ['t3']]);
+    expect(await walkThreadPages(50, read, (soFar) => soFar < 2)).toEqual({
+      threadIds: ['t1', 't2'],
+      capped: false,
+      stopped: true,
+    });
+    expect(asked).toEqual([undefined, '1']);
+  });
+
+  it('deduplicates without scanning what it already has', async () => {
+    // The walk runs on the main process, so a linear scan per id froze the app for as long as
+    // the listing took. Twenty thousand ids is where that showed: a Set does it in milliseconds.
+    const pages = Array.from({ length: 40 }, (_, i) =>
+      Array.from({ length: 500 }, (_, n) => `t${i * 500 + n}`),
+    );
+    const { read } = pager(pages);
+    const started = Date.now();
+    const walked = await walkThreadPages(50_000, read);
+    expect(walked.threadIds).toHaveLength(20_000);
+    expect(Date.now() - started).toBeLessThan(1_000);
   });
 });
 
@@ -444,6 +489,34 @@ describe('parseThreadMessageIds', () => {
   });
 });
 
+describe('parseThreadMessageRefs', () => {
+  it('reads unread off the same listing the ids come from, message by message', () => {
+    expect(
+      parseThreadMessageRefs({
+        messages: [
+          { id: 'm1', labelIds: ['INBOX', 'UNREAD'] },
+          { id: 'm2', labelIds: ['INBOX'] },
+        ],
+      }),
+    ).toEqual([
+      { id: 'm1', unread: true },
+      { id: 'm2', unread: false },
+    ]);
+  });
+
+  it('calls a message read when Gmail names no labels at all', () => {
+    expect(parseThreadMessageRefs({ messages: [{ id: 'm1' }] })).toEqual([
+      { id: 'm1', unread: false },
+    ]);
+  });
+
+  it('returns nothing for an unexpected response', () => {
+    expect(parseThreadMessageRefs({})).toEqual([]);
+    expect(parseThreadMessageRefs(null)).toEqual([]);
+    expect(parseThreadMessageRefs({ messages: [{ id: '' }] })).toEqual([]);
+  });
+});
+
 describe('parseMessageRaw', () => {
   it('decodes the message from base64url', () => {
     const eml = 'Subject: Hoi\r\n\r\nDag.';
@@ -471,30 +544,6 @@ describe('messageIdQuery', () => {
 
   it('copes with a header without brackets or with spacing', () => {
     expect(messageIdQuery(' CAF123@mail.gmail.com ')).toBe('rfc822msgid:CAF123@mail.gmail.com');
-  });
-});
-
-describe('searchInLabelUrl', () => {
-  it('looks for that one message inside that one label', () => {
-    const url = new URL(searchInLabelUrl('<a@b.nl>', 'L1'));
-    expect(url.pathname).toBe('/gmail/v1/users/me/messages');
-    expect(url.searchParams.get('q')).toBe('rfc822msgid:a@b.nl');
-    expect(url.searchParams.get('labelIds')).toBe('L1');
-    expect(url.searchParams.get('maxResults')).toBe('1');
-  });
-
-  it('escapes a message id that would otherwise break the query', () => {
-    const url = new URL(searchInLabelUrl('<a+b&c@x.nl>', 'L1'));
-    expect(url.searchParams.get('q')).toBe('rfc822msgid:a+b&c@x.nl');
-  });
-});
-
-describe('parseHasMessage', () => {
-  it('is true only when Gmail actually found something', () => {
-    expect(parseHasMessage({ messages: [{ id: 'm1' }] })).toBe(true);
-    expect(parseHasMessage({ resultSizeEstimate: 0 })).toBe(false);
-    expect(parseHasMessage({ messages: [] })).toBe(false);
-    expect(parseHasMessage(null)).toBe(false);
   });
 });
 
@@ -559,11 +608,6 @@ describe('parseMessageLabelIds', () => {
 });
 
 describe('labelsHoldingMessage', () => {
-  it('exists and takes a token and a message id', () => {
-    expect(typeof labelsHoldingMessage).toBe('function');
-    expect(labelsHoldingMessage.length).toBe(2);
-  });
-
   it('answers nothing without a Message-ID, since nothing can be matched', async () => {
     expect(await labelsHoldingMessage('token', '  ')).toEqual([]);
   });
@@ -617,34 +661,6 @@ describe('parseInsertedId', () => {
     expect(parseInsertedId({})).toBeNull();
     expect(parseInsertedId({ id: '' })).toBeNull();
     expect(parseInsertedId(null)).toBeNull();
-  });
-});
-
-describe('watch', () => {
-  it('asks Gmail to publish inbox changes to our topic', () => {
-    const body = JSON.parse(watchBody('projects/p/topics/gmail-push'));
-    expect(body).toEqual({
-      topicName: 'projects/p/topics/gmail-push',
-      labelIds: ['INBOX'],
-      labelFilterBehavior: 'include',
-    });
-  });
-
-  it('posts to the watch endpoint', () => {
-    expect(WATCH_URL).toBe('https://gmail.googleapis.com/gmail/v1/users/me/watch');
-    expect(STOP_URL).toBe('https://gmail.googleapis.com/gmail/v1/users/me/stop');
-  });
-
-  it('reads the starting point and the expiry out of the answer', () => {
-    expect(parseWatch({ historyId: '9912', expiration: '1780000000000' })).toEqual({
-      historyId: '9912',
-      expiration: 1780000000000,
-    });
-  });
-
-  it('returns null when the answer has no history id to start from', () => {
-    expect(parseWatch({ expiration: '1780000000000' })).toBeNull();
-    expect(parseWatch(null)).toBeNull();
   });
 });
 
@@ -781,11 +797,6 @@ describe('archiveMessage', () => {
       'https://gmail.googleapis.com/gmail/v1/users/me/messages/a%2Fb/modify',
     );
   });
-
-  it('exists and takes a token and a message id', () => {
-    expect(typeof archiveMessage).toBe('function');
-    expect(archiveMessage.length).toBe(2);
-  });
 });
 
 describe('inbox unread', () => {
@@ -806,73 +817,6 @@ describe('inbox unread', () => {
   it('returns null when the field is absent, so the caller leaves the count alone', () => {
     expect(parseUnreadThreads({ id: 'INBOX' })).toBeNull();
     expect(parseUnreadThreads(null)).toBeNull();
-  });
-});
-
-// Dragging one conversation used to read Gmail's own "show original" page, which renders a
-// long thread with its older messages collapsed and their download links gone. The copy was
-// then short and said so nowhere: it counted what it had found rather than what the thread
-// held, so three of twelve reported itself as three of three. threads.get lists every
-// message, and this is what keeps that list intact on the way through.
-describe('collectThreadMessages', () => {
-  const raw = (s: string) => Buffer.from(s, 'utf8');
-
-  it('returns one entry per message, in the thread order', async () => {
-    const out = await collectThreadMessages(['m1', 'm2', 'm3'], async (id) => raw(id));
-    expect(out.map((m) => m.id)).toEqual(['m1', 'm2', 'm3']);
-    expect(out.every((m) => m.raw !== undefined)).toBe(true);
-  });
-
-  it('keeps a message whose source never arrived, rather than dropping it', async () => {
-    const out = await collectThreadMessages(['m1', 'm2'], async (id) =>
-      id === 'm2' ? null : raw(id),
-    );
-    expect(out).toHaveLength(2);
-    expect(out[1].raw).toBeUndefined();
-    expect(out[1].error).toBeTruthy();
-  });
-
-  it('keeps going after one message fails, and records why', async () => {
-    const out = await collectThreadMessages(['m1', 'm2', 'm3'], async (id) => {
-      if (id === 'm2') throw new Error('HTTP 500');
-      return raw(id);
-    });
-    expect(out).toHaveLength(3);
-    expect(out[1].error).toContain('HTTP 500');
-    expect(out[2].raw?.toString()).toBe('m3');
-  });
-
-  it('is empty only when the thread is', async () => {
-    expect(await collectThreadMessages([], async () => raw('x'))).toEqual([]);
-  });
-
-  it('reads several messages at once, up to the limit it is given', async () => {
-    let running = 0;
-    let peak = 0;
-    await collectThreadMessages(
-      ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'],
-      async (id) => {
-        running += 1;
-        peak = Math.max(peak, running);
-        await new Promise((r) => setTimeout(r, 1));
-        running -= 1;
-        return raw(id);
-      },
-      3,
-    );
-    expect(peak).toBe(3);
-  });
-
-  it('keeps the thread order even when the later messages answer first', async () => {
-    const out = await collectThreadMessages(
-      ['slow', 'fast'],
-      async (id) => {
-        await new Promise((r) => setTimeout(r, id === 'slow' ? 20 : 1));
-        return raw(id);
-      },
-      2,
-    );
-    expect(out.map((m) => m.id)).toEqual(['slow', 'fast']);
   });
 });
 
@@ -1091,5 +1035,92 @@ describe('parseMessageMeta, the Message-ID it now also carries', () => {
 
   it('asks Gmail for the header, or it would never arrive', () => {
     expect(MESSAGE_META_HEADERS).toContain('Message-ID');
+  });
+});
+
+describe('visibleLabelCreateBody', () => {
+  it('asks for a label the user can actually see', () => {
+    expect(JSON.parse(visibleLabelCreateBody('Klanten/Acme'))).toEqual({
+      name: 'Klanten/Acme',
+      labelListVisibility: 'labelShow',
+      messageListVisibility: 'show',
+    });
+  });
+
+  it('differs from the hidden marker body', () => {
+    expect(visibleLabelCreateBody('X')).not.toBe(labelCreateBody('X'));
+  });
+});
+
+describe('userLabelMap', () => {
+  it('keeps only the user own labels, not the system ones', () => {
+    const map = userLabelMap([
+      { id: 'Label_1', name: 'Klanten', type: 'user', labelListVisibility: '' },
+      { id: 'INBOX', name: 'INBOX', type: 'system', labelListVisibility: '' },
+    ]);
+    expect([...map]).toEqual([['Klanten', 'Label_1']]);
+  });
+
+  it('drops this app own run markers', () => {
+    const marker = {
+      id: 'Label_9',
+      name: markerLabelName('run-1'),
+      type: 'user',
+      labelListVisibility: '',
+    };
+    expect(userLabelMap([marker]).size).toBe(0);
+  });
+});
+
+describe('parseErrorReason', () => {
+  it('reads the reason off the first error Gmail listed', () => {
+    expect(parseErrorReason({ error: { errors: [{ reason: 'userRateLimitExceeded' }] } })).toBe(
+      'userRateLimitExceeded',
+    );
+  });
+
+  // The quota layer in front of the API writes this one instead, and it is the shape the live
+  // failure came back as: "Quota exceeded for quota metric 'Queries' ... for consumer ...".
+  it('falls back to the status the quota front end writes', () => {
+    expect(parseErrorReason({ error: { status: 'RESOURCE_EXHAUSTED' } })).toBe(
+      'RESOURCE_EXHAUSTED',
+    );
+  });
+
+  it('prefers a named reason over the status when both are there', () => {
+    expect(
+      parseErrorReason({
+        error: { status: 'PERMISSION_DENIED', errors: [{ reason: 'rateLimitExceeded' }] },
+      }),
+    ).toBe('rateLimitExceeded');
+  });
+
+  it('walks past an entry with no reason rather than stopping at it', () => {
+    expect(parseErrorReason({ error: { errors: [{}, { reason: 'quotaExceeded' }] } })).toBe(
+      'quotaExceeded',
+    );
+  });
+
+  it('says nothing for a body that carries neither', () => {
+    expect(parseErrorReason({ error: { message: 'kapot' } })).toBeNull();
+    expect(parseErrorReason({ error: {} })).toBeNull();
+    expect(parseErrorReason({})).toBeNull();
+    expect(parseErrorReason(null)).toBeNull();
+    expect(parseErrorReason('niet eens json')).toBeNull();
+  });
+});
+
+describe('GmailHttpError', () => {
+  it('carries the reason alongside the status', () => {
+    const e = new GmailHttpError('geweigerd', 403, null, 'userRateLimitExceeded');
+    expect(e.status).toBe(403);
+    expect(e.reason).toBe('userRateLimitExceeded');
+  });
+
+  // Two of the three places that construct one have no body to read a reason from -- an
+  // unreadable answer and a batch refused as a whole -- so the parameter has to default.
+  it('has no reason when none was given', () => {
+    expect(new GmailHttpError('kapot', 500).reason).toBeNull();
+    expect(new GmailHttpError('kapot', 500, '30').reason).toBeNull();
   });
 });

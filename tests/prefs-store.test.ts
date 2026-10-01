@@ -48,6 +48,28 @@ describe('PrefsStore', () => {
     expect(new PrefsStore(file).getAccount('a@b.com').badgeCount).toBe(false);
   });
 
+  // Proves the cache rather than the file: with no cache, two calls to getAll() each build
+  // and return a fresh object, so this fails even though both would be deeply equal.
+  it('returns the same object from a second read, without re-reading the file', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    expect(store.getAll()).toBe(store.getAll());
+  });
+
+  it('drops a hand-edited account entry that is not an object', () => {
+    writeFileSync(file, JSON.stringify({ accounts: { 'a@b.com': 5 } }), 'utf8');
+    expect(new PrefsStore(file).getAccount('a@b.com')).toEqual({});
+  });
+
+  it('keeps the valid fields of a hand-edited account and drops the malformed ones', () => {
+    writeFileSync(
+      file,
+      JSON.stringify({ accounts: { 'a@b.com': { zoom: 'big', notify: true } } }),
+      'utf8',
+    );
+    expect(new PrefsStore(file).getAccount('a@b.com')).toEqual({ notify: true });
+  });
+
   // A corrupt file used to mean defaults, which is how an update cost people their
   // settings. It now means the backup, and only a corrupt backup as well means defaults.
   it('tolerates a corrupt file by reading the backup beside it', () => {
@@ -153,6 +175,30 @@ describe('PrefsStore', () => {
     store.setLanguage('nl');
     writeFileSync(file, JSON.stringify({ ...store.getAll(), language: 'fr' }));
     expect(new PrefsStore(file).getAll().language).toBe('system');
+  });
+
+  it('defaults the tour to unseen', () => {
+    expect(new PrefsStore(file).getAll().tour).toEqual({ seen: false });
+  });
+
+  // A prefs.json written by a build from before the tour existed has no tour key at all,
+  // and an undefined field would make the trigger's `prefs.tour.seen` throw.
+  it('reads a prefs file written before the tour existed as unseen', () => {
+    writeFileSync(file, JSON.stringify({ theme: 'dark' }), 'utf8');
+    expect(new PrefsStore(file).getAll().tour).toEqual({ seen: false });
+  });
+
+  it('remembers the tour as seen across a reload', () => {
+    const store = new PrefsStore(file);
+    store.setTour({ seen: true });
+    expect(new PrefsStore(file).getAll().tour.seen).toBe(true);
+  });
+
+  it('leaves the other tabs alone when the tour is marked seen', () => {
+    const store = new PrefsStore(file);
+    store.setTheme('dark');
+    store.setTour({ seen: true });
+    expect(new PrefsStore(file).getAll().theme).toBe('dark');
   });
 });
 

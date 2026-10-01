@@ -21,7 +21,6 @@ import {
   addToast,
   collapse,
   delayExpiries,
-  dismissAll,
   dismissToast,
   expireToasts,
 } from './toast-model';
@@ -96,9 +95,14 @@ export class ToastController {
    */
   show(input: ToastInput): void {
     const { persist, ...rest } = input;
-    // An empty stack means no window is up, so this card starts its life unseen. What
-    // ends that is a size report, which is the page saying it drew something.
-    if (this.isEmpty() && this.darkSince === null) this.darkSince = this.hooks.now();
+    // This card starts its life unseen when nothing is on screen to put it beside: an empty
+    // stack means the window is hidden, and a window that has not painted since it was built
+    // means the page behind it is new. What ends the blackout is a size report, which is the
+    // page saying it drew something -- without this a card landing on a non-empty stack right
+    // after a rebuild counts down against a window that never measured itself.
+    if (this.darkSince === null && (this.isEmpty() || !this.hooks.window.hasPainted())) {
+      this.darkSince = this.hooks.now();
+    }
     this.seq += 1;
     const toast: Toast = {
       ...rest,
@@ -124,7 +128,7 @@ export class ToastController {
   }
 
   dismissAll(): void {
-    this.setStack(dismissAll(this.stack));
+    this.setStack(EMPTY_STACK);
     this.push();
     this.retime();
   }
@@ -149,7 +153,7 @@ export class ToastController {
   activateSummary(): void {
     if (!this.stack.summary) return;
     const accountKey = this.stack.summary.accountKey;
-    this.setStack(dismissAll(this.stack));
+    this.setStack(EMPTY_STACK);
     this.push();
     this.retime();
     this.hooks.onActivateSummary(accountKey);
@@ -219,16 +223,25 @@ export class ToastController {
   /**
    * The page measured itself
    *
-   * Collapse if it does not fit, otherwise size the window to it.
-   *
    * @param cssWidth
    * @param cssHeight
    */
   applySize(cssWidth: number, cssHeight: number): void {
-    // before anything is decided about it: the report arriving is what the watchdog waits
-    // for, and the two paths below never reach window.applySize
+    // Before anything is decided about it: the report arriving is what the watchdog waits
+    // for, and the two paths in layout() below never reach window.applySize
     this.hooks.window.noteAlive();
     this.notePainted();
+    this.layout(cssWidth, cssHeight);
+  }
+
+  /**
+   * Collapses the stack if it does not fit, otherwise sizes the window to it
+   *
+   * @param cssWidth
+   * @param cssHeight
+   * @private
+   */
+  private layout(cssWidth: number, cssHeight: number): void {
     if (this.isEmpty()) return;
     if (this.hooks.window.wouldOverflow(cssHeight)) {
       const folded = collapse(this.stack);

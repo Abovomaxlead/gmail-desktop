@@ -19,11 +19,11 @@ import {
   setReconnectBanner,
 } from '../core/runtime';
 import { accessTokenFor } from './oauth-flow';
-import { linkableOwnEmails } from './account-domain';
 import { hasScopes } from './google-oauth';
-import { oauthConfig, pushConfig } from './oauth-config';
+import { linkableOwnEmails } from './account-domain';
+import { oauthConfig } from './oauth-config';
 import { accountOAuthStatuses, accountsNeedingReconnect, bannerBounds } from './oauth-health';
-import type { ReconnectAccount } from './oauth-health';
+import type { ReconnectAccount } from '../../renderer/lib/reconnect';
 
 
 //===========================
@@ -33,8 +33,6 @@ import type { ReconnectAccount } from './oauth-health';
 let healthTimer: ReturnType<typeof setTimeout> | null = null;
 
 const refreshFailures = new Set<string>();
-
-const pushRefusals = new Set<string>();
 
 
 //===========================
@@ -53,27 +51,6 @@ export function markRefreshFailed(email: string): void {
 
 export function clearRefreshFailure(email: string): void {
   refreshFailures.delete(email);
-}
-
-export function notePushRefused(email: string): void {
-  pushRefusals.add(email);
-}
-
-/**
- * Forgets a push refusal
- *
- * @param email
- * @returns whether it was refused before, so the caller only re-checks on a real change
- */
-export function clearPushRefusal(email: string): boolean {
-  return pushRefusals.delete(email);
-}
-
-export function pushOAuthStatus(): void {
-  mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, {
-    configured: oauthConfig() !== null,
-    accounts: oauthStatuses,
-  });
 }
 
 export async function checkOAuthHealth(): Promise<void> {
@@ -99,12 +76,10 @@ export async function checkOAuthHealth(): Promise<void> {
     ownEmails,
     hasToken: (e: string) => oauthTokens!.get(e) !== undefined,
     refreshFailed: (e: string) => refreshFailures.has(e),
-    pushConfigured: pushConfig() !== null,
-    missingScopes: (e: string) => {
+    scopesComplete: (e: string) => {
       const token = oauthTokens!.get(e);
-      return token !== undefined && !hasScopes(token);
+      return token !== undefined && hasScopes(token);
     },
-    pushRefused: (e: string) => pushRefusals.has(e),
   };
   setOauthStatuses(accountOAuthStatuses(health));
   pushOAuthStatus();
@@ -115,6 +90,13 @@ export async function checkOAuthHealth(): Promise<void> {
 //===========================
 // Helper functions
 //===========================
+
+function pushOAuthStatus(): void {
+  mainWindow?.webContents.send(IPC.OAUTH_STATUS_CHANGED, {
+    configured: oauthConfig() !== null,
+    accounts: oauthStatuses,
+  });
+}
 
 function showReconnectBanner(accounts: ReconnectAccount[]): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;

@@ -13,6 +13,7 @@ import { IPC } from '../core/ipc';
 import { currentLocale, downloadHistory, mainWindow, prefs } from '../core/runtime';
 import { nativeLabels } from '../menus/native-labels';
 import { playNotificationSound } from '../notify/notify-gating';
+import { doNotDisturb } from '../notify/notification-policy';
 import { showToast } from '../toast/toast-presenter';
 import { uniqueFileName } from './download-path';
 import type { DownloadClickAction } from '../core/prefs-store';
@@ -90,14 +91,31 @@ export function forgetDownloadClickPath(path: string): void {
 // Helper functions
 //===========================
 
+/**
+ * Raises the card a finished download gets
+ *
+ * Downloads are not exempt from do-not-disturb or quiet hours. A card with no account behind
+ * it cannot ask the per-account switch, so it is held by the master switches alone -- the same
+ * ones notificationsAllowed checks first for a mail card. A download that finishes minutes
+ * after the user walked away is the case this is for: it is still in the history and still in
+ * its folder, it simply does not speak.
+ *
+ * @param filename
+ * @param path
+ * @param state
+ * @param onClick what a click on the card should do
+ * @private
+ */
 function notifyDownloadDone(
   filename: string,
   path: string,
   state: 'completed' | 'cancelled' | 'interrupted',
   onClick: DownloadClickAction,
 ): void {
+  const p = prefs?.getAll();
+  if (!p || doNotDisturb(p, new Date())) return;
   const done = state === 'completed';
-  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+  const L = nativeLabels(currentLocale(), p.reneMode === true);
   if (done && path && onClick !== 'nothing') downloadClickPaths.set(path, onClick);
   showToast({
     kind: 'download',
@@ -110,7 +128,7 @@ function notifyDownloadDone(
     ...(done && path && onClick !== 'nothing' ? { threadId: path } : {}),
     persist: true,
   });
-  if (prefs) playNotificationSound(prefs.getAll());
+  playNotificationSound(p);
 }
 
 function spellcheckLanguagesFor(s: Electron.Session): string[] {

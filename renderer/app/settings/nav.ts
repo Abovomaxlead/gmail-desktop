@@ -20,6 +20,8 @@ export type SettingsSection =
   | 'updates'
   | 'verification-codes'
   | 'advanced'
+  | 'label-cleanup'
+  | 'feedback'
   | 'whats-new'
   | 'about';
 
@@ -28,6 +30,7 @@ export type AttentionUpdateState =
   | 'checking'
   | 'available'
   | 'not-available'
+  | 'no-release'
   | 'downloading'
   | 'downloaded'
   | 'error'
@@ -57,8 +60,11 @@ export const SETTINGS_GROUPS: readonly (readonly SettingsSection[])[] = [
     'updates',
     'verification-codes',
     'advanced',
+    // Past Advanced rather than in the alphabet with the rest: it is the only section that
+    // removes mail, and it must not sit between two switches that only set a preference.
+    'label-cleanup',
   ],
-  ['whats-new', 'about'],
+  ['feedback', 'whats-new', 'about'],
 ];
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = SETTINGS_GROUPS.flat();

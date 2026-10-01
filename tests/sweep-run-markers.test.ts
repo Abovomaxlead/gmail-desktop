@@ -3,7 +3,11 @@
 // listing itself reports, never a locally kept record of what the journal happened to write.
 
 import { describe, it, expect } from 'vitest';
-import { sweepRunMarkers, type SweepRunDeps } from '../electron/mail/copy-marker-run-sweep';
+import {
+  sweepRunMarkers,
+  deleteCreatedLabels,
+  type SweepRunDeps,
+} from '../electron/mail/copy-marker-run-sweep';
 import type { MarkerLabel } from '../electron/mail/copy-run-types';
 
 const noopDeleteLabel = async (): Promise<void> => {};
@@ -152,5 +156,45 @@ describe('sweepRunMarkers', () => {
       [1, 2],
       [2, 2],
     ]);
+  });
+});
+
+describe('deleteCreatedLabels', () => {
+  const deps = (deleted: string[], fail?: string) => ({
+    token: async () => ({ ok: true as const, token: 't' }),
+    list: async () => ({ ids: [], done: true }),
+    modify: async () => {},
+    deleteLabel: async (_token: string, labelId: string) => {
+      if (labelId === fail) throw new Error('nee');
+      deleted.push(labelId);
+    },
+  });
+
+  it('deletes every label the run made', async () => {
+    const deleted: string[] = [];
+    const left = await deleteCreatedLabels(
+      [
+        { email: 'a@b.nl', labelId: 'Label_1', name: 'Archief/Klanten' },
+        { email: 'a@b.nl', labelId: 'Label_2', name: 'Archief/Klanten/Acme' },
+      ],
+      deps(deleted) as any,
+    );
+    expect(deleted).toEqual(['Label_2', 'Label_1']);
+    expect(left).toEqual([]);
+  });
+
+  it('names what it could not delete rather than failing the rollback', async () => {
+    const deleted: string[] = [];
+    const left = await deleteCreatedLabels(
+      [{ email: 'a@b.nl', labelId: 'Label_1', name: 'Archief/Klanten' }],
+      deps(deleted, 'Label_1') as any,
+    );
+    expect(left).toEqual(['Archief/Klanten']);
+  });
+
+  it('does nothing when the run created nothing', async () => {
+    const deleted: string[] = [];
+    expect(await deleteCreatedLabels([], deps(deleted) as any)).toEqual([]);
+    expect(deleted).toEqual([]);
   });
 });

@@ -12,8 +12,9 @@
 // webContents that supports on/once/loadURL/setZoomLevel/setAudioMuted/setWindowOpenHandler,
 // and a host window with a contentView that can add and remove children.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { AccountRef } from '../renderer/lib/account-ref';
+import type { Profile, ProfileViewManager as ViewManager } from '../electron/windows/profile-view-manager';
 
 const { FakeWebContentsView } = vi.hoisted(() => {
   class FakeWebContents {
@@ -37,11 +38,29 @@ const { FakeWebContentsView } = vi.hoisted(() => {
       this.sent.push({ channel, args });
     }
     setWindowOpenHandler(): void {}
-    loadURL(): Promise<void> {
+    /** Where the page is, so a test can act as a redirect Google performed. */
+    url = '';
+    /** Every deliberate navigation in order, with a reload recorded as 'reload'. */
+    navigations: string[] = [];
+    loadURL(u: string): Promise<void> {
+      this.url = u;
+      this.navigations.push(u);
       return Promise.resolve();
+    }
+    getURL(): string {
+      return this.url;
+    }
+    reload(): void {
+      this.navigations.push('reload');
     }
     setZoomLevel(): void {}
     setAudioMuted(): void {}
+    /** How often main put keyboard focus here; before-input-event only reaches the focused
+     * webContents, so this is what decides whether a shortcut is heard at all. */
+    focuses = 0;
+    focus(): void {
+      this.focuses += 1;
+    }
     isDestroyed(): boolean {
       return false;
     }
@@ -61,18 +80,68 @@ const { FakeWebContentsView } = vi.hoisted(() => {
   return { FakeWebContentsView };
 });
 
+const { showAccountSpy } = vi.hoisted(() => ({ showAccountSpy: vi.fn() }));
+
 vi.mock('electron', () => ({
   WebContentsView: FakeWebContentsView,
   shell: { openExternal: () => {} },
 }));
+vi.mock('../electron/windows/view-surfaces', () => ({ showAccount: showAccountSpy }));
+// window-chrome.ts pulls this in for the 'compose' shortcut only; the real module reads
+// app.getAppPath() at import time, which the minimal electron mock above does not provide.
+vi.mock('../electron/compose/mailto-controller', () => ({ openComposeWindow: () => {} }));
 
 const { ProfileViewManager } = await import('../electron/windows/profile-view-manager');
 const { accountKey } = await import('../renderer/lib/account-ref');
+// Loaded after the mocks above are registered: window-chrome.ts imports 'electron' too, and
+// runtime.ts's mutable profiles/prefs bindings are what the shortcut-order test drives directly.
+const { handleInput } = await import('../electron/windows/window-chrome');
+const { profiles: runtimeProfiles, setPrefs } = await import('../electron/core/runtime');
 
-function fakeWin() {
+/** The fake page behind a view, as the tests need to see it. */
+interface FakePage {
+  url: string;
+  navigations: string[];
+  /** How often main put keyboard focus here. */
+  focuses: number;
+  sent: Array<{ channel: string; args: unknown[] }>;
+  /** Drives what the real WebContents raises, so a test can act as the page. */
+  emit(event: string, ...args: unknown[]): void;
+}
+
+/** A view the manager built, as it lands in the host window. */
+interface FakeView {
+  webContents: FakePage;
+  visible: boolean;
+}
+
+/** The host window the manager is driven against. */
+interface FakeWin {
+  id: number;
+  isDestroyed: () => boolean;
+  isFocused: () => boolean;
+  on: () => void;
+  once: () => void;
+  webContents: { focus: Mock<[], void>; isDestroyed: () => boolean };
+  contentView: {
+    addChildView: Mock<[FakeView], void>;
+    removeChildView: Mock<[FakeView], void>;
+  };
+  getContentSize: () => number[];
+}
+
+/** Window ids are what the manager keeps per-window state under, so every fake needs its
+ * own -- two windows sharing an id would look like one window to it. */
+let nextWinId = 1;
+
+function fakeWin(): FakeWin {
   return {
+    id: nextWinId++,
     isDestroyed: () => false,
+    isFocused: () => true,
     on: () => {},
+    once: () => {},
+    webContents: { focus: vi.fn(), isDestroyed: () => false },
     contentView: {
       addChildView: vi.fn(),
       removeChildView: vi.fn(),
@@ -81,7 +150,12 @@ function fakeWin() {
   };
 }
 
-function manager(win: ReturnType<typeof fakeWin>, mayDragToSave?: (accountKey: string) => boolean | null) {
+function manager(
+  win: FakeWin,
+  mayDragToSave?: (accountKey: string) => boolean | null,
+  crashPageUrl?: (accountKey: string) => string,
+  hostFor?: (accountKey: string) => FakeWin | null,
+) {
   return new ProfileViewManager(
     win as never,
     'preload.js',
@@ -96,6 +170,8 @@ function manager(win: ReturnType<typeof fakeWin>, mayDragToSave?: (accountKey: s
     () => {},
     () => {},
     mayDragToSave,
+    crashPageUrl,
+    hostFor as never,
   );
 }
 
@@ -107,6 +183,11 @@ const withUrl: AccountRef = {
   calendarUrl: null,
 };
 const owned: AccountRef = { kind: 'authuser', index: 0 };
+
+/** The page of the nth view the manager built. */
+function pageOf(win: FakeWin, n = 0): FakePage {
+  return win.contentView.addChildView.mock.calls[n][0].webContents;
+}
 
 describe('ProfileViewManager funnel guard', () => {
   it('ensureView refuses a delegated ref with no mailUrl for mail', () => {
@@ -154,7 +235,7 @@ describe('ProfileViewManager funnel guard', () => {
 // to reach it — an answer that never arrives leaves no strip, which is the safe side, but a
 // wrong `true` would put one in a private mailbox.
 describe('who may offer drag-to-save', () => {
-  const askFrom = (win: ReturnType<typeof fakeWin>, m: ReturnType<typeof manager>) => {
+  const askFrom = (win: FakeWin, m: ViewManager) => {
     m.ensureView(owned, 'mail', true);
     const view = win.contentView.addChildView.mock.calls[0][0] as {
       webContents: { emit(e: string, ...a: unknown[]): void; sent: Array<{ channel: string; args: unknown[] }> };
@@ -208,13 +289,179 @@ describe('who may offer drag-to-save', () => {
   });
 });
 
+// The page runs with contextIsolation disabled, so an ipc-message payload is attacker
+// input to main, not typed data. onIdentity does `identity.email` and onMailDrop casts
+// straight to MailDropPayload, so a shape the real Gmail page never sends must be dropped
+// before it reaches either callback rather than handed over unchecked.
+describe('page-sent identity and drop payloads are shape-checked', () => {
+  function managerWithCallbacks(
+    win: FakeWin,
+    overrides: { onIdentity?: (...args: unknown[]) => void; onMailDrop?: (...args: unknown[]) => void } = {},
+  ) {
+    return new ProfileViewManager(
+      win as never,
+      'preload.js',
+      () => {},
+      () => {},
+      overrides.onIdentity ?? (() => {}),
+      () => {},
+      () => 0,
+      () => false,
+      () => 'app',
+      () => 1,
+      overrides.onMailDrop ?? (() => {}),
+    );
+  }
+
+  it('drops an ACCOUNT_IDENTITY message with no argument', () => {
+    const win = fakeWin();
+    const onIdentity = vi.fn();
+    const m = managerWithCallbacks(win, { onIdentity });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    view.webContents.emit('ipc-message', {}, 'account:identity');
+    expect(onIdentity).not.toHaveBeenCalled();
+  });
+
+  it('forwards a well-shaped ACCOUNT_IDENTITY message', () => {
+    const win = fakeWin();
+    const onIdentity = vi.fn();
+    const m = managerWithCallbacks(win, { onIdentity });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    const identity = { email: 'a@work.nl', name: 'A', avatarUrl: '' };
+    view.webContents.emit('ipc-message', {}, 'account:identity', identity);
+    expect(onIdentity).toHaveBeenCalledWith(accountKey(owned), identity);
+  });
+
+  it('drops a MAIL_DROP message with the wrong shape', () => {
+    const win = fakeWin();
+    const onMailDrop = vi.fn();
+    const m = managerWithCallbacks(win, { onMailDrop });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    view.webContents.emit('ipc-message', {}, 'mail:drop', { items: 'not-an-array' });
+    expect(onMailDrop).not.toHaveBeenCalled();
+  });
+
+  it('forwards a well-shaped MAIL_DROP message', () => {
+    const win = fakeWin();
+    const onMailDrop = vi.fn();
+    const m = managerWithCallbacks(win, { onMailDrop });
+    m.ensureView(owned, 'mail', true);
+    const view = win.contentView.addChildView.mock.calls[0][0] as {
+      webContents: { emit(e: string, ...a: unknown[]): void };
+    };
+    const payload = { items: [], authuser: '0', ik: 'abc' };
+    view.webContents.emit('ipc-message', {}, 'mail:drop', payload);
+    expect(onMailDrop).toHaveBeenCalledWith(accountKey(owned), payload);
+  });
+});
+
+// The bug this guards against: Ctrl+2 used to sort by the raw authuser detection index
+// (window-chrome.ts read a Profile.order field nothing ever assigned), so a drag-reorder
+// in the tab bar had no effect on which account a shortcut picked. The fix reads the same
+// prefs order the tab bar itself is decorated from.
+describe('Ctrl+number follows the tab bar order, not detection order', () => {
+  it('picks the account at the prefs-ordered position after a drag-reorder', () => {
+    const alice: Profile = {
+      ref: { kind: 'authuser', index: 0 },
+      kind: 'authuser',
+      email: 'alice@work.nl',
+      name: 'Alice',
+      avatarUrl: '',
+      color: '#fff',
+    };
+    const bob: Profile = {
+      ref: { kind: 'authuser', index: 1 },
+      kind: 'authuser',
+      email: 'bob@work.nl',
+      name: 'Bob',
+      avatarUrl: '',
+      color: '#000',
+    };
+    // Detected in this order (alice first), then dragged so bob leads the tab bar.
+    runtimeProfiles.push(alice, bob);
+    const orderByEmail: Record<string, number> = { 'bob@work.nl': 0, 'alice@work.nl': 1 };
+    setPrefs({
+      getAccount: (email: string) => ({ order: orderByEmail[email] }),
+    } as never);
+
+    try {
+      showAccountSpy.mockClear();
+      handleInput({ type: 'keyDown', control: true, meta: false, shift: false, alt: false, key: '2' });
+      // The second tab bar position is order:1, which is alice, not bob (authIdx 1).
+      expect(showAccountSpy).toHaveBeenCalledWith(alice.ref, 'mail');
+    } finally {
+      runtimeProfiles.length = 0;
+      setPrefs(null);
+    }
+  });
+});
+
+// Shortcuts reach the app as before-input-event, and Electron sends that to the focused
+// webContents only. Measured on this layout with real OS keystrokes: a switch that flipped
+// setVisible without moving focus left the key with the view that had just gone invisible,
+// and Ctrl+1..9 did nothing until the user clicked a page. Same for the settings panel,
+// which hides every view. So what is on screen must also hold focus.
+describe('keyboard focus follows what is on screen', () => {
+  const focusesOf = (win: FakeWin, n = 0) => win.contentView.addChildView.mock.calls[n][0].webContents.focuses;
+
+  it('focuses the view a switch brought up', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    expect(focusesOf(win)).toBe(1);
+    expect(win.webContents.focus).not.toHaveBeenCalled();
+  });
+
+  it('hands focus to the shell while the settings panel hides every view', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    m.hideAll();
+    expect(win.webContents.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives focus back to the view when the panel closes', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    m.hideAll();
+    m.showActive();
+    expect(focusesOf(win)).toBe(2);
+  });
+
+  it('falls back to the shell when the view holding focus is torn down', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    m.discardView(accountKey(owned), 'mail');
+    expect(win.webContents.focus).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps its hands off focus while the window is in the background', () => {
+    const win: FakeWin = { ...fakeWin(), isFocused: () => false };
+    const m = manager(win);
+    m.show(owned, 'mail');
+    expect(focusesOf(win)).toBe(0);
+    expect(win.webContents.focus).not.toHaveBeenCalled();
+  });
+});
+
 // A pull locks every Gmail view, not the one that was dragged from: the drop handler is one
 // module-level pull, so switching accounts mid-pull was the way to start a second one. The
 // broadcast is what makes the lock true everywhere, and it has to stay off the other
 // surfaces -- a veil over Calendar would be a bug nobody could explain.
 describe('the pull lock reaches every Gmail view', () => {
   const second: AccountRef = { kind: 'authuser', index: 1 };
-  const sentOn = (win: ReturnType<typeof fakeWin>, channel: string) =>
+  const sentOn = (win: FakeWin, channel: string) =>
     win.contentView.addChildView.mock.calls
       .map((c: unknown[]) => c[0] as { webContents: { sent: Array<{ channel: string; args: unknown[] }> } })
       .map((v) => v.webContents.sent.filter((s) => s.channel === channel).length);
@@ -248,5 +495,278 @@ describe('the pull lock reaches every Gmail view', () => {
     expect(first.webContents.sent.find((s) => s.channel === 'maildrop:save-progress')?.args).toEqual([
       { done: 3, total: 10 },
     ]);
+  });
+});
+
+// A view's identity is the URL it was opened with, and reload used to forget it: reload()
+// reloads wherever the page has since ended up. Signed out, a delegated /d/<id>/ url answers
+// with a login page and, once the user signs back in, continues into the signed-in account's
+// own inbox -- so Ctrl+R cemented the wrong mailbox in the delegated view instead of
+// recovering it. See electron/windows/view-home.ts for what counts as having left home.
+describe('reloading a view that was redirected away', () => {
+
+  it('reloads in place while the view is still on its own mailbox', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox/FMfcgzQbfWxH';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['reload']);
+  });
+
+  it('sends a delegated view left on the own inbox back to its mailbox', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    // What signing back in leaves behind: the delegated segment is gone.
+    wc.url = 'https://mail.google.com/mail/u/3/';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+
+  it('sends a view sitting on a login page back to its mailbox', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://accounts.google.com/ServiceLogin?continue=https://mail.google.com/';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+
+  // A link the app itself routed into another surface becomes that view's home, so a reload
+  // of an opened document reloads the document and does not jump back to My Drive.
+  it('treats a navigation the app performed as the new home', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'drive');
+    const wc = pageOf(win);
+    m.openInOwningSurface(owned, 'drive', 'https://drive.google.com/file/d/abc/view');
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['reload']);
+  });
+});
+
+// A page whose process is gone is not reloaded by Electron: the view stays attached, stays on
+// top, and never paints again. Clicks land on nothing, so the whole window reads as frozen --
+// and until this existed, every renderer crash was a hang that only a restart cured.
+describe('a view whose process died', () => {
+  it('is reloaded, so the window does not sit on a dead page', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox';
+    wc.navigations.length = 0;
+
+    wc.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+
+    expect(wc.navigations).toEqual(['reload']);
+  });
+
+  it('is left alone when the page closed cleanly, which is not a crash', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.navigations.length = 0;
+
+    wc.emit('render-process-gone', {}, { reason: 'clean-exit', exitCode: 0 });
+
+    expect(wc.navigations).toEqual([]);
+  });
+
+  it('stops reloading a page that keeps crashing, and says so in that view', () => {
+    const win = fakeWin();
+    const m = manager(win, undefined, (acctKey) => `data:text/html,dead ${acctKey}`);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox';
+    wc.navigations.length = 0;
+
+    for (let i = 0; i < 10; i++)
+      wc.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+
+    // Three reloads, then the failure shown in the panel that broke -- and no further attempts
+    expect(wc.navigations).toEqual([
+      'reload',
+      'reload',
+      'reload',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+      'data:text/html,dead u0',
+    ]);
+  });
+
+  it('shows nothing rather than a blank document when no page was handed in', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(owned, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/0/#inbox';
+    wc.navigations.length = 0;
+
+    for (let i = 0; i < 5; i++)
+      wc.emit('render-process-gone', {}, { reason: 'crashed', exitCode: 5 });
+
+    expect(wc.navigations).toEqual(['reload', 'reload', 'reload']);
+  });
+});
+
+// What the delegated health watch needs to put a redirected view right without waiting for the
+// user to press Ctrl+R: the app knows where the view belongs, so it can simply send it back.
+describe('sending a view back where it belongs', () => {
+
+  it('reports where a view currently sits', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    pageOf(win).url = 'https://mail.google.com/mail/u/3/';
+
+    expect(m.urlOf(accountKey(withUrl), 'mail')).toBe('https://mail.google.com/mail/u/3/');
+  });
+
+  it('navigates a drifted view back to the url it was opened with', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.url = 'https://mail.google.com/mail/u/3/';
+    wc.navigations.length = 0;
+
+    expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(true);
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+
+  // Nothing to send back is not a failure to hide: the caller logs off this answer, and a view
+  // that is already home must not be reloaded out from under the user.
+  it('leaves a view that is already home alone', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.navigations.length = 0;
+
+    expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(false);
+    expect(wc.navigations).toEqual([]);
+  });
+
+  it('answers false for a view that does not exist', () => {
+    const win = fakeWin();
+    const m = manager(win);
+
+    expect(m.sendHome(accountKey(withUrl), 'mail')).toBe(false);
+    expect(m.urlOf(accountKey(withUrl), 'mail')).toBeNull();
+  });
+});
+
+// A tab dragged out of the window is the same mailbox in a different frame: the page must
+// not be reloaded (a reload is a lost draft and a lost scroll position), and the window it
+// left must not be left showing the mailbox that is no longer in it.
+describe('moving a mailbox between windows', () => {
+  it('builds a view in the window that claims the account', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home, undefined, undefined, (key) => (key === accountKey(owned) ? away : home));
+
+    m.show(owned, 'mail');
+
+    expect(away.contentView.addChildView).toHaveBeenCalledTimes(1);
+    expect(home.contentView.addChildView).not.toHaveBeenCalled();
+    expect(m.activeKeyIn(away as never)).toBe(accountKey(owned));
+    expect(m.activeKeyIn(home as never)).toBeNull();
+  });
+
+  it('carries the live page over rather than loading it again', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home);
+    m.show(owned, 'mail');
+    const view = home.contentView.addChildView.mock.calls[0][0];
+    const before = [...view.webContents.navigations];
+
+    expect(m.moveAccountToWindow(accountKey(owned), away as never)).toBe(true);
+
+    expect(home.contentView.removeChildView).toHaveBeenCalledWith(view);
+    expect(away.contentView.addChildView).toHaveBeenCalledWith(view);
+    expect(view.webContents.navigations).toEqual(before);
+  });
+
+  it('takes every surface of the account with it, not just the one on screen', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home);
+    m.show(owned, 'mail');
+    m.show(owned, 'calendar');
+
+    m.moveAccountToWindow(accountKey(owned), away as never);
+
+    expect(away.contentView.addChildView).toHaveBeenCalledTimes(2);
+    expect(m.accountsIn(home as never)).toEqual([]);
+    expect(m.accountsIn(away as never)).toEqual([accountKey(owned)]);
+  });
+
+  it('leaves the window it came from showing nothing of that mailbox', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home);
+    m.show(owned, 'mail');
+
+    m.moveAccountToWindow(accountKey(owned), away as never);
+
+    expect(m.activeKeyIn(home as never)).toBeNull();
+    // Not on screen in the new window either until it is told to show it: the surfaces travel
+    // together and only one of them may be visible.
+    expect(home.contentView.addChildView.mock.calls[0][0].visible).toBe(false);
+
+    m.show(owned, 'mail');
+    expect(m.activeKeyIn(away as never)).toBe(accountKey(owned));
+    expect(home.contentView.addChildView.mock.calls[0][0].visible).toBe(true);
+  });
+
+  it('hides the surfaces of one window without blanking the other window', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home, undefined, undefined, (key) => (key === accountKey(owned) ? away : home));
+    m.show(owned, 'mail');
+    m.show(withUrl, 'mail');
+    const awayView = away.contentView.addChildView.mock.calls[0][0];
+    const homeView = home.contentView.addChildView.mock.calls[0][0];
+
+    m.hideAll(home as never);
+
+    expect(homeView.visible).toBe(false);
+    expect(awayView.visible).toBe(true);
+    expect(m.activeKeyIn(away as never)).toBe(accountKey(owned));
+  });
+
+  it('says which mailbox each window is showing, apart from the other', () => {
+    const home = fakeWin();
+    const away = fakeWin();
+    const m = manager(home, undefined, undefined, (key) => (key === accountKey(owned) ? away : home));
+    m.show(owned, 'mail');
+    m.show(withUrl, 'mail');
+
+    expect(m.isShowingIn(away as never, accountKey(owned), 'mail')).toBe(true);
+    expect(m.isShowingIn(home as never, accountKey(owned), 'mail')).toBe(false);
+    expect(m.isShowingIn(home as never, accountKey(withUrl), 'mail')).toBe(true);
   });
 });

@@ -12,9 +12,15 @@
 // that follows says which one happened. Losing that line is not a detail -- it is what would
 // make the app later offer to undo a run nobody asked to undo.
 
-import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CopyJournalEntry, CopyRunId, CopyStopMode, MarkerLabel } from './copy-run-types';
+import type {
+  CopyJournalEntry,
+  CopyRunId,
+  CopyStopMode,
+  CreatedLabel,
+  MarkerLabel,
+} from './copy-run-types';
+import { appendJsonLine, jsonLines, parsedFilesWithSuffix, readParsed } from './jsonl-store';
 
 
 //===========================
@@ -50,6 +56,11 @@ interface CopyJournalInsertLine extends CopyJournalEntry {
   type: 'insert';
 }
 
+interface CopyJournalLabelLine extends CreatedLabel {
+  type: 'label';
+  runId: CopyRunId;
+}
+
 /** What this run resolved to do with its markers, written before the sweep that acts on it is
  * even attempted -- so a crash mid-sweep still leaves the mode on disk for the next start to
  * resume with, rather than asking the user a question this run already answered. 'keep' here
@@ -67,12 +78,6 @@ interface CopyJournalDoneLine {
   remainder?: CopyJournalRemainder[];
 }
 
-type CopyJournalLine =
-  | CopyJournalHeaderLine
-  | CopyJournalInsertLine
-  | CopyJournalDecidingLine
-  | CopyJournalDoneLine;
-
 /** A journal read back off disk: its inserts, and whether it ever closed. */
 export interface CopyJournalRead {
   runId: CopyRunId;
@@ -80,6 +85,8 @@ export interface CopyJournalRead {
   targets: string[];
   markers: MarkerLabel[];
   entries: CopyJournalEntry[];
+  /** Every label this run created, so a rollback can take them away again */
+  created: CreatedLabel[];
   /** The mode this run resolved to act on its markers with, once decided -- null for a run
    * that crashed before ever deciding, which is the one case a resume must still ask about. */
   decidedMode: CopyStopMode | null;
@@ -125,7 +132,7 @@ export function startCopyJournal(
   startedAt: number,
   markers: MarkerLabel[] = [],
 ): void {
-  writeLine(root, runId, { type: 'header', runId, startedAt, targets, markers });
+  appendJsonLine(journalPath(root, runId), { type: 'header', runId, startedAt, targets, markers });
 }
 
 /**
@@ -135,7 +142,18 @@ export function startCopyJournal(
  * @param entry
  */
 export function appendCopyJournalEntry(root: string, entry: CopyJournalEntry): void {
-  writeLine(root, entry.runId, { type: 'insert', ...entry });
+  appendJsonLine(journalPath(root, entry.runId), { type: 'insert', ...entry });
+}
+
+/**
+ * Records one label this run created, the moment the create answered
+ *
+ * @param root the drop folder
+ * @param runId
+ * @param label
+ */
+export function appendCopyJournalLabel(root: string, runId: CopyRunId, label: CreatedLabel): void {
+  appendJsonLine(journalPath(root, runId), { type: 'label', runId, ...label });
 }
 
 /**
@@ -181,6 +199,28 @@ export function recordCopyJournalEntry(
 }
 
 /**
+ * Records a created label, tolerating a failure to do so
+ *
+ * The same choice recordCopyJournalEntry makes: the label already exists in Gmail, so a line
+ * this app cannot write locally must not undo that. What is lost is narrow -- this one label
+ * cannot be taken away again by a later rollback.
+ *
+ * @param root the drop folder
+ * @param runId
+ * @param label
+ * @param append injectable, so a test can make the write fail without touching a disk
+ * @returns null on success, or the write's own failure message, for the caller to log
+ */
+export function recordCopyJournalLabel(
+  root: string,
+  runId: CopyRunId,
+  label: CreatedLabel,
+  append: typeof appendCopyJournalLabel = appendCopyJournalLabel,
+): string | null {
+  return attemptWrite(() => append(root, runId, label));
+}
+
+/**
  * Folds whatever went wrong along the way into an otherwise-successful result
  *
  * Never used to turn a success into a failure -- `base` already carries whatever decided
@@ -214,7 +254,7 @@ export function withWarnings<T extends object>(
  * @param mode 'keep' also covers a normal, never-stopped finish -- both strip the marker
  */
 export function recordCopyJournalDecision(root: string, runId: CopyRunId, mode: CopyStopMode): void {
-  writeLine(root, runId, { type: 'deciding', runId, mode });
+  appendJsonLine(journalPath(root, runId), { type: 'deciding', runId, mode });
 }
 
 /**
@@ -235,7 +275,7 @@ export function finishCopyJournal(
   outcome: CopyJournalOutcome,
   remainder?: CopyJournalRemainder[],
 ): void {
-  writeLine(root, runId, {
+  appendJsonLine(journalPath(root, runId), {
     type: 'done',
     runId,
     outcome,
@@ -251,13 +291,7 @@ export function finishCopyJournal(
  * @returns the journal, or null when this run never started one
  */
 export function readCopyJournal(root: string, runId: CopyRunId): CopyJournalRead | null {
-  let raw: string;
-  try {
-    raw = readFileSync(journalPath(root, runId), 'utf8');
-  } catch {
-    return null;
-  }
-  return parseCopyJournal(raw);
+  return readParsed(journalPath(root, runId), parseCopyJournal);
 }
 
 /**
@@ -272,17 +306,11 @@ export function readCopyJournal(root: string, runId: CopyRunId): CopyJournalRead
 export function parseCopyJournal(raw: string): CopyJournalRead | null {
   let header: CopyJournalHeaderLine | null = null;
   const entries: CopyJournalEntry[] = [];
+  const created: CreatedLabel[] = [];
   let decidedMode: CopyStopMode | null = null;
   let done: CopyJournalDoneLine | null = null;
 
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
+  for (const parsed of jsonLines(raw)) {
     const type = (parsed as { type?: unknown })?.type;
     if (type === 'header' && !header) header = parsed as CopyJournalHeaderLine;
     else if (type === 'insert') {
@@ -290,6 +318,11 @@ export function parseCopyJournal(raw: string): CopyJournalRead | null {
       // copy-run-types.ts defines, not this file's on-disk line format.
       const { type: _discriminator, ...entry } = parsed as CopyJournalInsertLine;
       entries.push(entry);
+    } else if (type === 'label') {
+      // Same as the insert branch: the on-disk line carries a discriminator and the run it
+      // belongs to, neither of which is part of the CreatedLabel shape read back.
+      const { type: _discriminator, runId: _runId, ...label } = parsed as CopyJournalLabelLine;
+      created.push(label);
     } else if (type === 'deciding') decidedMode = (parsed as CopyJournalDecidingLine).mode;
     else if (type === 'done') done = parsed as CopyJournalDoneLine;
   }
@@ -302,6 +335,7 @@ export function parseCopyJournal(raw: string): CopyJournalRead | null {
     // back as empty rather than undefined, so every reader can rely on the array being there.
     markers: header.markers ?? [],
     entries,
+    created,
     decidedMode,
     done,
   };
@@ -319,32 +353,10 @@ export function parseCopyJournal(raw: string): CopyJournalRead | null {
  * @returns each orphaned run, in the order its file was found
  */
 export function findOrphanedRuns(root: string): CopyJournalRead[] {
-  let names: string[];
-  try {
-    names = readdirSync(root).filter((n) => n.endsWith(SUFFIX));
-  } catch {
-    return [];
-  }
-  const orphans: CopyJournalRead[] = [];
-  for (const name of names) {
-    let raw: string;
-    try {
-      raw = readFileSync(join(root, name), 'utf8');
-    } catch {
-      continue;
-    }
-    const journal = parseCopyJournal(raw);
-    if (journal && !journal.done) orphans.push(journal);
-  }
-  return orphans;
+  return parsedFilesWithSuffix(root, SUFFIX, parseCopyJournal).filter((journal) => !journal.done);
 }
 
 
 //===========================
 // Helper functions
 //===========================
-
-function writeLine(root: string, runId: CopyRunId, line: CopyJournalLine): void {
-  mkdirSync(root, { recursive: true });
-  appendFileSync(journalPath(root, runId), JSON.stringify(line) + '\n', 'utf8');
-}

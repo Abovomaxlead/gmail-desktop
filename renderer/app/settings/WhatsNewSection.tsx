@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import type { ChangelogEntry, ChangelogVersion } from '../changelog-types';
+import type { ChangelogEntry, ChangelogVersion } from '../../lib/changelog-types';
 import type { UiStrings } from '../strings';
 import { EmptyNote, Section, SettingsGroup } from './Section';
 import { FOCUS_RING, HAIRLINE } from './tokens';

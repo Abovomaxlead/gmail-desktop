@@ -3,9 +3,9 @@
 // the row around it is searched too, since a press beside the name still means that label.
 //
 // No API lists a label, so pages of Gmail's own list view are scraped. Gmail re-shows the
-// last page for a too-high number, so paging stops when a page adds nothing new, and
-// MAX_THREADS caps the total — reported when it bites, since truncating silently reads as
-// "everything saved".
+// last page for a too-high number, so paging stops when a page adds nothing new, and the
+// scrape caps the total at SCRAPE_MAX_THREADS and the API path at API_MAX_THREADS — reported
+// when either bites, since truncating silently reads as "everything saved".
 
 import type { DragNode } from './dropzone';
 
@@ -20,6 +20,15 @@ export interface LabelThread {
   subject: string;
 }
 
+/** One thread of a dragged tree, with the labels of that tree it turned up under. A thread in
+ * both `Klanten` and `Klanten/Acme` is one thread with two labels, never two threads: it is
+ * saved once and inserted once, carrying both destination labels. */
+export interface TreeThread {
+  threadId: string;
+  subject: string;
+  labels: string[];
+}
+
 
 //===========================
 // Constants
@@ -27,8 +36,19 @@ export interface LabelThread {
 
 export const PAGE_SIZE = 50;
 
-export const MAX_THREADS = 200;
-export const MAX_PAGES = Math.ceil(MAX_THREADS / PAGE_SIZE);
+/** Where paging Gmail's own list view stops being worth it. The scrape reads 50 rows a page and
+ * Gmail re-shows the last page for a page number past the end, so forty pages is the point past
+ * which more paging buys guesses rather than rows. A real ceiling, and still reported when it
+ * bites: truncating in silence reads as "everything saved". */
+export const SCRAPE_MAX_THREADS = 2000;
+
+/** A bound on the API path, not a limit anyone should meet. `threads.list` pages 500 ids for 10
+ * units, so a full one is 100 pages and 1,000 units just to plan, and copying it would take a
+ * day. It is here so a runaway page loop cannot allocate without end -- a different job from the
+ * scrape's ceiling above, which is why the two are no longer one constant. */
+export const API_MAX_THREADS = 50_000;
+
+export const MAX_PAGES = Math.ceil(SCRAPE_MAX_THREADS / PAGE_SIZE);
 
 
 //===========================
@@ -90,6 +110,24 @@ export function labelFromDragTarget(el: DragNode | null): string | null {
 }
 
 /**
+ * Every label named in a list of links
+ *
+ * The navigation links a label more than once -- the row, the paged views -- so a name counts
+ * once however often it appears.
+ *
+ * @param hrefs
+ * @returns the label names, in the order first seen
+ */
+export function labelNamesFromHrefs(hrefs: string[]): string[] {
+  const out: string[] = [];
+  for (const href of hrefs) {
+    const name = labelFromHref(href);
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/**
  * The URL of one page of a label's list view
  *
  * @param authuser
@@ -132,23 +170,37 @@ export function scrapeSettled(
 // page adds nothing new.
 
 /**
- * Adds a scraped page to what has been collected
+ * Adds one label's scraped page to the tree collected so far
+ *
+ * The cap counts threads, not entries: a thread already collected under another label of the
+ * tree gains that label even at the cap, since it costs nothing new to save.
  *
  * @param acc mutated in place
+ * @param member the tree label this page was read from
  * @param page
- * @returns how many were new, and the running total
+ * @param cap defaults to the scrape's own ceiling, so a caller that never named one keeps
+ *   today's behaviour; the API path passes its own, which is a different limit entirely
+ * @returns how many threads were new, and the running total
  */
-export function mergeThreads(
-  acc: LabelThread[],
+export function mergeTreeThreads(
+  acc: TreeThread[],
+  member: string,
   page: LabelThread[],
+  cap = SCRAPE_MAX_THREADS,
 ): { added: number; total: number } {
-  const seen = new Set(acc.map((t) => t.threadId));
+  const byId = new Map(acc.map((t) => [t.threadId, t]));
   let added = 0;
   for (const t of page) {
-    if (!t.threadId || seen.has(t.threadId)) continue;
-    if (acc.length >= MAX_THREADS) break;
-    seen.add(t.threadId);
-    acc.push(t);
+    if (!t.threadId) continue;
+    const known = byId.get(t.threadId);
+    if (known) {
+      if (!known.labels.includes(member)) known.labels.push(member);
+      continue;
+    }
+    if (acc.length >= cap) continue;
+    const fresh: TreeThread = { threadId: t.threadId, subject: t.subject, labels: [member] };
+    acc.push(fresh);
+    byId.set(t.threadId, fresh);
     added += 1;
   }
   return { added, total: acc.length };
@@ -166,5 +218,16 @@ export const LABEL_SCRAPE_JS = `(() => {
     seen[id] = 1;
     out.push({ threadId: id, subject: (els[i].textContent || '').replace(/\\s+/g, ' ').trim() });
   }
+  return out;
+})()`;
+
+// Gmail's own navigation is the only list of sublabels there is without the API. Nothing is
+// expanded to read it -- clicking Gmail's chevrons is exactly what breaks on their next
+// release -- so a collapsed parent can hide children. What was found is shown in the picker
+// before anything is copied, which is where a missing subfolder has to be visible.
+export const SIDEBAR_LABEL_SCRAPE_JS = `(() => {
+  var out = [];
+  var els = document.querySelectorAll('a[href*="#label/"]');
+  for (var i = 0; i < els.length; i++) out.push(els[i].getAttribute('href') || '');
   return out;
 })()`;

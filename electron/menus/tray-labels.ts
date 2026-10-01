@@ -2,7 +2,7 @@
 // native-labels.ts: Rene mode first, then the locale, one frozen object per variant so
 // the Rene comparison in the tests stays an identity check.
 
-import type { Locale } from '../core/locale';
+import { pickVariant, type Locale } from '../core/locale';
 
 
 //===========================
@@ -13,6 +13,7 @@ export interface TrayLabels {
   readonly open: string;
   readonly quit: string;
   readonly startAtLogin: string;
+  readonly feedback: string;
   readonly snoozeNotifications: string;
   readonly notificationsOff: string;
   readonly snoozedUntil: (time: string) => string;
@@ -37,6 +38,7 @@ export interface TrayLabels {
 
 const EN: TrayLabels = Object.freeze({
   open: 'Open',
+  feedback: 'Send feedback',
   quit: 'Quit',
   startAtLogin: 'Start at login',
   snoozeNotifications: 'Snooze notifications',
@@ -58,6 +60,7 @@ const EN: TrayLabels = Object.freeze({
 
 const NL: TrayLabels = Object.freeze({
   open: 'Openen',
+  feedback: 'Feedback geven',
   quit: 'Afsluiten',
   startAtLogin: 'Starten bij aanmelden',
   snoozeNotifications: 'Meldingen uitstellen',
@@ -79,6 +82,7 @@ const NL: TrayLabels = Object.freeze({
 
 const RENE: TrayLabels = Object.freeze({
   open: 'Laat zien',
+  feedback: 'Zeg wat je vindt',
   quit: 'Uitzetten',
   startAtLogin: 'De app gaat vanzelf aan',
   snoozeNotifications: 'Even stil zijn',
@@ -111,6 +115,5 @@ const RENE: TrayLabels = Object.freeze({
  * @returns {TrayLabels} the same frozen object every time, so a test can compare identity
  */
 export function trayLabels(locale: Locale, reneMode: boolean): TrayLabels {
-  if (reneMode) return RENE;
-  return locale === 'nl' ? NL : EN;
+  return pickVariant(locale, reneMode, { en: EN, nl: NL, rene: RENE });
 }

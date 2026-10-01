@@ -8,7 +8,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { mapLimit } from '../core/concurrency';
-import { withRetry, type RetryMethod } from './retry';
+import { isRateLimit, withRetry, type RetryMethod } from './retry';
 import { notifyLog } from '../notify/notify-log';
 import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
 import {
@@ -47,6 +47,9 @@ export interface AccountLabels {
 
 export interface ThreadMessage {
   id: string;
+  /** Whether the source mailbox still has this message unread, so a copy can land the same
+   * way. Read off the thread listing that is fetched anyway, never a call of its own. */
+  unread: boolean;
   raw?: Buffer;
   error?: string;
 }
@@ -72,12 +75,40 @@ export interface MessageMeta {
   messageId: string;
 }
 
+/**
+ * Reads the reason Gmail gave for refusing a request
+ *
+ * Two fields, written by two different layers, and either one identifies a refusal. The Gmail
+ * API itself lists per-error `reason` strings; the quota front end in front of it answers with
+ * an `error.status` instead and no `errors` array at all. The live quota failure of 2026-08-25
+ * came back in the second shape.
+ *
+ * @param json the parsed error body, or anything at all -- a body that is not an object at
+ *   least answers null rather than throwing, since the caller has already given up on it
+ * @returns the reason, or null when the body carries neither
+ */
+export function parseErrorReason(json: unknown): string | null {
+  const error = (json as { error?: { errors?: unknown; status?: unknown } } | null)?.error;
+  if (!error) return null;
+  if (Array.isArray(error.errors)) {
+    for (const entry of error.errors) {
+      const reason = (entry as { reason?: unknown })?.reason;
+      if (typeof reason === 'string' && reason) return reason;
+    }
+  }
+  return typeof error.status === 'string' && error.status ? error.status : null;
+}
+
 export class GmailHttpError extends Error {
   constructor(
     message: string,
     readonly status: number,
     /** Gmail's own Retry-After, which the retry policy prefers over its own backoff */
     readonly retryAfter: string | null = null,
+    /** Why Gmail says it refused -- see parseErrorReason. Defaulted because two of the three
+     * places that construct one have no body to read: an answer that would not parse, and a
+     * batch refused as a whole. Neither can name a reason, and neither should pretend to. */
+    readonly reason: string | null = null,
   ) {
     super(message);
   }
@@ -112,7 +143,6 @@ export const INSERT_URL =
 export const THREADS_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/threads';
 export const MESSAGES_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/messages';
 
-export const WATCH_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/watch';
 export const STOP_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/stop';
 export const PROFILE_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/profile';
 export const HISTORY_URL = 'https://gmail.googleapis.com/gmail/v1/users/me/history';
@@ -182,6 +212,19 @@ const SYSTEM_NAMES: Record<string, string> = {
   STARRED: 'Met sterren',
   IMPORTANT: 'Belangrijk',
 };
+
+/**
+ * Whether an id names one of Gmail's own places rather than a label the user made
+ *
+ * The picker offers these three as copy destinations, but only a user label can carry a
+ * nested name -- there is no `INBOX/Klanten` -- so a tree can never be put under one.
+ *
+ * @param id a label id as the picker sends it back
+ * @returns true for Gmail's own
+ */
+export function isSystemLabelId(id: string): boolean {
+  return SYSTEM_TARGETS.has(id);
+}
 
 
 //===========================
@@ -293,10 +336,6 @@ export async function fetchLabels(accessToken: string): Promise<GmailLabel[]> {
   return parseLabels(await requestJson(LABELS_URL, accessToken));
 }
 
-export async function fetchLabelId(accessToken: string, name: string): Promise<string | null> {
-  return findLabelId(parseAllLabels(await requestJson(LABELS_URL, accessToken)), name);
-}
-
 export async function fetchInboxUnread(accessToken: string): Promise<number | null> {
   return parseUnreadThreads(await requestJson(labelGetUrl('INBOX'), accessToken));
 }
@@ -309,6 +348,19 @@ export async function fetchInboxUnread(accessToken: string): Promise<number | nu
  */
 export function labelCreateBody(name: string): string {
   return JSON.stringify({ name, labelListVisibility: 'labelHide', messageListVisibility: 'hide' });
+}
+
+/**
+ * The body that creates a label the user can see
+ *
+ * The mirror image of labelCreateBody: a marker is bookkeeping and stays out of every client,
+ * while a label a copied tree lands in is the whole point of the copy and has to show up.
+ *
+ * @param name the full nested name, `Archief/Klanten/Acme`
+ * @returns the JSON body to POST
+ */
+export function visibleLabelCreateBody(name: string): string {
+  return JSON.stringify({ name, labelListVisibility: 'labelShow', messageListVisibility: 'show' });
 }
 
 /**
@@ -400,6 +452,38 @@ export async function fetchLabel(accessToken: string, name: string): Promise<Raw
 }
 
 /**
+ * The user's own labels, name to id
+ *
+ * Markers are left out: they are this app's bookkeeping, and a tree must never be planned to
+ * land in one. Unlike parseLabels this keeps the nesting untouched and adds no system label,
+ * because a name is what a tree is calculated from.
+ *
+ * @param raw from parseAllLabels
+ * @returns name to id
+ */
+export function userLabelMap(raw: RawLabel[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const l of raw) {
+    if (l.type !== 'user' || isMarkerLabelName(l.name)) continue;
+    out.set(l.name, l.id);
+  }
+  return out;
+}
+
+/**
+ * Every label a mailbox has, in one request
+ *
+ * One listing per mailbox rather than one lookup per label: a tree of forty would otherwise be
+ * forty round trips to learn what forty names already are.
+ *
+ * @param accessToken
+ * @returns name to id
+ */
+export async function fetchUserLabelMap(accessToken: string): Promise<Map<string, string>> {
+  return userLabelMap(parseAllLabels(await requestJson(LABELS_URL, accessToken)));
+}
+
+/**
  * Creates one run's marker label, hidden from every Gmail client including this app's own
  * picker
  *
@@ -438,6 +522,40 @@ export async function createHiddenLabel(
 }
 
 /**
+ * Creates one label the user can see, or finds the one already carrying the name
+ *
+ * Unlike a marker, a real label with the wanted name is precisely what was wanted, so a 409 is
+ * resolved by using it -- there is nothing here to distrust and resolveConflictedMarker does
+ * not apply.
+ *
+ * @param accessToken
+ * @param name the full nested name, `Archief/Klanten/Acme`
+ * @returns the label's id and name
+ * @throws whatever the create failed with, or a reason of its own when a 409 cannot be
+ *   resolved either
+ */
+export async function createVisibleLabel(
+  accessToken: string,
+  name: string,
+): Promise<{ id: string; name: string }> {
+  try {
+    const json = await requestJson(LABELS_URL, accessToken, {
+      method: 'POST',
+      contentType: 'application/json',
+      body: Buffer.from(visibleLabelCreateBody(name), 'utf8'),
+    });
+    const created = parseCreatedLabel(json);
+    if (!created) throw new Error('Gmail gaf geen label terug');
+    return created;
+  } catch (e) {
+    if (!(e instanceof GmailHttpError) || e.status !== 409) throw e;
+    const existing = await fetchLabel(accessToken, name);
+    if (!existing) throw new Error(`label '${name}' bestaat al, maar kon niet worden opgezocht`);
+    return { id: existing.id, name: existing.name };
+  }
+}
+
+/**
  * Deletes a label, once nothing needs it any more
  *
  * Best-effort by every call site: a marker label left behind after its messages are already
@@ -466,8 +584,14 @@ export async function deleteLabel(accessToken: string, labelId: string): Promise
 // Threads
 //===========================
 
+/** The largest page threads.list will answer. It costs the same ten units as a page of a
+ * hundred, so asking for less only buys round trips: listing a label of twenty thousand was two
+ * hundred requests waiting on each other, and the strip said "Mail zoeken…" for every one of
+ * them. messages.list beside it has asked for five hundred all along. */
+export const THREADS_PAGE_SIZE = 500;
+
 export function threadsListUrl(labelId: string, pageToken?: string): string {
-  const q = new URLSearchParams({ labelIds: labelId, maxResults: '100' });
+  const q = new URLSearchParams({ labelIds: labelId, maxResults: String(THREADS_PAGE_SIZE) });
   if (pageToken) q.set('pageToken', pageToken);
   return `${THREADS_URL}?${q.toString()}`;
 }
@@ -495,86 +619,113 @@ export function parseThreadMessageIds(json: unknown): string[] {
 }
 
 /**
+ * The messages of a thread with the one label a copy cares about
+ *
+ * `format=minimal` answers every message's labels alongside its id, so whether the mail is
+ * unread costs nothing extra -- this listing is fetched to know what to download anyway.
+ *
+ * @param json a threads.get response
+ * @returns one entry per message, in the thread's own order
+ */
+export function parseThreadMessageRefs(json: unknown): Array<{ id: string; unread: boolean }> {
+  const raw = (json as { messages?: unknown })?.messages;
+  if (!Array.isArray(raw)) return [];
+  const out: Array<{ id: string; unread: boolean }> = [];
+  for (const m of raw) {
+    if (typeof m?.id !== 'string' || !m.id) continue;
+    out.push({ id: m.id, unread: parseMessageLabelIds(m).includes('UNREAD') });
+  }
+  return out;
+}
+
+/**
+ * Walks pages of thread ids, whatever is answering them
+ *
+ * The page reader is a dependency so a test can check the walk: the paging, the deduplicating,
+ * the cap and being able to stop between pages are where a label of twenty thousand is won or
+ * lost, and none of that needs Gmail.
+ *
+ * @param max
+ * @param readPage answers one page, given the token the page before it handed on
+ * @param onPage the running total after each page; answer false to stop paging, which is how a
+ *   cancelled drag gets out of a listing that would otherwise run to the end of the label
+ * @returns {Promise<{threadIds: string[], capped: boolean, stopped: boolean}>} the ids in the
+ *   order the pages gave them, whether the cap bit, and whether onPage called it off
+ */
+export async function walkThreadPages(
+  max: number,
+  readPage: (pageToken?: string) => Promise<{ threadIds: string[]; nextPageToken?: string }>,
+  onPage?: (soFar: number) => boolean,
+): Promise<{ threadIds: string[]; capped: boolean; stopped: boolean }> {
+  const threadIds: string[] = [];
+  // Beside the array rather than Array.includes per id. This walk runs on the main process, and
+  // a linear scan per id is quadratic in the size of the label: twenty thousand ids came to two
+  // hundred million comparisons, which froze the window for the whole listing.
+  const seen = new Set<string>();
+  let pageToken: string | undefined;
+  do {
+    const page = await readPage(pageToken);
+    for (const id of page.threadIds) {
+      if (threadIds.length >= max) return { threadIds, capped: true, stopped: false };
+      if (seen.has(id)) continue;
+      seen.add(id);
+      threadIds.push(id);
+    }
+    pageToken = page.nextPageToken;
+    if (onPage && onPage(threadIds.length) === false) {
+      return { threadIds, capped: false, stopped: true };
+    }
+  } while (pageToken);
+  return { threadIds, capped: false, stopped: false };
+}
+
+/**
  * Every thread under a label, one page at a time
  *
  * @param accessToken
  * @param labelId
  * @param max
- * @returns {Promise<{threadIds: string[], capped: boolean}>} capped says the label holds
- *   more than the caller asked for
+ * @param onPage the running total after each page; answer false to stop paging
+ * @returns {Promise<{threadIds: string[], capped: boolean, stopped: boolean}>} capped says the
+ *   label holds more than the caller asked for, stopped that onPage called the walk off
  */
 export async function listLabelThreadIds(
   accessToken: string,
   labelId: string,
   max: number,
-): Promise<{ threadIds: string[]; capped: boolean }> {
-  const threadIds: string[] = [];
-  let pageToken: string | undefined;
-  do {
-    const page = parseThreadList(await requestJson(threadsListUrl(labelId, pageToken), accessToken));
-    for (const id of page.threadIds) {
-      if (threadIds.length >= max) return { threadIds, capped: true };
-      if (!threadIds.includes(id)) threadIds.push(id);
-    }
-    pageToken = page.nextPageToken;
-  } while (pageToken);
-  return { threadIds, capped: false };
+  onPage?: (soFar: number) => boolean,
+): Promise<{ threadIds: string[]; capped: boolean; stopped: boolean }> {
+  return await walkThreadPages(
+    max,
+    async (pageToken) =>
+      parseThreadList(await requestJson(threadsListUrl(labelId, pageToken), accessToken)),
+    onPage,
+  );
 }
 
 /**
- * Reads every message of a thread
+ * Reads the source of every message in a thread
  *
- * The network is a dependency so a test can check the list keeps its shape: dropping an
- * unreadable message is what once made a short copy look like a complete one. The order is
- * mapLimit's, which is the order of the ids and not the order the answers arrive in.
- *
- * @param ids
- * @param read
- * @param limit how many messages to read at once
- * @returns {Promise<ThreadMessage[]>} one entry per id, in the thread's own order, and a
- *   message that could not be read stays in as an error
+ * @param accessToken
+ * @param threadId
+ * @returns {Promise<ThreadMessage[]>} one entry per message of the thread, in the thread's own
+ *   order, and a message that could not be read stays in as an error
  */
-export async function collectThreadMessages(
-  ids: string[],
-  read: (id: string) => Promise<Buffer | null>,
-  limit = MESSAGE_FETCH_LIMIT,
-): Promise<ThreadMessage[]> {
-  return await mapLimit(ids, limit, async (id) => {
-    try {
-      const raw = await read(id);
-      return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
-    } catch (e) {
-      return { id, error: `Ophalen mislukt (${(e as Error).message})` };
-    }
-  });
-}
-
 export async function fetchThreadMessages(
   accessToken: string,
   threadId: string,
 ): Promise<ThreadMessage[]> {
-  const ids = parseThreadMessageIds(await requestJson(threadMessagesUrl(threadId), accessToken));
-  const oneByOne = () =>
-    collectThreadMessages(ids, async (id) =>
-      parseMessageRaw(await requestJson(messageRawUrl(id), accessToken)),
-    );
-
+  const refs = parseThreadMessageRefs(await requestJson(threadMessagesUrl(threadId), accessToken));
   // The sources of a conversation are the bulk of a drag: one batch instead of one request per
   // message is where the waiting goes. Small groups, because a part here is a whole mail.
-  let answers: Array<unknown | null>;
-  try {
-    answers = await requestBatch(ids.map(messageRawUrl), accessToken, RAW_BATCH_LIMIT);
-  } catch (e) {
-    notifyLog(`[gmail] batch mislukt, bericht voor bericht: ${(e as Error).message}`);
-    return await oneByOne();
-  }
-  if (batchLooksBroken(answers)) {
-    notifyLog('[gmail] batch gaf niets bruikbaars, bericht voor bericht');
-    return await oneByOne();
-  }
-  return ids.map((id, i) => {
+  const answers = await batchedOrOneByOne(
+    refs.map((r) => messageRawUrl(r.id)),
+    accessToken,
+    RAW_BATCH_LIMIT,
+  );
+  return refs.map(({ id, unread }, i) => {
     const raw = parseMessageRaw(answers[i]);
-    return raw ? { id, raw } : { id, error: 'Gmail gaf geen bron voor dit bericht' };
+    return raw ? { id, unread, raw } : { id, unread, error: 'Gmail gaf geen bron voor dit bericht' };
   });
 }
 
@@ -583,12 +734,15 @@ export async function fetchThreadMessages(
  *
  * @param accessToken
  * @param threadId
- * @returns {Promise<Buffer[]>} the messages that could be read, so a short answer here
- *   says nothing about how long the thread is
+ * @returns the messages that could be read, each with whether the source has it unread, so a
+ *   short answer here says nothing about how long the thread is
  */
-export async function fetchThreadRaw(accessToken: string, threadId: string): Promise<Buffer[]> {
+export async function fetchThreadRaw(
+  accessToken: string,
+  threadId: string,
+): Promise<Array<{ raw: Buffer; unread: boolean }>> {
   const messages = await fetchThreadMessages(accessToken, threadId);
-  return messages.flatMap((m) => (m.raw ? [m.raw] : []));
+  return messages.flatMap((m) => (m.raw ? [{ raw: m.raw, unread: m.unread }] : []));
 }
 
 
@@ -737,13 +891,26 @@ export async function fetchMessageMeta(
 }
 
 /**
+ * A Message-ID without the angle brackets it is usually written with
+ *
+ * Querying and matching have to agree on this exactly: a query built on one form and an answer
+ * matched on another silently finds nothing.
+ *
+ * @param messageId the RFC822 Message-ID, brackets or not
+ * @returns the bare id, empty when there was nothing usable
+ */
+export function bareMessageId(messageId: string): string {
+  return (messageId ?? '').trim().replace(/^<+|>+$/g, '');
+}
+
+/**
  * The search that finds one message across mailboxes
  *
  * @param messageId the RFC822 Message-ID, the only id stable across mailboxes
  * @returns the query
  */
 export function messageIdQuery(messageId: string): string {
-  return `rfc822msgid:${(messageId ?? '').trim().replace(/^<+|>+$/g, '')}`;
+  return `rfc822msgid:${bareMessageId(messageId)}`;
 }
 
 /**
@@ -754,7 +921,7 @@ export function messageIdQuery(messageId: string): string {
  */
 export function batchedMessageIdQuery(messageIds: string[]): string {
   return messageIds
-    .map((id) => (id ?? '').trim().replace(/^<+|>+$/g, ''))
+    .map(bareMessageId)
     .filter((id) => id.length > 0)
     .map((id) => `rfc822msgid:${id}`)
     .join(' OR ');
@@ -818,42 +985,6 @@ export function parseMessageIdAndLabels(
   return null;
 }
 
-export function searchInLabelUrl(messageId: string, labelId: string): string {
-  const q = new URLSearchParams({
-    q: messageIdQuery(messageId),
-    labelIds: labelId,
-    maxResults: '1',
-  });
-  return `${MESSAGES_URL}?${q.toString()}`;
-}
-
-export function parseHasMessage(json: unknown): boolean {
-  const raw = (json as { messages?: unknown })?.messages;
-  return Array.isArray(raw) && raw.length > 0;
-}
-
-/**
- * Whether a label already holds this message
- *
- * Nothing calls this since the check at Kopieer started asking labelsHoldingMany the wider
- * question a mailbox at a time. Kept while the batched query has not been proven against real
- * Gmail: this is the path that worked, one request per label per message, and it is what to come
- * back to if that turns out not to hold.
- *
- * @param accessToken
- * @param messageId the RFC822 Message-ID
- * @param labelId
- * @returns {Promise<boolean>} false without a Message-ID, since nothing can be matched
- */
-export async function messageExistsInLabel(
-  accessToken: string,
-  messageId: string,
-  labelId: string,
-): Promise<boolean> {
-  if (!(messageId ?? '').trim()) return false;
-  return parseHasMessage(await requestJson(searchInLabelUrl(messageId, labelId), accessToken));
-}
-
 // two calls per mailbox rather than one per label: find the message, then read what it is
 // filed under, since "already there under another label" is exactly what a second copy is
 //
@@ -910,18 +1041,6 @@ export function parseMessageLabelIds(json: unknown): string[] {
 }
 
 /**
- * Which labels of a mailbox already hold this message
- *
- * Every match, not the first one: a mailbox can hold one Message-ID as two messages -- one
- * that arrived and one that was copied in -- and then the labels of the first say nothing
- * about the second. Asking whether a given label holds the mail has to come out the same
- * either way, and only the union does that.
- *
- * @param accessToken
- * @param messageId the RFC822 Message-ID
- * @returns {Promise<string[]>} empty when the mailbox does not have it at all
- */
-/**
  * A Message-ID this mailbox is certainly findable by, to prove a batched query parsed
  *
  * Taken from the inbox on purpose: a default Gmail search leaves spam and trash out, so a
@@ -958,21 +1077,20 @@ export function scanFromBatch(
   hits: Array<{ messageId: string; labelIds: string[] }>,
   canary: string,
 ): { trusted: boolean; found: Array<{ messageId: string; labelIds: string[] }> } {
-  const bare = (id: string) => (id ?? '').trim().replace(/^<+|>+$/g, '');
   const byId = new Map<string, string[]>();
   for (const h of hits) {
-    const key = bare(h.messageId);
+    const key = bareMessageId(h.messageId);
     const known = byId.get(key) ?? [];
     for (const labelId of h.labelIds) if (!known.includes(labelId)) known.push(labelId);
     byId.set(key, known);
   }
 
-  const proof = bare(canary);
+  const proof = bareMessageId(canary);
   if (!proof || !byId.has(proof)) return { trusted: false, found: [] };
 
   return {
     trusted: true,
-    found: asked.map((id) => ({ messageId: id, labelIds: byId.get(bare(id)) ?? [] })),
+    found: asked.map((id) => ({ messageId: id, labelIds: byId.get(bareMessageId(id)) ?? [] })),
   };
 }
 
@@ -1021,6 +1139,18 @@ export async function labelsHoldingMany(
   return perChunk.flat();
 }
 
+/**
+ * Which labels of a mailbox already hold this message
+ *
+ * Every match, not the first one: a mailbox can hold one Message-ID as two messages -- one
+ * that arrived and one that was copied in -- and then the labels of the first say nothing
+ * about the second. Asking whether a given label holds the mail has to come out the same
+ * either way, and only the union does that.
+ *
+ * @param accessToken
+ * @param messageId the RFC822 Message-ID
+ * @returns {Promise<string[]>} empty when the mailbox does not have it at all
+ */
 export async function labelsHoldingMessage(
   accessToken: string,
   messageId: string,
@@ -1042,21 +1172,6 @@ export async function labelsHoldingMessage(
 //===========================
 // Watch and history
 //===========================
-
-export function watchBody(topicName: string): string {
-  return JSON.stringify({
-    topicName,
-    labelIds: ['INBOX'],
-    labelFilterBehavior: 'include',
-  });
-}
-
-export function parseWatch(json: unknown): { historyId: string; expiration: number } | null {
-  const raw = json as { historyId?: unknown; expiration?: unknown };
-  const historyId = stringFrom(raw?.historyId);
-  if (!historyId) return null;
-  return { historyId, expiration: numberFrom(raw?.expiration) ?? 0 };
-}
 
 export function parseProfileHistoryId(json: unknown): string | null {
   return stringFrom((json as { historyId?: unknown })?.historyId);
@@ -1101,27 +1216,6 @@ export function parseHistoryPage(json: unknown): HistoryPage {
   const next = stringFrom(raw?.nextPageToken);
   if (next) page.nextPageToken = next;
   return page;
-}
-
-/**
- * Asks Gmail to push what arrives in the inbox to a Pub/Sub topic
- *
- * @param accessToken
- * @param topicName
- * @returns {Promise<{historyId: string, expiration: number}|null>} where to start reading
- *   history from, and when the watch has to be renewed
- */
-export async function watchMailbox(
-  accessToken: string,
-  topicName: string,
-): Promise<{ historyId: string; expiration: number } | null> {
-  return parseWatch(
-    await requestJson(WATCH_URL, accessToken, {
-      method: 'POST',
-      contentType: 'application/json',
-      body: Buffer.from(watchBody(topicName), 'utf8'),
-    }),
-  );
 }
 
 export async function stopWatch(accessToken: string): Promise<void> {
@@ -1250,30 +1344,27 @@ export async function insertMessage(
 }
 
 /**
- * Every Gmail id currently matching this RFC822 Message-ID in a mailbox
+ * Sends a message as the account the token belongs to
  *
- * What reconciling a severed insert starts from: searchAnywhereUrl and parseMessageIds,
- * already used for the duplicate check, answered directly rather than folded into a wider
- * question the way labelsHoldingMessage does.
+ * The counterpart of insertMessage: insert puts a message in a mailbox without it ever having
+ * been sent, this actually posts one. The only caller is the automatic crash report
+ * (feedback/crash-controller.ts), which is why there is no threading, no attachment plumbing
+ * and no draft step here -- the whole message arrives built.
  *
- * @param accessToken
- * @param messageId the RFC822 Message-ID
- * @returns the ids, empty when the mailbox holds none
+ * Retried as a POST, so it is not repeated after an ambiguous failure: a report arriving twice
+ * is noise in somebody's mailbox, and the queue tries again on the next flush anyway.
+ *
+ * @param accessToken needs the gmail.send scope
+ * @param raw the whole RFC 822 message
+ * @returns {Promise<string | null>} the id Gmail filed it as
  */
-export async function searchAnywhere(accessToken: string, messageId: string): Promise<string[]> {
-  if (!(messageId ?? '').trim()) return [];
-  return parseMessageIds(await requestJson(searchAnywhereUrl(messageId), accessToken));
-}
-
-/**
- * The labels one found message carries
- *
- * @param accessToken
- * @param gmailId Gmail's own id, not the RFC822 one
- * @returns the label ids
- */
-export async function fetchMessageLabelIds(accessToken: string, gmailId: string): Promise<string[]> {
-  return parseMessageLabelIds(await requestJson(messageLabelsUrl(gmailId), accessToken));
+export async function sendRawMessage(accessToken: string, raw: Buffer): Promise<string | null> {
+  const json = await requestJson(`${MESSAGES_URL}/send`, accessToken, {
+    method: 'POST',
+    contentType: 'application/json',
+    body: Buffer.from(JSON.stringify({ raw: raw.toString('base64url') }), 'utf8'),
+  });
+  return parseInsertedId(json);
 }
 
 
@@ -1443,7 +1534,7 @@ async function requestJson(
         // A refusal while the budget still believed there was room means the budget is reading
         // the wrong price list -- which is exactly what happens when Google moves this project
         // to the table it published in May 2026, and nobody is told when that is.
-        if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+        if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
         throw e;
       }
     },
@@ -1451,6 +1542,7 @@ async function requestJson(
       method: retryMethod ?? (init ? 'POST' : 'GET'),
       status: e instanceof GmailHttpError ? e.status : null,
       timedOut: e instanceof GmailTimeoutError,
+      rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
       // A cut request is not a timeout: retry.ts refuses both, but only this one is a
       // deliberate choice worth telling apart from an ambiguous one when something later
       // reads the log back.
@@ -1460,15 +1552,6 @@ async function requestJson(
   );
 }
 
-/**
- * One attempt at a request
- *
- * @param url
- * @param accessToken
- * @param init a body turns the call into a POST of that content type
- * @returns {Promise<unknown>} the parsed answer
- * @private
- */
 /**
  * Sends a set of reads as one request and hands back the answers
  *
@@ -1502,7 +1585,7 @@ export async function requestBatch(
         try {
           return await attemptMultipart(BATCH_URL, accessToken, boundary, body);
         } catch (e) {
-          if (e instanceof GmailHttpError && e.status === 429) budget.refused();
+          if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
           throw e;
         }
       },
@@ -1510,6 +1593,7 @@ export async function requestBatch(
         method: 'GET',
         status: e instanceof GmailHttpError ? e.status : null,
         timedOut: e instanceof GmailTimeoutError,
+        rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
         retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
       }),
     );
@@ -1550,11 +1634,11 @@ export async function batchedOrOneByOne(
   try {
     answers = await requestBatch(urls, accessToken, limit);
   } catch (e) {
-    notifyLog(`[gmail] batch mislukt, één voor één: ${(e as Error).message}`);
+    notifyLog(`[gmail] batch failed, falling back one by one: ${(e as Error).message}`);
     return await oneByOne();
   }
   if (batchLooksBroken(answers)) {
-    notifyLog('[gmail] batch gaf niets bruikbaars, één voor één');
+    notifyLog('[gmail] batch answered nothing usable, falling back one by one');
     return await oneByOne();
   }
   return answers;
@@ -1625,6 +1709,16 @@ async function attemptMultipart(
   });
 }
 
+/**
+ * One attempt at a request
+ *
+ * @param url
+ * @param accessToken
+ * @param init a body turns the call into a POST of that content type
+ * @param signal aborted to sever the request while it is on the wire
+ * @returns {Promise<unknown>} the parsed answer
+ * @private
+ */
 async function attemptJson(
   url: string,
   accessToken: string,
@@ -1644,9 +1738,12 @@ async function attemptJson(
       req.setHeader(name, value);
     }
 
+    // Through `fail` like every other exit, or the abort listener added below stays on a
+    // signal that lives as long as the whole copy run: one leaked closure per timed-out
+    // upload, and on stop() an abort fires them all at already-settled promises.
     const timer = setTimeout(() => {
       req.abort();
-      reject(new GmailTimeoutError('geen antwoord van Google (time-out)'));
+      fail(new GmailTimeoutError('geen antwoord van Google (time-out)'));
     }, init ? UPLOAD_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
     const settle = <T>(fn: (v: T) => void) => (v: T) => {
       clearTimeout(timer);
@@ -1694,7 +1791,14 @@ async function attemptJson(
         }
         if (res.statusCode >= 400) {
           const msg = (json as { error?: { message?: string } })?.error?.message;
-          fail(new GmailHttpError(msg ?? `HTTP ${res.statusCode}`, res.statusCode, after));
+          fail(
+            new GmailHttpError(
+              msg ?? `HTTP ${res.statusCode}`,
+              res.statusCode,
+              after,
+              parseErrorReason(json),
+            ),
+          );
           return;
         }
         ok(json);

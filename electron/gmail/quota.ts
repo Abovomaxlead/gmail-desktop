@@ -48,6 +48,18 @@ export interface QuotaBudget {
  * that one is published as 6,000 a minute, which is 100 a second. */
 export const UNITS_PER_SECOND = 250;
 
+/** What the budget actually spends of the published allowance above.
+ *
+ * Pacing at the whole of it is what cost a mail. `UNITS_PER_SECOND` is exactly 15,000 a minute,
+ * which is the per-minute limit Gmail refused a copy of 2,574 mails on, so a copy at the full
+ * rate does not burst over the line -- it paces onto it and drifts over after a few minutes.
+ * A tenth held back is the margin that drift needs.
+ *
+ * Applied where the cursor advances and nowhere else: `ceiling()`, `refused()` and `recover()`
+ * keep measuring against the published figure, because a ceiling that moved is the one signal
+ * that this project has been put on the tighter price list. */
+export const SAFETY = 0.9;
+
 /** What is kept of the ceiling each time Gmail refuses a call the budget thought fitted. */
 const BACK_OFF = 0.6;
 
@@ -59,24 +71,21 @@ const FLOOR = 25;
  * cost the rest of the session, because the ceiling only ever went down. */
 const RECOVER_AFTER_MS = 60_000;
 
-/** Gmail's price list, for the calls this app makes.
- *
- * 'messages.trash' was 5 here until this line: Google's own published table prices it at 20,
- * so every trash call this app ever made was under-booked by a factor of four. Found and
- * fixed alongside the marker sweep below, which is what needed the rest of this table to be
- * trustworthy enough to add two calls to. */
+/** Gmail's price list, for the calls this app makes. The names are Gmail's own, so a price can
+ * be checked against the published table without translating anything. */
 export const QUOTA_COST: Record<string, number> = {
   'messages.get': 5,
   'messages.list': 5,
   'messages.insert': 25,
-  'messages.send': 100,
   'messages.modify': 5,
   'messages.trash': 20,
   'messages.batchModify': 50,
+  'messages.send': 100,
   'threads.get': 10,
   'threads.list': 10,
   'history.list': 2,
   'labels.list': 1,
+  'labels.get': 1,
   'labels.create': 5,
   'labels.delete': 5,
   'users.getProfile': 1,
@@ -132,7 +141,12 @@ export function callForUrl(url: string, method = 'GET'): string {
     // same shape as a bare id with no verb after it. Checked first, or 'batchModify' reads as
     // an id with nothing after it and falls into the plain .get branch below, silently pricing
     // a bulk call at a fifth of what it actually costs.
-    if (rest === 'batchModify' || rest === 'batchDelete') return `${kind}.${rest}`;
+    // `send` sits in the same place a bulk verb does: directly under the collection with no id
+    // in front of it. Without this it read as a bare id and priced as messages.get -- 5 units
+    // for the dearest ordinary call Gmail sells, at 100.
+    if (rest === 'batchModify' || rest === 'batchDelete' || rest === 'send') {
+      return `${kind}.${rest}`;
+    }
     // A verb after the id is a change to the message, which Gmail prices apart from reading it
     const verb = rest.split('/')[1];
     return verb ? `${kind.slice(0, -1)}s.${verb}` : `${kind}.get`;
@@ -158,16 +172,16 @@ export function createQuotaBudget(
   note?: (message: string) => void,
 ): QuotaBudget {
   let ceiling = UNITS_PER_SECOND;
-  let lastRefusal = -Infinity;
+  let lastCeilingChange = -Infinity;
   let cursor = clock.now();
 
   /** Steps the ceiling back up once per quiet spell, never past the published allowance. */
   const recover = (now: number): void => {
     if (ceiling >= UNITS_PER_SECOND) return;
-    if (now - lastRefusal < RECOVER_AFTER_MS) return;
+    if (now - lastCeilingChange < RECOVER_AFTER_MS) return;
     ceiling = Math.min(UNITS_PER_SECOND, Math.ceil(ceiling / BACK_OFF));
-    lastRefusal = now;
-    note?.(`[quota] rustig gebleven, plafond weer op ${ceiling} van de ${UNITS_PER_SECOND}`);
+    lastCeilingChange = now;
+    note?.(`[quota] quiet spell, ceiling back up to ${ceiling} of ${UNITS_PER_SECOND}`);
   };
 
   return {
@@ -177,7 +191,7 @@ export function createQuotaBudget(
       // No banking: an idle spell leaves the cursor in the past, which makes the next call free
       // and the ones behind it paced. Letting idle time accumulate is how a burst is built.
       const mine = Math.max(cursor, now);
-      cursor = mine + (quotaCost(call) * 1000) / ceiling;
+      cursor = mine + (quotaCost(call) * 1000) / (ceiling * SAFETY);
       const wait = mine - now;
       if (wait > 0) await clock.sleep(wait);
     },
@@ -185,12 +199,12 @@ export function createQuotaBudget(
       return ceiling;
     },
     refused(): void {
-      lastRefusal = clock.now();
+      lastCeilingChange = clock.now();
       const lowered = Math.max(FLOOR, Math.floor(ceiling * BACK_OFF));
       if (lowered === ceiling) return;
       ceiling = lowered;
       note?.(
-        `[quota] Gmail weigerde binnen het budget; plafond nu ${ceiling} van de ${UNITS_PER_SECOND} eenheden per seconde`,
+        `[quota] Gmail refused a call inside the budget; ceiling now ${ceiling} of ${UNITS_PER_SECOND} units per second`,
       );
     },
   };

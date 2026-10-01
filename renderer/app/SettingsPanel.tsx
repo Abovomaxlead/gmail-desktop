@@ -7,14 +7,15 @@ import { getStrings, type UiStrings } from './strings';
 import { AboutSection } from './settings/AboutSection';
 import { AccountsSection } from './settings/AccountsSection';
 import { AdvancedSection } from './settings/AdvancedSection';
+import { FeedbackSection } from './settings/FeedbackSection';
 import { AppearanceSection } from './settings/AppearanceSection';
 import { DownloadHistorySection } from './settings/DownloadHistorySection';
 import { DownloadsSection } from './settings/DownloadsSection';
 import { GeneralSection } from './settings/GeneralSection';
 import { GoogleAppsSection } from './settings/GoogleAppsSection';
+import { LabelCleanupSection } from './settings/LabelCleanupSection';
 import { NotificationsSection } from './settings/NotificationsSection';
 import { PhishingSection } from './settings/PhishingSection';
-import { EmptyNote, Section } from './settings/Section';
 import { SettingsShell } from './settings/SettingsShell';
 import { UpdatesSection } from './settings/UpdatesSection';
 import { VerificationCodesSection } from './settings/VerificationCodesSection';
@@ -36,6 +37,9 @@ import { NOTICE } from './settings/tokens';
 
 export function SettingsPanel({
   profiles,
+  sectionRequest,
+  feedbackDraft,
+  onFeedbackDraftChange,
   onClose,
   onRedetect,
   update,
@@ -48,8 +52,15 @@ export function SettingsPanel({
   onSetNotifications,
   isDefaultMail,
   onRequestDefaultMail,
+  onReplayTour,
+  onAddAccount,
 }: {
   profiles: Profile[];
+  /** A section to jump to. Carries a sequence number because asking twice for the same
+   * section has to move the panel twice -- the user can navigate away in between. */
+  sectionRequest?: { section: SettingsSection; seq: number };
+  feedbackDraft: string;
+  onFeedbackDraftChange: (text: string) => void;
   onClose: () => void;
   onRedetect: () => void;
   update: UpdateStatus;
@@ -65,12 +76,25 @@ export function SettingsPanel({
   }) => void;
   isDefaultMail: boolean;
   onRequestDefaultMail: () => void;
+  onReplayTour: () => void;
+  onAddAccount: () => void;
 }) {
-  const [section, setSection] = useState<SettingsSection>(DEFAULT_SECTION);
+  const [section, setSection] = useState<SettingsSection>(
+    sectionRequest?.section ?? DEFAULT_SECTION,
+  );
+  // Honoured on every ask, not once on mount: the toolbar button and the tray item both work
+  // with the panel already open.
+  const asked = sectionRequest?.section;
+  useEffect(() => {
+    if (asked) setSection(asked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionRequest?.seq]);
 
   const rene = prefs?.reneMode === true;
   const S = getStrings(prefs?.locale ?? 'en', rene);
-  const uiLang: 'en' | 'nl' = rene ? 'nl' : 'en';
+  // The release notes follow the interface: a Dutch reader gets the Dutch-tagged entries, and
+  // Rene mode is Dutch whatever the locale says.
+  const uiLang: 'en' | 'nl' = prefs?.locale === 'nl' || rene ? 'nl' : 'en';
 
   const seqProgress = useRef(0);
   useEffect(() => {
@@ -112,11 +136,17 @@ export function SettingsPanel({
                 onSetAutoStart={onSetAutoStart}
                 onSetLaunchMinimized={onSetLaunchMinimized}
                 onRequestDefaultMail={onRequestDefaultMail}
+                onReplayTour={onReplayTour}
               />
             );
           case 'accounts':
             return (
-              <AccountsSection S={S} profiles={profiles} onRedetect={onRedetect} />
+              <AccountsSection
+                S={S}
+                profiles={profiles}
+                onRedetect={onRedetect}
+                onAddAccount={onAddAccount}
+              />
             );
           case 'google-apps':
             return <GoogleAppsSection S={S} prefs={prefs} />;
@@ -132,6 +162,8 @@ export function SettingsPanel({
             return <PhishingSection S={S} prefs={prefs} />;
           case 'advanced':
             return <AdvancedSection S={S} prefs={prefs} />;
+          case 'label-cleanup':
+            return <LabelCleanupSection S={S} />;
           case 'notifications':
             return (
               <NotificationsSection
@@ -152,16 +184,19 @@ export function SettingsPanel({
                 onInstallUpdate={onInstallUpdate}
               />
             );
+          case 'feedback':
+            return (
+              <FeedbackSection
+                S={S}
+                profiles={profiles}
+                draft={feedbackDraft}
+                onDraftChange={onFeedbackDraftChange}
+              />
+            );
           case 'whats-new':
             return <WhatsNewSection S={S} uiLang={uiLang} />;
           case 'about':
             return <AboutSection S={S} update={update} />;
-          default:
-            return (
-              <Section title={sectionLabel(section, S)}>
-                <EmptyNote>{S.sectionEmpty}</EmptyNote>
-              </Section>
-            );
         }
       })()}
     </SettingsShell>
@@ -197,6 +232,10 @@ function sectionLabel(section: SettingsSection, S: UiStrings): string {
       return S.navVerificationCodes;
     case 'advanced':
       return S.navAdvanced;
+    case 'label-cleanup':
+      return S.navLabelCleanup;
+    case 'feedback':
+      return S.navFeedback;
     case 'whats-new':
       return S.navWhatsNew;
     case 'about':

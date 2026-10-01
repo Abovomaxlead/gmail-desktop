@@ -154,7 +154,7 @@ const NOISE: readonly RegExp[] = [
  * @returns the code, or null when there is any doubt
  */
 export function findVerificationCode(
-  input: { subject: string; body: string; from?: string },
+  input: { subject: string; body: string },
   confidence: CodeConfidence,
 ): string | null {
   const { text, subjectEnd } = haystack(input);

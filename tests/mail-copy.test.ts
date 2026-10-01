@@ -14,6 +14,7 @@ import {
   copyableLabelIds,
   countExisting,
   duplicateChecks,
+  labelsForMessage,
   scanAnswer,
   threadGroups,
   assembleCopy,
@@ -53,6 +54,30 @@ describe('normalizeTargets', () => {
         { email: 'b@x.nl', labelIds: ['L1'] },
       ]),
     ).toEqual([{ email: 'b@x.nl', labelIds: ['L1'] }]);
+  });
+
+  // A mailbox taking a dragged tree has no ticked labels at all -- its labels are per message
+  // and some of them do not exist yet. Dropping it for being "empty" left the copy reporting
+  // that no label had been chosen.
+  it('keeps a mailbox that takes a tree, which has no ticked labels', () => {
+    expect(normalizeTargets([{ email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } }])).toEqual([
+      { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } },
+    ]);
+  });
+
+  it('carries the chosen parent through', () => {
+    expect(
+      normalizeTargets([{ email: 'a@x.nl', labelIds: [], tree: { parentLabelId: 'L9' } }])[0].tree,
+    ).toEqual({ parentLabelId: 'L9' });
+  });
+
+  it('keeps one mailbox tree when the same mailbox is named twice', () => {
+    const out = normalizeTargets([
+      { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: 'L9' } },
+      { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].tree).toEqual({ parentLabelId: 'L9' });
   });
 
   it('skips junk instead of building a request out of it', () => {
@@ -165,6 +190,14 @@ describe('insertLabelIds', () => {
 
   it('still carries the marker when there are no real labels at all', () => {
     expect(insertLabelIds([], 'MARKER_1')).toEqual(['MARKER_1']);
+  });
+
+  it('carries UNREAD when the source has the message unread, so the copy lands unread too', () => {
+    expect(insertLabelIds(['L1'], 'MARKER_1', true)).toEqual(['L1', 'MARKER_1', 'UNREAD']);
+  });
+
+  it('leaves UNREAD off a message that was read, which is what every copy did before', () => {
+    expect(insertLabelIds(['L1'], 'MARKER_1', false)).toEqual(['L1', 'MARKER_1']);
   });
 });
 
@@ -623,19 +656,19 @@ describe('copyLogLine', () => {
   it('names the kind of mailbox and what its token cost', () => {
     const line = copyLogLine(base);
     expect(line).toContain('support@abovomaxlead.nl');
-    expect(line).toContain('gedelegeerd');
+    expect(line).toContain('delegated');
     expect(line).toContain('token 812ms');
   });
 
   it('calls an own account what it is', () => {
-    expect(copyLogLine({ ...base, delegated: false })).toContain('eigen');
+    expect(copyLogLine({ ...base, delegated: false })).toContain('own');
   });
 
   // A mean would hide the one upload that took nine seconds, which is the thing worth seeing
   it('reports the middle and the worst insert, not an average', () => {
     const line = copyLogLine(base);
-    expect(line).toContain('mediaan 600ms');
-    expect(line).toContain('traagste 1.9s');
+    expect(line).toContain('median 600ms');
+    expect(line).toContain('slowest 1.9s');
   });
 
   it('reports the total the inserts took', () => {
@@ -644,37 +677,37 @@ describe('copyLogLine', () => {
 
   it('reports what came of them', () => {
     const line = copyLogLine({ ...base, copied: 8, skipped: 2, failed: 1 });
-    expect(line).toContain('8 gekopieerd');
-    expect(line).toContain('2 overgeslagen');
-    expect(line).toContain('1 mislukt');
+    expect(line).toContain('8 copied');
+    expect(line).toContain('2 skipped');
+    expect(line).toContain('1 failed');
   });
 
   it('says so plainly when nothing was inserted at all', () => {
     const line = copyLogLine({ ...base, inserts: [], copied: 0, skipped: 3 });
     expect(line).toContain('0 inserts');
-    expect(line).not.toContain('mediaan');
+    expect(line).not.toContain('median');
   });
 
   // The defect this guards: a cancelled run must read as cancelled, not as Gmail having
   // refused dozens of uploads it was never even asked to make.
-  it('reports a mailbox that was entirely cancelled as afgebroken, not mislukt', () => {
+  it('reports a mailbox that was entirely cancelled as stopped, not failed', () => {
     const line = copyLogLine({ ...base, copied: 0, skipped: 0, failed: 0, stopped: 17 });
-    expect(line).toContain('0 mislukt');
-    expect(line).toContain('17 afgebroken');
+    expect(line).toContain('0 failed');
+    expect(line).toContain('17 stopped');
   });
 
   it('keeps a real failure and a cancellation apart rather than merging them', () => {
     const line = copyLogLine({ ...base, copied: 5, skipped: 0, failed: 2, stopped: 10 });
-    expect(line).toContain('5 gekopieerd');
-    expect(line).toContain('2 mislukt');
-    expect(line).toContain('10 afgebroken');
+    expect(line).toContain('5 copied');
+    expect(line).toContain('2 failed');
+    expect(line).toContain('10 stopped');
   });
 });
 
 describe('tallyOutcomes', () => {
   it('counts a plain copy, skip and failure under their own category', () => {
     expect(
-      tallyOutcomes([{ copied: true }, { skipped: true }, { error: 'nope' }]),
+      tallyOutcomes([{ kind: 'copied' }, { kind: 'skipped' }, { kind: 'failed', error: 'nope' }]),
     ).toEqual({ copied: 1, skipped: 1, failed: 1, stopped: 0, lastError: 'nope' });
   });
 
@@ -684,20 +717,28 @@ describe('tallyOutcomes', () => {
     expect(
       tallyOutcomes([
         undefined, // the gate refused it before its thread group ever started
-        {}, // severed mid-flight by a cancel -- copyOneFile's deliberate, no-error outcome
+        { kind: 'stopped' }, // severed mid-flight by a cancel -- copyOneFile's own outcome
       ]),
     ).toEqual({ copied: 0, skipped: 0, failed: 0, stopped: 2, lastError: undefined });
   });
 
   it('does not let a cancellation elsewhere in the mailbox hide behind a real failure', () => {
     expect(
-      tallyOutcomes([{ error: 'HTTP 500' }, {}, undefined, { copied: true }]),
+      tallyOutcomes([
+        { kind: 'failed', error: 'HTTP 500' },
+        { kind: 'stopped' },
+        undefined,
+        { kind: 'copied' },
+      ]),
     ).toEqual({ copied: 1, skipped: 0, failed: 1, stopped: 2, lastError: 'HTTP 500' });
   });
 
   it('keeps the last failure seen when more than one file failed', () => {
     expect(
-      tallyOutcomes([{ error: 'eerste' }, { error: 'laatste' }]).lastError,
+      tallyOutcomes([
+        { kind: 'failed', error: 'eerste' },
+        { kind: 'failed', error: 'laatste' },
+      ]).lastError,
     ).toBe('laatste');
   });
 
@@ -717,13 +758,64 @@ describe('checkLogLine', () => {
   // say how much of the check was answered for free
   it('separates what was reused from what had to be asked again', () => {
     const line = checkLogLine({ checks: 30, reused: 28, asked: 2, ms: 1450 });
-    expect(line).toContain('30 vragen');
-    expect(line).toContain('28 uit de scan');
-    expect(line).toContain('2 opnieuw gevraagd');
+    expect(line).toContain('30 questions');
+    expect(line).toContain('28 from the scan');
+    expect(line).toContain('2 asked again');
     expect(line).toContain('1.5s');
   });
 
   it('says when the whole check cost nothing', () => {
-    expect(checkLogLine({ checks: 30, reused: 30, asked: 0, ms: 3 })).toContain('0 opnieuw gevraagd');
+    expect(checkLogLine({ checks: 30, reused: 30, asked: 0, ms: 3 })).toContain('0 asked again');
+  });
+});
+
+
+describe('labelsForMessage', () => {
+  const flat = { email: 'a@x.nl', labelIds: ['L1', 'L2'] };
+  const tree = { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } };
+
+  it('uses the ticked labels for a flat drag', () => {
+    expect(labelsForMessage(flat, '<a@x>', new Map())).toEqual(['L1', 'L2']);
+  });
+
+  it('uses the resolved tree labels for a tree drag', () => {
+    const resolved = new Map([['a@x.nl', new Map([['<a@x>', ['L7']]])]]);
+    expect(labelsForMessage(tree, '<a@x>', resolved)).toEqual(['L7']);
+  });
+
+  it('gives a message whose labels all failed to be created nothing', () => {
+    expect(labelsForMessage(tree, '<a@x>', new Map())).toEqual([]);
+  });
+
+  it('keeps one mailbox out of another mailbox labels', () => {
+    const resolved = new Map([['b@x.nl', new Map([['<a@x>', ['L7']]])]]);
+    expect(labelsForMessage(tree, '<a@x>', resolved)).toEqual([]);
+  });
+});
+
+describe('duplicateChecks with a tree', () => {
+  const files = [{ messageId: '<a@x>', subject: 'Offerte' }];
+  const tree = { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } };
+
+  it('asks about the labels the tree resolved to', () => {
+    const resolved = new Map([['a@x.nl', new Map([['<a@x>', ['L7', 'L8']]])]]);
+    expect(duplicateChecks([tree], files, resolved).map((c) => c.labelId)).toEqual(['L7', 'L8']);
+  });
+
+  it('asks nothing about a label that does not exist yet', () => {
+    expect(duplicateChecks([tree], files, new Map())).toEqual([]);
+  });
+});
+
+describe('newMessageCount with a tree', () => {
+  const tree = { email: 'a@x.nl', labelIds: [], tree: { parentLabelId: null } };
+  const resolved = new Map([['a@x.nl', new Map([['m1', ['L7']]])]]);
+
+  it('counts a message the resolved label does not hold yet', () => {
+    expect(newMessageCount(new Set(), [tree], ['m1'], resolved)).toBe(1);
+  });
+
+  it('does not count a message with no label to land in', () => {
+    expect(newMessageCount(new Set(), [tree], ['m2'], resolved)).toBe(0);
   });
 });

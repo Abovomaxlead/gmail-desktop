@@ -3,6 +3,404 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1789652279] — 2026-09-17
+
+### Toegevoegd
+- **Een postvak kan in zijn eigen venster.** Tien postvakken in één venster is veel venster, en
+  twee postvakken naast elkaar op twee schermen kon helemaal niet: de app had precies één
+  venster en elk postvak hing eraan. Sleep je een tabblad van de balk af, dan krijgt dat postvak
+  een venster voor zichzelf; laat je het op de balk van een ander venster vallen, dan hoort het
+  daar. Wat meereist is de pagina zelf, niet een nieuwe: je scrollpositie, het geopende gesprek
+  en het half getypte antwoord staan er na de verhuizing nog. De agenda en de Google-apps van
+  dat postvak gaan mee, want die zijn samen één tabblad. Sluit je zo'n venster, dan komen de
+  postvakken terug in het hoofdvenster — een postvak is geen document, sluiten mag het niet
+  weggooien. Wie niet sleept doet hetzelfde via het rechtermuismenu op een tabblad.
+- **De balk neemt een tabblad overal aan, en zegt vooraf waar het landt.** Een postvak neerzetten
+  betekende een ander tabblad raken: bij twee korte namen een doel van een paar centimeter, met
+  de rest van de balk die je sleep opslokte en er een nieuw venster van maakte. De hele balk is
+  nu één neerzetgebied en licht op zolang je erboven hangt. Tijdens het slepen zie je een kaartje
+  met de kleur en de naam van het postvak en een blauwe plus meelopen — ook buiten het venster,
+  waar Windows eerst een "mag niet"-teken stempelde terwijl juist daar het eigen venster ontstaat.
+  Tussen tabbladen wijst een streepje de plek waar het tabblad terechtkomt, en de ruimte na het
+  laatste tabblad betekent nu "achteraan" in plaats van niets.
+- **Een gevonden update laat eerst zien wat erin zit.** Een nieuwe versie was een kaartje met een
+  versienummer en verder niets, en "Wat is er nieuw" kon alleen de notities van de versie tonen
+  die je al had — lezen waar je aan begint kon dus niet. Die notities bestonden al en werden
+  weggegooid; nu opent een gevonden versie ze meteen, in een venster over de app heen. Esc, de
+  achtergrond en "Niet nu" sluiten het, en gesloten is een besluit: er komt niet elk kwartier
+  opnieuw een herinnering. Downloaden doet precies wat de knop in de instellingen doet.
+
+### Opgelost
+- **Een agendaherinnering blijft staan tot je hem wegklikt.** Hij kwam altijd op tijd binnen,
+  stond zes seconden rechtsonder en was daarna voorgoed weg: geen getal, geen lijst, niets om hem
+  in terug te vinden. Keek je op dat moment in een ander venster, dan zag je hem pas als je later
+  de agenda opende — en dan leek het alsof de melding een dag te laat kwam. Google Agenda zegt bij
+  elke herinnering zelf dat de kaart moet blijven staan tot iemand hem wegklikt, en die boodschap
+  ging onderweg verloren; nu niet meer. Voor mail verandert niets: dat blijft zes seconden, want
+  daar staat het bericht nog in je postvak met een getal erbij. De instelling "Melding blijft
+  staan" per postvak werkt zoals eerst en kan een kaart nog steeds vasthouden — alleen kan de
+  pagina nu ook zelf om vasthouden vragen, en nooit om het tegendeel.
+
+### Gewijzigd
+- **Testversies zijn voortaan een keuze, niet iets wat je overhoudt.** Wie op een beta zat kreeg
+  de volgende beta om één reden: hij zat op een beta. Die regel komt uit de updater zelf, en een
+  instelling die niemand had aangeraakt nam hem over — dus bleef een installatie onafgemaakte
+  versies aangeboden krijgen zonder er ooit om te hebben gevraagd. Voor iedereen die de schakelaar
+  niet heeft omgezet staat hij nu uit, wat de huidige versie ook is. Dat betekent bewust ook: zit
+  je op een beta met de schakelaar uit, dan krijg je niets aangeboden tot er een definitieve versie
+  is. Bij Updates staat dat er dan ook zo, en dat is geen storing.
+
+## [1.0.0-beta.1789125695] — 2026-09-11
+
+### Toegevoegd
+- **De app meldt zelf wat er misgaat.** Een crash die niemand doorgeeft wordt niet opgelost, en
+  bijna niemand geeft er een door: het feedbackvenster vraagt erom dat je het zelf opmerkt,
+  beschrijft en verstuurt. Vanaf nu merkt de app het zelf en stuurt hij het bericht met de
+  logboeken erbij, vanuit het postvak waar je in zit. Je hoeft niets te doen en je ziet er niets
+  van — behalve de storing zelf, op de plek waar hij gebeurde: een postvak dat vastloopt zegt dat
+  in dat postvak. Uit de logboeken gaan eerst de gegevens van je mail: afzender, ontvangers,
+  onderwerp en berichtnummers blijven thuis, alleen wat er wanneer gebeurde gaat mee. Een crash
+  zonder internet of nog vóór het koppelen van een account gaat niet verloren: die wacht en
+  vertrekt bij de volgende start. En hij overdrijft niet — dezelfde fout gaat hoogstens eens per
+  zes uur de deur uit.
+- **Mail die ongelezen was, komt ongelezen aan.** Kopieerde je ongelezen mail naar een ander
+  postvak, dan stond die daar als gelezen — precies het enige wat je nog moest weten was weg. De
+  leesstatus reist nu mee. Dat kost geen extra werk en geen extra wachttijd: hij stond al in het
+  antwoord dat de app toch al ophaalde. Alleen bij een postvak zonder koppeling is die status niet
+  te achterhalen; dan komt de mail aan als gelezen, zoals altijd.
+
+### Opgelost
+- **Een structuur kan niet meer in zichzelf terechtkomen.** Sleepte je een label mét "Structuur
+  overnemen" naar een postvak dat dat label al heeft, dan mocht je dat bestaande label aanwijzen
+  als plek — en dan kwam `Klanten` in `Klanten/Klanten` te staan, met alles eronder een niveau
+  dieper in een kopie van zichzelf, en je mail erin. Terugdraaien kon alleen met de rollback van
+  diezelfde kopie. Die keuze bestaat niet meer: labels die bij de gesleepte structuur horen staan
+  niet meer in de lijst. Ook Postvak IN, Met sterren en Belangrijk zijn weg als bestemming zolang
+  de structuur aan staat: onder die drie kan geen label hangen — dat is geen instelling van ons
+  maar hoe Gmail met namen omgaat. Losse mail in Postvak IN zetten kan gewoon nog.
+- **De bovenste keuze zegt nu wat hij doet.** "Bovenin" was precies de plek die je moest kiezen om
+  je mail in de mapjes te krijgen die er al stonden, en precies de plek die klonk alsof je alles
+  los bovenaan dumpte. Die regel heet nu "Samenvoegen met «Klanten»" als het postvak dat label al
+  heeft, of "Nieuw bovenin: «Klanten»" als het er nog niet is, met daaronder in kleine letters wat
+  dat betekent. Hij staat bovenaan, los van het kopje "Plaats onder" dat bij de labels eronder
+  hoort, en het labeltje onderin het venster zegt precies hetzelfde.
+- **De balk met postvakken blijft leesbaar, ook met twintig postvakken.** De tabbladen liepen
+  gewoon van het scherm af: niets liet zien dat er meer waren, en opende je een postvak vanuit de
+  zijbalk of een melding, dan kon dat tabblad buiten beeld blijven staan. Nu geven eerst de namen
+  mee, daarna blijft alleen het rondje met de foto over (het adres blijft in de tooltip), en pas
+  als het dan nog niet past schuift de rij — met een knopje ernaast dat zegt hoeveel postvakken je
+  niet ziet en ze in een lijstje opent, inclusief hun aantal ongelezen berichten. Het postvak dat
+  je opent schuift voortaan altijd vanzelf in beeld.
+- **De vensters van de app zelf gaan mee met de donkere modus.** Het kopieervenster, het lijstje
+  "gedeeld postvak toevoegen" en het keuzevenster voor de afzender bleven wit terwijl de rest van
+  de app donker stond. Die vensters staan los van het hoofdvenster en kregen de themakeuze nooit
+  te horen; nu wel, zoals de meldingen dat al deden.
+
+### Let op
+- **Je wordt één keer om nieuwe toestemming gevraagd.** Het versturen van een storingsmelding
+  vraagt een recht dat de app nooit eerder nodig had, en een bestaande koppeling kan dat er niet
+  alsnog bij krijgen. Bij Instellingen → Accounts staat daarom "Nieuwe toestemming nodig" bij je
+  accounts; één keer opnieuw koppelen is genoeg. Er is niets mis met de koppeling zelf — de app
+  vraagt om meer dan eerst.
+
+## [1.0.0-beta.1788503135] — 2026-09-04
+
+### Opgelost
+- **Google zegt niet meer dat je browser te oud is.** De app draaide op de Chrome-versie van
+  Electron 31 (Chrome 126), en die is Google inmiddels voorbijgelopen: Spreadsheets en Documenten
+  zetten er een balk boven de pagina dat deze browserversie niet meer wordt ondersteund. De app
+  draait nu op Electron 44, met Chrome 152 eronder. Verder werkt alles zoals eerst; alleen de
+  motor onder de app is nieuwer, en daarmee ook de beveiligingsupdates die Google en Chrome
+  sindsdien hebben uitgebracht.
+- **De instelling "Google-apps" geldt nu op élke manier waarop zo'n app opengaat.** Bij
+  "Google-apps" kun je zeggen dat een app in de browser hoort, in een eigen venster of gewoon in
+  de app — maar alleen de knoppen in de balk hielden zich daaraan. Vijf andere routes deden hun
+  eigen ding: een bijlage die je via "Openen met → Google Spreadsheets" opende, een link die de
+  pagina in hetzelfde venster volgde in plaats van er een nieuw te openen, een melding uit Agenda
+  of Chat, een link in een los venster (opstelvenster, pop-out, of een app die al in een eigen
+  venster stond), en elk venster dat Gmail zelf opende — dat laatste had zelfs helemaal geen
+  regels, ook geen linkwaarschuwing. Alle vijf gaan nu door dezelfde beslissing. Zet je een app
+  op "in de browser", dan komt hij daar terecht, hoe je hem ook tegenkomt.
+- **Maar zit je al ín een app, dan blijf je daar.** Eén uitzondering op het bovenstaande, en de
+  belangrijkste: staat Spreadsheets op "in de browser" en klik je binnen een spreadsheet door naar
+  een ander tabblad of een andere sheet, dan blijft dat waar je bent. "In de browser openen" gaat
+  over hoe je een app bereikt, niet over eruit gegooid worden zodra je er bent. Voor mail geldt
+  hetzelfde als altijd: een pop-out, een los bericht of een opstelvenster blijft in de app, wat er
+  bij Google-apps ook staat ingesteld.
+- **Je eigen postvak bleef staan in "Label leegmaken", ook na het slepen van mail.** Het lijstje
+  postvakken kwam uit hetzelfde antwoord als het kopieervenster, en dat venster laat met opzet één
+  postvak weg: het postvak waar je net mail uit hebt gesleept, want daarheen kopiëren heeft geen
+  zin. Voor leegmaken bestaat die bron niet, dus verdween je eigen postvak uit de keuzelijst zodra
+  je die dag één keer mail uit Gmail had gesleept — tot de eerstvolgende herstart, die het
+  onthouden bronpostvak wist. Het lijstje in de instellingen vraagt nu om álle postvakken; het
+  kopieervenster laat de bron weg zoals eerst.
+- **Ctrl+1 tot 9 werken zonder eerst in de pagina te klikken.** De sneltoetsen komen binnen bij het
+  venster-onderdeel dat op dat moment de toetsen heeft, en er waren drie momenten waarop dat
+  niemand was: een venster waar je nog niet in had geklikt, een postvakwissel — want die maakte het
+  oude postvak onzichtbaar terwijl de toetsen dáár nog lagen — en het instellingenpaneel, dat elk
+  postvak wegzet. In alle drie kwam Ctrl+1 tot 9 (en Ctrl+N, en de zoomtoetsen) bij niets uit, tot
+  je ergens in de pagina klikte. De toetsen verhuizen nu mee met wat je op het scherm ziet: naar
+  het postvak dat naar voren komt, naar de app zelf als het paneel de postvakken wegzet, en terug
+  naar het postvak als het paneel weer dichtgaat. Hetzelfde geldt voor het lijstje "gedeeld
+  postvak toevoegen", dat de toetsen ook niet meer meeneemt als het sluit. Staat het venster op de
+  achtergrond, dan blijft de app van je toetsen af: hij pakt ze pas als je zelf terugkomt.
+
+## [1.0.0-beta.1788351630] — 2026-09-02
+
+### Toegevoegd
+- **Je kiest zelf welke gedeelde postbussen erbij komen.** "Gedelegeerd postvak toevoegen" haalde
+  in één klap alles binnen waar je gemachtigd voor bent — vijf postbussen erbij terwijl je er één
+  wilde, en de enige manier terug was ze stuk voor stuk weer weghalen. De knop opent nu een lijstje
+  met aanvinkvakjes: alleen wat je aanvinkt komt in de balk. Staat er niets in de lijst, dan zegt
+  het venstertje ook waarom — alles staat er al, of het navragen lukte niet.
+- **De app controleert elk uur bij Google of je gedeelde postbussen nog van jou zijn.** Een
+  machtiging die tijdens je werkdag wordt ingetrokken hoefde tot nu toe op een herstart te wachten;
+  nu verdwijnt zo'n postbus binnen het uur uit de balk. Die controle voegt zelf nooit iets toe:
+  een postbus komt alleen in de balk doordat jij hem aanvinkt.
+
+- **Een feedbackmail neemt de laatste regels van álle logboeken mee, niet meer twintig van één.**
+  Er ging alleen het staartje van het updatelogboek mee, en juist het logboek waar de app zelf in
+  bijhoudt wat hij deed — elk gesleept label, elke kopie, elke melding — bleef achter. Precies dat
+  is bij bijna elke melding het spoor dat nodig is. Nu gaat van beide zoveel mee als er in een mail
+  past, het laatste eerst, en het staat in de mail zelf: geen bijlage, geen bestand, niets om te
+  zoeken.
+
+  **Wachtwoorden en de inhoud van je mail gaan er niet in.** Toegangs- en vernieuwingstokens,
+  clientgeheimen, inlogcodes, de onderwerpregels die in een melding stonden en de namen boven een
+  meldingskaartje worden onleesbaar gemaakt vóórdat er iets de deur uit gaat — ze staan als
+  `[redacted]` of `[hidden]` in de mail. Wat blijft staan is waar een fout aan te zien is: welk
+  postvak, welk label, hoeveel, hoe lang, en wat er misging.
+
+- **Een macOS-installatie kan zichzelf bijwerken.** De mac-build leverde alleen het schijfimage
+  op waar een mens de app uit sleept; het bestand waar de bijwerkcontrole naar kijkt zat er niet
+  bij, dus liep die op elke ronde stuk. Dat bestand staat er nu naast.
+
+### Opgelost
+- **Een gedeeld postvak toevoegen klapt niet meer je eigen accountmenu open.** De webadressen van
+  gedeelde postbussen staan nergens anders dan in het accountmenu van Gmail zelf — er is geen API
+  die ze geeft en het adres alleen is niet genoeg — dus moest de app dat menu openen om te kijken.
+  Dat gebeurde in de Gmail die jij op dat moment aan het lezen was: je zag je eigen menu open- en
+  seconden later weer dichtklappen, alsof de app je muis overnam. Nu wordt Gmail daarvoor los
+  ingeladen in een venster dat nooit in beeld komt. Op je scherm beweegt niets meer, en aan het
+  resultaat verandert niets.
+- **Een lang bericht in het feedbackvenster kon een Google-foutpagina opleveren in plaats van een
+  mail.** De mail reist als adres naar Gmail, en Google weigert een adres boven de acht kilobyte.
+  Vier duizend getypte tekens werden er in dat adres al meer dan achtduizend, en dan opende er
+  geen mailvenster maar een foutmelding — met je hele bericht weg. Er wordt nu gerekend met de
+  lengte die het adres echt heeft, en jouw tekst gaat vóór het logboek: als er iets moet wijken,
+  wijkt het staartje dat toch al in de bijlage zit.
+- **Een groot label naar het venster slepen leek eindeloos te blijven zoeken.** De balk zei
+  minutenlang "Mail zoeken…" en Annuleren deed niets, en dat kwam niet door het ophalen: het
+  opsommen van het label was toen nog niet eens klaar. Dat opsommen vroeg Google om honderd
+  gesprekken per keer waar vijfhonderd hetzelfde kost, dus een label van twintigduizend was
+  tweehonderd keer wachten op elkaar, en tussendoor werd niet gekeken of je al op Annuleren had
+  gedrukt. Nu gaat het in vijf keer minder stappen, staat er tijdens het zoeken hoeveel
+  gesprekken er tot nu toe gevonden zijn, en stopt Annuleren de zoektocht meteen in plaats van
+  pas als hij zichzelf uitgelopen heeft.
+- **Een gedeelde postbus waar je geen toegang meer toe hebt bleef in de balk staan.** De app
+  vroeg bij het opstarten wél welke postbussen van jou zijn, maar mocht er pas eentje weghalen
+  als élk van je eigen accounts die vraag had beantwoord — en een account dat niet aan de
+  koppeling hangt beantwoordt hem nooit. Daarmee kwam die drempel bij vrijwel iedereen nooit in
+  zicht en bleef een ingetrokken machtiging voorgoed als tabje staan, met een view die je eigen
+  postvak liet zien. Nu wordt zo'n postbus er apart nog eens naar gevraagd, en op het antwoord
+  "jij bent geen gemachtigde van dit postvak" verdwijnt hij bij het opstarten uit de balk. Bij
+  een storing, een netwerkfout of een account dat niets kan zeggen blijft hij gewoon staan:
+  weghalen gebeurt alleen op een antwoord, nooit op stilte.
+- **"Pre-releaseversies ontvangen" weer uitzetten leverde een rode foutmelding op.** Zonder
+  betaversies kijkt de app naar de laatste definitieve versie, en die is er nog niet: GitHub
+  antwoordt dan met een fout, en die stond voluit in de Updates-instellingen — een adres en
+  "HttpError: 406" over een versie die nooit is uitgebracht. Er is niets stuk en er valt niets
+  opnieuw te proberen, dus staat er nu wat er echt aan de hand is: er is nog geen definitieve
+  versie, dus je blijft op de versie die je hebt. Een echte storing — een mislukte download,
+  een bestand dat niet klopt — blijft wél een foutmelding, en de volledige tekst gaat nog
+  altijd naar het updatelogboek.
+- **De maildrop-lijst is niet langer alleen Nederlands.** Het venster dat opengaat als je mail
+  uit Gmail sleept had zijn teksten in de code staan, dus stond het in het Nederlands terwijl de
+  rest van de app Engels was. Het leest nu dezelfde taalinstelling als de instellingen en de
+  meldingen, in alle drie de schrijfwijzen. Hetzelfde gold voor drie regels in "Labels opruimen",
+  waaronder de knop die mail naar de prullenbak verplaatst.
+- **Instellingen sluiten via "Accounts opnieuw zoeken", de plusknop of een gedeeld postvak
+  toevoegen liet een leeg venster achter.** Vier van de vijf manieren om het paneel te sluiten
+  vertelden dat niet aan de app zelf, dus bleven de Gmail-views verborgen: je zag de balk boven
+  een lege ruimte tot er iets anders een view opende. Ook de rondleiding kwam daardoor op een
+  verborgen Gmail uit.
+- **Een kopieeropdracht die zijn rollback-journaal niet kon wegschrijven liep vast en liet
+  labels achter.** Van alle schrijfacties was dit de enige zonder opvang, en juist deze legt vast
+  wat er teruggedraaid moet worden. Ging hij mis — een netwerkschijf die even weg is — dan dacht
+  de app de rest van de sessie dat er nog een kopie liep, deed pauze en stop niets, en bleven er
+  onzichtbare hulplabels in je postvakken staan die nooit meer opgeruimd werden. Nu wordt de
+  kopie geweigerd vóórdat er iets verstuurd is, worden de hulplabels meteen weer weggehaald, en
+  zegt het venster waarom.
+- **Een mailtje kon ongemerkt verdwijnen als Google er even niet bij kon.** Bij het ophalen van
+  nieuwe mail werd de leeswijzer ook doorgeschoven als één bericht niet gelezen kon worden — dat
+  bericht kwam daarna nooit meer langs, dus voor een gedeeld postvak kwam er ook geen melding
+  van. De leeswijzer blijft nu staan tot de hele ronde gelukt is.
+- **Ctrl+1 tot 9 sprong naar het verkeerde account.** De sneltoetsen volgden de volgorde waarin
+  de app je accounts had gevonden, niet de volgorde van je tabjes; had je een tabje versleept,
+  dan kwam je bij een ander postvak uit dan je aanwees. Ze volgen nu de balk.
+- **Een account toevoegen zonder internet liet een blanco vlak over het venster achter.** Het
+  toestemmingsscherm van Google wachtte op een antwoord dat bij een mislukte verbinding nooit
+  komt, en dat vlak ging alleen weg door de app af te sluiten. Nu stopt het met een melding.
+- **Een gedeeld postvak werd overgeslagen als jouw eigen eerste account net was verlopen.** De
+  app vraagt bij Google namens elk van je accounts, maar stopte al na het eerste dat "nee" zei —
+  ook als dat "nee" niets met het postvak te maken had. Alle accounts worden nu langsgegaan.
+- **Een account verwijderen kon halverwege blijven steken.** Sloeg de app tussendoor iets niet op
+  — volle of geblokkeerde schijf — dan bleef het account gewoon in de balk staan, zonder melding.
+  Zo'n mislukte opslag stopt de rest van de opruiming niet meer.
+- **Downloadmeldingen negeerden "niet storen" en stille uren, geluid inclusief.** Een download
+  die klaar was terwijl je meldingen uit had, verscheen alsnog met een geluidje. Nu geldt voor
+  downloads dezelfde regel als voor mail.
+- **Slepen naar het bureaublad werkte niet op een postvak dat langzaam opstartte.** De pagina
+  vroeg vijftien keer of het mocht en gaf het daarna op; een account dat pas later klaar was,
+  kreeg de sleepstrook nooit. De app geeft nu zelf antwoord zodra het account bekend is.
+- **Sneller en zuiniger op de achtergrond.** Je voorkeuren werden bij elk gebruik opnieuw van
+  schijf gelezen en nagekeken — bij een melding of een badge-update tientallen keren per minuut;
+  ze staan nu één keer in het geheugen. De rapportagetimers liepen in elk Google-tabblad terwijl
+  alleen Gmail ze gebruikt, en de zoekopdracht achter je ongelezenteller werd honderd keer te
+  duur ingeboekt, waardoor een kopieeropdracht er een halve seconde op wachtte.
+- **Ongeveer achthonderd regels code eruit.** De relay-push die al uitgeschakeld was, de
+  "venster opnieuw opbouwen"-paden die nooit konden lopen, dubbele lijsten en meetellers, en de
+  tests die alleen die dode code nog aanraakten. Voor jou verandert er niets; voor ons betekent
+  het dat wat er staat ook echt gebruikt wordt.
+
+## [1.0.0-beta.1788180489] — 2026-08-31
+
+### Opgelost
+- **De rondleiding startte niet vanzelf na het inloggen.** Op een verse installatie druk je
+  niet op de plus: de Gmail-view staat al open op een inlogpagina, je logt daar in, en de app
+  vindt dat account zelf. De rondleiding stond te wachten op die plusknop en kwam dus nooit.
+  Hij kijkt nu of deze installatie ooit een postbus heeft gehad, en begint bij de eerste die
+  binnenkomt — hoe je die ook toevoegt.
+
+## [1.0.0-beta.1788179222] — 2026-08-31
+
+### Toegevoegd
+- **Een rondleiding die je bij de eerste postbus door de app loopt.** Alles wat deze app aan
+  Gmail toevoegt is onzichtbaar tot iemand het je vertelt: dat de strook bovenin één tab per
+  postbus is, dat de rechtermuisknop op een tab de agenda en Drive opent, en vooral dat je mail
+  naar het venster kunt slepen. Voor dat laatste is geen knop, want het gebaar *is* de knop. In
+  negen stappen komt het één keer langs, op het moment dat je je eerste postbus toevoegt.
+
+  Elke stap laat zien waar hij over gaat in plaats van het te beschrijven. Heb je nog maar één
+  postbus, dan leent de balk er een voorbeeldtabje bij, zodat wisselen en herschikken iets
+  hebben om aan te wijzen. De stap over de rechtermuisknop opent het échte menu, onder je eigen
+  tab. De balk waar je mail op laat vallen en de labelkiezer worden getoond zoals ze eruitzien,
+  niet nagemaakt. En staat er geen Google-app vastgezet, dan komt daar ook een voorbeeld voor.
+
+- **De rondleiding is opnieuw te starten bij Instellingen, Algemeen.** Hij komt één keer
+  vanzelf en daarna nooit meer, en dat werkt alleen als overslaan zonder risico is. Wie hem
+  wegklikt en er later toch langs wil, hoeft niets opnieuw in te stellen.
+
+## [1.0.0-beta.1787920120] — 2026-08-28
+
+### Toegevoegd
+- **Boven de labels van elk postvak staan de labels waar je vandaag al naartoe kopieerde.**
+  Een postvak heeft honderden labels en een dag werk gaat meestal naar twee of drie ervan, dus
+  begon elke sleep met hetzelfde woord intypen. Onder het kopje **Recent** staan nu de vijf
+  labels waar die dag een kopie in is beland, de laatste bovenaan, per postvak apart. De lijst
+  gaat over vandaag: morgen begint hij leeg en vult hij zich vanzelf weer. Zodra je iets in
+  het zoekveld typt verdwijnt het kopje, want dan zijn de zoekresultaten de lijst. Een label
+  dat bij Google is weggegooid valt er stil uit.
+
+### Opgelost
+- **De zoekbalk in de labelkiezer heeft eindelijk echt de cursor.** Het paneel is een eigen
+  venster boven Gmail, en zo'n venster krijgt het toetsenbord niet door alleen zichtbaar te
+  worden. De cursor stond dus keurig in het zoekveld terwijl wat je typte naar Gmail
+  erachter ging. Nu pakt het paneel het toetsenbord zodra het opengaat — ook bij de eerste
+  sleep na het opstarten, waar het venster nog gebouwd moest worden. De balk die meldt dat
+  een account opnieuw gekoppeld moet worden doet dat uitdrukkelijk niet: die verschijnt
+  terwijl je aan het typen bent en hoort je niet te onderbreken.
+
+### Added
+- **The labels you already copied into today sit above each mailbox's list.** A mailbox holds
+  hundreds of labels and a day's work usually goes into two or three of them, so every drag
+  started by typing the same word again. Under a **Recent** heading you now get the five
+  labels a copy landed in that day, the most recent first, per mailbox. The list is about
+  today: tomorrow it starts empty and fills itself again. The moment you type in the search
+  box the heading goes, because then the search results are the list. A label deleted at
+  Google quietly drops out of it.
+
+### Fixed
+- **The search box in the label picker finally really has the caret.** The panel is a window
+  of its own above Gmail, and such a window does not get the keyboard merely by becoming
+  visible. The caret sat neatly in the search box while what you typed went to Gmail behind
+  it. The panel now takes the keyboard the moment it opens — including on the first drag
+  after a start, where the window still had to be built. The bar telling you an account needs
+  reconnecting explicitly does not: it appears while you are typing and has no business
+  interrupting you.
+
+## [1.0.0-beta.1787916585] — 2026-08-28
+
+### Toegevoegd
+- **Een postvak dat je weghaalt blijft weg, ook na een update.** Verwijderen hield maar één
+  sessie stand. Bij de volgende start zoekt de app opnieuw welke Google-accounts op deze
+  computer zijn ingelogd, en vraagt hij Google opnieuw welke postvakken aan je gedelegeerd
+  zijn — en alles wat hij vond kwam terug. Wie twintig delegaties heeft, klikte na elke
+  update twintig rijen opnieuw weg. De app onthoudt nu wat je hebt weggehaald. Onder de
+  accountlijst in de instellingen staat **Verborgen postvakken**, met per adres een knop om
+  het terug te zetten: een gedelegeerd postvak staat er binnen een minuut weer, een eigen
+  account bij de volgende start. Wordt een delegatie bij Google later echt ingetrokken, dan
+  vergeet de app hem ook uit dat lijstje, zodat hij gewoon weer verschijnt als je hem
+  opnieuw krijgt.
+- **Je krijgt nu meldingen van gedelegeerde postvakken.** Die kwamen er nooit, en niet
+  doordat er een schakelaar uit stond: Gmail zelf geeft geen bureaubladmelding in het
+  venster van een postvak waar je gedelegeerde van bent. Dat is in de log van de app zwart
+  op wit terug te zien — wekenlang wél mail die binnenkwam, nooit een melding die Gmail
+  opwierp. De app kijkt nu zelf, elke minuut, rechtstreeks bij Google, en laat dezelfde
+  kaart zien als bij je eigen accounts: afzender, onderwerp, de kleur van dat postvak.
+  Klikken opent die mail in dat postvak, en brengt het postvak in beeld. Mail die er al lag
+  toen de app startte blijft stil, dus een postvak met dertig ongelezen berichten geeft geen
+  dertig meldingen, en Promoties en Sociaal zwijgen net als bij je eigen accounts. De
+  schakelaar per account blijft de baas: staat een postvak op stil, dan blijft het stil.
+
+### Added
+- **A mailbox you remove now stays removed, updates included.** Removing one lasted a single
+  session. At the next start the app looks again for the Google accounts signed in on this
+  machine, and asks Google again which mailboxes are delegated to you — and everything it
+  found came straight back. Anyone holding twenty delegations cleared the same twenty rows
+  after every update. The app now remembers what you took away. Under the account list in
+  settings there is a **Hidden mailboxes** block with a button per address to put one back:
+  a delegated mailbox returns within a minute, an own account at the next start. If a
+  delegation is later genuinely revoked at Google, the app forgets it from that list too, so
+  it simply reappears if you are granted it again.
+
+- **Delegated mailboxes now raise notifications.** They never did, and not because a switch
+  was off: Gmail itself raises no desktop notification in the view of a mailbox you are a
+  delegate of. The app's own log shows it in black and white — weeks of mail arriving in
+  those mailboxes, and never one notification raised by Gmail. The app now looks for itself,
+  once a minute, straight at Google, and shows the same card as for your own accounts:
+  sender, subject, that mailbox's colour. Clicking opens that mail in that mailbox and
+  brings the mailbox to the front. Mail that was already there when the app started stays
+  quiet, so a mailbox holding thirty unread does not raise thirty cards, and Promotions and
+  Social stay silent exactly as they do for your own accounts. The per-account switch stays
+  in charge: a mailbox set to silent stays silent.
+
+## [1.0.0-beta.1787838693] — 2026-08-27
+
+### Opgelost
+- **Klikken op een melding opent nu de mail waar de melding over ging, en niet een oudere
+  mail in hetzelfde gesprek.** De app stuurde Gmail naar het gesprek en liet aan Gmail over
+  welk bericht daarin openklapt. Dat pakt langs twee wegen verkeerd uit: het nummer waarmee
+  een gesprek geopend wordt is het nummer van het **eerste** bericht erin, en waar Gmail zelf
+  kiest, kiest het het oudste ongelezen bericht — liggen er drie ongelezen antwoorden, dan is
+  dat niet degene waarvoor je gewaarschuwd bent. Welke mail het wél was, wist de app allang.
+  Die wordt nu aangewezen: opengeklapt en in beeld gescrold, in het venster zelf, in Gmail's
+  eigen uitklapvenster en in een los mailvenster, en ook in een gedelegeerd postvak, dat tot
+  nu toe altijd de omweg langs de lijst nam. Wordt de mail niet gevonden, dan blijft het
+  gesprek openstaan zoals het eerst deed — er gaat niets verloren, er klapt niets dicht.
+
+### Fixed
+- **Clicking a notification now opens the mail it was about, not an older mail in the same
+  conversation.** The app sent Gmail to the conversation and left it to Gmail which message
+  inside it unfolds. That lands wrong along two roads: the id a conversation is opened by is
+  the id of its **first** message, and where Gmail chooses for itself it unfolds the oldest
+  unread one — with three unread replies waiting, that is not the mail you were told about.
+  Which mail it was, the app already knew. It now points at that one: unfolded and scrolled
+  to, in the window itself, in Gmail's own pop-out and in a separate mail window, and in a
+  delegated mailbox too, which until now always took the detour past the list. When the mail
+  cannot be found the conversation is left open exactly as it was before — nothing is lost
+  and nothing folds shut.
+
 ## [0.3.1-beta.13] — 2026-08-20
 
 ### Gewijzigd

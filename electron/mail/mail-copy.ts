@@ -14,8 +14,19 @@ import { mapLimit } from '../core/concurrency';
 
 export interface CopyTarget {
   email: string;
+  /** The labels ticked in the picker. Empty in tree mode, where the labels differ per message
+   * and come from `ResolvedTreeLabels` instead. */
   labelIds: string[];
+  /** Set when this mailbox takes the dragged label's whole tree. `parentLabelId` is the label
+   * the tree is put under, or null for the top of the list. */
+  tree?: { parentLabelId: string | null };
 }
+
+/** Per mailbox, per Message-ID, the label ids that mailbox resolved the dragged tree to.
+ * Built once a mailbox's own labels exist (mail-drop-controller.ts) and only read here, which
+ * is what keeps this file free of the network. A message that is missing has no label to land
+ * in -- its label failed to be created -- and is skipped rather than filed somewhere near. */
+export type ResolvedTreeLabels = Map<string, Map<string, string[]>>;
 
 export interface CopyDuplicate {
   email: string;
@@ -100,11 +111,16 @@ export interface MailboxCopyLog {
   stopped: number;
 }
 
+/** What became of one file in one mailbox. 'stopped' is not a failure: it covers a file the
+ * gate refused before it started and one a cancel severed mid-flight alike -- the run ended,
+ * the file did not fail. */
+export type CopyOutcomeKind = 'copied' | 'skipped' | 'failed' | 'stopped';
+
 /** One file's outcome, as far as tallying needs to know -- matches mail-drop-controller.ts's
  * own CopyOutcome without importing it, so this file stays free of that module's types. */
 export interface CopyOutcomeTally {
-  copied?: true;
-  skipped?: true;
+  kind: CopyOutcomeKind;
+  /** The message of a 'failed' file, and of nothing else */
   error?: string;
 }
 
@@ -196,17 +212,51 @@ export function threadGroups<T extends { file: string; threadId: string }>(
 export function duplicateChecks(
   targets: CopyTarget[],
   files: Array<{ messageId: string; subject: string }>,
+  resolved: ResolvedTreeLabels = new Map(),
 ): DuplicateHit[] {
   const out: DuplicateHit[] = [];
   for (const target of targets) {
-    for (const labelId of target.labelIds) {
-      for (const file of files) {
-        if (!file.messageId.trim()) continue;
+    // Label outer, message inner for a flat drag: that is the order the picker's warning
+    // samples its subjects from, and it is not this change's to alter. A tree has a different
+    // label set per message, so there is no outer label to loop.
+    if (!target.tree) {
+      for (const labelId of target.labelIds) {
+        for (const file of files) {
+          if (!file.messageId.trim()) continue;
+          out.push({ email: target.email, labelId, messageId: file.messageId, subject: file.subject });
+        }
+      }
+      continue;
+    }
+    for (const file of files) {
+      if (!file.messageId.trim()) continue;
+      for (const labelId of labelsForMessage(target, file.messageId, resolved)) {
         out.push({ email: target.email, labelId, messageId: file.messageId, subject: file.subject });
       }
     }
   }
   return out;
+}
+
+/**
+ * The labels one saved message goes out with, in one mailbox
+ *
+ * The single seam between the two modes: a flat drag files every message under the same
+ * ticked labels, a tree drag files each message under whatever its own source labels became
+ * in this mailbox.
+ *
+ * @param target
+ * @param messageId the saved message's Message-ID
+ * @param resolved per mailbox what the tree resolved to; unread for a flat target
+ * @returns the label ids, empty when nothing in this mailbox can hold the message
+ */
+export function labelsForMessage(
+  target: CopyTarget,
+  messageId: string,
+  resolved: ResolvedTreeLabels,
+): string[] {
+  if (!target.tree) return target.labelIds;
+  return resolved.get(target.email)?.get(messageId) ?? [];
 }
 
 /**
@@ -257,21 +307,30 @@ export function labelsStillNeeded(
 }
 
 /**
- * The labels one insert actually carries: the real ones, plus this run's own marker
+ * The labels one insert actually goes out with
  *
- * Folded together here because both must ride the very same insertMessage call. A follow-up
- * modify to add the marker after the insert answers would reopen the exact window a
+ * The marker rides inside the same call that creates the message, which is the whole race a
  * cancel-safe copy exists to close: a socket cut between the two calls would leave a message
  * in the mailbox with no marker on it at all. Kept separate from `labelIds` itself -- the
  * caller's journal entry and outcome record must go on using the array without the marker,
  * since that is what the user actually asked for.
  *
+ * `UNREAD` travels the same way and for the same reason: a copy of unread mail that lands read
+ * has quietly lost the one thing the user was going to act on, and a second call to mark it
+ * afterwards is a second chance to fail. It is not part of what the user chose either, so it
+ * stays out of the journal too.
+ *
  * @param labelIds the labels the user chose
  * @param markerLabelId this mailbox's own marker for the run
+ * @param unread whether the source mailbox has this message unread
  * @returns the labelIds to pass to insertMessage
  */
-export function insertLabelIds(labelIds: string[], markerLabelId: string): string[] {
-  return [...labelIds, markerLabelId];
+export function insertLabelIds(
+  labelIds: string[],
+  markerLabelId: string,
+  unread = false,
+): string[] {
+  return unread ? [...labelIds, markerLabelId, 'UNREAD'] : [...labelIds, markerLabelId];
 }
 
 /**
@@ -280,17 +339,20 @@ export function insertLabelIds(labelIds: string[], markerLabelId: string): strin
  * @param index
  * @param targets
  * @param messageIds
+ * @param resolved per mailbox what a dragged tree resolved to; unread for a flat target
  * @returns the count, skipping what every target already holds
  */
 export function newMessageCount(
   index: Set<string>,
   targets: CopyTarget[],
   messageIds: string[],
+  resolved: ResolvedTreeLabels = new Map(),
 ): number {
   let n = 0;
   for (const t of targets) {
     for (const messageId of messageIds) {
-      if (labelsStillNeeded(index, t.email, t.labelIds, messageId).length > 0) n += 1;
+      const wanted = labelsForMessage(t, messageId, resolved);
+      if (labelsStillNeeded(index, t.email, wanted, messageId).length > 0) n += 1;
     }
   }
   return n;
@@ -339,17 +401,17 @@ export function countExisting(hits: Array<{ email: string; labelId: string }>): 
  * @returns the line, without the `[maildrop]` prefix the caller adds
  */
 export function copyLogLine(m: MailboxCopyLog): string {
-  const kind = m.delegated ? 'gedelegeerd' : 'eigen';
+  const kind = m.delegated ? 'delegated' : 'own';
   const total = m.inserts.reduce((s, ms) => s + ms, 0);
   const spread =
     m.inserts.length > 0
-      ? ` (mediaan ${duration(middle(m.inserts))}, traagste ${duration(Math.max(...m.inserts))})`
+      ? ` (median ${duration(middle(m.inserts))}, slowest ${duration(Math.max(...m.inserts))})`
       : '';
   const counts = [
-    `${m.copied} gekopieerd`,
-    `${m.skipped} overgeslagen`,
-    `${m.failed} mislukt`,
-    `${m.stopped} afgebroken`,
+    `${m.copied} copied`,
+    `${m.skipped} skipped`,
+    `${m.failed} failed`,
+    `${m.stopped} stopped`,
   ].join(', ');
   return (
     `copy ${m.email} (${kind}): token ${duration(m.tokenMs)}, ` +
@@ -360,37 +422,32 @@ export function copyLogLine(m: MailboxCopyLog): string {
 /**
  * Counts what a mailbox's files actually came to, one outcome at a time
  *
- * Never derived by subtraction. A file the gate refused before it started leaves no outcome
- * at all; a cancel that severed one mid-flight leaves an outcome with neither `copied`,
- * `skipped` nor `error` set (mail-drop-controller.ts's copyOneFile, deliberately -- it is
- * not a failure). Both are `stopped`, and only a real `error` is ever `failed`, so the two
- * can never be read as one number pretending to be the other.
+ * Never derived by subtraction: every file names its own category, and a missing entry is a
+ * file whose thread group or mailbox never started at all, which is the fourth category
+ * rather than the absence of the other three.
  *
- * @param outcomes one per file, in the order of the drag; a missing entry is a file whose
- *   own thread group or mailbox never started at all
+ * @param outcomes one per file, in the order of the drag; a missing entry counts as stopped
  * @returns the tally
  */
 export function tallyOutcomes(outcomes: Array<CopyOutcomeTally | undefined>): CopyTally {
-  let copied = 0;
-  let skipped = 0;
-  let failed = 0;
-  let stopped = 0;
-  let lastError: string | undefined;
+  const tally: CopyTally = { copied: 0, skipped: 0, failed: 0, stopped: 0, lastError: undefined };
   for (const outcome of outcomes) {
-    if (!outcome) {
-      stopped += 1;
-    } else if (outcome.copied) {
-      copied += 1;
-    } else if (outcome.skipped) {
-      skipped += 1;
-    } else if (outcome.error) {
-      failed += 1;
-      lastError = outcome.error;
-    } else {
-      stopped += 1;
+    switch (outcome?.kind ?? 'stopped') {
+      case 'copied':
+        tally.copied += 1;
+        break;
+      case 'skipped':
+        tally.skipped += 1;
+        break;
+      case 'failed':
+        tally.failed += 1;
+        if (outcome?.error) tally.lastError = outcome.error;
+        break;
+      default:
+        tally.stopped += 1;
     }
   }
-  return { copied, skipped, failed, stopped, lastError };
+  return tally;
 }
 
 /**
@@ -401,8 +458,8 @@ export function tallyOutcomes(outcomes: Array<CopyOutcomeTally | undefined>): Co
  */
 export function checkLogLine(t: { checks: number; reused: number; asked: number; ms: number }): string {
   return (
-    `dubbelencheck: ${t.checks} vragen, ${t.reused} uit de scan, ` +
-    `${t.asked} opnieuw gevraagd, ${duration(t.ms)}`
+    `duplicate check: ${t.checks} questions, ${t.reused} from the scan, ` +
+    `${t.asked} asked again, ${duration(t.ms)}`
   );
 }
 
@@ -564,6 +621,10 @@ export function groupDuplicates(
  */
 export function normalizeTargets(targets: CopyTarget[]): CopyTarget[] {
   const byEmail = new Map<string, string[]>();
+  // Kept apart from the labels because a tree mailbox has none: its labels are per message and
+  // some of them do not exist yet, so "no labels" cannot be what decides a mailbox was not
+  // chosen. The first mention of a mailbox is the one whose destination counts.
+  const treeByEmail = new Map<string, { parentLabelId: string | null }>();
   for (const t of targets ?? []) {
     const email = (t?.email ?? '').trim();
     if (!email) continue;
@@ -572,10 +633,14 @@ export function normalizeTargets(targets: CopyTarget[]): CopyTarget[] {
       if (id && !labels.includes(id)) labels.push(id);
     }
     byEmail.set(email, labels);
+    if (t.tree && !treeByEmail.has(email)) treeByEmail.set(email, t.tree);
   }
   return [...byEmail]
-    .filter(([, labelIds]) => labelIds.length > 0)
-    .map(([email, labelIds]) => ({ email, labelIds }));
+    .filter(([email, labelIds]) => labelIds.length > 0 || treeByEmail.has(email))
+    .map(([email, labelIds]) => {
+      const tree = treeByEmail.get(email);
+      return tree ? { email, labelIds, tree } : { email, labelIds };
+    });
 }
 
 /**

@@ -9,7 +9,8 @@
 
 import { app, session, shell } from 'electron';
 import { pushDefaultMailStatus, pushPrefs } from '../core/broadcast';
-import { SESSION_PARTITION, prefs } from '../core/runtime';
+import { SESSION_PARTITION } from '../core/session-partition';
+import { prefs } from '../core/runtime';
 import { refreshTray } from '../menus/tray-setup';
 import { sessionPermissionAllowed } from '../notify/notification-policy';
 import { MAIL_APP_NAME, registerMailClient } from './mail-client-registration';
@@ -47,11 +48,9 @@ export function requestDefaultMail(): void {
   );
 }
 
-
 export function setupNotifications(): void {
   if (process.platform === 'win32') app.setAppUserModelId('com.gmaildesktop.app');
   const ses = session.fromPartition(SESSION_PARTITION);
-  
   ses.setPermissionRequestHandler((_wc, permission, callback) =>
     callback(sessionPermissionAllowed(permission)),
   );

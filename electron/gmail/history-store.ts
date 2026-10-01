@@ -5,6 +5,16 @@
 
 import { readJsonFile, writeJsonFile } from '../core/json-store';
 
+
+//===========================
+// Constants
+//===========================
+
+
+//===========================
+// Store
+//===========================
+
 export class HistoryStore {
   constructor(private readonly filePath: string) {}
 
