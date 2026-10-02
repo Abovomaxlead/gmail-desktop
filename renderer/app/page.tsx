@@ -280,6 +280,7 @@ interface DesktopBridge {
   retryMailDropPull(
     retryId: string,
   ): Promise<{ ok: true; items: MailDropItem[]; pullRetryId?: string } | { ok: false; error: string }>;
+  retryMailDropJob(retryId: string, mode?: MailDropCopyMode): Promise<MailDropCopyResult>;
   onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;
   controlMailDropCopy(
     action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',

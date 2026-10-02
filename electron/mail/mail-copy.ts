@@ -48,6 +48,8 @@ export interface CopyResult {
   newCount?: number;
   /** Set when some mail did not land and may be tried again from the panel */
   retryId?: string;
+  /** A job retry's conversations that still could not be fetched; their subject may be empty */
+  unfetched?: FailureLine[];
 }
 
 export type CopyMode = 'check' | 'new' | 'all';

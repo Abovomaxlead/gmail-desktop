@@ -12,7 +12,7 @@
 // Types
 //===========================
 
-export type ToastKind = 'mail' | 'update' | 'download' | 'error' | 'test';
+export type ToastKind = 'mail' | 'update' | 'download' | 'error' | 'test' | 'maildrop';
 
 export interface ToastAccount {
   key: string;

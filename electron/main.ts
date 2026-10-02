@@ -52,7 +52,7 @@ import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menu
 import { setExternalOpener, setGoogleAppsRouting } from './system/external-links';
 import { extractMailtoFromArgv } from './mail/mailto';
 import { startMailDropCleanup } from './mail/mail-drop-cleanup';
-import { mailDropFolder, resumeOrphanedCopyRuns } from './mail/mail-drop-controller';
+import { mailDropFolder, resumeOrphanedCopyRuns, showJobReport } from './mail/mail-drop-controller';
 import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { flushCrashReports, installCrashReporting } from './feedback/crash-controller';
@@ -134,6 +134,7 @@ function wireModules(): void {
   setNotifyGatingHooks({ onDndCleared: () => refreshTray() });
   setToastActivationHooks({
     openSettingsPanel: (section) => openSettingsPanel(section),
+    openJobReport: () => showJobReport(),
   });
   setTrayHooks({
     refreshNotifyAllowed: () => refreshNotifyAllowed(),
