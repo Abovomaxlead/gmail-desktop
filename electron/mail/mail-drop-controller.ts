@@ -114,6 +114,7 @@ import {
   findUnfinishedJobs,
   finishLabelJob,
   inheritedMode,
+  jobFailed,
   jobProgress,
   needsJob,
   nextBatch,
@@ -156,6 +157,15 @@ import { chunk } from './chunk';
 import { defaultMailFolder, looksRemoteFolder } from './mail-folder';
 import { createCopyRunControl, type CopyRunControl } from './copy-control';
 import {
+  copyFailuresOf,
+  failedConversations,
+  failedFiles,
+  failureLines,
+  retryRefusal,
+  wholeTargetFailed,
+  type TargetFailures,
+} from './copy-failures';
+import {
   attemptWrite,
   finishCopyJournal,
   findOrphanedRuns,
@@ -191,6 +201,7 @@ import {
   fetchMessageListPage,
   fetchThreadMessages,
   fetchThreadRaw,
+  insertMayHaveLanded,
   insertMessage,
   labelsHoldingMany,
   mailboxCanary,
@@ -235,6 +246,7 @@ interface JobEndInfo {
   copiedBatches: number;
   targets: string[];
   error?: string;
+  failed?: number;
 }
 
 /** The progress payload widened with the two things one continuous job panel needs. Kept local
@@ -266,6 +278,15 @@ let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
  * question about the same mail. Stamped with the drag it belongs to, so the next drag
  * ignores it rather than answering for the wrong mail. */
 let lastExisting: { serial: number; byEmail: Map<string, MailboxScan> } | null = null;
+
+/** What the last copy could not land, held for the panel's retry button. Only for a copy the
+ * picker ran itself: a job's batches are part 2. */
+let lastCopyFailures:
+  | { retryId: string; serial: number; targets: TargetFailures<MailDropCopyTarget, SavedRef>[] }
+  | null = null;
+
+/** Conversations the last pull could not fetch, which a job's batch counts as lost */
+let batchPullFailedThreads: string[] = [];
 
 let dropSerial = 0;
 
@@ -595,13 +616,19 @@ async function findDuplicates(
   onProgress: (done: number, total: number) => void,
   tally?: { checks: number; reused: number; asked: number },
   resolved: ResolvedTreeLabels = new Map(),
+  /** False on a retry: the picker's scan predates the first copy and cannot answer for it */
+  useScan = true,
+  /** Narrows the questions to the pairs a retry is about to send */
+  only?: (email: string, messageId: string) => boolean,
 ): Promise<DuplicateHit[]> {
-  const checks = duplicateChecks(targets, saved, resolved);
+  const checks = duplicateChecks(targets, saved, resolved).filter(
+    (c) => !only || only(c.email, c.messageId),
+  );
 
   // The scan behind the picker asked the wider question — which labels hold this message —
   // so most of these are already answered. What it did not cover, because the mailbox
   // refused or the drag was too big to scan, is still asked here.
-  const scan = lastExisting?.serial === dropSerial ? lastExisting.byEmail : null;
+  const scan = useScan && lastExisting?.serial === dropSerial ? lastExisting.byEmail : null;
   const answers = checks.map((check) => scanAnswer(scan, check));
   const open = checks.filter((_, i) => answers[i] === null);
 
@@ -1701,6 +1728,7 @@ interface CopyOutcome {
   kind: CopyOutcomeKind;
   /** The message of a 'failed' file, and of nothing else */
   error?: string;
+  maybeLanded?: boolean;
   record?: LogRecord;
 }
 
@@ -1955,6 +1983,7 @@ async function copyOneFile(arg: {
         outcome: {
           kind: 'failed',
           error,
+          maybeLanded: insertMayHaveLanded(e),
           record: {
             ts,
             account: target.email,
@@ -2309,6 +2338,7 @@ function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: strin
       copiedBatches: job.batches.filter((b) => b.state === 'copied').length,
       targets: (job.choices?.targets ?? []).map((t) => t.email),
       error: reason ?? job.batches.find((b) => b.state === 'failed')?.error,
+      failed: jobFailed(job),
     },
   } satisfies PanelProgress);
 }
@@ -2582,9 +2612,12 @@ export async function copyToMailboxes(arg: {
    * stale window -- leaves it unset, which is what the guard below reads to refuse a second copy
    * of mail a running job is already copying. */
   fromJob?: boolean;
+  /** Set only by retryFailedCopy: the mailboxes and, per mailbox, the files that failed there */
+  retry?: { targets: MailDropCopyTarget[]; files: Map<string, SavedRef[]> };
 }): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
-  const requested = normalizeTargets(arg?.targets ?? []);
+  const retry = arg?.retry;
+  const requested = normalizeTargets(retry ? retry.targets : arg?.targets ?? []);
   const targets = requested.filter((t) => isAllowedAccount(t.email));
   const mode: CopyMode = arg?.mode ?? 'check';
   const fail = (error: string): MailDropCopyResult => ({
@@ -2613,7 +2646,8 @@ export async function copyToMailboxes(arg: {
   const tokens = oauthTokens;
   if (requested.length === 0) return fail('Geen label gekozen');
   if (targets.length === 0) return fail('Alleen postvakken van het werkdomein kunnen worden gekozen');
-  const files = lastDropSaved;
+  const filesFor = (email: string): SavedRef[] => (retry ? retry.files.get(email) ?? [] : lastDropSaved);
+  const files = retry ? [...new Set([...retry.files.values()].flat())] : lastDropSaved;
   if (files.length === 0) return fail('Geen opgeslagen berichten om te kopiëren');
 
   // Written down here rather than at the far end: this copy can be minutes of work, and the
@@ -2627,7 +2661,9 @@ export async function copyToMailboxes(arg: {
   const trees = await planTrees(targets, files, lastDropTree);
   const treeResolved: ResolvedTreeLabels = new Map(trees.resolved);
 
-  const total = copyTotal(targets, files.length);
+  const total = retry
+    ? targets.reduce((n, t) => n + filesFor(t.email).length, 0)
+    : copyTotal(targets, files.length);
   const ts = new Date().toISOString();
   const root = mailDropFolder();
   const records: LogRecord[] = [];
@@ -2672,6 +2708,8 @@ export async function copyToMailboxes(arg: {
     const key = scanKey(targets);
     const tally = { checks: 0, reused: 0, asked: 0 };
     const checkFrom = Date.now();
+    // A retry's check always asks again: the stored scan was taken before the first copy landed
+    if (retry && mode === 'check') lastScan = null;
     const reusedWholeScan = lastScan?.key === key;
     const hits = reusedWholeScan
       ? lastScan!.hits
@@ -2684,6 +2722,8 @@ export async function copyToMailboxes(arg: {
           },
           tally,
           treeResolved,
+          !retry,
+          retry ? (email, messageId) => filesFor(email).some((f) => f.messageId === messageId) : undefined,
         );
     notifyLog(
       `[maildrop] ${
@@ -2716,7 +2756,10 @@ export async function copyToMailboxes(arg: {
         accounts: [],
         needsConfirm: true,
         duplicates: groupDuplicates(hits),
-        newCount: newMessageCount(index, targets, files.map((f) => f.messageId), planned),
+        newCount: targets.reduce(
+          (n, t) => n + newMessageCount(index, [t], filesFor(t.email).map((f) => f.messageId), planned),
+          0,
+        ),
       };
     }
   }
@@ -2756,6 +2799,7 @@ export async function copyToMailboxes(arg: {
   // followed by an 'all' pass against the same drag are two runs, each with its own inserts
   // to answer for if either one is stopped partway through.
   const runId: CopyRunId = randomUUID();
+  const failuresByTarget: TargetFailures<MailDropCopyTarget, SavedRef>[] = [];
 
   // One hidden marker label per mailbox, created before a single file goes out to it. Its id
   // is folded into every insert this run makes to that mailbox (copyOneFile) -- never applied
@@ -2783,8 +2827,17 @@ export async function copyToMailboxes(arg: {
       markerLabelByEmail.set(a.email, a.markerLabelId);
     } else {
       notifyLog(`[maildrop] copy ${a.email}: could not create an internal label — ${a.error}`);
-      accounts.push({ email: a.email, copied: 0, skipped: 0, total: files.length, error: a.error });
-      done += files.length;
+      const lost = wholeTargetFailed(filesFor(a.email), a.error);
+      accounts.push({
+        email: a.email,
+        copied: 0,
+        skipped: 0,
+        total: filesFor(a.email).length,
+        error: a.error,
+        failures: failureLines(lost),
+      });
+      failuresByTarget.push({ target: targets.find((t) => t.email === a.email)!, files: lost });
+      done += filesFor(a.email).length;
       progress('copy');
     }
   }
@@ -2793,8 +2846,17 @@ export async function copyToMailboxes(arg: {
   for (const [email, error] of trees.errors) {
     if (!markerLabelByEmail.has(email)) continue;
     notifyLog(`[maildrop] copy ${email}: could not work out the label structure — ${error}`);
-    accounts.push({ email, copied: 0, skipped: 0, total: files.length, error });
-    done += files.length;
+    const lost = wholeTargetFailed(filesFor(email), error);
+    accounts.push({
+      email,
+      copied: 0,
+      skipped: 0,
+      total: filesFor(email).length,
+      error,
+      failures: failureLines(lost),
+    });
+    failuresByTarget.push({ target: targets.find((t) => t.email === email)!, files: lost });
+    done += filesFor(email).length;
     progress('copy');
     markerLabelByEmail.delete(email);
   }
@@ -2846,15 +2908,18 @@ export async function copyToMailboxes(arg: {
             }): no token after ${tokenMs}ms — ${got.error}`,
           );
           if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
-          done += files.length;
+          done += filesFor(target.email).length;
           progress('copy');
+          const lost = wholeTargetFailed(filesFor(target.email), got.error);
+          failuresByTarget.push({ target, files: lost });
           return {
             account: {
               email: target.email,
               copied: 0,
               skipped: 0,
-              total: files.length,
+              total: filesFor(target.email).length,
               error: got.error,
+              failures: failureLines(lost),
             },
             records: [] as LogRecord[],
           };
@@ -2865,7 +2930,7 @@ export async function copyToMailboxes(arg: {
           ts,
           target,
           token: got.token,
-          files,
+          files: filesFor(target.email),
           index,
           groupLimit,
           budget,
@@ -2892,6 +2957,8 @@ export async function copyToMailboxes(arg: {
         // Counted, not derived by subtraction: a file the gate refused and one a cancel
         // severed mid-flight are `stopped`, never `failed` -- see tallyOutcomes.
         const { copied: ok, skipped: over, failed, stopped, lastError } = tallyOutcomes(outcomes);
+        const lost = failedFiles(filesFor(target.email), outcomes);
+        failuresByTarget.push({ target, files: lost });
         notifyLog(
           `[maildrop] ${copyLogLine({
             email: target.email,
@@ -2909,8 +2976,9 @@ export async function copyToMailboxes(arg: {
             email: target.email,
             copied: ok,
             skipped: over,
-            total: files.length,
+            total: filesFor(target.email).length,
             error: failed > 0 ? (lastError ?? 'Niet alles gekopieerd') : undefined,
+            ...(lost.length > 0 ? { failures: failureLines(lost) } : {}),
           },
           records: mine,
         };
@@ -2991,6 +3059,8 @@ export async function copyToMailboxes(arg: {
         // than asking again.
         notifyLog(`[maildrop] sweep of run ${runId} not complete yet, will be resumed`);
       }
+      const left = !arg?.fromJob && !activeJob ? copyFailuresOf(failuresByTarget) : null;
+      lastCopyFailures = left ? { retryId: randomUUID(), serial: dropSerial, targets: left } : null;
       return withWarnings(
         {
           ok: copied > 0 || skipped > 0,
@@ -2998,11 +3068,13 @@ export async function copyToMailboxes(arg: {
           skipped,
           total,
           accounts,
+          ...(lastCopyFailures ? { retryId: lastCopyFailures.retryId } : {}),
         } satisfies MailDropCopyResult,
         warnings,
       );
     }
 
+    lastCopyFailures = null;
     const byMailbox = accounts.map((a) => ({ email: a.email, copied: a.copied }));
     const decisionError = attemptWrite(() => recordCopyJournalDecision(root, runId, stopMode));
     if (decisionError) notifyLog(`[maildrop] could not record the sweep decision: ${decisionError}`);
@@ -3165,6 +3237,7 @@ export async function copyToMailboxes(arg: {
             copied: 'copied' in result ? result.copied : undefined,
             skipped: 'skipped' in result ? result.skipped : undefined,
             error: failedHard ? (result as MailDropCopyResult).error : undefined,
+            failed: failedConversations(failuresByTarget, batchPullFailedThreads),
           }),
         );
         if (failed) notifyLog(`[maildrop] could not record the state of batch ${at.index}: ${failed}`);
@@ -3189,6 +3262,47 @@ export async function copyToMailboxes(arg: {
   } finally {
     if (activeRun?.runId === runId) activeRun = null;
   }
+}
+
+/**
+ * Copies the mail the last copy could not land, to exactly where it was going
+ *
+ * @param arg the id the panel was given, and the mode the duplicate screen answered with
+ * @returns what copyToMailboxes answers
+ */
+export async function retryFailedCopy(arg: {
+  retryId: string;
+  mode?: CopyMode;
+}): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
+  const refused = retryRefusal({
+    wanted: arg?.retryId ?? '',
+    held: lastCopyFailures,
+    serial: dropSerial,
+    jobDriving,
+    jobActive: activeJob !== null,
+    pulling: activePull !== null,
+    copying: activeRun !== null,
+  });
+  if (refused || !lastCopyFailures) {
+    return {
+      ok: false,
+      copied: 0,
+      skipped: 0,
+      total: 0,
+      accounts: [],
+      error: refused ?? 'Niets om opnieuw te proberen',
+    };
+  }
+  const held = lastCopyFailures;
+  notifyLog(`[maildrop] retry of ${held.targets.reduce((n, t) => n + t.files.length, 0)} failed copies`);
+  return copyToMailboxes({
+    targets: [],
+    mode: arg.mode ?? 'check',
+    retry: {
+      targets: held.targets.map((t) => t.target),
+      files: new Map(held.targets.map((t) => [t.target.email, t.files.map((f) => f.file)])),
+    },
+  });
 }
 
 

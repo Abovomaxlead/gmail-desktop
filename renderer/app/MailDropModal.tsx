@@ -42,6 +42,7 @@ export interface MailDropCopyAccountResult {
   skipped: number;
   total: number;
   error?: string;
+  failures?: { subject: string; error: string; maybeLanded: boolean }[];
 }
 
 export type MailDropCopyMode = 'check' | 'new' | 'all';
@@ -63,6 +64,7 @@ export interface MailDropCopyResult {
   needsConfirm?: boolean;
   duplicates?: MailDropCopyDuplicate[];
   newCount?: number;
+  retryId?: string;
 }
 
 /** How far the copy has got, over all the chosen mailboxes at once. No mailbox is named:

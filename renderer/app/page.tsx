@@ -275,6 +275,7 @@ interface DesktopBridge {
     targets: { email: string; labelIds: string[]; tree?: { parentLabelId: string | null } }[],
     mode?: MailDropCopyMode,
   ): Promise<MailDropCopyResult>;
+  retryMailDropCopy(retryId: string, mode?: MailDropCopyMode): Promise<MailDropCopyResult>;
   onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;
   controlMailDropCopy(
     action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',
