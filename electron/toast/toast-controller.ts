@@ -92,8 +92,9 @@ export class ToastController {
    * Puts a card on the stack
    *
    * @param input the card, plus whether its account keeps it until dismissed
+   * @returns the card's id
    */
-  show(input: ToastInput): void {
+  show(input: ToastInput): string {
     const { persist, ...rest } = input;
     // This card starts its life unseen when nothing is on screen to put it beside: an empty
     // stack means the window is hidden, and a window that has not painted since it was built
@@ -114,6 +115,7 @@ export class ToastController {
     this.setStack(addToast(this.stack, toast), { arrived: toast });
     this.push();
     this.retime();
+    return toast.id;
   }
 
   /**
