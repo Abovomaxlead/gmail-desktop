@@ -42,6 +42,9 @@ export interface RetryHeld {
 
 const UNKNOWN_ERROR = 'onbekende fout';
 
+/** Answered to a second whole copy of a drag whose mail has already started to land */
+export const ALREADY_COPIED_TEXT = 'Deze mail is al gekopieerd. Sleep hem opnieuw om nog eens te kopiëren.';
+
 
 //===========================
 // Exported functions

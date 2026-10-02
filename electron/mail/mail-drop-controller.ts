@@ -157,6 +157,7 @@ import { chunk } from './chunk';
 import { defaultMailFolder, looksRemoteFolder } from './mail-folder';
 import { createCopyRunControl, type CopyRunControl } from './copy-control';
 import {
+  ALREADY_COPIED_TEXT,
   copyFailuresOf,
   failedConversations,
   failedFiles,
@@ -306,6 +307,10 @@ let lastPullFailures:
   | null = null;
 
 let dropSerial = 0;
+
+/** The drag whose files a copy has begun inserting. Set before the first insert and read by the
+ * picker's Kopieer and the pull retry, which would otherwise send that whole drag again. */
+let copiedSerial = -1;
 
 /** One pull at a time, and this is what says which one. */
 const dropLock = createDropLock();
@@ -2709,6 +2714,8 @@ export async function copyToMailboxes(arg: {
 }): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
   const retry = arg?.retry;
+  // The drag this copy answers for: a drag made while it runs bumps dropSerial under it
+  const serialAtStart = dropSerial;
   const requested = normalizeTargets(retry ? retry.targets : arg?.targets ?? []);
   const targets = requested.filter((t) => isAllowedAccount(t.email));
   const mode: CopyMode = arg?.mode ?? 'check';
@@ -2731,6 +2738,12 @@ export async function copyToMailboxes(arg: {
   if (jobDriving && !arg?.fromJob) {
     notifyLog('[maildrop] second copy refused: the job is already copying this mail itself');
     return fail('Er loopt een klus die deze mail zelf kopieert. Pauzeer of stop die eerst.');
+  }
+  // The same class from the other side: a stale Kopieer after this drag already went out. The
+  // duplicate scan cannot refuse it for the reason above, so only knowing it was copied can.
+  if (!retry && !arg?.fromJob && copiedSerial === dropSerial) {
+    notifyLog('[maildrop] second copy refused: this drag has already been copied');
+    return fail(ALREADY_COPIED_TEXT);
   }
   if (!cfg || !oauthTokens) return fail('Koppeling niet ingesteld');
   // Held in a const because the mailboxes now run inside a closure, where the module binding
@@ -3153,7 +3166,9 @@ export async function copyToMailboxes(arg: {
         notifyLog(`[maildrop] sweep of run ${runId} not complete yet, will be resumed`);
       }
       const left = !arg?.fromJob && !activeJob ? copyFailuresOf(failuresByTarget) : null;
-      lastCopyFailures = left ? { retryId: randomUUID(), serial: dropSerial, targets: left } : null;
+      // Held only while its own drag is still the current one: a retry plans against that tree
+      lastCopyFailures =
+        left && serialAtStart === dropSerial ? { retryId: randomUUID(), serial: serialAtStart, targets: left } : null;
       return withWarnings(
         {
           ok: copied > 0 || skipped > 0,
@@ -3277,6 +3292,8 @@ export async function copyToMailboxes(arg: {
       }
       return fail(`Niet gekopieerd: het rollback-journaal kon niet worden geschreven (${journalError})`);
     }
+    // From here mail can land, so this drag must never be sent whole again
+    if (readyTargets.length > 0) copiedSerial = serialAtStart;
 
     // After the journal exists, because every created label is written to it the moment it lands,
     // and after the markers, because an insert without one must stay impossible. Before the first
@@ -3423,15 +3440,20 @@ export async function retryFailedPull(arg: {
     copying: activeRun !== null || retryInFlight,
   });
   if (refused || !lastPullFailures) return { ok: false, error: refused ?? 'Niets om opnieuw op te halen' };
+  // The picker this retry returns to would offer Kopieer for the whole drag again
+  if (copiedSerial === dropSerial) return { ok: false, error: ALREADY_COPIED_TEXT };
   const held = lastPullFailures;
   const ts = new Date().toISOString();
   const root = mailDropFolder();
   let next: MailDropPreviewItem[] = [];
   let added: SavedRef[] = [];
   let cancelled = false;
+  let logWarning: MailDropPreviewItem | null = null;
 
   // No await between the refusal and the lock: a second press is refused by one or the other
   const ran = await withPullLock(held.acctKey, async () => {
+    // This retry's own gate: a stale hold can hand activePull to the next drag mid-retry
+    const mine = activePull;
     const report = pullReporter();
     if (held.from.kind === 'drag') {
       const cache: ThreadReadCache = new Map();
@@ -3457,9 +3479,9 @@ export async function retryFailedPull(arg: {
           report(pulled, rows.length);
           return one;
         },
-        activePull?.wait,
+        mine?.wait,
       );
-      if (activePull?.stopped()) {
+      if (mine?.stopped()) {
         cancelled = true;
         return;
       }
@@ -3469,7 +3491,7 @@ export async function retryFailedPull(arg: {
     }
     const fetched = await fetchThreadSlice(held.account, held.from.threads, report);
     // A stop leaves holes that fetchThreadSlice drops, so the rows would no longer line up
-    if (activePull?.stopped()) {
+    if (mine?.stopped()) {
       cancelled = true;
       return;
     }
@@ -3486,12 +3508,26 @@ export async function retryFailedPull(arg: {
     const written = await writeCollected(ts, held.account, root, held.from.label, fetched, []);
     next = written.items;
     added = written.saved;
+    // The same row the first pull shows; without a conversation it is never offered again
+    if (written.logError) {
+      logWarning = {
+        threadId: '',
+        subject: 'Niet in het logboek gezet',
+        saved: 0,
+        error: `Logboek niet bijgeschreven: ${written.logError}`,
+      };
+    }
   });
   if (!ran) return { ok: false, error: BUSY_TEXT };
   if (cancelled) return { ok: false, error: 'Opnieuw ophalen geannuleerd' };
+  // A long retry can outlive the lock, and the drag that took over must not receive its files
+  if (dropSerial !== held.serial || lastPullFailures !== held) {
+    notifyLog('[maildrop] retry fetch discarded: another drag took its place');
+    return { ok: false, error: 'Deze lijst is verlopen. Sleep de mail opnieuw.' };
+  }
 
   lastDropSaved = [...lastDropSaved, ...added];
-  const items = replaceRows(lastDropPreview, held.at, next);
+  const items = [...replaceRows(lastDropPreview, held.at, next), ...(logWarning ? [logWarning] : [])];
   lastDropPreview = items;
   lastScan = null;
   // startExistingScan skips a drag it already scanned, and this one now has more files
