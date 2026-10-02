@@ -165,6 +165,7 @@ import {
   wholeTargetFailed,
   type TargetFailures,
 } from './copy-failures';
+import { failedRowIndexes, replaceRows } from '../../renderer/lib/failure-list';
 import {
   attemptWrite,
   finishCopyJournal,
@@ -287,6 +288,22 @@ let lastCopyFailures:
 
 /** Conversations the last pull could not fetch, which a job's batch counts as lost */
 let batchPullFailedThreads: string[] = [];
+
+/** What the last pull could not fetch, held for the panel's retry button */
+let lastPullFailures:
+  | {
+      retryId: string;
+      serial: number;
+      acctKey: string;
+      account: string;
+      authuser: string;
+      ik: string;
+      /** Rows of the preview that are conversations, which the strip counts */
+      rowCount: number;
+      at: number[];
+      from: { kind: 'drag'; rows: MailDropPayload['items'] } | { kind: 'label'; label: string; threads: TreeThread[] };
+    }
+  | null = null;
 
 let dropSerial = 0;
 
@@ -734,7 +751,7 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
     );
   setDropOverlay(overlay);
   lastDropPreview = items;
-  overlay.open({ items, tree: lastDropTree, driven, ...forThePage });
+  overlay.open({ items, tree: lastDropTree, driven, pullRetryId: lastPullFailures?.retryId, ...forThePage });
 }
 
 
@@ -929,7 +946,7 @@ async function fetchThreadSlice(
       };
     } catch (e) {
       return {
-        thread: { ...thread, subject: '' },
+        thread,
         messages: [],
         error: `Ophalen mislukt (${(e as Error).message})`,
       };
@@ -961,7 +978,7 @@ async function saveLabel(
    * listing above answered. Null is what keeps a label that fits in one batch byte-for-byte
    * today's drag. */
   slice: TreeThread[] | null,
-): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[] }> {
+): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; rows: number[]; threads: TreeThread[] }> {
   const empty = () => {
     const error = `Geen mail gevonden in label "${label}"`;
     const logError = attemptWrite(() =>
@@ -972,6 +989,7 @@ async function saveLabel(
       items: [{ threadId: '', subject: label, saved: 0, error: withLogTrouble(error, logError) }],
       saved: [],
       rows: [],
+      threads: [],
     };
   };
 
@@ -990,6 +1008,7 @@ async function saveLabel(
       items: [{ threadId: '', subject: label, saved: 0, error: withLogTrouble(error, logError) }],
       saved: [],
       rows: [],
+      threads: [],
     };
   }
   const viaApi =
@@ -1065,6 +1084,60 @@ async function saveLabel(
     }
   }
 
+  const extra: LogRecord[] = capped
+    ? [{ ts, account, threadId: '', label, error: `Afgekapt op ${cap} gesprekken; het label bevat er meer` }]
+    : [];
+  const { items, saved, logError, wrote } = await writeCollected(ts, account, root, label, collected, extra);
+  // Every row is a failed one here, so each keeps its conversation for the retry
+  if (!wrote) return { items, saved, rows: collected.map(() => 0), threads: collected.map((c) => c.thread) };
+
+  if (capped) {
+    items.push({
+      threadId: '',
+      subject: `Afgekapt op ${cap} gesprekken`,
+      saved: 0,
+      error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
+    });
+  }
+  // Carried to the strip and the list rather than swallowed: log.jsonl is the only record of
+  // what was ever saved, and a label drag onto an offline share used to report nothing at all.
+  if (logError) {
+    items.push({
+      threadId: '',
+      subject: 'Niet in het logboek gezet',
+      saved: 0,
+      error: `Logboek niet bijgeschreven: ${logError}`,
+    });
+  }
+  lastDropTree = { dragged: label, members: memberCounts(members, collected) };
+  return {
+    items,
+    saved,
+    rows: collected.map((c) => c.messages.length),
+    threads: collected.map((c) => c.thread),
+  };
+}
+
+/**
+ * Writes collected conversations to disk and the log, one mail per conversation
+ *
+ * @param ts
+ * @param account
+ * @param root
+ * @param label
+ * @param collected
+ * @param extra log records written after the conversations', in the same append
+ * @returns the rows and saved files, and `wrote: false` when nothing could be written
+ * @private
+ */
+async function writeCollected(
+  ts: string,
+  account: string,
+  root: string,
+  label: string,
+  collected: CollectedThread[],
+  extra: LogRecord[],
+): Promise<{ items: MailDropPreviewItem[]; saved: SavedRef[]; logError: string | null; wrote: boolean }> {
   // Per conversation the last message, for the reason newestMessage carries: what is wanted
   // is one mail to read the exchange in. A label of forty threads becomes forty mails, not
   // four hundred.
@@ -1086,7 +1159,8 @@ async function saveLabel(
         error,
       })),
       saved: [],
-      rows: collected.map(() => 0),
+      logError: null,
+      wrote: false,
     };
   }
 
@@ -1114,15 +1188,7 @@ async function saveLabel(
       });
     }
   }
-  if (capped) {
-    records.push({
-      ts,
-      account,
-      threadId: '',
-      label,
-      error: `Afgekapt op ${cap} gesprekken; het label bevat er meer`,
-    });
-  }
+  records.push(...extra);
   const logError = attemptWrite(() => appendLog(root, records));
   if (logError) notifyLog(`[maildrop] archive log not appended: ${logError}`);
 
@@ -1132,24 +1198,6 @@ async function saveLabel(
     saved: c.messages.length,
     error: c.error,
   }));
-  if (capped) {
-    items.push({
-      threadId: '',
-      subject: `Afgekapt op ${cap} gesprekken`,
-      saved: 0,
-      error: 'Het label bevat meer mail dan in één sleep wordt opgehaald',
-    });
-  }
-  // Carried to the strip and the list rather than swallowed: log.jsonl is the only record of
-  // what was ever saved, and a label drag onto an offline share used to report nothing at all.
-  if (logError) {
-    items.push({
-      threadId: '',
-      subject: 'Niet in het logboek gezet',
-      saved: 0,
-      error: `Logboek niet bijgeschreven: ${logError}`,
-    });
-  }
   // Per thread rather than over the flat list: files runs across every conversation in the
   // label, and a copy has to know which messages belong together or it files each one as its
   // own thread in the target mailbox.
@@ -1167,8 +1215,7 @@ async function saveLabel(
     );
     at += c.messages.length;
   }
-  lastDropTree = { dragged: label, members: memberCounts(members, collected) };
-  return { items, saved, rows: collected.map((c) => c.messages.length) };
+  return { items, saved, logError, wrote: true };
 }
 
 // How many dragged conversations are fetched at once. The messages inside each of them are
@@ -1210,13 +1257,25 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
     return;
   }
 
+  await withPullLock(acctKey, () => pullMailDrop(acctKey, payload, profile));
+}
+
+/**
+ * Runs a pull with every Gmail view veiled, and refuses when one is already running
+ *
+ * @param acctKey the view the strip answers in
+ * @param run the pull itself
+ * @returns false when the lock was taken
+ * @private
+ */
+async function withPullLock(acctKey: string, run: () => Promise<void>): Promise<boolean> {
   const token = dropLock.take(Date.now());
   if (token === null) {
     // The views are locked already; this answers the drag that got in just before the lock
     // reached its page.
     manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error: BUSY_TEXT });
     notifyLog('[maildrop] second drag refused, mail is already being fetched');
-    return;
+    return false;
   }
   manager?.sendDropLock({ locked: true });
   // The gate lives exactly as long as the lock does, which is what makes activePull mean "the
@@ -1232,7 +1291,7 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
     DROP_LOCK_MS,
   );
   try {
-    await pullMailDrop(acctKey, payload, profile);
+    await run();
   } finally {
     clearTimeout(lifts);
     if (activePull === pull) activePull = null;
@@ -1245,6 +1304,7 @@ export async function handleMailDrop(acctKey: string, payload: MailDropPayload):
       );
     }
   }
+  return true;
 }
 
 /**
@@ -1358,6 +1418,8 @@ async function pullMailDrop(
   // so they all say how far it has got.
   const report = pullReporter();
   lastDropSaved = [];
+  lastPullFailures = null;
+  lastCopyFailures = null;
   dropSerial += 1;
   lastDropSource = account;
   lastDropTree = null;
@@ -1394,7 +1456,7 @@ async function pullMailDrop(
       return;
     }
     const slice = await planJob(root, account, payload.label, listed);
-    const { items: done, saved: refs, rows } = await saveLabel(
+    const { items: done, saved: refs, rows, threads } = await saveLabel(
       ts,
       account,
       root,
@@ -1413,6 +1475,14 @@ async function pullMailDrop(
       return;
     }
     lastDropSaved = refs;
+    rememberPullFailures(done, {
+      acctKey,
+      account,
+      authuser: payload.authuser,
+      ik: payload.ik,
+      rowCount: rows.length,
+      from: (at) => ({ kind: 'label', label: payload.label!, threads: at.map((i) => threads[i]) }),
+    });
     // rows rather than the display items: those carry the truncation notice too, which is
     // not a conversation that failed to save.
     manager?.sendDropResult(acctKey, dropOutcome(rows, done.find((i) => i.error)?.error));
@@ -1471,6 +1541,14 @@ async function pullMailDrop(
     lastDropSaved.push(...r.saved);
     done.push({ ...item, saved: r.count, error: r.error });
   }
+  rememberPullFailures(done, {
+    acctKey,
+    account,
+    authuser: payload.authuser,
+    ik: payload.ik,
+    rowCount: items.length,
+    from: (at) => ({ kind: 'drag', rows: at.map((i) => items[i]) }),
+  });
   manager?.sendDropResult(acctKey, dropOutcome(saved, lastError));
   openDropPreview(done);
   startExistingScan();
@@ -1490,11 +1568,13 @@ export function dropPreviewItems(): {
   dark: boolean;
   panel?: JobPanel;
   job?: MailDropCopyProgress['job'];
+  pullRetryId?: string;
 } {
   const panel = jobPanelInfo();
   return {
     items: lastDropPreview,
     tree: lastDropTree,
+    pullRetryId: lastPullFailures?.retryId,
     locale: currentLocale(),
     reneMode: prefs?.getAll().reneMode === true,
     dark: currentlyDark(),
@@ -2486,6 +2566,15 @@ async function walkJob(): Promise<void> {
       const { items, saved } = await saveLabel(
         ts, job.account, root, job.label, '', '', report, null, at.threads,
       );
+      // Nothing is offered while a job walks; this only tells the batch what it lost
+      rememberPullFailures(items, {
+        acctKey: '',
+        account: job.account,
+        authuser: '',
+        ik: '',
+        rowCount: items.length,
+        from: () => ({ kind: 'label', label: job.label, threads: [] }),
+      });
       // A cancelled batch pull records nothing and shows nothing: the batch stays 'pending', so a
       // job resumed later pulls it again rather than copying half of it. Deliberately not a
       // return: the walk's own stop check sits just past this block and is what ends the job and
@@ -3315,6 +3404,114 @@ export async function retryFailedCopy(arg: {
   }
 }
 
+/**
+ * Fetches the conversations the last pull could not, and adds them to the drag
+ *
+ * @param arg the id the panel was given
+ * @returns the preview rows with the retried ones in place, and a new id for what still failed
+ */
+export async function retryFailedPull(arg: {
+  retryId: string;
+}): Promise<{ ok: true; items: MailDropPreviewItem[]; pullRetryId?: string } | { ok: false; error: string }> {
+  const refused = retryRefusal({
+    wanted: arg?.retryId ?? '',
+    held: lastPullFailures,
+    serial: dropSerial,
+    jobDriving,
+    jobActive: activeJob !== null,
+    pulling: activePull !== null,
+    copying: activeRun !== null || retryInFlight,
+  });
+  if (refused || !lastPullFailures) return { ok: false, error: refused ?? 'Niets om opnieuw op te halen' };
+  const held = lastPullFailures;
+  const ts = new Date().toISOString();
+  const root = mailDropFolder();
+  let next: MailDropPreviewItem[] = [];
+  let added: SavedRef[] = [];
+  let cancelled = false;
+
+  // No await between the refusal and the lock: a second press is refused by one or the other
+  const ran = await withPullLock(held.acctKey, async () => {
+    const report = pullReporter();
+    if (held.from.kind === 'drag') {
+      const cache: ThreadReadCache = new Map();
+      const rows = held.from.rows;
+      let pulled = 0;
+      report(0, rows.length);
+      const results = await mapLimit(
+        rows,
+        DRAG_THREAD_LIMIT,
+        async (row) => {
+          const one = await saveOneThread(
+            ts,
+            held.account,
+            root,
+            row.threadId,
+            held.authuser,
+            held.ik,
+            row.message ?? null,
+            row.messageUnknown ?? false,
+            cache,
+          );
+          pulled += 1;
+          report(pulled, rows.length);
+          return one;
+        },
+        activePull?.wait,
+      );
+      if (activePull?.stopped()) {
+        cancelled = true;
+        return;
+      }
+      next = rows.map((row, i) => ({ ...row, saved: results[i]?.count ?? 0, error: results[i]?.error }));
+      added = results.flatMap((r) => r?.saved ?? []);
+      return;
+    }
+    const fetched = await fetchThreadSlice(held.account, held.from.threads, report);
+    // A stop leaves holes that fetchThreadSlice drops, so the rows would no longer line up
+    if (activePull?.stopped()) {
+      cancelled = true;
+      return;
+    }
+    if (fetched === null) {
+      next = held.from.threads.map((t) => ({
+        threadId: t.threadId,
+        subject: t.subject,
+        saved: 0,
+        error: 'Geen toegang tot dit postvak',
+      }));
+      return;
+    }
+    // No change to lastDropTree: memberCounts already counted these, failed or not
+    const written = await writeCollected(ts, held.account, root, held.from.label, fetched, []);
+    next = written.items;
+    added = written.saved;
+  });
+  if (!ran) return { ok: false, error: BUSY_TEXT };
+  if (cancelled) return { ok: false, error: 'Opnieuw ophalen geannuleerd' };
+
+  lastDropSaved = [...lastDropSaved, ...added];
+  const items = replaceRows(lastDropPreview, held.at, next);
+  lastDropPreview = items;
+  lastScan = null;
+  // startExistingScan skips a drag it already scanned, and this one now has more files
+  existingScan = null;
+  lastExisting = null;
+  startExistingScan();
+  const rows = items.slice(0, held.rowCount).map((i) => i.saved);
+  manager?.sendDropResult(held.acctKey, dropOutcome(rows, items.find((i) => i.error)?.error));
+  const pullRetryId = rememberPullFailures(items, {
+    acctKey: held.acctKey,
+    account: held.account,
+    authuser: held.authuser,
+    ik: held.ik,
+    rowCount: held.rowCount,
+    from: (at) => stillFailing(held.from, held.at, at),
+  });
+  notifyLog(`[maildrop] retry fetched ${added.length} of ${held.at.length} failed conversation(s)`);
+  return { ok: true, items, ...(pullRetryId ? { pullRetryId } : {}) };
+}
+
 
 //===========================
 // Orphaned runs
@@ -3754,6 +3951,53 @@ function listReporter(): (found: number) => void {
     // strip draws the count as found rather than as fetched on exactly that signal.
     manager?.sendDropProgress({ done: found, total: 0 });
   };
+}
+
+/**
+ * Holds the failed rows of a pull for a retry, and tells a job's batch what it lost
+ *
+ * @param items the preview rows
+ * @param ctx everything a second fetch of those rows needs
+ * @returns the id the panel is given, or undefined when nothing failed
+ * @private
+ */
+function rememberPullFailures(
+  items: MailDropPreviewItem[],
+  ctx: Omit<NonNullable<typeof lastPullFailures>, 'retryId' | 'serial' | 'at' | 'from'> & {
+    from: (at: number[]) => NonNullable<typeof lastPullFailures>['from'];
+  },
+): string | undefined {
+  const at = failedRowIndexes(items);
+  batchPullFailedThreads = at.map((i) => items[i].threadId);
+  if (at.length === 0 || activeJob) {
+    lastPullFailures = null;
+    return undefined;
+  }
+  const { from, ...rest } = ctx;
+  lastPullFailures = { ...rest, retryId: randomUUID(), serial: dropSerial, at, from: from(at) };
+  return lastPullFailures.retryId;
+}
+
+/**
+ * The part of a held retry that failed again
+ *
+ * Every position still failing is one of the positions retried, since the other rows already
+ * had mail, so each maps back to its own entry in the held list.
+ *
+ * @param from what the retry fetched, one entry per position in `tried`
+ * @param tried the positions the retry fetched
+ * @param still the positions that failed again
+ * @returns the same kind of source, narrowed to `still`
+ * @private
+ */
+function stillFailing(
+  from: NonNullable<typeof lastPullFailures>['from'],
+  tried: number[],
+  still: number[],
+): NonNullable<typeof lastPullFailures>['from'] {
+  const slots = still.map((i) => tried.indexOf(i)).filter((slot) => slot >= 0);
+  if (from.kind === 'drag') return { kind: 'drag', rows: slots.map((slot) => from.rows[slot]) };
+  return { kind: 'label', label: from.label, threads: slots.map((slot) => from.threads[slot]) };
 }
 
 /**

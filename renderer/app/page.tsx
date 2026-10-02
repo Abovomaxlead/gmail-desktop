@@ -8,6 +8,7 @@ import type {
   MailDropCopyResult,
   MailDropCopyMode,
   MailDropExisting,
+  MailDropItem,
   MailDropPreview,
 } from './MailDropModal';
 import { getStrings, type UiStrings } from './strings';
@@ -276,6 +277,9 @@ interface DesktopBridge {
     mode?: MailDropCopyMode,
   ): Promise<MailDropCopyResult>;
   retryMailDropCopy(retryId: string, mode?: MailDropCopyMode): Promise<MailDropCopyResult>;
+  retryMailDropPull(
+    retryId: string,
+  ): Promise<{ ok: true; items: MailDropItem[]; pullRetryId?: string } | { ok: false; error: string }>;
   onMailDropCopyProgress(cb: (arg: MailDropCopyProgress) => void): void;
   controlMailDropCopy(
     action: 'pause' | 'resume' | 'stop-keep' | 'stop-rollback-batch' | 'stop-rollback-job',

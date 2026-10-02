@@ -46,6 +46,7 @@ import {
   pendingJobDecision,
   pendingOrphanDecision,
   retryFailedCopy,
+  retryFailedPull,
 } from '../mail/mail-drop-controller';
 import { countLabelForPurge, purgeCountedLabel } from '../mail/label-purge-controller';
 import { type CopyMode } from '../mail/mail-copy';
@@ -388,6 +389,9 @@ export function registerIpc(): void {
       retryId: String(arg?.retryId ?? ''),
       mode: arg?.mode === 'new' || arg?.mode === 'all' ? arg.mode : 'check',
     }),
+  );
+  ipcMain.handle(IPC.MAIL_DROP_PULL_RETRY, (_e, arg: { retryId: string }) =>
+    retryFailedPull({ retryId: String(arg?.retryId ?? '') }),
   );
   ipcMain.handle(IPC.MAIL_DROP_COPY_CONTROL, (_e, arg: { action: MailDropCopyControlAction }) =>
     controlCopyRun(arg?.action),

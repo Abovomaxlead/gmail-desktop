@@ -29,6 +29,7 @@ export interface MailDropPreview {
   panel?: JobPanel;
   job?: JobLine;
   driven?: boolean;
+  pullRetryId?: string;
   locale?: 'en' | 'nl';
   reneMode?: boolean;
   /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts
