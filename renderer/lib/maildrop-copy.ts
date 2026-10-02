@@ -43,6 +43,8 @@ export interface JobEnd {
   copiedBatches: number;
   done: number;
   total: number;
+  /** Conversations lost across every batch; absent or 0 when none were */
+  failed?: number;
   error?: string;
 }
 

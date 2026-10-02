@@ -222,7 +222,9 @@ export function controlFailureText(
 export function jobEndText(end: JobEnd, S: UiStrings): string {
   switch (end.outcome) {
     case 'completed':
-      return S.mdJobDone(end.done, end.total);
+      return (end.failed ?? 0) > 0
+        ? S.mdJobDoneWithFailures(end.done, end.total, end.failed!)
+        : S.mdJobDone(end.done, end.total);
     case 'kept':
       return S.mdJobStoppedKept(end.done, end.total);
     case 'rolled-back':

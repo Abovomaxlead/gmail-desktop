@@ -396,6 +396,7 @@ export interface UiStrings {
   mdStopFailed: (why: string) => string;
   mdControlNoAnswer: string;
   mdJobDone: (done: number, total: number) => string;
+  mdJobDoneWithFailures: (done: number, total: number, failed: number) => string;
   mdJobStoppedKept: (done: number, total: number) => string;
   mdJobRolledBack: string;
   mdJobRolledBackPartial: string;
@@ -983,6 +984,8 @@ export const STRINGS_NORMAL: UiStrings = {
   mdStopFailed: (why) => `Stopping did not work — ${why}`,
   mdControlNoAnswer: 'the copy did not answer',
   mdJobDone: (done, total) => `Job finished — ${done} of ${total} conversations copied`,
+  mdJobDoneWithFailures: (done, total, failed) =>
+    `Job finished — ${done} of ${total} conversations copied, ${failed} failed (see log.jsonl)`,
   mdJobStoppedKept: (done, total) =>
     `Job stopped — ${done} of ${total} conversations stay copied`,
   mdJobRolledBack: 'Job stopped and undone',
@@ -1499,6 +1502,8 @@ export const STRINGS_RENE: UiStrings = {
   mdStopFailed: (why) => `Stoppen lukte niet — ${why}`,
   mdControlNoAnswer: 'de app gaf geen antwoord',
   mdJobDone: (done, total) => `Klaar — ${done} van ${total} mailtjes gekopieerd`,
+  mdJobDoneWithFailures: (done, total, failed) =>
+    `Klaar — ${done} van ${total} mailtjes gekopieerd, ${failed} niet gelukt (kijk in log.jsonl)`,
   mdJobStoppedKept: (done, total) => `Gestopt — ${done} van ${total} mailtjes blijven staan`,
   mdJobRolledBack: 'Gestopt en alles teruggedraaid',
   mdJobRolledBackPartial: 'Gestopt, maar niet alles kon terug',
@@ -2032,6 +2037,8 @@ export const STRINGS_NL: UiStrings = {
   mdStopFailed: (why) => `Stoppen is niet gelukt — ${why}`,
   mdControlNoAnswer: 'de kopieeractie reageerde niet',
   mdJobDone: (done, total) => `Klus afgerond — ${done} van ${total} conversaties gekopieerd`,
+  mdJobDoneWithFailures: (done, total, failed) =>
+    `Klus afgerond — ${done} van ${total} conversaties gekopieerd, ${failed} mislukt (zie log.jsonl)`,
   mdJobStoppedKept: (done, total) =>
     `Klus gestopt — ${done} van ${total} conversaties blijven gekopieerd`,
   mdJobRolledBack: 'Klus gestopt en ongedaan gemaakt',
