@@ -26,12 +26,15 @@ export type CrashKind =
   | 'window-error';
 
 /** One crash, as much as is known about it. `where` is whatever names the place: a URL, a
- * process type, Electron's own reason string. */
+ * process type, Electron's own reason string. `detail` is whatever else is worth reading once
+ * somebody opens the report -- it is deliberately out of the fingerprint, since it describes
+ * the machine rather than the fault. */
 export interface CrashEvent {
   kind: CrashKind;
   message: string;
   stack?: string;
   where?: string;
+  detail?: string;
   /** epoch ms */
   at: number;
 }
@@ -95,10 +98,54 @@ export const MAX_TRIES = 5;
  * enough that a message ending in a different path or id still matches itself. */
 const FINGERPRINT_CHARS = 120;
 
+/** How often the GPU process may go inside GPU_GONE_WINDOW_MS before it is a report rather than
+ * a hiccup. A GPU process that dies once is not this app falling over: Chromium starts another
+ * one, the window keeps painting, and a driver reset, a display change, a locked workstation or
+ * a graphics update does it on machines that are otherwise perfectly well. Only the machine
+ * where it keeps happening has something wrong with it -- there Chromium gives up on the
+ * hardware and paints in software, which is slow, and the user has a switch for that (Advanced
+ * > Hardware Acceleration) they can only be pointed at if we know. */
+export const GPU_GONE_LIMIT = 3;
+
+/** What counts as "keeps happening". One session's worth of bad luck, not a working day's. */
+export const GPU_GONE_WINDOW_MS = 10 * 60 * 1000;
+
 
 //===========================
 // Exported functions
 //===========================
+
+/**
+ * Whether a child process going away is worth a report, and what is left of the record
+ *
+ * Every child process but the GPU one is reported as it happens: the network service, a utility
+ * process or a pepper plugin dying is this app losing something it was using.
+ *
+ * The GPU process is the exception, and it is the one that fires. Chromium rebuilds it by
+ * itself and nothing the user was doing stops, so the first ones are noise -- and noise that is
+ * mailed to a person, once per machine per six hours, across everybody who runs this app. What
+ * is worth a report is a machine where it keeps happening, so they are counted and the report
+ * goes out on the GPU_GONE_LIMIT-th inside GPU_GONE_WINDOW_MS. The count is cleared when it
+ * does, so the next report is another whole streak away rather than one per crash after the
+ * third.
+ *
+ * @param opts type is Electron's process type; recent is when the GPU process went before now,
+ * oldest first; at is epoch ms
+ * @returns report says whether to mail this one; recent is the record to keep, and streak how
+ * many of them are behind a report
+ */
+export function childGoneDecision(opts: { type: string; recent: number[]; at: number }): {
+  report: boolean;
+  recent: number[];
+  streak: number;
+} {
+  if (opts.type !== 'GPU') return { report: true, recent: opts.recent, streak: 1 };
+  const streak = [...opts.recent, opts.at].filter(
+    (t) => opts.at - t < GPU_GONE_WINDOW_MS,
+  );
+  if (streak.length < GPU_GONE_LIMIT) return { report: false, recent: streak, streak: streak.length };
+  return { report: true, recent: [], streak: streak.length };
+}
 
 /**
  * What makes two crashes the same bug
@@ -194,6 +241,7 @@ export function crashBody(event: CrashEvent, context: CrashContext): string {
   ];
   if (event.where) lines.push(`where      ${event.where}`);
   lines.push('', 'message', event.message || '(none)');
+  if (event.detail) lines.push('', 'detail', event.detail);
   if (event.stack) lines.push('', 'stack', event.stack);
   lines.push('', 'The logs are attached, with credentials and mail content masked.');
   return lines.join('\n');

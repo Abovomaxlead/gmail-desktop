@@ -4,9 +4,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEDUPE_MS,
+  GPU_GONE_LIMIT,
+  GPU_GONE_WINDOW_MS,
   MAX_PER_HOUR,
   QUEUE_MAX,
   REMEMBER_MS,
+  childGoneDecision,
   crashBody,
   crashSubject,
   enqueueCrash,
@@ -41,6 +44,42 @@ const queued = (over: Partial<QueuedCrash> = {}): QueuedCrash => ({
   fingerprint: 'fp',
   tries: 0,
   ...over,
+});
+
+describe('childGoneDecision', () => {
+  it('reports anything but the GPU process at once', () => {
+    expect(childGoneDecision({ type: 'Utility', recent: [], at: AT }).report).toBe(true);
+  });
+
+  it('says nothing about a GPU process Chromium simply starts again', () => {
+    expect(childGoneDecision({ type: 'GPU', recent: [], at: AT }).report).toBe(false);
+  });
+
+  it('reports the GPU once the streak reaches the limit, counting it', () => {
+    let recent: number[] = [];
+    let last = { report: false, recent, streak: 0 };
+    for (let i = 0; i < GPU_GONE_LIMIT; i++) {
+      last = childGoneDecision({ type: 'GPU', recent, at: AT + i * 1000 });
+      recent = last.recent;
+    }
+    expect(last.report).toBe(true);
+    expect(last.streak).toBe(GPU_GONE_LIMIT);
+  });
+
+  it('starts the streak over after a report, so one bad machine does not mail per crash', () => {
+    const reported = childGoneDecision({ type: 'GPU', recent: [AT - 2000, AT - 1000], at: AT });
+    expect(reported.report).toBe(true);
+    expect(childGoneDecision({ type: 'GPU', recent: reported.recent, at: AT + 1000 }).report).toBe(
+      false,
+    );
+  });
+
+  it('forgets crashes older than the window, so a weekly hiccup never adds up', () => {
+    const stale = [AT - GPU_GONE_WINDOW_MS - 1, AT - GPU_GONE_WINDOW_MS - 2];
+    const decision = childGoneDecision({ type: 'GPU', recent: stale, at: AT });
+    expect(decision.report).toBe(false);
+    expect(decision.recent).toEqual([AT]);
+  });
 });
 
 describe('fingerprint', () => {
