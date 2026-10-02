@@ -31,7 +31,7 @@ export interface MailDropPreview {
   driven?: boolean;
   pullRetryId?: string;
   /** A finished job's report, sent only while its retry offer is held; never a drag to pick for */
-  jobEnd?: JobEnd;
+  jobEnd?: Omit<JobEnd, 'jobId'>;
   locale?: 'en' | 'nl';
   reneMode?: boolean;
   /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts

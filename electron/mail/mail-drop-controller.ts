@@ -2570,9 +2570,6 @@ function endWalkedJob(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: str
   notifyLog(
     `[maildrop] job for "${job.label}" holds a retry: ${lost.pull.length} unfetched, ${lost.copy.reduce((n, t) => n + t.files.length, 0)} copies`,
   );
-  // The closing line already stands in a panel the user is looking at
-  const focused = !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
-  if (dropOverlay?.isOpen() && focused) return;
   const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
   showToast({
     kind: 'maildrop',
@@ -3792,7 +3789,8 @@ export async function retryFailedJob(arg: {
       retry: { retryId: held.retryId, targets, files },
       jobRetry: true,
     });
-    const runFailures = lastRunFailures;
+    // Widened again: the tail sets it during the await, which narrowing cannot see
+    const runFailures = lastRunFailures as TargetFailures<MailDropCopyTarget, SavedRef>[] | null;
     lastRunFailures = null;
     const merged = <T extends object>(r: T): T => {
       const had = (r as { warnings?: string[] }).warnings ?? [];
@@ -3814,7 +3812,11 @@ export async function retryFailedJob(arg: {
       });
     }
     if (dropSerial !== held.serial || lastJobFailures !== held) return merged(result);
-    const retryId = renewJobOffer(held, { copy: copyFailuresOf(runFailures) ?? [], pull: held.acc.pull });
+    // A mailbox the run never wrote to keeps what it was owed
+    const ran = new Set(runFailures.map((t) => t.target.email));
+    const untouched = held.acc.copy.filter((t) => !ran.has(t.target.email));
+    const copy = [...untouched, ...(copyFailuresOf(runFailures) ?? [])];
+    const retryId = renewJobOffer(held, { copy, pull: held.acc.pull });
     return merged({
       ...result,
       ...(retryId ? { retryId } : {}),
@@ -4327,7 +4329,7 @@ function renewJobOffer(held: NonNullable<typeof lastJobFailures>, acc: JobLosses
   }
   const retryId = randomUUID();
   lastJobFailures = { ...held, retryId, acc };
-  lastJobEnd = lastJobEnd ? { ...lastJobEnd, retryId } : null;
+  lastJobEnd = lastJobEnd ? { ...lastJobEnd, retryId, failed: lostConversations(acc) } : null;
   return retryId;
 }
 
