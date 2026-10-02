@@ -340,6 +340,9 @@ let jobStopWanted: 'keep' | 'rollback' | null = null;
  * walk on every batch. Read nowhere else: it is a re-entrancy guard, not state anyone reports. */
 let jobDriving = false;
 
+/** Set while a retry is under way, which activeRun only covers once the copy itself starts */
+let retryInFlight = false;
+
 
 //===========================
 // Exported functions
@@ -2613,7 +2616,7 @@ export async function copyToMailboxes(arg: {
    * of mail a running job is already copying. */
   fromJob?: boolean;
   /** Set only by retryFailedCopy: the mailboxes and, per mailbox, the files that failed there */
-  retry?: { targets: MailDropCopyTarget[]; files: Map<string, SavedRef[]> };
+  retry?: { retryId: string; targets: MailDropCopyTarget[]; files: Map<string, SavedRef[]> };
 }): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
   const retry = arg?.retry;
@@ -2705,7 +2708,8 @@ export async function copyToMailboxes(arg: {
 
   let index = new Set<string>();
   if (mode !== 'all') {
-    const key = scanKey(targets);
+    // Kept apart so a retry's narrowed hits never answer for the whole drag, nor the reverse
+    const key = retry ? `retry:${retry.retryId}|${scanKey(targets)}` : scanKey(targets);
     const tally = { checks: 0, reused: 0, asked: 0 };
     const checkFrom = Date.now();
     // A retry's check always asks again: the stored scan was taken before the first copy landed
@@ -3281,7 +3285,7 @@ export async function retryFailedCopy(arg: {
     jobDriving,
     jobActive: activeJob !== null,
     pulling: activePull !== null,
-    copying: activeRun !== null,
+    copying: activeRun !== null || retryInFlight,
   });
   if (refused || !lastCopyFailures) {
     return {
@@ -3295,14 +3299,20 @@ export async function retryFailedCopy(arg: {
   }
   const held = lastCopyFailures;
   notifyLog(`[maildrop] retry of ${held.targets.reduce((n, t) => n + t.files.length, 0)} failed copies`);
-  return copyToMailboxes({
-    targets: [],
-    mode: arg.mode ?? 'check',
-    retry: {
-      targets: held.targets.map((t) => t.target),
-      files: new Map(held.targets.map((t) => [t.target.email, t.files.map((f) => f.file)])),
-    },
-  });
+  retryInFlight = true;
+  try {
+    return await copyToMailboxes({
+      targets: [],
+      mode: arg.mode ?? 'check',
+      retry: {
+        retryId: held.retryId,
+        targets: held.targets.map((t) => t.target),
+        files: new Map(held.targets.map((t) => [t.target.email, t.files.map((f) => f.file)])),
+      },
+    });
+  } finally {
+    retryInFlight = false;
+  }
 }
 
 
