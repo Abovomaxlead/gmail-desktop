@@ -498,6 +498,7 @@ export function resultText(r: { ok: boolean; count: number; total: number; error
  * @returns 'done' only when every dragged conversation was saved
  */
 export function resultState(r: { ok: boolean; count: number; total: number }): 'done' | 'failed' {
+  // Mails against conversations, which only compares because both pull paths save one mail per row
   return r.ok && r.count >= r.total ? 'done' : 'failed';
 }
 
