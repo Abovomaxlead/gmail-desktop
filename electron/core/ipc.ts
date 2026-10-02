@@ -110,6 +110,7 @@ export const IPC = {
   MAIL_DROP_COPY: 'maildrop:copy',
   MAIL_DROP_COPY_RETRY: 'maildrop:copy-retry',
   MAIL_DROP_PULL_RETRY: 'maildrop:pull-retry',
+  MAIL_DROP_JOB_RETRY: 'maildrop:job-retry',
   MAIL_DROP_COPY_PROGRESS: 'maildrop:copy-progress',
   MAIL_DROP_COPY_CONTROL: 'maildrop:copy-control',
   MAIL_DROP_EXISTING_GET: 'maildrop:existing-get',

@@ -36,6 +36,8 @@ export interface NativeLabels {
   readonly downloadFailedTitle: string;
   readonly noSubject: string;
   readonly collapsedNotifications: (count: number) => string;
+  readonly jobRetryToastTitle: (done: number, total: number, failed: number) => string;
+  readonly jobRetryToastBody: string;
 }
 
 
@@ -71,6 +73,9 @@ const EN: NativeLabels = Object.freeze({
   downloadFailedTitle: 'Download failed',
   noSubject: '(no subject)',
   collapsedNotifications: (count: number) => `${count} new notifications`,
+  jobRetryToastTitle: (done: number, total: number, failed: number) =>
+    `Job finished — ${done} of ${total} copied, ${failed} failed`,
+  jobRetryToastBody: 'Click to try them again',
 });
 
 const NL: NativeLabels = Object.freeze({
@@ -101,6 +106,9 @@ const NL: NativeLabels = Object.freeze({
   downloadFailedTitle: 'Download mislukt',
   noSubject: '(geen onderwerp)',
   collapsedNotifications: (count: number) => `${count} nieuwe meldingen`,
+  jobRetryToastTitle: (done: number, total: number, failed: number) =>
+    `Klus klaar — ${done} van ${total} gekopieerd, ${failed} mislukt`,
+  jobRetryToastBody: 'Klik om het opnieuw te proberen',
 });
 
 const RENE: NativeLabels = Object.freeze({
@@ -131,6 +139,9 @@ const RENE: NativeLabels = Object.freeze({
   downloadFailedTitle: 'Ophalen lukte niet',
   noSubject: '(zonder titel)',
   collapsedNotifications: (count: number) => `Er zijn ${count} nieuwe berichtjes`,
+  jobRetryToastTitle: (done: number, total: number, failed: number) =>
+    `Klaar — ${done} van ${total} overgezet, ${failed} lukte niet`,
+  jobRetryToastBody: 'Klik hier om die nog een keer te proberen',
 });
 
 

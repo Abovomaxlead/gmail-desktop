@@ -197,6 +197,8 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.invoke(IPC.MAIL_DROP_COPY_RETRY, { retryId, mode }),
   retryMailDropPull: (retryId: string): Promise<unknown> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_PULL_RETRY, { retryId }),
+  retryMailDropJob: (retryId: string, mode?: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_JOB_RETRY, { retryId, mode }),
   onMailDropCopyProgress: (cb: (arg: unknown) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
   },

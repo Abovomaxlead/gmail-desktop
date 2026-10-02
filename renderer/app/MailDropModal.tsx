@@ -5,7 +5,7 @@
 // count, and a label drag is hundreds of requests, so the modal follows the progress.
 
 
-import type { JobLine, JobPanel, MailDropTree } from '../lib/maildrop-copy';
+import type { JobEnd, JobLine, JobPanel, MailDropTree } from '../lib/maildrop-copy';
 
 
 //===========================
@@ -30,6 +30,8 @@ export interface MailDropPreview {
   job?: JobLine;
   driven?: boolean;
   pullRetryId?: string;
+  /** A finished job's report, sent only while its retry offer is held; never a drag to pick for */
+  jobEnd?: Omit<JobEnd, 'jobId'>;
   locale?: 'en' | 'nl';
   reneMode?: boolean;
   /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts
@@ -66,6 +68,8 @@ export interface MailDropCopyResult {
   duplicates?: MailDropCopyDuplicate[];
   newCount?: number;
   retryId?: string;
+  /** A job retry's conversations that still could not be fetched; their subject may be empty */
+  unfetched?: { subject: string; error: string; maybeLanded: boolean }[];
 }
 
 /** How far the copy has got, over all the chosen mailboxes at once. No mailbox is named:

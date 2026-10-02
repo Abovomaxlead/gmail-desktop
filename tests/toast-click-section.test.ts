@@ -54,7 +54,7 @@ const { activateToast, setToastActivationHooks } = await import(
 
 beforeEach(() => {
   state.openSettingsPanel.mockClear();
-  setToastActivationHooks({ openSettingsPanel: state.openSettingsPanel });
+  setToastActivationHooks({ openSettingsPanel: state.openSettingsPanel, openJobReport: () => {} });
 });
 
 const card = (kind: string) =>

@@ -164,8 +164,22 @@ import {
   failureLines,
   retryRefusal,
   wholeTargetFailed,
+  type FailureLine,
   type TargetFailures,
 } from './copy-failures';
+import {
+  addCopyFailures,
+  addFetchedToAllTargets,
+  emptyJobFailures,
+  isEmpty,
+  lostConversations,
+  replaceBatchPull,
+  retryFiles,
+  takePullSlice,
+  type JobFailures,
+} from './job-failures';
+import { dismissShownToast, showToast } from '../toast/toast-presenter';
+import { nativeLabels } from '../menus/native-labels';
 import { failedRowIndexes, replaceRows } from '../../renderer/lib/failure-list';
 import {
   attemptWrite,
@@ -249,7 +263,12 @@ interface JobEndInfo {
   targets: string[];
   error?: string;
   failed?: number;
+  /** Set only on a completed job whose losses are held for one retry */
+  retryId?: string;
 }
+
+/** What a job lost, in the controller's own types */
+type JobLosses = JobFailures<MailDropCopyTarget, SavedRef, TreeThread>;
 
 /** The progress payload widened with the two things one continuous job panel needs. Kept local
  * rather than added to core/ipc.ts's mirror, the same way the picker page widens its own copy. */
@@ -364,6 +383,38 @@ let jobDriving = false;
 
 /** Set while a retry is under way, which activeRun only covers once the copy itself starts */
 let retryInFlight = false;
+
+/** What the job being walked has lost so far, across its batches. Belongs to `jobFailuresFor` */
+let jobFailures: JobLosses = emptyJobFailures();
+
+/** The jobId `jobFailures` was gathered for, or null when nothing is being gathered */
+let jobFailuresFor: string | null = null;
+
+/** Set when the gathering began after a restart: the batches before it lost their failures with
+ * the old process, so what it holds is not all the job lost and is never offered */
+let jobFailuresPartial = false;
+
+/** The card that announced the held job offer, taken down whenever that offer goes */
+let jobOfferToast: string | null = null;
+
+/** A completed job's losses, held for the one retry its closing line offers */
+let lastJobFailures:
+  | {
+      retryId: string;
+      serial: number;
+      jobId: string;
+      account: string;
+      label: string;
+      targets: MailDropCopyTarget[];
+      acc: JobLosses;
+    }
+  | null = null;
+
+/** The job end the panel was sent, kept while `lastJobFailures` is held so a reopened panel lands on it */
+let lastJobEnd: JobEndInfo | null = null;
+
+/** A job retry's copy failures, left by the tail of copyToMailboxes for retryFailedJob to take */
+let lastRunFailures: TargetFailures<MailDropCopyTarget, SavedRef>[] | null = null;
 
 
 //===========================
@@ -742,10 +793,23 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
     });
     return;
   }
+  const overlay = dropPanel(mainWindow);
+  lastDropPreview = items;
+  overlay.open({ items, tree: lastDropTree, driven, pullRetryId: lastPullFailures?.retryId, ...forThePage });
+}
+
+/**
+ * Returns the mail-drop panel, creating it the first time
+ *
+ * @param win the main window the panel sits in
+ * @returns the panel, registered as the app's drop overlay
+ * @private
+ */
+function dropPanel(win: NonNullable<typeof mainWindow>): OverlayView {
   const overlay =
     dropOverlay ??
     new OverlayView(
-      mainWindow,
+      win,
       SIDEBAR_PRELOAD_PATH,
       DEV_URL ? `${DEV_URL}/maildrop` : 'app://bundle/maildrop.html',
       IPC.MAIL_DROP_PREVIEW,
@@ -755,8 +819,25 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
       true,
     );
   setDropOverlay(overlay);
-  lastDropPreview = items;
-  overlay.open({ items, tree: lastDropTree, driven, pullRetryId: lastPullFailures?.retryId, ...forThePage });
+  return overlay;
+}
+
+/**
+ * Builds the panel payload for a finished job's report, never driven and with nothing to pick
+ *
+ * @param jobEnd the job end the panel was sent
+ * @returns the payload for the preview channel and for dropPreviewItems
+ * @private
+ */
+function jobReportPayload(jobEnd: JobEndInfo): ReturnType<typeof dropPreviewItems> {
+  return {
+    items: [],
+    tree: null,
+    jobEnd,
+    locale: currentLocale(),
+    reneMode: prefs?.getAll().reneMode === true,
+    dark: currentlyDark(),
+  };
 }
 
 
@@ -1396,6 +1477,7 @@ async function planJob(
     return batches[0];
   }
   activeJob = { job: planned, root };
+  startGathering(planned.jobId);
   notifyLog(
     `[maildrop] label "${label}": ${listed.threads.length} conversations, ${batches.length} batches of ${JOB_BATCH_THREADS}`,
   );
@@ -1425,6 +1507,7 @@ async function pullMailDrop(
   lastDropSaved = [];
   lastPullFailures = null;
   lastCopyFailures = null;
+  clearJobOffer();
   dropSerial += 1;
   lastDropSource = account;
   lastDropTree = null;
@@ -1487,7 +1570,7 @@ async function pullMailDrop(
       ik: payload.ik,
       rowCount: rows.length,
       from: (at) => ({ kind: 'label', label: payload.label!, threads: at.map((i) => threads[i]) }),
-    });
+    }, slice?.map((t) => t.threadId));
     // rows rather than the display items: those carry the truncation notice too, which is
     // not a conversation that failed to save.
     manager?.sendDropResult(acctKey, dropOutcome(rows, done.find((i) => i.error)?.error));
@@ -1574,7 +1657,10 @@ export function dropPreviewItems(): {
   panel?: JobPanel;
   job?: MailDropCopyProgress['job'];
   pullRetryId?: string;
+  jobEnd?: JobEndInfo;
 } {
+  // A held job offer is what the panel lands on, with no list it could offer Kopieer for
+  if (lastJobFailures && lastJobEnd) return jobReportPayload(lastJobEnd);
   const panel = jobPanelInfo();
   return {
     items: lastDropPreview,
@@ -1589,6 +1675,18 @@ export function dropPreviewItems(): {
 
 export function closeDropPreview(): void {
   dropOverlay?.close();
+}
+
+/**
+ * Opens the panel on a finished job's report, or only the window when no offer is held
+ */
+export function showJobReport(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (!lastJobFailures || !lastJobEnd) return;
+  dropPanel(mainWindow).open(jobReportPayload(lastJobEnd));
 }
 
 /**
@@ -2408,27 +2506,32 @@ function sendJobPanel(): void {
  * @param outcome 'stuck' for a job left open on a failed batch; otherwise the plan's own outcome
  * @param reason what to tell the user, for an ending no batch recorded -- a lost drop lock, a
  *   plan with no choices, a throw. Falls back to the failed batch's own error.
+ * @param retryId the held offer's id, only for a completed job with losses
+ * @returns the job end as sent
  * @private
  */
-function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: string): void {
+function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: string, retryId?: string): JobEndInfo {
   const line = jobProgress(job);
+  const jobEnd: JobEndInfo = {
+    outcome,
+    label: job.label,
+    done: line.done,
+    total: line.total,
+    batches: job.batches.length,
+    copiedBatches: job.batches.filter((b) => b.state === 'copied').length,
+    targets: (job.choices?.targets ?? []).map((t) => t.email),
+    error: reason ?? job.batches.find((b) => b.state === 'failed')?.error,
+    failed: jobFailed(job),
+    ...(retryId ? { retryId } : {}),
+  };
   dropOverlay?.send(IPC.MAIL_DROP_COPY_PROGRESS, {
     phase: 'copy',
     done: line.done,
     total: line.total,
     job: line,
-    jobEnd: {
-      outcome,
-      label: job.label,
-      done: line.done,
-      total: line.total,
-      batches: job.batches.length,
-      copiedBatches: job.batches.filter((b) => b.state === 'copied').length,
-      targets: (job.choices?.targets ?? []).map((t) => t.email),
-      error: reason ?? job.batches.find((b) => b.state === 'failed')?.error,
-      failed: jobFailed(job),
-    },
+    jobEnd,
   } satisfies PanelProgress);
+  return jobEnd;
 }
 
 // The panel's walking phase is left by a job end and by nothing else, so every path that lets go
@@ -2446,11 +2549,44 @@ function sendJobEnd(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: strin
  * @param job the plan as it stands, after whatever closing line the caller decided to write
  * @param outcome 'stuck' leaves the plan open for the next start to offer
  * @param reason what to tell the user when no batch recorded the failure
+ * @param offer true only from the walk's own completed ending, which may hold a retry offer
  * @private
  */
-function endWalkedJob(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: string): void {
-  sendJobEnd(job, outcome, reason);
+function endWalkedJob(job: LabelJob, outcome: JobOutcome | 'stuck', reason?: string, offer = false): void {
+  // Every other ending lets the gathered losses go: only a completed job is offered a retry
+  const lost = jobFailuresFor === job.jobId ? jobFailures : emptyJobFailures<MailDropCopyTarget, SavedRef, TreeThread>();
+  const partial = jobFailuresPartial;
+  jobFailures = emptyJobFailures();
+  jobFailuresFor = null;
+  jobFailuresPartial = false;
+  dropJobOfferToast();
+  lastJobFailures =
+    offer && !partial && outcome === 'completed' && job.choices && !isEmpty(lost)
+      ? {
+          retryId: randomUUID(),
+          serial: dropSerial,
+          jobId: job.jobId,
+          account: job.account,
+          label: job.label,
+          targets: job.choices.targets,
+          acc: lost,
+        }
+      : null;
+  const end = sendJobEnd(job, outcome, reason, lastJobFailures?.retryId);
+  lastJobEnd = lastJobFailures ? end : null;
   activeJob = null;
+  if (!lastJobFailures) return;
+  notifyLog(
+    `[maildrop] job for "${job.label}" holds a retry: ${lost.pull.length} unfetched, ${lost.copy.reduce((n, t) => n + t.files.length, 0)} copies`,
+  );
+  const L = nativeLabels(currentLocale(), prefs?.getAll().reneMode === true);
+  jobOfferToast =
+    showToast({
+      kind: 'maildrop',
+      title: L.jobRetryToastTitle(end.done, end.total, end.failed || lostConversations(lost)),
+      body: L.jobRetryToastBody,
+      persist: true,
+    }) ?? null;
 }
 
 /**
@@ -2568,18 +2704,18 @@ async function walkJob(): Promise<void> {
       // No listing for a later batch: the plan already holds the conversations, and asking Gmail
       // again would both cost a hundred pages and risk a different answer than the one the
       // batches were cut from.
-      const { items, saved } = await saveLabel(
+      const { items, saved, threads } = await saveLabel(
         ts, job.account, root, job.label, '', '', report, null, at.threads,
       );
-      // Nothing is offered while a job walks; this only tells the batch what it lost
+      // Nothing is offered while a job walks; this tells the batch what it lost, and the job too
       rememberPullFailures(items, {
         acctKey: '',
         account: job.account,
         authuser: '',
         ik: '',
         rowCount: items.length,
-        from: () => ({ kind: 'label', label: job.label, threads: [] }),
-      });
+        from: (failedAt) => ({ kind: 'label', label: job.label, threads: failedAt.map((i) => threads[i]) }),
+      }, at.threads.map((t) => t.threadId));
       // A cancelled batch pull records nothing and shows nothing: the batch stays 'pending', so a
       // job resumed later pulls it again rather than copying half of it. Deliberately not a
       // return: the walk's own stop check sits just past this block and is what ends the job and
@@ -2636,6 +2772,7 @@ async function walkJob(): Promise<void> {
       }
       return;
     }
+    if ('ok' in result && !result.ok) refuseUnrecordedBatch(at.index, result.error);
   }
 
   if (activeJob && !nextBatch(activeJob.job)) {
@@ -2653,7 +2790,7 @@ async function walkJob(): Promise<void> {
     notifyLog(
       `[maildrop] job for "${job.label}" ${stuck ? 'stopped on a failed batch, left open for a choice' : 'finished'}: ${job.batches.filter((b) => b.state === 'copied').length} of ${job.batches.length} batches`,
     );
-    endWalkedJob(job, stuck ? 'stuck' : 'completed');
+    endWalkedJob(job, stuck ? 'stuck' : 'completed', undefined, !stuck);
   }
 }
 
@@ -2709,8 +2846,12 @@ export async function copyToMailboxes(arg: {
    * stale window -- leaves it unset, which is what the guard below reads to refuse a second copy
    * of mail a running job is already copying. */
   fromJob?: boolean;
-  /** Set only by retryFailedCopy: the mailboxes and, per mailbox, the files that failed there */
+  /** Set only by retryFailedCopy and retryFailedJob: the mailboxes and, per mailbox, the files
+   * that failed there */
   retry?: { retryId: string; targets: MailDropCopyTarget[]; files: Map<string, SavedRef[]> };
+  /** Set only by retryFailedJob, which rebuilds the job's offer from this run's failures rather
+   * than letting the tail hold a part-1 offer */
+  jobRetry?: boolean;
 }): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
   const retry = arg?.retry;
@@ -3165,7 +3306,13 @@ export async function copyToMailboxes(arg: {
         // than asking again.
         notifyLog(`[maildrop] sweep of run ${runId} not complete yet, will be resumed`);
       }
-      const left = !arg?.fromJob && !activeJob ? copyFailuresOf(failuresByTarget) : null;
+      // A job's batch adds to what the job lost; a job retry hands its failures to retryFailedJob
+      if (arg?.jobRetry) {
+        lastRunFailures = failuresByTarget;
+      } else if (!retry && forPlan && activeJob?.job.jobId === forPlan.jobId && jobFailuresFor === forPlan.jobId) {
+        jobFailures = addCopyFailures(jobFailures, failuresByTarget);
+      }
+      const left = !arg?.fromJob && !arg?.jobRetry && !activeJob ? copyFailuresOf(failuresByTarget) : null;
       // Held only while its own drag is still the current one: a retry plans against that tree
       lastCopyFailures =
         left && serialAtStart === dropSerial ? { retryId: randomUUID(), serial: serialAtStart, targets: left } : null;
@@ -3416,6 +3563,10 @@ export async function retryFailedCopy(arg: {
         files: new Map(held.targets.map((t) => [t.target.email, t.files.map((f) => f.file)])),
       },
     });
+  } catch (e) {
+    // Some of these may have landed before the throw, and the scan cannot see fresh inserts
+    if (lastCopyFailures === held) lastCopyFailures = null;
+    throw e;
   } finally {
     retryInFlight = false;
   }
@@ -3546,6 +3697,153 @@ export async function retryFailedPull(arg: {
   });
   notifyLog(`[maildrop] retry fetched ${added.length} of ${held.at.length} failed conversation(s)`);
   return { ok: true, items, ...(pullRetryId ? { pullRetryId } : {}) };
+}
+
+/**
+ * Fetches what a finished job could not, then copies everything it lost into its own mailboxes
+ *
+ * @param arg the id the job's closing line was given, and the mode the duplicate screen answered with
+ * @returns what copyToMailboxes answers, carrying the next offer's id and what is still unfetched
+ */
+export async function retryFailedJob(arg: {
+  retryId: string;
+  mode?: CopyMode;
+}): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
+  const fail = (error: string, retryId?: string): MailDropCopyResult => ({
+    ok: false,
+    copied: 0,
+    skipped: 0,
+    total: 0,
+    accounts: [],
+    error,
+    ...(retryId ? { retryId } : {}),
+  });
+  const refused = retryRefusal({
+    wanted: arg?.retryId ?? '',
+    held: lastJobFailures,
+    serial: dropSerial,
+    jobDriving,
+    jobActive: activeJob !== null,
+    pulling: activePull !== null,
+    copying: activeRun !== null || retryInFlight,
+  });
+  if (refused || !lastJobFailures) return fail(refused ?? 'Niets om opnieuw te proberen');
+  const mode: CopyMode = arg.mode ?? 'check';
+  let held = lastJobFailures;
+  retryInFlight = true;
+  try {
+    const errors = new Map<string, string>();
+    const warnings: string[] = [];
+    // A confirm-screen follow-up already holds what the first press fetched
+    if (mode === 'check' && held.acc.pull.length > 0) {
+      const { slice, rest } = takePullSlice(held.acc, JOB_BATCH_THREADS);
+      const ts = new Date().toISOString();
+      const root = mailDropFolder();
+      const got: { cancelled?: boolean; saved?: SavedRef[]; failed?: Set<string> } = {};
+      const viewKey = profiles.find((p) => p.email === held.account);
+      // No await between the refusal and the lock: a second press is refused by one or the other
+      const ran = await withPullLock(viewKey ? keyOf(viewKey) : manager?.activeKey() ?? '', async () => {
+        const mine = activePull;
+        const fetched = await fetchThreadSlice(held.account, slice, pullReporter());
+        if (mine?.stopped()) {
+          got.cancelled = true;
+          return;
+        }
+        if (fetched === null) {
+          for (const t of slice) errors.set(t.threadId, 'Geen toegang tot dit postvak');
+          got.failed = new Set(slice.map((t) => t.threadId));
+          return;
+        }
+        const written = await writeCollected(ts, held.account, root, held.label, fetched, []);
+        if (written.logError) warnings.push(`logboek niet bijgeschreven: ${written.logError}`);
+        const again = failedRowIndexes(written.items).map((i) => written.items[i]);
+        for (const row of again) errors.set(row.threadId, row.error ?? '');
+        got.failed = new Set(again.map((row) => row.threadId));
+        got.saved = written.saved;
+      });
+      if (!ran) return fail(BUSY_TEXT, held.retryId);
+      if (got.cancelled) return fail('Opnieuw ophalen geannuleerd', held.retryId);
+      // A long retry can outlive the lock, and the drag that took over must not receive its files
+      if (dropSerial !== held.serial || lastJobFailures !== held) {
+        notifyLog('[maildrop] job retry fetch discarded: another drag took its place');
+        return fail('Deze lijst is verlopen. Sleep de mail opnieuw.');
+      }
+      const failed = got.failed ?? new Set<string>();
+      const pull = [...slice.filter((t) => failed.has(t.threadId)), ...rest];
+      const acc = addFetchedToAllTargets({ copy: held.acc.copy, pull }, held.targets, got.saved ?? []);
+      notifyLog(`[maildrop] job retry fetched ${slice.length - failed.size} of ${slice.length} conversation(s)`);
+      // Written back before the copy, so a confirm follow-up sees these files and fetches nothing
+      held = { ...held, acc };
+      lastJobFailures = held;
+    }
+
+    const unfetched = (pull: TreeThread[]): FailureLine[] =>
+      pull.map((t) => ({ subject: t.subject, error: errors.get(t.threadId) || 'Niet opgehaald', maybeLanded: false }));
+    const files = retryFiles(held.acc);
+    const targets = held.targets.filter((t) => (files.get(t.email)?.length ?? 0) > 0);
+    if (targets.length === 0) {
+      const retryId = renewJobOffer(held, held.acc);
+      return withWarnings(
+        {
+          ok: held.acc.pull.length === 0,
+          copied: 0,
+          skipped: 0,
+          total: 0,
+          accounts: [],
+          ...(retryId ? { retryId, unfetched: unfetched(held.acc.pull) } : {}),
+        } satisfies MailDropCopyResult,
+        warnings,
+      );
+    }
+
+    notifyLog(`[maildrop] job retry of ${targets.reduce((n, t) => n + files.get(t.email)!.length, 0)} copies`);
+    lastRunFailures = null;
+    let result: Awaited<ReturnType<typeof copyToMailboxes>>;
+    try {
+      result = await copyToMailboxes({
+        targets: [],
+        mode,
+        retry: { retryId: held.retryId, targets, files },
+        jobRetry: true,
+      });
+    } catch (e) {
+      // Some of these may have landed before the throw, and the scan cannot see fresh inserts
+      if (lastJobFailures === held) clearJobOffer();
+      throw e;
+    }
+    // Widened again: the tail sets it during the await, which narrowing cannot see
+    const runFailures = lastRunFailures as TargetFailures<MailDropCopyTarget, SavedRef>[] | null;
+    lastRunFailures = null;
+    const merged = <T extends object>(r: T): T => {
+      const had = (r as { warnings?: string[] }).warnings ?? [];
+      return withWarnings(r, [...had, ...warnings]) as T;
+    };
+    if ('stopped' in result && result.stopped) {
+      if (lastJobFailures === held) clearJobOffer();
+      return merged(result);
+    }
+    // Only the tail of a run that went to its end leaves failures; anything earlier changed nothing
+    if (!runFailures) {
+      const live = lastJobFailures === held;
+      return merged({
+        ...result,
+        ...(live ? { retryId: held.retryId, unfetched: unfetched(held.acc.pull) } : {}),
+      });
+    }
+    if (dropSerial !== held.serial || lastJobFailures !== held) return merged(result);
+    // A mailbox the run never wrote to keeps what it was owed
+    const ran = new Set(runFailures.map((t) => t.target.email));
+    const untouched = held.acc.copy.filter((t) => !ran.has(t.target.email));
+    const copy = [...untouched, ...(copyFailuresOf(runFailures) ?? [])];
+    const retryId = renewJobOffer(held, { copy, pull: held.acc.pull });
+    return merged({
+      ...result,
+      ...(retryId ? { retryId } : {}),
+      ...(held.acc.pull.length > 0 ? { unfetched: unfetched(held.acc.pull) } : {}),
+    });
+  } finally {
+    retryInFlight = false;
+  }
 }
 
 
@@ -3754,6 +4052,7 @@ export async function decideJobRun(
       if (failed) return { ok: false };
     }
     activeJob = { job: readLabelJob(root, jobId) ?? job, root };
+    startGathering(jobId, true);
     void advanceJob();
     return { ok: true };
   }
@@ -3990,10 +4289,11 @@ function listReporter(): (found: number) => void {
 }
 
 /**
- * Holds the failed rows of a pull for a retry, and tells a job's batch what it lost
+ * Holds the failed rows of a pull for a retry, and adds them to what a walked job lost
  *
  * @param items the preview rows
  * @param ctx everything a second fetch of those rows needs
+ * @param batchThreadIds a job batch's whole slice, whose earlier attempts' losses this pull replaces
  * @returns the id the panel is given, or undefined when nothing failed
  * @private
  */
@@ -4002,9 +4302,15 @@ function rememberPullFailures(
   ctx: Omit<NonNullable<typeof lastPullFailures>, 'retryId' | 'serial' | 'at' | 'from'> & {
     from: (at: number[]) => NonNullable<typeof lastPullFailures>['from'];
   },
+  batchThreadIds?: string[],
 ): string | undefined {
   const at = failedRowIndexes(items);
   batchPullFailedThreads = at.map((i) => items[i].threadId);
+  if (batchThreadIds && activeJob && jobFailuresFor === activeJob.job.jobId) {
+    const lost = at.length > 0 ? ctx.from(at) : null;
+    const threads = lost?.kind === 'label' ? lost.threads.filter((t): t is TreeThread => t !== undefined) : [];
+    jobFailures = replaceBatchPull(jobFailures, batchThreadIds, threads);
+  }
   if (at.length === 0 || activeJob) {
     lastPullFailures = null;
     return undefined;
@@ -4012,6 +4318,87 @@ function rememberPullFailures(
   const { from, ...rest } = ctx;
   lastPullFailures = { ...rest, retryId: randomUUID(), serial: dropSerial, at, from: from(at) };
   return lastPullFailures.retryId;
+}
+
+/**
+ * Starts gathering a job's losses afresh, letting go of any older job's offer
+ *
+ * @param jobId the job about to be walked
+ * @param partial true for a job resumed after a restart, which then ends with no offer
+ * @private
+ */
+function startGathering(jobId: string, partial = false): void {
+  jobFailures = emptyJobFailures();
+  jobFailuresFor = jobId;
+  jobFailuresPartial = partial;
+  clearJobOffer();
+}
+
+/**
+ * Lets go of the held job offer, and of the card that announced it
+ *
+ * @private
+ */
+function clearJobOffer(): void {
+  lastJobFailures = null;
+  lastJobEnd = null;
+  dropJobOfferToast();
+}
+
+/**
+ * Takes down the card of a job offer that has gone or been replaced
+ *
+ * @private
+ */
+function dropJobOfferToast(): void {
+  if (jobOfferToast) dismissShownToast(jobOfferToast);
+  jobOfferToast = null;
+}
+
+/**
+ * Records a walked batch as failed when its copy refused before the tail could record it
+ *
+ * A refusal such as no saved mail or no link left the batch 'pulled', and nextBatch then handed
+ * it back to be pulled again for as long as the refusal lasted. Failed, it ends the job stuck the
+ * way any refused batch does, with the plan left open for the start-up choice.
+ *
+ * @param index the batch the copy was for
+ * @param error what the copy answered
+ * @private
+ */
+function refuseUnrecordedBatch(index: number, error: string | undefined): void {
+  if (!activeJob) return;
+  const { job, root } = activeJob;
+  const batch = job.batches.find((b) => b.index === index);
+  if (!batch || batch.state === 'failed' || batch.state === 'copied') return;
+  const failed = attemptWrite(() => recordJobBatchState(root, job.jobId, { index, state: 'failed', error }));
+  if (failed) {
+    notifyLog(`[maildrop] could not record the state of batch ${index}: ${failed}`);
+    endWalkedJob(job, 'stuck', error);
+    return;
+  }
+  activeJob.job = readLabelJob(root, job.jobId) ?? job;
+}
+
+/**
+ * Holds what a job retry left under a fresh id, or lets the offer go when nothing is left
+ *
+ * @param held the offer the retry ran for
+ * @param acc what is still lost
+ * @returns the new id, or undefined when the offer is gone
+ * @private
+ */
+function renewJobOffer(held: NonNullable<typeof lastJobFailures>, acc: JobLosses): string | undefined {
+  if (isEmpty(acc)) {
+    clearJobOffer();
+    return undefined;
+  }
+  // The card still speaks the first count; the panel holding the renewed offer speaks this one
+  dropJobOfferToast();
+  const retryId = randomUUID();
+  lastJobFailures = { ...held, retryId, acc };
+  lastJobEnd = lastJobEnd ? { ...lastJobEnd, retryId, failed: lostConversations(acc) } : null;
+  return retryId;
 }
 
 /**
