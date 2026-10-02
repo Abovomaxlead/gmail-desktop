@@ -18,8 +18,8 @@ beforeEach(async () => {
   h = await startHarness();
 });
 
-afterEach(() => {
-  stopHarness();
+afterEach(async () => {
+  await stopHarness();
 });
 
 

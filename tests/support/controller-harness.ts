@@ -48,11 +48,26 @@ export interface PreviewPayload {
   [key: string]: unknown;
 }
 
+/** What a job's closing line carries, mirroring the controller's own JobEndInfo, which is not exported */
+export interface JobEndPayload {
+  outcome: string;
+  label: string;
+  done: number;
+  total: number;
+  batches: number;
+  copiedBatches: number;
+  targets: string[];
+  error?: string;
+  failed?: number;
+  retryId?: string;
+}
+
 interface HarnessState {
   root: string;
   fake: FakeGmail;
-  /** Everything the drop overlay was handed, `open` recorded under the channel name 'open' */
-  overlay: Array<{ channel: string; payload: unknown }>;
+  /** Everything the drop overlay was handed, `open` recorded under the channel name 'open'.
+   * `delivered` is false for what the real OverlayView drops: a send or update before its first open */
+  overlay: Array<{ channel: string; payload: unknown; delivered: boolean }>;
   dropOverlay: unknown;
   dropResults: Array<{ acctKey: string; result: unknown }>;
   dropLocks: unknown[];
@@ -79,6 +94,12 @@ export interface Harness {
   retryPull(retryId: string): ReturnType<Controller['retryFailedPull']>;
   lastPreview(): PreviewPayload | null;
   sent(channel: string): unknown[];
+  undelivered(channel: string): unknown[];
+  retryJob(retryId: string, mode?: CopyMode): Promise<CopyAnswer>;
+  decideJob(jobId: string, choice: 'continue' | 'keep' | 'rollback'): ReturnType<Controller['decideJobRun']>;
+  waitFor(done: () => boolean, what: string, maxTurns?: number): Promise<void>;
+  waitForJobEnd(maxTurns?: number): Promise<JobEndPayload>;
+  drain(): Promise<void>;
   inserts(email: string, messageId: string): number;
   expectLanded(email: string, expected: Record<string, string[]>): void;
   settle(): Promise<void>;
@@ -202,17 +223,20 @@ vi.mock('../../electron/auth/oauth-health-check', () => ({
 
 vi.mock('../../electron/windows/overlay-view', () => ({
   OverlayView: class {
+    // The real view exists only from the first open on, and drops whatever reaches it before
+    private created = false;
     open(payload: unknown): void {
-      state().overlay.push({ channel: 'open', payload });
+      this.created = true;
+      state().overlay.push({ channel: 'open', payload, delivered: true });
     }
     update(payload: unknown): void {
-      state().overlay.push({ channel: 'update', payload });
+      state().overlay.push({ channel: 'update', payload, delivered: this.created });
     }
     send(channel: string, payload: unknown): void {
-      state().overlay.push({ channel, payload });
+      state().overlay.push({ channel, payload, delivered: this.created });
     }
     close(): void {
-      state().overlay.push({ channel: 'close', payload: null });
+      state().overlay.push({ channel: 'close', payload: null, delivered: this.created });
     }
     raise(): void {}
     isOpen(): boolean {
@@ -293,10 +317,17 @@ export async function startHarness(): Promise<Harness> {
   return harness(current);
 }
 
-export function stopHarness(): void {
+/**
+ * Ends a test: drains what the controller left running, then removes the drop folder
+ */
+export async function stopHarness(): Promise<void> {
   if (!current) return;
-  rmSync(current.root, { recursive: true, force: true });
-  current = null;
+  try {
+    await drain();
+  } finally {
+    rmSync(current.root, { recursive: true, force: true });
+    current = null;
+  }
 }
 
 
@@ -336,6 +367,44 @@ async function settle(): Promise<void> {
 }
 
 /**
+ * Turns the event loop until a condition holds, failing loudly when it never does
+ *
+ * Macrotask turns rather than microtasks, so the file writes and reads the controller hands to
+ * the threadpool get to finish between two looks.
+ *
+ * @param done
+ * @param what named in the failure
+ * @param maxTurns the hard cap
+ * @private
+ */
+async function waitFor(done: () => boolean, what: string, maxTurns = 500): Promise<void> {
+  for (let turn = 0; turn < maxTurns; turn++) {
+    if (done()) return;
+    await new Promise<void>((r) => setTimeout(r, 0));
+  }
+  if (done()) return;
+  throw new Error(`controller harness: ${what} not reached after ${maxTurns} turns`);
+}
+
+/**
+ * Lets whatever the controller left running finish before the test lets go of its folder
+ *
+ * Waits for the drop lock to be released, then gives the event loop twenty more turns for the
+ * writes and scans nobody awaits. A copy the test did not await is the test's own to await
+ *
+ * @private
+ */
+async function drain(): Promise<void> {
+  const s = state();
+  const unlocked = (): boolean => {
+    const locks = s.dropLocks as Array<{ locked?: boolean }>;
+    return locks.length === 0 || locks[locks.length - 1]?.locked === false;
+  };
+  await waitFor(unlocked, 'the drop lock released');
+  for (let i = 0; i < 20; i++) await new Promise<void>((r) => setTimeout(r, 0));
+}
+
+/**
  * Builds the helper object over one test's state
  *
  * @param s
@@ -349,8 +418,8 @@ function harness(s: HarnessState): Harness {
   };
   const lastPreview = (): PreviewPayload | null => {
     for (let i = s.overlay.length - 1; i >= 0; i--) {
-      const { channel, payload } = s.overlay[i];
-      if (channel === 'open' || channel === IPC.MAIL_DROP_PREVIEW) return payload as PreviewPayload;
+      const { channel, payload, delivered } = s.overlay[i];
+      if (delivered && (channel === 'open' || channel === IPC.MAIL_DROP_PREVIEW)) return payload as PreviewPayload;
     }
     return null;
   };
@@ -390,7 +459,21 @@ function harness(s: HarnessState): Harness {
     retryCopy: (retryId, mode = 'check') => controller().retryFailedCopy({ retryId, mode }),
     retryPull: (retryId) => controller().retryFailedPull({ retryId }),
     lastPreview,
-    sent: (channel) => s.overlay.filter((o) => o.channel === channel).map((o) => o.payload),
+    sent: (channel) => s.overlay.filter((o) => o.delivered && o.channel === channel).map((o) => o.payload),
+    undelivered: (channel) => s.overlay.filter((o) => !o.delivered && o.channel === channel).map((o) => o.payload),
+    retryJob: (retryId, mode = 'check') => controller().retryFailedJob({ retryId, mode }),
+    decideJob: (jobId, choice) => controller().decideJobRun(jobId, choice),
+    waitFor,
+    waitForJobEnd: async (maxTurns) => {
+      const ends = (): JobEndPayload[] =>
+        s.overlay
+          .filter((o) => o.channel === IPC.MAIL_DROP_COPY_PROGRESS)
+          .map((o) => (o.payload as { jobEnd?: JobEndPayload }).jobEnd)
+          .filter((e): e is JobEndPayload => e !== undefined);
+      await waitFor(() => ends().length > 0, 'a job end on the copy progress channel', maxTurns);
+      return ends()[ends().length - 1];
+    },
+    drain,
     inserts: (email, messageId) => s.fake.inserts(email, messageId),
     expectLanded: (email, expected) => {
       const wanted = new Map(Object.entries(expected).map(([id, labels]) => [bare(id), labels]));

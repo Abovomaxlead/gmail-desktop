@@ -135,6 +135,8 @@ export class FakeGmail {
   private nextId = 1;
   private readonly insertFailures = new Map<string, InsertFailure[]>();
   private readonly fetchFailures = new Map<string, number>();
+  private readonly failures = new Map<keyof FakeApi, unknown[]>();
+  private readonly holds = new Map<keyof FakeApi, Array<() => Promise<void>>>();
   private readonly insertAttempts = new Map<string, number>();
   private readonly fetchCounts = new Map<string, number>();
 
@@ -222,13 +224,52 @@ export class FakeGmail {
   }
 
   /**
-   * Makes the next fetches of a conversation fail, in whichever mailbox it is asked for
+   * Makes the next fetches of one mailbox's conversation fail
    *
+   * @param email
    * @param threadId
    * @param times
    */
-  failFetch(threadId: string, times = 1): void {
-    this.fetchFailures.set(threadId, (this.fetchFailures.get(threadId) ?? 0) + times);
+  failFetch(email: string, threadId: string, times = 1): void {
+    const key = this.threadKey(email, threadId);
+    this.fetchFailures.set(key, (this.fetchFailures.get(key) ?? 0) + times);
+  }
+
+  /**
+   * Makes the next call of one faked function throw, before it does anything
+   *
+   * @param name
+   * @param error what it throws, a plain Error when left out
+   */
+  failNext(name: keyof FakeApi, error: unknown = new Error(`fake Gmail: ${name} failed`)): void {
+    const queue = this.failures.get(name) ?? [];
+    queue.push(error);
+    this.failures.set(name, queue);
+  }
+
+  /**
+   * Holds the next call of one faked function until released, so a scenario can act while
+   * that call is genuinely in flight
+   *
+   * @param name
+   * @returns entered resolves once the call has arrived; release lets it carry on
+   */
+  holdNext(name: keyof FakeApi): { entered: Promise<void>; release: () => void } {
+    let release = (): void => {};
+    let arrived = (): void => {};
+    const entered = new Promise<void>((r) => {
+      arrived = r;
+    });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const queue = this.holds.get(name) ?? [];
+    queue.push(async () => {
+      arrived();
+      await gate;
+    });
+    this.holds.set(name, queue);
+    return { entered, release };
   }
 
   /** Copies of this mail the controller landed in this mailbox, a timed-out one that stored included */
@@ -241,9 +282,9 @@ export class FakeGmail {
     return this.insertAttempts.get(this.key(email, messageId)) ?? 0;
   }
 
-  /** How often a conversation's messages were asked for, failed attempts included */
-  fetches(threadId: string): number {
-    return this.fetchCounts.get(threadId) ?? 0;
+  /** How often one mailbox's conversation was asked for, failed attempts included */
+  fetches(email: string, threadId: string): number {
+    return this.fetchCounts.get(this.threadKey(email, threadId)) ?? 0;
   }
 
   /** The copies of this mail the controller inserted, never the seeded ones */
@@ -274,32 +315,32 @@ export class FakeGmail {
   api(): FakeApi {
     return {
       fetchLabels: async (token) => {
-        const box = this.enter('fetchLabels', token, []);
+        const box = await this.enter('fetchLabels', token, []);
         return this.gmail().parseLabels({ labels: box.labels });
       },
       fetchUserLabelMap: async (token) => {
-        const box = this.enter('fetchUserLabelMap', token, []);
+        const box = await this.enter('fetchUserLabelMap', token, []);
         const real = this.gmail();
         return real.userLabelMap(real.parseAllLabels({ labels: box.labels }));
       },
       createHiddenLabel: async (token, name) => {
-        const box = this.enter('createHiddenLabel', token, [name]);
+        const box = await this.enter('createHiddenLabel', token, [name]);
         const label = this.makeLabel(box, name, 'labelHide');
         return { id: label.id, name: label.name };
       },
       createVisibleLabel: async (token, name) => {
-        const box = this.enter('createVisibleLabel', token, [name]);
+        const box = await this.enter('createVisibleLabel', token, [name]);
         const label = this.makeLabel(box, name, 'labelShow');
         return { id: label.id, name: label.name };
       },
       deleteLabel: async (token, labelId) => {
-        const box = this.enter('deleteLabel', token, [labelId]);
+        const box = await this.enter('deleteLabel', token, [labelId]);
         // A label already gone answers 404, which the real deleteLabel treats as success
         box.labels = box.labels.filter((l) => l.id !== labelId || l.type === 'system');
         for (const m of box.messages) m.labelIds = m.labelIds.filter((id) => id !== labelId);
       },
       fetchMessageListPage: async (token, labelId, pageToken) => {
-        const box = this.enter('fetchMessageListPage', token, [labelId, pageToken]);
+        const box = await this.enter('fetchMessageListPage', token, [labelId, pageToken]);
         const ids = box.messages
           .filter((m) => m.labelIds.includes(labelId) && !this.hidden(m, labelId))
           .map((m) => m.id);
@@ -312,7 +353,7 @@ export class FakeGmail {
         });
       },
       batchModifyMessages: async (token, ids, action) => {
-        const box = this.enter('batchModifyMessages', token, [ids, action]);
+        const box = await this.enter('batchModifyMessages', token, [ids, action]);
         const real = this.gmail();
         if (ids.length > real.BATCH_MODIFY_LIMIT) {
           throw new real.GmailHttpError('Too many ids', 400, null, 'invalidArgument');
@@ -329,7 +370,7 @@ export class FakeGmail {
         return messages.flatMap((m) => (m.raw ? [{ raw: m.raw, unread: m.unread }] : []));
       },
       listLabelThreadIds: async (token, labelId, max, onPage) => {
-        const box = this.enter('listLabelThreadIds', token, [labelId, max]);
+        const box = await this.enter('listLabelThreadIds', token, [labelId, max]);
         const threadIds: string[] = [];
         // Newest first, the order threads.list answers in
         for (const m of [...box.messages].reverse()) {
@@ -349,7 +390,7 @@ export class FakeGmail {
         );
       },
       insertMessage: async (token, raw, labelIds, threadId, signal) => {
-        const box = this.enter('insertMessage', token, [labelIds, threadId]);
+        const box = await this.enter('insertMessage', token, [labelIds, threadId]);
         const real = this.gmail();
         const email = this.emailOf(token);
         const messageId = headerOf(raw, 'message-id');
@@ -367,7 +408,11 @@ export class FakeGmail {
         }
         if (failure === 'timeout') throw new real.GmailTimeoutError('Gmail gaf geen antwoord');
         if (failure === 'net') throw new Error('net::ERR_CONNECTION_RESET');
-        const landedIn = threadId && box.messages.some((m) => m.threadId === threadId) ? threadId : `thread-${this.nextId++}`;
+        // Gmail refuses a thread this mailbox does not have; the controller answers that by inserting on its own
+        if (threadId && !box.messages.some((m) => m.threadId === threadId)) {
+          throw new real.GmailHttpError('Invalid thread_id value', 400, null, 'invalidArgument');
+        }
+        const landedIn = threadId ?? `ins-thread-${this.nextId++}`;
         const stored: FakeMessage = {
           id: `msg-${this.nextId++}`,
           threadId: landedIn,
@@ -382,12 +427,12 @@ export class FakeGmail {
         return { id: stored.id, threadId: stored.threadId };
       },
       mailboxCanary: async (token) => {
-        const box = this.enter('mailboxCanary', token, []);
+        const box = await this.enter('mailboxCanary', token, []);
         const inbox = box.messages.filter((m) => m.labelIds.includes('INBOX') && this.visible(m));
         return inbox[inbox.length - 1]?.messageId ?? '';
       },
       labelsHoldingMany: async (token, messageIds) => {
-        const box = this.enter('labelsHoldingMany', token, [messageIds]);
+        const box = await this.enter('labelsHoldingMany', token, [messageIds]);
         return messageIds.map((messageId) => {
           const wanted = bare(messageId);
           const labelIds: string[] = [];
@@ -410,11 +455,16 @@ export class FakeGmail {
    * @returns the mailbox
    * @private
    */
-  private enter(name: keyof FakeApi, token: string, args: unknown[]): FakeMailbox {
+  private async enter(name: keyof FakeApi, token: string, args: unknown[]): Promise<FakeMailbox> {
     this.clock += 1;
     const email = this.emailOf(token);
     this.calls.push({ name, email, args });
-    return this.box(email);
+    const box = this.box(email);
+    const gate = this.holds.get(name)?.shift();
+    if (gate) await gate();
+    const queued = this.failures.get(name);
+    if (queued && queued.length > 0) throw queued.shift();
+    return box;
   }
 
   /**
@@ -431,12 +481,13 @@ export class FakeGmail {
     threadId: string,
     name: 'fetchThreadMessages' | 'fetchThreadRaw',
   ): Promise<GmailApi.ThreadMessage[]> {
-    const box = this.enter(name, token, [threadId]);
+    const box = await this.enter(name, token, [threadId]);
     const real = this.gmail();
-    this.fetchCounts.set(threadId, (this.fetchCounts.get(threadId) ?? 0) + 1);
-    const failing = this.fetchFailures.get(threadId) ?? 0;
+    const key = this.threadKey(this.emailOf(token), threadId);
+    this.fetchCounts.set(key, (this.fetchCounts.get(key) ?? 0) + 1);
+    const failing = this.fetchFailures.get(key) ?? 0;
     if (failing > 0) {
-      this.fetchFailures.set(threadId, failing - 1);
+      this.fetchFailures.set(key, failing - 1);
       throw new real.GmailHttpError('Backend Error', 503, null, 'backendError');
     }
     const messages = box.messages.filter((m) => m.threadId === threadId);
@@ -484,6 +535,10 @@ export class FakeGmail {
 
   private key(email: string, messageId: string): string {
     return `${email}|${bare(messageId)}`;
+  }
+
+  private threadKey(email: string, threadId: string): string {
+    return `${email}|${threadId}`;
   }
 
   private gmail(): Real {
