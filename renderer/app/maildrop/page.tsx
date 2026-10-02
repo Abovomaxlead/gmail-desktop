@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   MailDropItem,
   MailDropCopyResult,
@@ -11,6 +11,7 @@ import type {
 } from '../MailDropModal';
 import { recentFor, type RecentLabelUse } from '../recent-labels';
 import { dropFailures } from '../../lib/drop-outcome';
+import { failedRowIndexes, cutList } from '../../lib/failure-list';
 import {
   existingCount,
   existingNotices,
@@ -78,7 +79,8 @@ type Phase =
   | ({ kind: 'copying' } & CopyProgress)
   | { kind: 'confirm'; duplicates: MailDropCopyDuplicate[]; newCount: number }
   | { kind: 'stopped'; result: StoppedResult }
-  | { kind: 'done'; result: DoneResult }
+  // `note` is a refused retry, drawn above the button of the report it was pressed from
+  | { kind: 'done'; result: DoneResult; note?: string }
   | { kind: 'orphan'; orphan: PendingOrphan }
   | { kind: 'job'; job: PendingJob }
   // The driver is walking a job and this panel is watching it. Deliberately not 'copying':
@@ -150,6 +152,20 @@ function phaseFromJobEnd(end: JobEnd, S: UiStrings): Phase {
   };
 }
 
+/**
+ * The colour a finished job's line is drawn in
+ *
+ * @param end
+ * @param otherwise for an outcome that is neither completed nor stuck
+ * @returns green only for a job that lost nothing
+ */
+function jobEndColour(end: JobEnd, otherwise: string): string {
+  if (end.outcome === 'completed') {
+    return (end.failed ?? 0) > 0 ? 'text-amber-700 dark:text-amber-500' : 'text-green-700 dark:text-green-500';
+  }
+  return end.outcome === 'stuck' ? 'text-red-600 dark:text-red-500' : otherwise;
+}
+
 
 //===========================
 // Page
@@ -157,6 +173,12 @@ function phaseFromJobEnd(end: JobEnd, S: UiStrings): Phase {
 
 export default function MailDropModalPage() {
   const [items, setItems] = useState<MailDropItem[]>([]);
+  const [pullRetryId, setPullRetryId] = useState<string | null>(null);
+  const [pullRetrying, setPullRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  /** Set while a copy retry is the copy on screen, so the duplicate screen's buttons answer it,
+   * with the report it was pressed from, which its Annuleren and a refusal return to */
+  const [copyRetryFrom, setCopyRetryFrom] = useState<{ id: string; report: DoneResult } | null>(null);
   const [tree, setTree] = useState<MailDropTree | null>(null);
   /** Per mailbox, set only once the user switches the structure off. Absent means on, which is
    * the default for a tree drag and irrelevant for every other drag. */
@@ -195,6 +217,19 @@ export default function MailDropModalPage() {
     sRef.current = S;
   }, [S]);
 
+  // The scan runs from the drop, so what it has already found is asked for once here; the
+  // mailboxes still being looked up arrive on their own.
+  const loadExisting = useCallback(() => {
+    const bridge = window.desktop;
+    if (!bridge) return;
+    setExisting(NOTHING_FOUND_YET);
+    void bridge
+      .getMailDropExisting()
+      .then((e) => setExisting((cur) => newerExisting(cur, e)))
+      .catch(() => {
+      });
+  }, []);
+
   useEffect(() => {
     const bridge = window.desktop;
     if (!bridge) return;
@@ -227,20 +262,11 @@ export default function MailDropModalPage() {
         });
     };
 
-    // The scan runs from the drop, so what it has already found is asked for once here; the
-    // mailboxes still being looked up arrive on their own.
-    const loadExisting = () => {
-      setExisting(NOTHING_FOUND_YET);
-      void bridge
-        .getMailDropExisting()
-        .then((e) => setExisting((cur) => newerExisting(cur, e)))
-        .catch(() => {
-        });
-    };
     void bridge.getMailDropPreview().then((got: MailDropPreview) => {
       const { items: i, tree: t, panel, job, locale, reneMode, dark } = got;
       setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false, dark: dark === true });
       if (i.length > 0) setItems(i);
+      setPullRetryId(got.pullRetryId ?? null);
       setTree(t ?? null);
       // Reopened halfway through a job: without this the window would come back in its picking
       // phase, offering the copy button for mail the driver has in flight. Refused by main, but
@@ -256,6 +282,7 @@ export default function MailDropModalPage() {
     bridge.onMailDropPreview((p: MailDropPreview) => {
       const { items: i, tree: t, panel, job, locale, reneMode } = p;
       setItems(i);
+      setPullRetryId(p.pullRetryId ?? null);
       setTree(t ?? null);
       setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false, dark: p.dark === true });
       // A driven batch is a job showing what it is about to copy itself, not a new drag: its
@@ -275,6 +302,8 @@ export default function MailDropModalPage() {
       setFlatMode({});
       setPicked({});
       setSearch('');
+      setCopyRetryFrom(null);
+      setRetryError(null);
       setPhase({ kind: 'picking' });
       setJobLine(null);
       loadLabels();
@@ -343,7 +372,7 @@ export default function MailDropModalPage() {
             : cur,
       );
     });
-  }, []);
+  }, [loadExisting]);
 
   const n = items.length;
   const close = () => window.desktop?.closeMailDropPreview();
@@ -431,6 +460,7 @@ export default function MailDropModalPage() {
 
   const savedCount = items.reduce((s, i) => s + i.saved, 0);
   const failures = dropFailures(items);
+  const misses = failedRowIndexes(items).map((i) => items[i]);
   const notices = useMemo(
     () => existingNotices(existing.accounts, accounts ?? []),
     [existing.accounts, accounts],
@@ -478,25 +508,45 @@ export default function MailDropModalPage() {
     [openMailbox, placeable, search, picked],
   );
 
-  const copy = async (mode: MailDropCopyMode = 'check') => {
-    const bridge = window.desktop;
-    if (!bridge || targets.length === 0) return;
+  /**
+   * Runs one copy, a fresh one or a retry, and puts its answer on screen
+   *
+   * @param call the bridge call that starts it
+   * @param initial what the progress line says before main reports anything
+   * @param from for a retry, the report it was pressed from
+   */
+  const runCopy = async (
+    call: () => Promise<CopyOrStoppedResult>,
+    initial: 'check' | 'copy',
+    from?: DoneResult,
+  ) => {
+    // Before the first await, so a report's retry button is gone before it can be pressed twice
     setPhase({
       kind: 'copying',
-      phase: mode === 'all' ? 'copy' : 'check',
+      phase: initial,
       done: 0,
       total: 0,
     });
     try {
-      const result = (await bridge.copyMailDrop(targets, mode)) as CopyOrStoppedResult;
+      const result = await call();
       setStopDialogOpen(false);
       // Batch one's copy answers this window, and the driver takes over in the same breath. Which
       // of the two arrives first is not ours to decide, so a job that has already claimed the
       // panel keeps it: reporting batch one here is exactly the per-batch panel this replaced.
       if (result.stopped) {
+        setCopyRetryFrom(null);
         setPhase((cur) => (panelBelongsToJob(cur) ? cur : { kind: 'stopped', result }));
         return;
       }
+      // A refused retry sent nothing, so the report and its button stay with the refusal on top
+      if (from && result.error && !result.needsConfirm && result.accounts.length === 0) {
+        setCopyRetryFrom(null);
+        const note = result.error;
+        setPhase((cur) => (panelBelongsToJob(cur) ? cur : { kind: 'done', result: from, note }));
+        return;
+      }
+      // A result with a retryId leaves copyRetryFrom alone: the next press passes the new id itself
+      if (!result.needsConfirm && !result.retryId) setCopyRetryFrom(null);
       setPhase((cur) =>
         panelBelongsToJob(cur)
           ? cur
@@ -510,6 +560,7 @@ export default function MailDropModalPage() {
       );
     } catch (e) {
       setStopDialogOpen(false);
+      setCopyRetryFrom(null);
       setPhase((cur) =>
         panelBelongsToJob(cur)
           ? cur
@@ -525,6 +576,60 @@ export default function MailDropModalPage() {
               },
             },
       );
+    }
+  };
+
+  const copy = async (mode: MailDropCopyMode = 'check') => {
+    const bridge = window.desktop;
+    if (!bridge) return;
+    // The duplicate screen's buttons answer whichever copy raised it
+    if (copyRetryFrom) {
+      const { id, report } = copyRetryFrom;
+      await runCopy(
+        () => bridge.retryMailDropCopy(id, mode) as Promise<CopyOrStoppedResult>,
+        mode === 'all' ? 'copy' : 'check',
+        report,
+      );
+      return;
+    }
+    if (targets.length === 0) return;
+    await runCopy(() => bridge.copyMailDrop(targets, mode) as Promise<CopyOrStoppedResult>, mode === 'all' ? 'copy' : 'check');
+  };
+
+  const retryCopy = async (retryId: string, report: DoneResult) => {
+    setCopyRetryFrom({ id: retryId, report });
+    const bridge = window.desktop;
+    if (!bridge) return;
+    await runCopy(() => bridge.retryMailDropCopy(retryId, 'check') as Promise<CopyOrStoppedResult>, 'check', report);
+  };
+
+  /** Starts a fresh copy of the drag, whatever retry came before it */
+  const copyFresh = () => {
+    const bridge = window.desktop;
+    if (!bridge || targets.length === 0) return;
+    setCopyRetryFrom(null);
+    return runCopy(() => bridge.copyMailDrop(targets, 'check') as Promise<CopyOrStoppedResult>, 'check');
+  };
+
+  const retryPull = async () => {
+    const bridge = window.desktop;
+    if (!bridge || !pullRetryId || pullRetrying) return;
+    setPullRetrying(true);
+    setRetryError(null);
+    try {
+      const r = await bridge.retryMailDropPull(pullRetryId);
+      if (!r.ok) {
+        setRetryError(r.error);
+        return;
+      }
+      // The labels already picked stay picked: this is the same drag with more of it saved
+      setItems(r.items);
+      setPullRetryId(r.pullRetryId ?? null);
+      loadExisting();
+    } catch (e) {
+      setRetryError((e as Error).message);
+    } finally {
+      setPullRetrying(false);
     }
   };
 
@@ -599,6 +704,19 @@ export default function MailDropModalPage() {
             </button>
           </header>
 
+          {phase.kind === 'picking' && failures.length === 0 && misses.length > 0 && (
+            <div className="shrink-0 border-b border-black/5 px-5 pb-3 pt-3 dark:border-white/10">
+              <PullMisses
+                misses={misses}
+                total={items.filter((i) => i.threadId).length}
+                busy={pullRetrying}
+                error={retryError}
+                onRetry={pullRetryId ? () => void retryPull() : undefined}
+                S={S}
+              />
+            </div>
+          )}
+
           {phase.kind === 'picking' && failures.length === 0 && accounts !== null && accounts.length > 0 && (
             <div className="shrink-0 border-b border-black/5 px-5 pb-3 pt-3 dark:border-white/10">
               <LabelSearch value={search} onChange={setSearch} S={S} />
@@ -640,7 +758,13 @@ export default function MailDropModalPage() {
               {phase.result.job ? (
                 <JobReport end={phase.result.job} S={S} />
               ) : (
-                <CopyReport result={phase.result} S={S} />
+                <CopyReport
+                  result={phase.result}
+                  busy={false}
+                  note={phase.note}
+                  onRetry={phase.result.retryId ? () => void retryCopy(phase.result.retryId!, phase.result) : undefined}
+                  S={S}
+                />
               )}
             </div>
           ) : phase.kind === 'confirm' ? (
@@ -663,6 +787,18 @@ export default function MailDropModalPage() {
           ) : failures.length > 0 ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
               <DropFailure reasons={failures} S={S} />
+              {misses.length > 0 && (
+                <div className="mt-3">
+                  <PullMisses
+                    misses={misses}
+                    total={items.filter((i) => i.threadId).length}
+                    busy={pullRetrying}
+                    error={retryError}
+                    onRetry={pullRetryId ? () => void retryPull() : undefined}
+                    S={S}
+                  />
+                </div>
+              )}
             </div>
           ) : accounts === null ? (
             <div className="flex min-h-0 flex-1">
@@ -751,7 +887,12 @@ export default function MailDropModalPage() {
             ) : phase.kind === 'orphan' || phase.kind === 'job' ? null : phase.kind === 'confirm' ? (
               <div className="flex shrink-0 items-center gap-2">
                 <button
-                  onClick={() => setPhase({ kind: 'picking' })}
+                  onClick={() => {
+                    // A retry's screen comes after mail went out, and the picker would offer Kopieer
+                    // for the whole drag again: the 717 duplicates of 2026-08-26 were that button
+                    setPhase(copyRetryFrom ? { kind: 'done', result: copyRetryFrom.report } : { kind: 'picking' });
+                    setCopyRetryFrom(null);
+                  }}
                   className="rounded-lg px-4 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
                 >
                   {S.mdCancel}
@@ -773,11 +914,11 @@ export default function MailDropModalPage() {
               </div>
             ) : (
               <button
-                onClick={() => void copy()}
+                onClick={() => void copyFresh()}
                 // 'copying' has its own branch above now, with its own button -- this one is
                 // never reached while it is, so the disabled/label pair it used to need for
                 // that no longer applies here.
-                disabled={pickedCount === 0 || savedCount === 0}
+                disabled={pickedCount === 0 || savedCount === 0 || pullRetrying}
                 className="shrink-0 rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
               >
                 {S.mdCopy}
@@ -965,9 +1106,7 @@ function Status({
     if (r.job) {
       return (
         <span
-          className={`text-xs ${
-            r.ok ? 'text-green-700 dark:text-green-500' : 'text-red-600 dark:text-red-500'
-          }`}
+          className={`text-xs ${jobEndColour(r.job, 'text-red-600 dark:text-red-500')}`}
         >
           {jobEndText(r.job, S)}
         </span>
@@ -1481,15 +1620,7 @@ function JobReport({ end, S }: { end: JobEnd; S: UiStrings }) {
         {end.label}
       </p>
       {into && <p className="truncate text-sm text-neutral-700 dark:text-neutral-300">{into}</p>}
-      <p
-        className={`text-sm ${
-          end.outcome === 'completed'
-            ? 'text-green-700 dark:text-green-500'
-            : end.outcome === 'stuck'
-              ? 'text-red-600 dark:text-red-500'
-              : 'text-neutral-700 dark:text-neutral-300'
-        }`}
-      >
+      <p className={`text-sm ${jobEndColour(end, 'text-neutral-700 dark:text-neutral-300')}`}>
         {jobEndText(end, S)}
       </p>
       <p className="text-xs text-neutral-500">{S.mdBatchesCopied(end.copiedBatches, end.batches)}</p>
@@ -1497,7 +1628,28 @@ function JobReport({ end, S }: { end: JobEnd; S: UiStrings }) {
   );
 }
 
-function CopyReport({ result, S }: { result: DoneResult; S: UiStrings }) {
+/**
+ * The body of the panel once its own copy is over
+ *
+ * @param result
+ * @param busy true while a retry is starting
+ * @param note why the last retry was refused
+ * @param onRetry absent when there is nothing to retry
+ * @param S
+ */
+function CopyReport({
+  result,
+  busy,
+  note,
+  onRetry,
+  S,
+}: {
+  result: DoneResult;
+  busy: boolean;
+  note?: string;
+  onRetry?: () => void;
+  S: UiStrings;
+}) {
   if (result.error) {
     return <p className="text-sm text-red-600 dark:text-red-500">{result.error}</p>;
   }
@@ -1519,9 +1671,96 @@ function CopyReport({ result, S }: { result: DoneResult; S: UiStrings }) {
                 ? S.mdAccountFailed(a.copied, a.total, a.error)
                 : S.mdAccountCopied(a.copied) + (a.skipped > 0 ? S.mdAccountSkipped(a.skipped) : '')}
             </span>
+            {a.failures && a.failures.length > 0 && (
+              <FailureList lines={a.failures} S={S} />
+            )}
           </li>
         ))}
       </ul>
+      {note && <p className="text-sm text-red-600 dark:text-red-500">{note}</p>}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="self-start rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+        >
+          {S.mdRetryCopy}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The mails one mailbox did not receive
+ *
+ * @param lines
+ * @param S
+ */
+function FailureList({ lines, S }: { lines: { subject: string; error: string; maybeLanded: boolean }[]; S: UiStrings }) {
+  const { shown, more } = cutList(lines);
+  return (
+    <ul className="flex flex-col gap-0.5 pl-1">
+      {shown.map((l, i) => (
+        <li key={i} className="truncate text-xs text-red-700 dark:text-red-400">
+          ✕ {l.subject || S.mdNoSubject} — {l.error}
+          {l.maybeLanded && <span className="text-amber-700 dark:text-amber-500"> · {S.mdMaybeLanded}</span>}
+        </li>
+      ))}
+      {more > 0 && <li className="text-xs text-red-700 dark:text-red-400">{S.mdMoreFailures(more)}</li>}
+    </ul>
+  );
+}
+
+/**
+ * The conversations a pull could not fetch, above the label choice
+ *
+ * @param misses
+ * @param total conversations in the drag
+ * @param busy
+ * @param error why the last retry was refused
+ * @param onRetry absent when there is nothing to retry
+ * @param S
+ */
+function PullMisses({
+  misses,
+  total,
+  busy,
+  error,
+  onRetry,
+  S,
+}: {
+  misses: MailDropItem[];
+  total: number;
+  busy: boolean;
+  error: string | null;
+  onRetry?: () => void;
+  S: UiStrings;
+}) {
+  const { shown, more } = cutList(misses);
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2.5 dark:bg-red-500/10">
+      <p className="text-sm font-medium text-red-700 dark:text-red-400">{S.mdPullMissed(misses.length, total)}</p>
+      <ul className="flex flex-col gap-0.5">
+        {shown.map((m, i) => (
+          <li key={`${m.threadId}-${i}`} className="truncate text-xs text-red-700 dark:text-red-400">
+            ✕ {m.subject || S.mdNoSubject} — {m.error}
+          </li>
+        ))}
+        {more > 0 && <li className="text-xs text-red-700 dark:text-red-400">{S.mdMoreFailures(more)}</li>}
+      </ul>
+      {error && <p className="text-xs text-red-700 dark:text-red-400">{error}</p>}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={busy}
+          className="self-start rounded-lg bg-red-600 px-3 py-1 text-xs font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+        >
+          {busy ? S.mdRetrying : S.mdRetryPull}
+        </button>
+      )}
     </div>
   );
 }

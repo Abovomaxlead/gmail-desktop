@@ -29,6 +29,7 @@ import {
   movedEnough,
   CANCEL_ID,
   cancelledText,
+  resultState,
   type DragNode,
 } from '../electron/mail/dropzone';
 
@@ -799,6 +800,21 @@ describe('resultText', () => {
   });
   it('reports the error', () => {
     expect(resultText({ ok: false, count: 0, total: 0, error: 'HTTP 404' })).toBe('Mislukt: HTTP 404');
+  });
+});
+
+describe('resultState', () => {
+  it('is done when every conversation was saved', () => {
+    expect(resultState({ ok: true, count: 3, total: 3 })).toBe('done');
+  });
+
+  // The defect: eight of ten was drawn in the success colour beside nothing that said two failed.
+  it('is failed when only part of the drag was saved', () => {
+    expect(resultState({ ok: true, count: 8, total: 10 })).toBe('failed');
+  });
+
+  it('is failed when nothing was saved', () => {
+    expect(resultState({ ok: false, count: 0, total: 2 })).toBe('failed');
   });
 });
 

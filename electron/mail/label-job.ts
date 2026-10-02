@@ -48,6 +48,8 @@ export interface JobBatch {
   runId?: CopyRunId;
   copied?: number;
   skipped?: number;
+  /** Conversations this batch lost, fetched or copied; absent on a plan written before it was counted */
+  failed?: number;
   /** How many mailboxes that run actually opened, which is what its `copied` is spread over.
    * Fewer than the job's chosen targets whenever a mailbox could not be given a marker label,
    * since one without a marker is never inserted into. Read off the run's own journal when the
@@ -120,6 +122,7 @@ interface JobStateLine {
   runId?: CopyRunId;
   copied?: number;
   skipped?: number;
+  failed?: number;
   mailboxes?: number;
   error?: string;
 }
@@ -320,6 +323,7 @@ export function parseLabelJob(raw: string): LabelJob | null {
         runId: state?.runId,
         copied: state?.copied,
         skipped: state?.skipped,
+        failed: state?.failed,
         mailboxes: state?.mailboxes,
         error: state?.error,
       };
@@ -409,6 +413,16 @@ export function jobProgress(job: LabelJob, running?: RunningBatchProgress): JobL
   };
 }
 
+/**
+ * How many conversations a job lost across every batch
+ *
+ * @param job
+ * @returns {number}
+ */
+export function jobFailed(job: LabelJob): number {
+  return job.batches.reduce((sum, b) => sum + (b.failed ?? 0), 0);
+}
+
 
 //===========================
 // Helper functions
@@ -436,7 +450,9 @@ function batchConversations(
   at: JobBatch | null,
   running?: RunningBatchProgress,
 ): number {
-  if (batch.state === 'copied') return batch.threads.length;
+  if (batch.state === 'copied') {
+    return batch.threads.length - Math.min(batch.failed ?? 0, batch.threads.length);
+  }
   const recorded = partialConversations(job, batch);
   const live = batch === at ? runningConversations(at, running) : 0;
   return Math.max(recorded, live);

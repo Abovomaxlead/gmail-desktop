@@ -261,6 +261,16 @@ describe('jobEndText', () => {
     ).toBe('Klus gestopt op batch 3 van 4 — Geen rechten');
   });
 
+  it('says how many conversations a finished job lost', () => {
+    expect(jobEndText(end({ done: 98, failed: 2 }), STRINGS_NL)).toBe(
+      'Klus afgerond — 98 van 100 conversaties gekopieerd, 2 mislukt (zie log.jsonl)',
+    );
+  });
+
+  it('keeps the plain line when nothing was lost', () => {
+    expect(jobEndText(end({ failed: 0 }), STRINGS_NL)).toBe('Klus afgerond — 100 van 100 conversaties gekopieerd');
+  });
+
   // Every outcome at once, off the record the compiler checks rather than off five separate
   // cases: a sixth outcome added to the union fails to compile here until this table names it,
   // so the suite cannot go green on a line nobody wrote.

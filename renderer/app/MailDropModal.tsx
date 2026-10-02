@@ -29,6 +29,7 @@ export interface MailDropPreview {
   panel?: JobPanel;
   job?: JobLine;
   driven?: boolean;
+  pullRetryId?: string;
   locale?: 'en' | 'nl';
   reneMode?: boolean;
   /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts
@@ -42,6 +43,7 @@ export interface MailDropCopyAccountResult {
   skipped: number;
   total: number;
   error?: string;
+  failures?: { subject: string; error: string; maybeLanded: boolean }[];
 }
 
 export type MailDropCopyMode = 'check' | 'new' | 'all';
@@ -63,6 +65,7 @@ export interface MailDropCopyResult {
   needsConfirm?: boolean;
   duplicates?: MailDropCopyDuplicate[];
   newCount?: number;
+  retryId?: string;
 }
 
 /** How far the copy has got, over all the chosen mailboxes at once. No mailbox is named:

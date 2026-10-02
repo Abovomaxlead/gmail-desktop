@@ -42,6 +42,7 @@ import {
   authuserFromPath,
   ikFromPage,
   resultText,
+  resultState,
   savingText,
   type DragNode,
   type MessageRef,
@@ -653,7 +654,7 @@ function installDropzone(
     showResult: (r: MailDropResult) => {
       mine = false;
       showLine(resultText(r));
-      setState(r.ok ? 'done' : 'failed');
+      setState(resultState(r));
       if (clearTimer) clearTimeout(clearTimer);
       clearTimer = setTimeout(reset, 2000);
     },

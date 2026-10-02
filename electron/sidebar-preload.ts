@@ -193,6 +193,10 @@ contextBridge.exposeInMainWorld('desktop', {
     targets: Array<{ email: string; labelIds: string[] }>,
     mode?: 'check' | 'new' | 'all',
   ): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_COPY, { targets, mode }),
+  retryMailDropCopy: (retryId: string, mode?: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_COPY_RETRY, { retryId, mode }),
+  retryMailDropPull: (retryId: string): Promise<unknown> =>
+    ipcRenderer.invoke(IPC.MAIL_DROP_PULL_RETRY, { retryId }),
   onMailDropCopyProgress: (cb: (arg: unknown) => void): void => {
     ipcRenderer.on(IPC.MAIL_DROP_COPY_PROGRESS, (_e, arg) => cb(arg));
   },

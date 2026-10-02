@@ -19,6 +19,7 @@ import {
   findUnfinishedJobs,
   nextBatch,
   jobProgress,
+  jobFailed,
   type LabelJob,
 } from '../electron/mail/label-job';
 import { chunk } from '../electron/mail/chunk';
@@ -574,6 +575,36 @@ describe('jobProgress across a restart', () => {
     expect(beforeCrash.done - afterResume.done).toBeLessThanOrEqual(25);
     // And the batch it names does not move: that part is on disk.
     expect(afterResume.batch).toBe(beforeCrash.batch);
+  });
+});
+
+describe('failed conversations per batch', () => {
+  it('reads a batch failed count back from the plan', () => {
+    written(8, 4);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2, failed: 2 });
+    recordJobBatchState(root, 'job-1', { index: 1, state: 'copied', runId: 'run-b', copied: 3, failed: 1 });
+    const job = readLabelJob(root, 'job-1')!;
+    expect(job.batches[0].failed).toBe(2);
+    expect(jobFailed(job)).toBe(3);
+  });
+
+  it('reads a plan written before the count existed as nothing lost', () => {
+    written(8, 4);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 4 });
+    expect(jobFailed(readLabelJob(root, 'job-1')!)).toBe(0);
+  });
+
+  // The job line must not claim a lost conversation as done.
+  it('leaves failed conversations out of a copied batch', () => {
+    written(8, 4);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 2, failed: 2 });
+    expect(jobProgress(readLabelJob(root, 'job-1')!).done).toBe(2);
+  });
+
+  it('never counts a batch below nothing', () => {
+    written(8, 4);
+    recordJobBatchState(root, 'job-1', { index: 0, state: 'copied', runId: 'run-a', copied: 0, failed: 9 });
+    expect(jobProgress(readLabelJob(root, 'job-1')!).done).toBe(0);
   });
 });
 
