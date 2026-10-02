@@ -67,7 +67,10 @@ import {
 /** MailDropCopyResult widened with the one field main now adds when the copy itself fully
  * succeeded but writing the record of that (the audit log, or the journal's closing line)
  * did not. */
-type DoneResult = MailDropCopyResult & { warnings?: string[]; job?: JobEnd };
+type DoneResult = MailDropCopyResult & { warnings?: string[]; job?: JobEnd; retryKind?: RetryKind };
+
+/** Which offer a report's retry belongs to: part 1's copy offer or a finished job's */
+type RetryKind = 'copy' | 'job';
 
 /** What copyMailDrop actually resolves to now. `stopped?: false` is added purely so the two
  * halves of the union share a discriminant -- DoneResult itself carries no such flag -- which
@@ -178,7 +181,7 @@ export default function MailDropModalPage() {
   const [retryError, setRetryError] = useState<string | null>(null);
   /** Set while a copy retry is the copy on screen, so the duplicate screen's buttons answer it,
    * with the report it was pressed from, which its Annuleren and a refusal return to */
-  const [copyRetryFrom, setCopyRetryFrom] = useState<{ id: string; report: DoneResult } | null>(null);
+  const [copyRetryFrom, setCopyRetryFrom] = useState<{ id: string; report: DoneResult; kind: RetryKind } | null>(null);
   const [tree, setTree] = useState<MailDropTree | null>(null);
   /** Per mailbox, set only once the user switches the structure off. Absent means on, which is
    * the default for a tree drag and irrelevant for every other drag. */
@@ -268,6 +271,14 @@ export default function MailDropModalPage() {
       if (i.length > 0) setItems(i);
       setPullRetryId(got.pullRetryId ?? null);
       setTree(t ?? null);
+      // A held job offer, whichever way the panel was opened: its report, never the picker
+      if (got.jobEnd) {
+        // Main sends no jobId on either channel, and no report reads one
+        const end = got.jobEnd as JobEnd;
+        setJobLine(null);
+        setPhase((cur) => (cur.kind === 'picking' ? phaseFromJobEnd(end, sRef.current) : cur));
+        return;
+      }
       // Reopened halfway through a job: without this the window would come back in its picking
       // phase, offering the copy button for mail the driver has in flight. Refused by main, but
       // the offer itself is the thing that must not be there.
@@ -285,6 +296,14 @@ export default function MailDropModalPage() {
       setPullRetryId(p.pullRetryId ?? null);
       setTree(t ?? null);
       setLang({ locale: locale ?? 'en', reneMode: reneMode ?? false, dark: p.dark === true });
+      // A toast click on a job offer: the job's report, never a drag to pick for. A copy in
+      // flight keeps the panel, since its own answer is what leaves that phase.
+      if (p.jobEnd) {
+        const end = p.jobEnd as JobEnd;
+        setJobLine(null);
+        setPhase((cur) => (cur.kind === 'copying' ? cur : phaseFromJobEnd(end, sRef.current)));
+        return;
+      }
       // A driven batch is a job showing what it is about to copy itself, not a new drag: its
       // list is still worth updating, but returning to `picking` here would offer the copy
       // button again for mail the driver already has in flight -- see previewMayPick.
@@ -584,9 +603,12 @@ export default function MailDropModalPage() {
     if (!bridge) return;
     // The duplicate screen's buttons answer whichever copy raised it
     if (copyRetryFrom) {
-      const { id, report } = copyRetryFrom;
+      const { id, report, kind } = copyRetryFrom;
       await runCopy(
-        () => bridge.retryMailDropCopy(id, mode) as Promise<CopyOrStoppedResult>,
+        () =>
+          kind === 'job'
+            ? retryJobCall(id, mode)
+            : (bridge.retryMailDropCopy(id, mode) as Promise<CopyOrStoppedResult>),
         mode === 'all' ? 'copy' : 'check',
         report,
       );
@@ -597,10 +619,30 @@ export default function MailDropModalPage() {
   };
 
   const retryCopy = async (retryId: string, report: DoneResult) => {
-    setCopyRetryFrom({ id: retryId, report });
+    setCopyRetryFrom({ id: retryId, report, kind: 'copy' });
     const bridge = window.desktop;
     if (!bridge) return;
     await runCopy(() => bridge.retryMailDropCopy(retryId, 'check') as Promise<CopyOrStoppedResult>, 'check', report);
+  };
+
+  /**
+   * Sends a job offer's retry and tags its answer, so the report it draws retries the job too
+   *
+   * @param retryId the job offer's id
+   * @param mode
+   * @returns {Promise<CopyOrStoppedResult>}
+   */
+  const retryJobCall = async (retryId: string, mode: MailDropCopyMode): Promise<CopyOrStoppedResult> => {
+    const bridge = window.desktop;
+    if (!bridge) throw new Error('No bridge');
+    const r = (await bridge.retryMailDropJob(retryId, mode)) as CopyOrStoppedResult;
+    return r.stopped ? r : { ...r, retryKind: 'job' };
+  };
+
+  const retryJob = async (retryId: string, report: DoneResult) => {
+    setCopyRetryFrom({ id: retryId, report, kind: 'job' });
+    if (!window.desktop) return;
+    await runCopy(() => retryJobCall(retryId, 'check'), 'check', report);
   };
 
   /** Starts a fresh copy of the drag, whatever retry came before it */
@@ -756,13 +798,30 @@ export default function MailDropModalPage() {
           ) : phase.kind === 'done' ? (
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {phase.result.job ? (
-                <JobReport end={phase.result.job} S={S} />
+                <JobReport
+                  end={phase.result.job}
+                  note={phase.note}
+                  onRetry={
+                    phase.result.job.outcome === 'completed' && phase.result.job.retryId
+                      ? () => void retryJob(phase.result.job!.retryId!, phase.result)
+                      : undefined
+                  }
+                  S={S}
+                />
               ) : (
                 <CopyReport
                   result={phase.result}
                   busy={false}
                   note={phase.note}
-                  onRetry={phase.result.retryId ? () => void retryCopy(phase.result.retryId!, phase.result) : undefined}
+                  onRetry={
+                    phase.result.retryId
+                      ? () =>
+                          void (phase.result.retryKind === 'job' ? retryJob : retryCopy)(
+                            phase.result.retryId!,
+                            phase.result,
+                          )
+                      : undefined
+                  }
                   S={S}
                 />
               )}
@@ -1610,9 +1669,21 @@ function JobRunning({ panel, line, S }: { panel: JobPanel; line: JobLine | null;
  * is many copies and the number that matters is its own.
  *
  * @param end
+ * @param note why the last retry was refused
+ * @param onRetry absent when the job left nothing to retry
  * @param S the active string set
  */
-function JobReport({ end, S }: { end: JobEnd; S: UiStrings }) {
+function JobReport({
+  end,
+  note,
+  onRetry,
+  S,
+}: {
+  end: JobEnd;
+  note?: string;
+  onRetry?: () => void;
+  S: UiStrings;
+}) {
   const { into } = panelBody({ job: null, targets: end.targets }, S);
   return (
     <div className="flex flex-col gap-1">
@@ -1624,6 +1695,16 @@ function JobReport({ end, S }: { end: JobEnd; S: UiStrings }) {
         {jobEndText(end, S)}
       </p>
       <p className="text-xs text-neutral-500">{S.mdBatchesCopied(end.copiedBatches, end.batches)}</p>
+      {note && <p className="mt-2 text-sm text-red-600 dark:text-red-500">{note}</p>}
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-2 self-start rounded-lg bg-red-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-red-700"
+        >
+          {S.mdRetryCopy}
+        </button>
+      )}
     </div>
   );
 }
@@ -1656,6 +1737,14 @@ function CopyReport({
   return (
     <div className="flex flex-col gap-3">
       <WarningsList warnings={result.warnings} />
+      {result.unfetched && result.unfetched.length > 0 && (
+        <div className="flex flex-col gap-1.5 rounded-lg border border-red-500/30 bg-red-50 px-3 py-2.5 dark:bg-red-500/10">
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">
+            {S.mdStillUnfetched(result.unfetched.length)}
+          </p>
+          <FailureList lines={result.unfetched} S={S} />
+        </div>
+      )}
       <ul className="flex flex-col gap-2">
         {result.accounts.map((a) => (
           <li key={a.email} className="flex flex-col gap-0.5">

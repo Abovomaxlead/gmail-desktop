@@ -432,6 +432,7 @@ export interface UiStrings {
   mdPullMissed: (failed: number, total: number) => string;
   mdRetryPull: string;
   mdRetryCopy: string;
+  mdStillUnfetched: (n: number) => string;
   mdRetrying: string;
   mdMaybeLanded: string;
   mdMoreFailures: (n: number) => string;
@@ -1032,6 +1033,7 @@ export const STRINGS_NORMAL: UiStrings = {
   mdPullMissed: (failed, total) => `${failed} of ${total} conversations not fetched`,
   mdRetryPull: 'Fetch the failed ones again',
   mdRetryCopy: 'Try the failed ones again',
+  mdStillUnfetched: (n) => `${n} conversation${n === 1 ? '' : 's'} still not fetched`,
   mdRetrying: 'Working…',
   mdMaybeLanded: 'may have arrived anyway',
   mdMoreFailures: (n) => `+ ${n} more`,
@@ -1557,6 +1559,7 @@ export const STRINGS_RENE: UiStrings = {
   mdPullMissed: (failed, total) => `${failed} van ${total} mailtjes niet opgehaald`,
   mdRetryPull: 'Mislukte nog een keer ophalen',
   mdRetryCopy: 'Mislukte nog een keer proberen',
+  mdStillUnfetched: (n) => `${n} mailtje${n === 1 ? '' : 's'} nog steeds niet opgehaald`,
   mdRetrying: 'Even bezig…',
   mdMaybeLanded: 'misschien toch aangekomen',
   mdMoreFailures: (n) => `+ ${n} meer`,
@@ -2100,6 +2103,7 @@ export const STRINGS_NL: UiStrings = {
   mdPullMissed: (failed, total) => `${failed} van ${total} gesprekken niet opgehaald`,
   mdRetryPull: 'Mislukte opnieuw ophalen',
   mdRetryCopy: 'Mislukte opnieuw proberen',
+  mdStillUnfetched: (n) => `${n} gesprek${n === 1 ? '' : 'ken'} nog steeds niet opgehaald`,
   mdRetrying: 'Bezig…',
   mdMaybeLanded: 'mogelijk toch aangekomen',
   mdMoreFailures: (n) => `+ ${n} meer`,
