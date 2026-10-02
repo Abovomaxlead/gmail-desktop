@@ -429,6 +429,13 @@ export interface UiStrings {
   mdMessagesTo: (n: number) => string;
 
   mdDropFailedTitle: string;
+  mdPullMissed: (failed: number, total: number) => string;
+  mdRetryPull: string;
+  mdRetryCopy: string;
+  mdRetrying: string;
+  mdMaybeLanded: string;
+  mdMoreFailures: (n: number) => string;
+  mdNoSubject: string;
   mdExistingOne: string;
   mdExistingSome: string;
   mdExistingAlready: string;
@@ -1022,6 +1029,13 @@ export const STRINGS_NORMAL: UiStrings = {
   mdMessagesTo: (n) => `${n} ${n === 1 ? 'message' : 'messages'} to`,
 
   mdDropFailedTitle: 'Nothing was saved, so there is nothing to copy either.',
+  mdPullMissed: (failed, total) => `${failed} of ${total} conversations not fetched`,
+  mdRetryPull: 'Fetch the failed ones again',
+  mdRetryCopy: 'Try the failed ones again',
+  mdRetrying: 'Working…',
+  mdMaybeLanded: 'may have arrived anyway',
+  mdMoreFailures: (n) => `+ ${n} more`,
+  mdNoSubject: '(no subject)',
   mdExistingOne: 'This mail is already in a mailbox you can choose.',
   mdExistingSome: 'Some of this mail is already in a mailbox you can choose.',
   mdExistingAlready: 'already there',
@@ -1540,6 +1554,13 @@ export const STRINGS_RENE: UiStrings = {
   mdMessagesTo: (n) => `${n} ${n === 1 ? 'mailtje' : 'mailtjes'} naar`,
 
   mdDropFailedTitle: 'Er is niks bewaard, dus er is ook niks om te kopiëren.',
+  mdPullMissed: (failed, total) => `${failed} van ${total} mailtjes niet opgehaald`,
+  mdRetryPull: 'Mislukte nog een keer ophalen',
+  mdRetryCopy: 'Mislukte nog een keer proberen',
+  mdRetrying: 'Even bezig…',
+  mdMaybeLanded: 'misschien toch aangekomen',
+  mdMoreFailures: (n) => `+ ${n} meer`,
+  mdNoSubject: '(geen onderwerp)',
   mdExistingOne: 'Dit mailtje staat al in een postbus die je kunt kiezen.',
   mdExistingSome: 'Een deel staat al in een postbus die je kunt kiezen.',
   mdExistingAlready: 'staat er al',
@@ -2076,6 +2097,13 @@ export const STRINGS_NL: UiStrings = {
   mdMessagesTo: (n) => `${n} ${n === 1 ? 'bericht' : 'berichten'} naar`,
 
   mdDropFailedTitle: 'Er is niets opgeslagen, dus er is ook niets om te kopiëren.',
+  mdPullMissed: (failed, total) => `${failed} van ${total} gesprekken niet opgehaald`,
+  mdRetryPull: 'Mislukte opnieuw ophalen',
+  mdRetryCopy: 'Mislukte opnieuw proberen',
+  mdRetrying: 'Bezig…',
+  mdMaybeLanded: 'mogelijk toch aangekomen',
+  mdMoreFailures: (n) => `+ ${n} meer`,
+  mdNoSubject: '(geen onderwerp)',
   mdExistingOne: 'Deze mail staat al in een postvak dat je kunt kiezen.',
   mdExistingSome: 'Een deel van deze mail staat al in een postvak dat je kunt kiezen.',
   mdExistingAlready: 'staat er al',
