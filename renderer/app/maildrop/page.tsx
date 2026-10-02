@@ -79,7 +79,8 @@ type Phase =
   | ({ kind: 'copying' } & CopyProgress)
   | { kind: 'confirm'; duplicates: MailDropCopyDuplicate[]; newCount: number }
   | { kind: 'stopped'; result: StoppedResult }
-  | { kind: 'done'; result: DoneResult }
+  // `note` is a refused retry, drawn above the button of the report it was pressed from
+  | { kind: 'done'; result: DoneResult; note?: string }
   | { kind: 'orphan'; orphan: PendingOrphan }
   | { kind: 'job'; job: PendingJob }
   // The driver is walking a job and this panel is watching it. Deliberately not 'copying':
@@ -175,8 +176,9 @@ export default function MailDropModalPage() {
   const [pullRetryId, setPullRetryId] = useState<string | null>(null);
   const [pullRetrying, setPullRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
-  /** Set while a copy retry is the copy on screen, so the duplicate screen's buttons answer it */
-  const [copyRetryFrom, setCopyRetryFrom] = useState<string | null>(null);
+  /** Set while a copy retry is the copy on screen, so the duplicate screen's buttons answer it,
+   * with the report it was pressed from, which its Annuleren and a refusal return to */
+  const [copyRetryFrom, setCopyRetryFrom] = useState<{ id: string; report: DoneResult } | null>(null);
   const [tree, setTree] = useState<MailDropTree | null>(null);
   /** Per mailbox, set only once the user switches the structure off. Absent means on, which is
    * the default for a tree drag and irrelevant for every other drag. */
@@ -511,8 +513,13 @@ export default function MailDropModalPage() {
    *
    * @param call the bridge call that starts it
    * @param initial what the progress line says before main reports anything
+   * @param from for a retry, the report it was pressed from
    */
-  const runCopy = async (call: () => Promise<CopyOrStoppedResult>, initial: 'check' | 'copy') => {
+  const runCopy = async (
+    call: () => Promise<CopyOrStoppedResult>,
+    initial: 'check' | 'copy',
+    from?: DoneResult,
+  ) => {
     // Before the first await, so a report's retry button is gone before it can be pressed twice
     setPhase({
       kind: 'copying',
@@ -529,6 +536,13 @@ export default function MailDropModalPage() {
       if (result.stopped) {
         setCopyRetryFrom(null);
         setPhase((cur) => (panelBelongsToJob(cur) ? cur : { kind: 'stopped', result }));
+        return;
+      }
+      // A refused retry sent nothing, so the report and its button stay with the refusal on top
+      if (from && result.error && !result.needsConfirm && result.accounts.length === 0) {
+        setCopyRetryFrom(null);
+        const note = result.error;
+        setPhase((cur) => (panelBelongsToJob(cur) ? cur : { kind: 'done', result: from, note }));
         return;
       }
       // A result with a retryId leaves copyRetryFrom alone: the next press passes the new id itself
@@ -570,19 +584,23 @@ export default function MailDropModalPage() {
     if (!bridge) return;
     // The duplicate screen's buttons answer whichever copy raised it
     if (copyRetryFrom) {
-      const id = copyRetryFrom;
-      await runCopy(() => bridge.retryMailDropCopy(id, mode) as Promise<CopyOrStoppedResult>, mode === 'all' ? 'copy' : 'check');
+      const { id, report } = copyRetryFrom;
+      await runCopy(
+        () => bridge.retryMailDropCopy(id, mode) as Promise<CopyOrStoppedResult>,
+        mode === 'all' ? 'copy' : 'check',
+        report,
+      );
       return;
     }
     if (targets.length === 0) return;
     await runCopy(() => bridge.copyMailDrop(targets, mode) as Promise<CopyOrStoppedResult>, mode === 'all' ? 'copy' : 'check');
   };
 
-  const retryCopy = async (retryId: string) => {
-    setCopyRetryFrom(retryId);
+  const retryCopy = async (retryId: string, report: DoneResult) => {
+    setCopyRetryFrom({ id: retryId, report });
     const bridge = window.desktop;
     if (!bridge) return;
-    await runCopy(() => bridge.retryMailDropCopy(retryId, 'check') as Promise<CopyOrStoppedResult>, 'check');
+    await runCopy(() => bridge.retryMailDropCopy(retryId, 'check') as Promise<CopyOrStoppedResult>, 'check', report);
   };
 
   /** Starts a fresh copy of the drag, whatever retry came before it */
@@ -743,7 +761,8 @@ export default function MailDropModalPage() {
                 <CopyReport
                   result={phase.result}
                   busy={false}
-                  onRetry={phase.result.retryId ? () => void retryCopy(phase.result.retryId!) : undefined}
+                  note={phase.note}
+                  onRetry={phase.result.retryId ? () => void retryCopy(phase.result.retryId!, phase.result) : undefined}
                   S={S}
                 />
               )}
@@ -869,8 +888,10 @@ export default function MailDropModalPage() {
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={() => {
+                    // A retry's screen comes after mail went out, and the picker would offer Kopieer
+                    // for the whole drag again: the 717 duplicates of 2026-08-26 were that button
+                    setPhase(copyRetryFrom ? { kind: 'done', result: copyRetryFrom.report } : { kind: 'picking' });
                     setCopyRetryFrom(null);
-                    setPhase({ kind: 'picking' });
                   }}
                   className="rounded-lg px-4 py-1.5 text-sm font-medium text-neutral-700 transition hover:bg-black/5 dark:text-neutral-300 dark:hover:bg-white/10"
                 >
@@ -1612,17 +1633,20 @@ function JobReport({ end, S }: { end: JobEnd; S: UiStrings }) {
  *
  * @param result
  * @param busy true while a retry is starting
+ * @param note why the last retry was refused
  * @param onRetry absent when there is nothing to retry
  * @param S
  */
 function CopyReport({
   result,
   busy,
+  note,
   onRetry,
   S,
 }: {
   result: DoneResult;
   busy: boolean;
+  note?: string;
   onRetry?: () => void;
   S: UiStrings;
 }) {
@@ -1653,6 +1677,7 @@ function CopyReport({
           </li>
         ))}
       </ul>
+      {note && <p className="text-sm text-red-600 dark:text-red-500">{note}</p>}
       {onRetry && (
         <button
           type="button"
