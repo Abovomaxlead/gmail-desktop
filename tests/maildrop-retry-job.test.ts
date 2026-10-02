@@ -63,7 +63,15 @@ describe('a job that lost one insert in its second batch', () => {
     );
     expect(end.retryId).toEqual(expect.any(String));
     expect(h.state.toasts).toEqual([
-      { id: 'toast-1', input: expect.objectContaining({ kind: 'maildrop', persist: true }) },
+      {
+        id: 'toast-1',
+        input: {
+          kind: 'maildrop',
+          title: 'Klus klaar — 4 van 5 gekopieerd, 1 mislukt',
+          body: 'Klik om het opnieuw te proberen',
+          persist: true,
+        },
+      },
     ]);
     expect(h.controller.dropPreviewItems().jobEnd?.retryId).toBe(end.retryId);
     expect(h.inserts(TARGET_A, lost)).toBe(0);
@@ -85,8 +93,69 @@ describe('a job that lost one insert in its second batch', () => {
   });
 });
 
-describe('a job whose second batch could not be fetched once', () => {
-  it('ends stuck without re-pulling, then a continue re-pulls it and counts no stale loss', async () => {
+describe('a job that could not fetch one conversation of its second batch', () => {
+  it('offers it, and the retry fetches it once more and lands it once', async () => {
+    const job = await dragJob();
+    const [unfetched, sibling] = job.batchThreads[1];
+    const [lost] = job.batchIds[1];
+    h.fake.failFetch(SOURCE, unfetched, 1);
+
+    const end = await copyAndWalk(job);
+    expect(end).toEqual(expect.objectContaining({ outcome: 'completed', done: 4, total: 5, failed: 1 }));
+    expect(end.retryId).toEqual(expect.any(String));
+    expect([h.fake.fetches(SOURCE, unfetched), h.fake.fetches(SOURCE, sibling)]).toEqual([1, 1]);
+    expectLandedExcept(job, [lost]);
+
+    const retried = (await h.retryJob(end.retryId!, 'check')) as MailDropCopyResult;
+    expect(retried.ok).toBe(true);
+    expect(retried.copied).toBe(1);
+    expect(retried.retryId).toBeUndefined();
+    expect(retried.unfetched).toBeUndefined();
+    expect([h.fake.fetches(SOURCE, unfetched), h.fake.fetches(SOURCE, sibling)]).toEqual([2, 1]);
+    expect(h.fake.attempts(TARGET_A, lost)).toBe(1);
+    expectLandedExcept(job, []);
+
+    const again = (await h.retryJob(end.retryId!, 'check')) as MailDropCopyResult;
+    expect(again.ok).toBe(false);
+    expect(again.error).toBe('Deze lijst is verlopen. Sleep de mail opnieuw.');
+    expect(h.fake.fetches(SOURCE, unfetched)).toBe(2);
+    expectLandedExcept(job, []);
+  });
+
+  it('renews the offer when the retry cannot fetch it either, and the next press lands it once', async () => {
+    const job = await dragJob();
+    const [unfetched] = job.batchThreads[1];
+    const [lost] = job.batchIds[1];
+    h.fake.failFetch(SOURCE, unfetched, 2);
+    const end = await copyAndWalk(job);
+    expect(end.retryId).toEqual(expect.any(String));
+
+    const renewed = (await h.retryJob(end.retryId!, 'check')) as MailDropCopyResult;
+    expect(renewed.ok).toBe(false);
+    expect(renewed.copied).toBe(0);
+    expect(renewed.retryId).toEqual(expect.any(String));
+    expect(renewed.retryId).not.toBe(end.retryId);
+    expect(renewed.unfetched).toEqual([expect.objectContaining({ error: expect.stringContaining('Ophalen mislukt') })]);
+    expect(h.fake.fetches(SOURCE, unfetched)).toBe(2);
+    expect(h.fake.attempts(TARGET_A, lost)).toBe(0);
+    expectLandedExcept(job, [lost]);
+
+    const stale = (await h.retryJob(end.retryId!, 'check')) as MailDropCopyResult;
+    expect(stale.error).toBe('Deze lijst is verlopen. Sleep de mail opnieuw.');
+
+    const landed = (await h.retryJob(renewed.retryId!, 'check')) as MailDropCopyResult;
+    expect(landed.ok).toBe(true);
+    expect(landed.copied).toBe(1);
+    expect(landed.retryId).toBeUndefined();
+    expect(landed.unfetched).toBeUndefined();
+    expect(h.fake.fetches(SOURCE, unfetched)).toBe(3);
+    expect(h.fake.attempts(TARGET_A, lost)).toBe(1);
+    expectLandedExcept(job, []);
+  });
+});
+
+describe('a job whose second batch was refused its whole pull once', () => {
+  it('ends the walk stuck, and a continue pulls that batch again and nothing else', async () => {
     const job = await dragJob();
     for (const t of job.batchThreads[1]) h.fake.failFetch(SOURCE, t);
 
@@ -112,7 +181,7 @@ describe('a job whose second batch keeps refusing', () => {
     const job = await dragJob();
     for (const t of job.batchThreads[1]) h.fake.failFetch(SOURCE, t, 1000);
 
-    // A walk that re-pulls a refused batch never ends; the cap makes that fail fast
+    // A walk that re-pulls a refused batch would end only after 1000 pulls; the fetch count is the guard
     const end = await copyAndWalk(job, 200);
     expect(end.outcome).toBe('stuck');
     expect(end.retryId).toBeUndefined();
@@ -238,6 +307,9 @@ async function copyAndWalk(job: DraggedJob, maxTurns?: number): Promise<JobEndPa
 /**
  * Restarts the controller over the same disk, and continues the job its start offers
  *
+ * The offer is only ever shown by the drop panel, which asks for it when it opens, and only a
+ * drag opens that panel -- so an unrelated mail is dragged first, as the user would have to.
+ *
  * @param job
  * @returns the job end of the resumed walk
  */
@@ -245,18 +317,19 @@ async function restartAndContinue(job: DraggedJob): Promise<JobEndPayload> {
   const seen = jobEnds().length;
   await h.fresh();
   await h.controller.resumeOrphanedCopyRuns();
+  h.fake.seedThread(SOURCE, 'thread-panel', [{ messageId: '<panel@harness.test>', subject: 'Paneel' }]);
+  await h.drag([{ threadId: 'thread-panel', subject: 'Paneel' }]);
   expect(h.controller.pendingJobDecision()?.jobId).toBe(job.plan.jobId);
-  h.attachPanel();
   expect(await h.decideJob(job.plan.jobId, 'continue')).toEqual({ ok: true });
   await h.waitFor(() => jobEnds().length > seen, 'the resumed job end');
   return jobEnds()[jobEnds().length - 1];
 }
 
-/** Every job end the controller sent, to a panel that was showing or not */
+/** Every job end the controller delivered to a panel that was showing */
 function jobEnds(): JobEndPayload[] {
-  return h.state.overlay
-    .filter((o) => o.channel === IPC.MAIL_DROP_COPY_PROGRESS)
-    .map((o) => (o.payload as { jobEnd?: JobEndPayload }).jobEnd)
+  return h
+    .sent(IPC.MAIL_DROP_COPY_PROGRESS)
+    .map((p) => (p as { jobEnd?: JobEndPayload }).jobEnd)
     .filter((e): e is JobEndPayload => e !== undefined);
 }
 
