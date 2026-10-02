@@ -9,7 +9,12 @@ import {
   retryRefusal,
   wholeTargetFailed,
 } from '../electron/mail/copy-failures';
-import { GmailHttpError, GmailTimeoutError, insertMayHaveLanded } from '../electron/gmail/gmail-api';
+import {
+  GmailHttpError,
+  GmailTimeoutError,
+  GmailUnreadableSuccessError,
+  insertMayHaveLanded,
+} from '../electron/gmail/gmail-api';
 
 const f = (threadId: string, subject = threadId) => ({ threadId, subject, messageId: `<${threadId}@x>` });
 
@@ -134,6 +139,11 @@ describe('insertMayHaveLanded', () => {
   it('says yes for a timeout and a dropped connection', () => {
     expect(insertMayHaveLanded(new GmailTimeoutError('geen antwoord van Google (time-out)'))).toBe(true);
     expect(insertMayHaveLanded(new Error('net::ERR_CONNECTION_RESET'))).toBe(true);
+  });
+
+  // Gmail carried the insert out and only its answer was lost on the way back
+  it('says yes for a success status with an unreadable body', () => {
+    expect(insertMayHaveLanded(new GmailUnreadableSuccessError('onleesbaar antwoord (HTTP 200)'))).toBe(true);
   });
 
   it('says no for an answer Gmail actually gave', () => {

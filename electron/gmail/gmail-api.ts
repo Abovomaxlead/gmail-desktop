@@ -1495,17 +1495,22 @@ function budgetFor(accessToken: string): QuotaBudget {
  * kind is safe to send again after an insert. */
 export class GmailTimeoutError extends Error {}
 
+/** A success status whose body could not be read: Gmail carried the request out, so an insert
+ * that answered this way has almost certainly landed. */
+export class GmailUnreadableSuccessError extends Error {}
+
 /**
  * Whether a failed insert may still have reached the mailbox
  *
- * A timeout and a connection Electron reports as dropped both leave the upload's fate unknown;
- * any answer Gmail actually gave, and any error raised before the request went out, does not.
+ * A timeout and a connection Electron reports as dropped both leave the upload's fate unknown,
+ * and a success status with an unreadable body means it went through; any other answer Gmail
+ * gave, and any error raised before the request went out, does not.
  *
  * @param e what the insert threw
  * @returns {boolean}
  */
 export function insertMayHaveLanded(e: unknown): boolean {
-  if (e instanceof GmailTimeoutError) return true;
+  if (e instanceof GmailTimeoutError || e instanceof GmailUnreadableSuccessError) return true;
   if (e instanceof GmailHttpError || e instanceof GmailCancelledError) return false;
   return e instanceof Error && e.message.startsWith('net::');
 }
@@ -1800,7 +1805,7 @@ async function attemptJson(
           fail(
             res.statusCode >= 400
               ? new GmailHttpError(unreadable, res.statusCode, after)
-              : new Error(unreadable),
+              : new GmailUnreadableSuccessError(unreadable),
           );
           return;
         }
