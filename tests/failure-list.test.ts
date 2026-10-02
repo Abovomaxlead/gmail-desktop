@@ -50,7 +50,7 @@ describe('replaceRows', () => {
 
   it('leaves the original untouched', () => {
     const items = [{ threadId: 't1', subject: 'a', saved: 0, error: 'x' }];
-    replaceRows(items, [0], [{ threadId: 't1', subject: 'a', saved: 1 }]);
+    replaceRows(items, [0], [{ threadId: 't1', subject: 'a', saved: 1, error: 'x' }]);
     expect(items[0].saved).toBe(0);
   });
 });

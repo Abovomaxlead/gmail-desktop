@@ -1493,7 +1493,22 @@ function budgetFor(accessToken: string): QuotaBudget {
 
 /** A request that never got an answer, apart from one that got a bad one: only the second
  * kind is safe to send again after an insert. */
-class GmailTimeoutError extends Error {}
+export class GmailTimeoutError extends Error {}
+
+/**
+ * Whether a failed insert may still have reached the mailbox
+ *
+ * A timeout and a connection Electron reports as dropped both leave the upload's fate unknown;
+ * any answer Gmail actually gave, and any error raised before the request went out, does not.
+ *
+ * @param e what the insert threw
+ * @returns {boolean}
+ */
+export function insertMayHaveLanded(e: unknown): boolean {
+  if (e instanceof GmailTimeoutError) return true;
+  if (e instanceof GmailHttpError || e instanceof GmailCancelledError) return false;
+  return e instanceof Error && e.message.startsWith('net::');
+}
 
 /**
  * The one request every call in this file goes through
