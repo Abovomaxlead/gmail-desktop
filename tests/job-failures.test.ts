@@ -8,6 +8,7 @@ import {
   emptyJobFailures,
   isEmpty,
   lostConversations,
+  replaceBatchPull,
   retryFiles,
   takePullSlice,
 } from '../electron/mail/job-failures';
@@ -63,6 +64,35 @@ describe('addPullFailures and takePullSlice', () => {
     const { slice, rest } = takePullSlice(acc, 2);
     expect(slice.map((x) => x.threadId)).toEqual(['t1', 't2']);
     expect(rest.map((x) => x.threadId)).toEqual(['t3']);
+  });
+});
+
+describe('replaceBatchPull', () => {
+  // Review focus: a batch pulled again must not keep its earlier attempt's losses
+  it('clears a batch the later attempt fetched in full', () => {
+    let acc = replaceBatchPull(emptyJobFailures<T, F, P>(), ['t1', 't2'], [p('t1'), p('t2')]);
+    acc = replaceBatchPull(acc, ['t1', 't2'], []);
+    expect(acc.pull).toEqual([]);
+  });
+
+  it('keeps only what the later attempt still lost', () => {
+    let acc = replaceBatchPull(emptyJobFailures<T, F, P>(), ['t1', 't2'], [p('t1'), p('t2')]);
+    acc = replaceBatchPull(acc, ['t1', 't2'], [p('t2')]);
+    expect(acc.pull.map((x) => x.threadId)).toEqual(['t2']);
+  });
+
+  it('leaves other batches untouched', () => {
+    let acc = replaceBatchPull(emptyJobFailures<T, F, P>(), ['t1'], [p('t1')]);
+    acc = replaceBatchPull(acc, ['t5', 't6'], [p('t6')]);
+    acc = replaceBatchPull(acc, ['t5', 't6'], []);
+    expect(acc.pull.map((x) => x.threadId)).toEqual(['t1']);
+  });
+
+  it('does not mutate its input', () => {
+    const before = replaceBatchPull(emptyJobFailures<T, F, P>(), ['t1'], [p('t1')]);
+    const after = replaceBatchPull(before, ['t1'], []);
+    expect(before.pull.map((x) => x.threadId)).toEqual(['t1']);
+    expect(after).not.toBe(before);
   });
 });
 

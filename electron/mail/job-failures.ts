@@ -19,6 +19,11 @@ export interface JobFailures<
 
 
 //===========================
+// Constants
+//===========================
+
+
+//===========================
 // Exported functions
 //===========================
 
@@ -75,6 +80,24 @@ export function addPullFailures<T extends { email: string }, F extends FailedFil
   const pull = [...acc.pull];
   for (const t of threads) if (!pull.some((h) => h.threadId === t.threadId)) pull.push(t);
   return { copy: acc.copy, pull };
+}
+
+/**
+ * Replaces one batch's pull losses with those of its latest attempt
+ *
+ * @param acc the accumulator
+ * @param sliceThreadIds every conversation the batch asked for
+ * @param failed the conversations this attempt could not fetch
+ * @returns a new record; other batches' losses are kept as they were
+ */
+export function replaceBatchPull<T extends { email: string }, F extends FailedFileRef, P extends { threadId: string }>(
+  acc: JobFailures<T, F, P>,
+  sliceThreadIds: Iterable<string>,
+  failed: P[],
+): JobFailures<T, F, P> {
+  const slice = new Set(sliceThreadIds);
+  const kept = { copy: acc.copy, pull: acc.pull.filter((t) => !slice.has(t.threadId)) };
+  return addPullFailures(kept, failed);
 }
 
 /**
