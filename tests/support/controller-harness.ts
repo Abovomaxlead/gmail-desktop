@@ -29,6 +29,7 @@ import type * as GmailApi from '../../electron/gmail/gmail-api';
 import type * as RunSweep from '../../electron/mail/copy-marker-run-sweep';
 import type { CopyMode } from '../../electron/mail/mail-copy';
 import type { Profile } from '../../electron/windows/profile-view-manager';
+import { OverlayView } from '../../electron/windows/overlay-view';
 import { FakeGmail, bare } from './fake-gmail';
 
 
@@ -76,6 +77,8 @@ interface HarnessState {
   log: string[];
   /** Mailboxes whose token is refused, for a scenario about a mailbox that cannot be reached */
   noToken: Set<string>;
+  /** Called before every token is handed out; a throw here is a throw out of the token lookup itself */
+  onToken: ((email: string) => void) | null;
   controller: Controller | null;
 }
 
@@ -100,6 +103,8 @@ export interface Harness {
   waitFor(done: () => boolean, what: string, maxTurns?: number): Promise<void>;
   waitForJobEnd(maxTurns?: number): Promise<JobEndPayload>;
   drain(): Promise<void>;
+  /** Hands the controller a drop panel that was never opened, so a walk after fresh() is heard */
+  attachPanel(): void;
   inserts(email: string, messageId: string): number;
   expectLanded(email: string, expected: Record<string, string[]>): void;
   settle(): Promise<void>;
@@ -188,8 +193,10 @@ vi.mock('../../electron/core/runtime', () => ({
 }));
 
 vi.mock('../../electron/auth/mailbox-token', () => {
-  const tokenOf = (email: string): string | null =>
-    state().fake.mailboxes.has(email) && !state().noToken.has(email) ? state().fake.tokenFor(email) : null;
+  const tokenOf = (email: string): string | null => {
+    state().onToken?.(email);
+    return state().fake.mailboxes.has(email) && !state().noToken.has(email) ? state().fake.tokenFor(email) : null;
+  };
   return {
     isDelegatedMailbox: () => false,
     mailboxToken: async (email: string) => {
@@ -311,6 +318,7 @@ export async function startHarness(): Promise<Harness> {
     dismissed: [],
     log: [],
     noToken: new Set(),
+    onToken: null,
     controller: null,
   };
   await fresh();
@@ -474,6 +482,10 @@ function harness(s: HarnessState): Harness {
       return ends()[ends().length - 1];
     },
     drain,
+    attachPanel: () => {
+      // Never opened, so whatever reaches it is recorded undelivered, the way the real view drops it
+      s.dropOverlay = new (OverlayView as unknown as new () => unknown)();
+    },
     inserts: (email, messageId) => s.fake.inserts(email, messageId),
     expectLanded: (email, expected) => {
       const wanted = new Map(Object.entries(expected).map(([id, labels]) => [bare(id), labels]));
