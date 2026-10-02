@@ -10,8 +10,11 @@ import { describe, it, expect } from 'vitest';
 import {
   titleMailbox,
   mailUrlVerdict,
-  deadDelegatedUrls,
   delegatedRepairFor,
+  mayRereadSwitcher,
+  urlFingerprint,
+  MAX_DELEGATED_REPAIRS,
+  REREAD_GAP_MS,
 } from '../electron/delegation/delegated-health';
 
 describe('titleMailbox', () => {
@@ -95,38 +98,6 @@ describe('mailUrlVerdict', () => {
   });
 });
 
-describe('deadDelegatedUrls', () => {
-  it('names only the mailboxes whose view is showing someone else', () => {
-    expect(
-      deadDelegatedUrls([
-        { email: 'support@abovomaxlead.nl', title: 'Inbox (9) - luca.manuel@abovomaxlead.nl - Gmail' },
-        { email: 'bart@abovomaxlead.nl', title: 'Inbox - bart@abovomaxlead.nl - Gmail' },
-        { email: 'info@abovomaxlead.nl', title: null },
-      ]),
-    ).toEqual(['support@abovomaxlead.nl']);
-  });
-
-  it('names nothing when every view shows its own mailbox', () => {
-    expect(
-      deadDelegatedUrls([{ email: 'bart@abovomaxlead.nl', title: 'Inbox - bart@abovomaxlead.nl - Gmail' }]),
-    ).toEqual([]);
-  });
-
-  it('names nothing at all when there is nothing to judge', () => {
-    expect(deadDelegatedUrls([])).toEqual([]);
-  });
-
-  it('names a mailbox once however many views report it', () => {
-    const wrong = 'Inbox - luca.manuel@abovomaxlead.nl - Gmail';
-    expect(
-      deadDelegatedUrls([
-        { email: 'support@abovomaxlead.nl', title: wrong },
-        { email: 'support@abovomaxlead.nl', title: wrong },
-      ]),
-    ).toEqual(['support@abovomaxlead.nl']);
-  });
-});
-
 // A title naming the wrong mailbox has two causes, and only one of them is the rotated id the
 // switcher scrape exists for. The other is a view that was redirected away from a url that is
 // still perfectly good: signed out, the delegated url answers with a login page, and signing
@@ -141,6 +112,8 @@ describe('delegatedRepairFor', () => {
         mailUrl: HOME,
         currentUrl: 'https://mail.google.com/mail/u/0/',
         sentHomeFor: null,
+        homeUrl: HOME,
+        attempts: 0,
       }),
     ).toBe('send-home');
   });
@@ -151,6 +124,8 @@ describe('delegatedRepairFor', () => {
         mailUrl: HOME,
         currentUrl: 'https://accounts.google.com/ServiceLogin?continue=x',
         sentHomeFor: null,
+        homeUrl: HOME,
+        attempts: 0,
       }),
     ).toBe('send-home');
   });
@@ -163,6 +138,8 @@ describe('delegatedRepairFor', () => {
         mailUrl: HOME,
         currentUrl: `${HOME}#inbox`,
         sentHomeFor: null,
+        homeUrl: HOME,
+        attempts: 0,
       }),
     ).toBe('reread-url');
   });
@@ -176,6 +153,8 @@ describe('delegatedRepairFor', () => {
         mailUrl: HOME,
         currentUrl: 'https://mail.google.com/mail/u/0/',
         sentHomeFor: HOME,
+        homeUrl: HOME,
+        attempts: 1,
       }),
     ).toBe('reread-url');
   });
@@ -187,6 +166,8 @@ describe('delegatedRepairFor', () => {
         mailUrl: HOME,
         currentUrl: 'https://mail.google.com/mail/u/0/',
         sentHomeFor: 'https://mail.google.com/mail/u/0/d/AOr0KcOLD/',
+        homeUrl: HOME,
+        attempts: 0,
       }),
     ).toBe('send-home');
   });
@@ -194,8 +175,85 @@ describe('delegatedRepairFor', () => {
   // Where the view is cannot be read, so there is no drift to act on and the scrape is the
   // only honest answer left.
   it('re-reads the url when where the view sits is unknown', () => {
-    expect(delegatedRepairFor({ mailUrl: HOME, currentUrl: null, sentHomeFor: null })).toBe(
+    expect(
+      delegatedRepairFor({ mailUrl: HOME, currentUrl: null, sentHomeFor: null, homeUrl: HOME, attempts: 0 }),
+    ).toBe(
       'reread-url',
     );
+  });
+
+  // The expired id with a fresh one already fetched in the background: the view is moved
+  // straight to it, without asking the switcher again
+  it('loads the stored url when the view was opened with an older one', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: 'https://mail.google.com/mail/u/0/',
+        sentHomeFor: null,
+        homeUrl: 'https://mail.google.com/mail/u/0/d/AOr0KcOLD/',
+        attempts: 0,
+      }),
+    ).toBe('load-stored');
+  });
+
+  // A mailbox that cannot be opened however often it is retried must stop being reloaded,
+  // or the view flickers between attempts for ever
+  it('gives up once the repairs have run out', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: `${HOME}#inbox`,
+        sentHomeFor: HOME,
+        homeUrl: HOME,
+        attempts: MAX_DELEGATED_REPAIRS,
+      }),
+    ).toBe('give-up');
+  });
+
+  it('keeps repairing while attempts are left', () => {
+    expect(
+      delegatedRepairFor({
+        mailUrl: HOME,
+        currentUrl: `${HOME}#inbox`,
+        sentHomeFor: HOME,
+        homeUrl: HOME,
+        attempts: MAX_DELEGATED_REPAIRS - 1,
+      }),
+    ).toBe('reread-url');
+  });
+});
+
+describe('mayRereadSwitcher', () => {
+  it('reads at once when the switcher was never read for this mailbox', () => {
+    expect(mayRereadSwitcher(null, 1_000)).toBe(true);
+  });
+
+  // A read that found nothing new is retried, but not on every sample
+  it('waits the gap before reading again', () => {
+    expect(mayRereadSwitcher(1_000, 1_000 + REREAD_GAP_MS - 1)).toBe(false);
+    expect(mayRereadSwitcher(1_000, 1_000 + REREAD_GAP_MS)).toBe(true);
+  });
+});
+
+describe('urlFingerprint', () => {
+  const A = 'https://mail.google.com/mail/u/0/d/AJBOaaaa/';
+  const B = 'https://mail.google.com/mail/u/0/d/AJBObbbb/';
+
+  it('gives one url the same print every time', () => {
+    expect(urlFingerprint(A)).toBe(urlFingerprint(A));
+  });
+
+  it('tells two ids apart', () => {
+    expect(urlFingerprint(A)).not.toBe(urlFingerprint(B));
+  });
+
+  // The print goes into a log people send around, so the id itself must never appear in it
+  it('never contains the id', () => {
+    expect(urlFingerprint(A)).not.toContain('AJBO');
+    expect(urlFingerprint(A)).toMatch(/^[0-9a-f]{8}$/);
+  });
+
+  it('says none for a mailbox without a url', () => {
+    expect(urlFingerprint(null)).toBe('none');
   });
 });

@@ -25,7 +25,8 @@ import { requestDelegatedToken } from './delegated-token';
 import { accessVerdict, type AccessAttempt } from './delegated-access';
 import { SWITCHER_SCRAPE_JS, parseDelegatedEntries } from './delegation';
 import { canRunDelegatedApiScan } from './delegated-discovery-gate';
-import { deadDelegatedUrls, delegatedRepairFor } from './delegated-health';
+import { nativeTheme } from 'electron';
+import { delegatedRepairFor, mailUrlVerdict, mayRereadSwitcher, urlFingerprint } from './delegated-health';
 import { reconcileDelegations, type RequesterAnswer } from './delegated-reconcile';
 import { readSwitcher } from '../windows/switcher-reader';
 import { pickableMailboxes } from './delegated-candidates';
@@ -35,17 +36,20 @@ import { notifyLog } from '../notify/notify-log';
 import {
   colorForEmail,
   colors,
+  currentLocale,
   delegated,
   hidden,
   keyOf,
   manager,
   oauthTokens,
+  prefs,
   profiles,
 } from '../core/runtime';
 import { delegatedMailboxesUrl, delegatedTokenUrl, oauthConfig } from '../auth/oauth-config';
 import { requestersInOrder } from '../auth/mailbox-token';
 import { accessTokenFor } from '../auth/oauth-flow';
 import { syncCalendarViews, warmAccount } from '../windows/view-surfaces';
+import { delegatedLostText, viewCrashUrl } from '../windows/view-crash-page';
 import { SURFACES, surfacesForRef } from '../../renderer/lib/surfaces';
 import type { AccountRef } from '../accounts/account-ref';
 import type { StoredDelegate } from './delegated-store';
@@ -61,11 +65,15 @@ import type { OAuthStore } from '../auth/oauth-store';
 // How often the delegated views' titles are read. Reading one is a synchronous
 // webContents.getTitle() through ProfileViewManager.titleOf -- no page is touched and Google is
 // not asked anything -- so the sampling itself is free; the switcher scrape it can lead to is
-// gated on a dead verdict and on the url not having been re-read for that url already.
+// gated on a dead verdict and on REREAD_GAP_MS.
 //
-// The first sample lands past WARMUP_CAP_MS (25s in windows/view-warmup.ts), by which time a
-// view that was going to load has a title.
-const HEALTH_SAMPLE_MS = 30_000;
+// Short, because a view showing the wrong mailbox is a person reading the wrong mail. A view
+// still loading has no mailbox in its title and is left alone.
+const HEALTH_SAMPLE_MS = 2_000;
+
+// How long a view is left alone after it was sent somewhere, so the page has time to load.
+// Until it has, the title still names the mailbox it is leaving.
+const REPAIR_SETTLE_MS = 10_000;
 
 // How often the relay is asked whether the stored mailboxes are still delegated. A revocation
 // is administrative -- somebody takes a delegate off a mailbox in the admin console -- so it
@@ -137,10 +145,18 @@ async function scanSwitcherEntries(authuser = 0): Promise<Array<{ email: string;
 
 let delegatedScanStarted = false;
 
+// Until the startup read is back, a dead view waits for it rather than queueing a read of its
+// own: reads run one at a time and take twelve to twenty seconds each
+let startupReadDone = false;
+
 export function startDelegatedUrlRefreshOnce(): void {
   if (delegatedScanStarted) return;
   delegatedScanStarted = true;
-  setTimeout(() => void refreshDelegatedUrls(), 7000);
+  setTimeout(() => {
+    void refreshDelegatedUrls().finally(() => {
+      startupReadDone = true;
+    });
+  }, 7000);
   // The startup scrape answers for a url that rotated while the app was closed, and only when
   // the scrape itself succeeds. The watch answers for the rest: a scrape that came back short,
   // and a rotation halfway through a session that is running now.
@@ -165,6 +181,17 @@ async function refreshDelegatedUrls(): Promise<void> {
   applySwitcherUrls(entries);
 }
 
+/**
+ * Stores the urls the switcher handed out
+ *
+ * Only stored: a view that is open keeps the url it has, because an older id usually still
+ * works and reloading a working mailbox is not a repair. A view that does show the wrong
+ * mailbox is moved by the health watch, which finds the fresh url here. Views built from now
+ * on start from it.
+ *
+ * @param entries the switcher's mailboxes with the url each one opens at
+ * @private
+ */
 function applySwitcherUrls(entries: Array<{ email: string; mailUrl: string }>): void {
   if (!delegated || !manager) return;
   const freshByEmail = new Map(entries.map((e) => [e.email.toLowerCase(), e.mailUrl]));
@@ -173,12 +200,13 @@ function applySwitcherUrls(entries: Array<{ email: string; mailUrl: string }>): 
     const fresh = freshByEmail.get(d.email.toLowerCase());
     if (!fresh || fresh === d.mailUrl) continue;
     delegated.upsert({ ...d, mailUrl: fresh });
-    // That it changed, never what it changed to: the opaque id is account data, and the log is
-    // read by whoever is debugging rather than by the person whose mailbox it is.
-    notifyLog(`[delegated] ${d.email}: new url from the switcher${d.mailUrl === null ? ' (had none)' : ''}`);
+    // A print of the url, never the url: the opaque id is account data, and the log is read
+    // by whoever is debugging rather than by the person whose mailbox it is
+    notifyLog(
+      `[delegated] ${d.email}: new url from the switcher (${urlFingerprint(d.mailUrl)} -> ${urlFingerprint(fresh)})`,
+    );
     const p = profiles.find((x) => x.kind === 'delegated' && x.email.toLowerCase() === d.email.toLowerCase());
     if (p && p.ref.kind === 'delegated') {
-      for (const s of SURFACES) manager.discardView(keyOf(p), s);
       p.ref = { ...p.ref, mailUrl: fresh };
       changed = true;
     }
@@ -228,14 +256,19 @@ async function resolveDelegatedUrls(): Promise<void> {
   await scrapeSwitchersUntil(delegatedWithoutUrl, 'newly discovered');
 }
 
-// Which url each mailbox had when the switcher was last re-read for it, so one dead url costs
-// one scrape and not one per sample. A url that is replaced and later dies again is a different
-// value here, so it earns its own scrape.
-const rereadFor = new Map<string, string | null>();
+// Repairs each mailbox has had since its view last showed the right mailbox. Cleared on the
+// first sample that does, so the limit stops a loop and never a repair later in the day.
+const repairsFor = new Map<string, number>();
 
-// The same gate for the other repair: which url each mailbox was last sent back to. Going home
-// is tried once per url, so a title that is still wrong afterwards falls through to the scrape
-// instead of sending the view home for ever.
+// When the switcher was last read for each mailbox, so a read that found nothing new is
+// retried after REREAD_GAP_MS and not on every sample.
+const rereadAt = new Map<string, number>();
+
+// When each view was last sent somewhere, so it is not judged on a page still leaving.
+const repairedAt = new Map<string, number>();
+
+// Which url each mailbox was last sent back to. Going home is tried once per url, so a title
+// that is still wrong afterwards falls through to the switcher instead of going home for ever.
 const sentHomeFor = new Map<string, string | null>();
 
 // A scrape waits on Google's widget frame, which takes seconds, and the sampler keeps ticking
@@ -276,54 +309,24 @@ function delegatedViewStates(): Array<{ email: string; title: string | null; url
  * Notices a delegated view showing the wrong mail, and puts it right
  *
  * The signal is the view's own page title: Gmail titles the mailbox on screen, so a delegated
- * view titled after another address is a view looking at the wrong mail. Two different faults
- * leave that behind, and delegated-health.ts is where they are told apart -- a rotated id, for
- * which only the switcher knows the new url, and a view carried off a url that still works,
- * which is what being signed out does and which costs one navigation to undo.
- *
- * What the scrape then does is unchanged: applySwitcherUrls replaces the url, throws the views
- * away and pushes the profiles, which it already did correctly before any of this.
+ * view titled after another address is a view looking at the wrong mail. Most of the time the
+ * id it was opened with has expired, and the fresh one is already stored by the startup read;
+ * the view is moved to it at once. When it is not, the switcher is read for it and the view is
+ * moved the moment the read comes back.
  *
  * @private
  */
 async function checkDelegatedUrlHealth(): Promise<void> {
   if (!delegated || !manager || healthCheckInFlight) return;
-  const views = delegatedViewStates();
-  const dead = deadDelegatedUrls(views);
-  if (dead.length === 0) return;
+  const toReread = repairDelegatedViews();
+  if (toReread.length === 0) return;
 
-  // Going home first, because it is the cheap fault and it is free to rule out: only what
-  // going home cannot explain is worth a switcher scrape.
-  const held = new Map(delegated.list().map((d) => [d.email.toLowerCase(), d.mailUrl]));
-  const worth: string[] = [];
-  for (const email of dead) {
-    const key = email.toLowerCase();
-    if (!held.has(key)) continue;
-    const mailUrl = held.get(key) ?? null;
-    const repair = delegatedRepairFor({
-      mailUrl,
-      currentUrl: views.find((v) => v.email.toLowerCase() === key)?.url ?? null,
-      sentHomeFor: sentHomeFor.get(key) ?? null,
-    });
-    if (repair === 'send-home' && sendDelegatedViewHome(email)) {
-      sentHomeFor.set(key, mailUrl);
-      continue;
-    }
-    if (rereadFor.get(key) !== mailUrl) worth.push(email);
-  }
-  if (worth.length === 0) return;
-
-  for (const email of worth) {
-    const key = email.toLowerCase();
-    rereadFor.set(key, held.get(key) ?? null);
-    notifyLog(`[delegated] ${email}: the stored url opens another mailbox, re-reading the switcher`);
-  }
-
-  // Outstanding for as long as the url is still the one that was found dead: applySwitcherUrls
-  // upserting a different one is what takes a mailbox out of this list.
+  // Outstanding for as long as the stored url is still the one the view was found dead on:
+  // applySwitcherUrls storing a different one is what takes a mailbox out of this list
+  const deadOn = new Map(delegated.list().map((d) => [d.email.toLowerCase(), d.mailUrl]));
   const stillDead = (): string[] => {
     const now = new Map(delegated!.list().map((d) => [d.email.toLowerCase(), d.mailUrl]));
-    return worth.filter((email) => now.get(email.toLowerCase()) === rereadFor.get(email.toLowerCase()));
+    return toReread.filter((email) => now.get(email.toLowerCase()) === deadOn.get(email.toLowerCase()));
   };
   healthCheckInFlight = true;
   try {
@@ -332,11 +335,88 @@ async function checkDelegatedUrlHealth(): Promise<void> {
     healthCheckInFlight = false;
   }
   // Said as what was seen, not as a diagnosis: the same url coming back also happens when the
-  // user simply navigated a delegated view somewhere else, and that mailbox is not broken at all.
+  // user simply navigated a delegated view somewhere else, and that mailbox is not broken at all
   const left = stillDead();
   if (left.length > 0) {
-    notifyLog(`[delegated] switcher gives the same url for ${left.join(', ')}; nothing replaced`);
+    notifyLog(`[delegated] switcher gives the same url for ${left.join(', ')}; trying again later`);
   }
+  repairDelegatedViews();
+}
+
+/**
+ * Applies one repair to every delegated view that shows the wrong mailbox
+ *
+ * @returns the mailboxes whose url only the switcher can renew
+ * @private
+ */
+function repairDelegatedViews(): string[] {
+  if (!delegated || !manager) return [];
+  const held = new Map(delegated.list().map((d) => [d.email.toLowerCase(), d.mailUrl]));
+  const now = Date.now();
+  const toReread: string[] = [];
+  for (const view of delegatedViewStates()) {
+    const key = view.email.toLowerCase();
+    const verdict = mailUrlVerdict(view.email, view.title);
+    if (verdict === 'ok') {
+      repairsFor.delete(key);
+      sentHomeFor.delete(key);
+      continue;
+    }
+    if (verdict !== 'dead' || !held.has(key)) continue;
+    if (now - (repairedAt.get(key) ?? 0) < REPAIR_SETTLE_MS) continue;
+
+    const profile = profiles.find((p) => p.kind === 'delegated' && p.email.toLowerCase() === key);
+    if (!profile) continue;
+    const mailUrl = held.get(key) ?? null;
+    const attempts = repairsFor.get(key) ?? 0;
+    const repair = delegatedRepairFor({
+      mailUrl,
+      homeUrl: manager.homeOf(keyOf(profile), 'mail'),
+      currentUrl: view.url,
+      sentHomeFor: sentHomeFor.get(key) ?? null,
+      attempts,
+    });
+
+    if (repair === 'give-up') {
+      // Back to zero, so Ctrl+R on the notice gets the whole round of repairs again
+      repairsFor.delete(key);
+      sentHomeFor.delete(key);
+      showDelegatedLost(profile);
+      continue;
+    }
+    if (repair === 'load-stored' && manager.moveHome(keyOf(profile), 'mail', mailUrl!)) {
+      repairsFor.set(key, attempts + 1);
+      repairedAt.set(key, now);
+      notifyLog(
+        `[delegated] ${view.email}: opened another mailbox, moved to the stored url (${urlFingerprint(mailUrl)})`,
+      );
+      continue;
+    }
+    if (repair === 'send-home' && sendDelegatedViewHome(view.email)) {
+      repairsFor.set(key, attempts + 1);
+      repairedAt.set(key, now);
+      sentHomeFor.set(key, mailUrl);
+      continue;
+    }
+    if (!startupReadDone || !mayRereadSwitcher(rereadAt.get(key) ?? null, now)) continue;
+    rereadAt.set(key, now);
+    repairsFor.set(key, attempts + 1);
+    toReread.push(view.email);
+    notifyLog(`[delegated] ${view.email}: the stored url opens another mailbox, re-reading the switcher`);
+  }
+  return toReread;
+}
+
+/**
+ * Says in the view that its mailbox cannot be opened
+ *
+ * @param profile the delegated mailbox
+ * @private
+ */
+function showDelegatedLost(profile: Profile): void {
+  const text = delegatedLostText(currentLocale(), prefs?.getAll().reneMode === true);
+  manager?.showNotice(keyOf(profile), 'mail', viewCrashUrl(text, profile.email, nativeTheme.shouldUseDarkColors));
+  notifyLog(`[delegated] ${profile.email}: still another mailbox after every repair; told the user in the view`);
 }
 
 /**
@@ -584,7 +664,7 @@ function dropDelegated(email: string): void {
     for (const s of SURFACES) manager?.discardView(keyOf(profiles[at]), s);
     profiles.splice(at, 1);
   }
-  rereadFor.delete(email.toLowerCase());
+  for (const memo of [repairsFor, rereadAt, repairedAt, sentHomeFor]) memo.delete(email.toLowerCase());
   stopMailboxSync(email);
   notifyLog(`[delegated] ${email} is no longer delegated; row and views gone`);
   pushProfiles();

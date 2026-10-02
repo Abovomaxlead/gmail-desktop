@@ -3,7 +3,7 @@
 // so the escaping is the part that has to hold.
 
 import { describe, expect, it } from 'vitest';
-import { viewCrashText, viewCrashUrl } from '../electron/windows/view-crash-page';
+import { delegatedLostText, viewCrashText, viewCrashUrl } from '../electron/windows/view-crash-page';
 
 /** The document inside the data URL, as the view will parse it */
 const documentOf = (url: string): string =>
@@ -65,5 +65,22 @@ describe('viewCrashUrl', () => {
   it('follows the theme, since it replaces a page that did', () => {
     expect(documentOf(viewCrashUrl(text, 'a@x.nl', true))).toContain('#202124');
     expect(documentOf(viewCrashUrl(text, 'a@x.nl', false))).toContain('#ffffff');
+  });
+});
+
+// A delegated mailbox the app could not open after several fresh urls. Said in the tab
+// itself, so the person is not left looking at their own inbox thinking it is the other one.
+describe('delegatedLostText', () => {
+  it('says the mailbox could not be opened, in the language the app is in', () => {
+    expect(delegatedLostText('nl', false).title).toBe('Dit postvak kan niet geopend worden');
+    expect(delegatedLostText('en', false).title).toBe('This mailbox cannot be opened');
+  });
+
+  it('lets Rene mode win over the locale', () => {
+    expect(delegatedLostText('en', true)).toBe(delegatedLostText('nl', true));
+  });
+
+  it('says how to try again', () => {
+    expect(delegatedLostText('nl', false).hint).toContain('Ctrl+R');
   });
 });

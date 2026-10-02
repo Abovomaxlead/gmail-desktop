@@ -19,7 +19,12 @@
 // a login page, and signing back in continues into the signed-in account's own inbox.
 // Scraping the switcher cannot cure that, since it hands back the same url -- what cures it
 // is sending the view back where it belongs. delegatedRepairFor tells the two apart.
+//
+// The id changes every session, but an old one usually keeps working for a while. So a view
+// opens straight away on the id it has, and the fresh one is only stored. Only a view that
+// shows the wrong mailbox gets moved to the fresh id.
 
+import { createHash } from 'node:crypto';
 import { viewLeftItsHome } from '../windows/view-home';
 
 
@@ -35,7 +40,7 @@ import { viewLeftItsHome } from '../windows/view-home';
 export type UrlVerdict = 'ok' | 'dead' | 'unknown';
 
 /** What to do about a delegated view whose title names another mailbox. */
-export type DelegatedRepair = 'send-home' | 'reread-url';
+export type DelegatedRepair = 'load-stored' | 'send-home' | 'reread-url' | 'give-up';
 
 
 //===========================
@@ -46,6 +51,15 @@ export type DelegatedRepair = 'send-home' | 'reread-url';
 // from the segment in front of the suffix and never from the page part, which is where a
 // subject sits -- and a subject may carry an address of its own.
 const TITLE_MAILBOX = /-\s*([^\s@]+@[^\s@]+\.[^\s@]+)\s*-\s*Gmail\s*$/;
+
+// Repairs a view gets before it says it cannot open the mailbox. Reset as soon as the view
+// shows the right mailbox again, so the limit only stops a loop and never a later repair.
+export const MAX_DELEGATED_REPAIRS = 4;
+
+// Least time between two switcher reads for the same mailbox. One read loads a hidden Gmail
+// page and waits on Google's widget frame, so a read that found nothing new is retried, but
+// not on every sample.
+export const REREAD_GAP_MS = 15_000;
 
 
 //===========================
@@ -78,43 +92,55 @@ export function mailUrlVerdict(email: string, title: string | null | undefined):
 }
 
 /**
- * Which delegated mailboxes are looking at somebody else's mail
- *
- * @param views one entry per delegated mail view, with the title it currently has
- * @returns the addresses whose URL has gone dead, each once, in the order given
- */
-export function deadDelegatedUrls(
-  views: Array<{ email: string; title: string | null | undefined }>,
-): string[] {
-  const dead: string[] = [];
-  for (const view of views) {
-    if (mailUrlVerdict(view.email, view.title) !== 'dead') continue;
-    if (dead.some((e) => e.toLowerCase() === view.email.toLowerCase())) continue;
-    dead.push(view.email);
-  }
-  return dead;
-}
-
-/**
  * What to do about a delegated view that is showing another mailbox
  *
- * Going home is tried first because it costs one navigation and no page scrape, and it is
- * the answer whenever the view was redirected off a url that still works. It is tried once
- * per url: a title that is still wrong afterwards means the url itself is the wrong one, and
- * only the switcher knows the new one.
+ * A fresh url that is already stored comes first: the view was opened with an older one,
+ * and moving it costs one navigation. Going home is next, the answer whenever the view was
+ * redirected off a url that still works, and it is tried once per url. What is left needs a
+ * new url from the switcher.
  *
- * @param view the mailbox's stored url, where its view currently sits, and the url it was
- *   last sent home to -- null when it never was
- * @returns 'send-home' only when the view has demonstrably left its stored url and has not
- *   already been sent back to that same url; 'reread-url' in every other case, including a
- *   current url that cannot be read
+ * @param view the mailbox's stored url, the url its view was opened with, where the view
+ *   now sits, the url it was last sent home to, and how many repairs it has had since it
+ *   last showed the right mailbox
+ * @returns 'give-up' once the repairs have run out; 'load-stored' when a newer url is stored
+ *   than the view has; 'send-home' when the view has left its url and was not yet sent back
+ *   to it; 'reread-url' in every other case, including a current url that cannot be read
  */
 export function delegatedRepairFor(view: {
   mailUrl: string | null;
+  homeUrl: string | null;
   currentUrl: string | null | undefined;
   sentHomeFor: string | null;
+  attempts: number;
 }): DelegatedRepair {
+  if (view.attempts >= MAX_DELEGATED_REPAIRS) return 'give-up';
   if (!view.mailUrl) return 'reread-url';
+  if (view.homeUrl && view.homeUrl !== view.mailUrl) return 'load-stored';
   if (view.sentHomeFor === view.mailUrl) return 'reread-url';
   return viewLeftItsHome(view.mailUrl, view.currentUrl) ? 'send-home' : 'reread-url';
+}
+
+/**
+ * Whether the switcher may be read again for one mailbox
+ *
+ * @param lastAt when it was last read for this mailbox, null when never
+ * @param now
+ * @returns true when it was never read, or at least REREAD_GAP_MS ago
+ */
+export function mayRereadSwitcher(lastAt: number | null, now: number): boolean {
+  return lastAt === null || now - lastAt >= REREAD_GAP_MS;
+}
+
+/**
+ * A short print of a mailbox url, for the log
+ *
+ * Says whether the id changed without ever writing the id, which is account data in a log
+ * people send around.
+ *
+ * @param url
+ * @returns eight hex characters, or 'none' when there is no url
+ */
+export function urlFingerprint(url: string | null): string {
+  if (!url) return 'none';
+  return createHash('sha256').update(url).digest('hex').slice(0, 8);
 }
