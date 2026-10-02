@@ -8,6 +8,7 @@ import {
   scrapeSettled,
   labelNamesFromHrefs,
   mergeTreeThreads,
+  addMemberCounts,
   SCRAPE_MAX_THREADS,
   API_MAX_THREADS,
   MAX_PAGES,
@@ -224,5 +225,22 @@ describe('the two caps', () => {
   it('bounds the API path far above anything a mailbox holds', () => {
     expect(API_MAX_THREADS).toBe(50_000);
     expect(API_MAX_THREADS).toBeGreaterThan(SCRAPE_MAX_THREADS);
+  });
+});
+
+describe('addMemberCounts', () => {
+  it('adds retried conversations to the labels they sit under', () => {
+    expect(
+      addMemberCounts(
+        [
+          { name: 'Klanten', threads: 3 },
+          { name: 'Klanten/Acme', threads: 1 },
+        ],
+        [{ labels: ['Klanten', 'Klanten/Acme'] }, { labels: ['Klanten'] }],
+      ),
+    ).toEqual([
+      { name: 'Klanten', threads: 5 },
+      { name: 'Klanten/Acme', threads: 2 },
+    ]);
   });
 });

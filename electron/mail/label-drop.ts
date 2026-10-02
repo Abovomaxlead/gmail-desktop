@@ -206,6 +206,23 @@ export function mergeTreeThreads(
   return { added, total: acc.length };
 }
 
+/**
+ * A tree's per-label counts with retried conversations added
+ *
+ * @param members as the drag first counted them
+ * @param added the conversations a retry has now saved
+ * @returns a new list in the members' own order
+ */
+export function addMemberCounts(
+  members: Array<{ name: string; threads: number }>,
+  added: Array<{ labels: string[] }>,
+): Array<{ name: string; threads: number }> {
+  return members.map((m) => ({
+    name: m.name,
+    threads: m.threads + added.filter((a) => a.labels.includes(m.name)).length,
+  }));
+}
+
 // There is no API for listing a label, so pages of Gmail's own list view are scraped,
 // reading the same data-legacy-thread-id subject spans as a single-thread drag.
 export const LABEL_SCRAPE_JS = `(() => {

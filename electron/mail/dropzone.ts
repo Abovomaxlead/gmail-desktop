@@ -491,6 +491,16 @@ export function resultText(r: { ok: boolean; count: number; total: number; error
   return `${r.count} bericht${r.count === 1 ? '' : 'en'} opgeslagen`;
 }
 
+/**
+ * Which colour the strip draws a finished drop in
+ *
+ * @param r what dropOutcome answered
+ * @returns 'done' only when every dragged conversation was saved
+ */
+export function resultState(r: { ok: boolean; count: number; total: number }): 'done' | 'failed' {
+  return r.ok && r.count >= r.total ? 'done' : 'failed';
+}
+
 
 //===========================
 // Helper functions
