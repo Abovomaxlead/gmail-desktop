@@ -120,10 +120,11 @@ export function parseReleaseNotes(version: string, markdown: string): ChangelogV
  * @returns the markdown, newest release first; empty when there is none
  */
 export function releaseNotesMarkdown(raw: unknown): string {
-  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'string') return htmlToMarkdown(raw);
   if (!Array.isArray(raw)) return '';
   return raw
     .map((one) => (one && typeof one === 'object' && 'note' in one ? String(one.note ?? '') : ''))
+    .map(htmlToMarkdown)
     .filter((note) => note.trim() !== '')
     .join('\n\n');
 }
@@ -132,6 +133,41 @@ export function releaseNotesMarkdown(raw: unknown): string {
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * Turns the HTML GitHub renders a release body into back into the markdown it was written in
+ *
+ * The updater reads the releases Atom feed, which carries the body as rendered HTML, not as
+ * the markdown that was uploaded. Only the tags a changelog section produces are mapped back;
+ * anything else is dropped and keeps its text.
+ *
+ * @param html the body as the feed carried it; markdown passes through untouched
+ * @returns the markdown
+ * @private
+ */
+function htmlToMarkdown(html: string): string {
+  if (!/<\/?[a-z][^>]*>/i.test(html)) return html;
+  return html
+    .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level, text) => `\n\n${'#'.repeat(Number(level))} ${text.trim()}\n`)
+    .replace(/<li[^>]*>\s*(<p[^>]*>)?/gi, '\n- ')
+    .replace(/<br\s*\/?>/gi, '')
+    .replace(/<\/?(strong|b)(\s[^>]*)?>/gi, '**')
+    .replace(/<\/?(em|i)(\s[^>]*)?>/gi, '*')
+    .replace(/<\/?code[^>]*>/gi, '`')
+    .replace(/<\/(p|ul|ol|li)>|<(p|ul|ol)(\s[^>]*)?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCodePoint(parseInt(code, 16)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
 /**
  * Which language a section heading is written in
