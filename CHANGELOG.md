@@ -3,6 +3,20 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0-beta.1791189638] — 2026-10-05
+
+### Opgelost
+- **Afdrukken werkt weer.** De printknop in Gmail deed niets bruikbaars: de afdrukpagina
+  verscheen in plaats van je inbox, zonder voorbeeld. Nu opent die pagina in je browser, op
+  hetzelfde account, met het gewone afdrukvoorbeeld. Je moet daarvoor in je browser met dat
+  account ingelogd zijn.
+- **De melding over een nieuwe versie toont gewone tekst.** Wat er in een update nieuw is,
+  stond vol met codes als `<p>` en `<strong>`. Je leest het nu zoals het bedoeld is.
+
+### Let op
+- **Dit is de nieuwe testversie voor 1.0.0.** Hij bevat alles uit de vorige testversie, plus
+  deze twee reparaties.
+
 ## [1.0.0-beta.1791184086] — 2026-10-05
 
 ### Toegevoegd
