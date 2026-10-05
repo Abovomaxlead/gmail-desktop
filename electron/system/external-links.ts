@@ -4,7 +4,8 @@
 //
 // Order inside the window.open decision is load-bearing: attachments are tested before
 // isInAppUrl, since they live on mail.google.com, and before `suppressed`, since an
-// attachment is always deliberate. A blank popup must open as a real window, and
+// attachment is always deliberate. The print page leaves for the same reason, and because
+// Electron has no print preview, only the bare system dialog. A blank popup must open as a real window, and
 // Google-to-Google hops and federated logins stay in-app — externalising a federation POST
 // re-issues it as a GET and trips AADSTS900561. The Google apps setting is read after the
 // mail-only predicates, so a pop-out stays a pop-out whatever Docs and Sheets are set to.
@@ -18,6 +19,8 @@ import {
   isFullMessageViewUrl,
   isBlankUrl,
   isAttachmentUrl,
+  isPrintViewUrl,
+  urlForMailbox,
 } from '../gmail/google-urls';
 import { surfaceForUrl } from '../../renderer/lib/surfaces';
 import { googleAppTarget, type GoogleAppTarget } from '../../renderer/lib/google-apps';
@@ -27,7 +30,12 @@ import { googleAppTarget, type GoogleAppTarget } from '../../renderer/lib/google
 // Types
 //===========================
 
-export type WindowOpenAction = 'open-external' | 'suppress' | 'open-in-app' | 'allow';
+export type WindowOpenAction =
+  | 'open-external'
+  | 'print-external'
+  | 'suppress'
+  | 'open-in-app'
+  | 'allow';
 
 /** The part of the Google apps prefs that decides where an app opens. */
 export interface GoogleAppsRouting {
@@ -44,6 +52,8 @@ export interface GoogleAppsRouting {
 let openExternally: (url: string) => void = (url) => void shell.openExternal(url);
 
 let googleAppsRouting: () => GoogleAppsRouting | null = () => null;
+
+let accountEmail: (accountKey: string) => string | null = () => null;
 
 
 //===========================
@@ -66,6 +76,15 @@ export function setExternalOpener(fn: (url: string) => void): void {
  */
 export function setGoogleAppsRouting(fn: () => GoogleAppsRouting | null): void {
   googleAppsRouting = fn;
+}
+
+/**
+ * Tells the router which mailbox an account key stands for
+ *
+ * @param fn asked per link, since an address is only known once Gmail has loaded
+ */
+export function setAccountEmailLookup(fn: (accountKey: string) => string | null): void {
+  accountEmail = fn;
 }
 
 export function openExternalLink(url: string): void {
@@ -98,6 +117,7 @@ export function windowOpenAction(
 ): WindowOpenAction {
   if (isBlankUrl(url)) return 'allow';
   if (isAttachmentUrl(url)) return 'open-external';
+  if (isPrintViewUrl(url)) return 'print-external';
   if (!isInAppUrl(url)) return 'open-external';
   if (isFullMessageViewUrl(url)) return 'allow';
   if (isPopoutUrl(url)) {
@@ -146,6 +166,7 @@ export function attachExternalLinkHandling(
   webContents: WebContents,
   opts?: {
     surface?: string | null;
+    accountKey?: string;
     getOpenMode?: () => 'app' | 'window';
     openInApp?: (url: string) => void;
     isNotificationClickInFlight?: () => boolean;
@@ -168,6 +189,10 @@ export function attachExternalLinkHandling(
     if (action === 'suppress') return { action: 'deny' };
     if (action === 'open-external') {
       openExternally(url);
+      return { action: 'deny' };
+    }
+    if (action === 'print-external') {
+      openExternally(urlForMailbox(url, opts?.accountKey ? accountEmail(opts.accountKey) : null));
       return { action: 'deny' };
     }
     return { action: 'allow' };

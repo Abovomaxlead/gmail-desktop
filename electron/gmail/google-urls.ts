@@ -82,6 +82,45 @@ export function isFullMessageViewUrl(url: string): boolean {
 }
 
 /**
+ * Recognises Gmail's print page
+ *
+ * @param url
+ * @returns true for the ?view=pt page Gmail opens to print a conversation
+ */
+export function isPrintViewUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname.toLowerCase() === 'mail.google.com' && u.searchParams.get('view') === 'pt';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Addresses a Gmail URL by mailbox instead of by session slot
+ *
+ * The /u/<n>/ slot is this app's numbering; the browser signed its accounts in in another
+ * order, so slot 0 there can be someone else's mailbox. Gmail also accepts the address.
+ *
+ * @param url
+ * @param email the mailbox the URL was opened from, when it is known
+ * @returns the URL with /u/<email>/, or untouched when there is nothing to swap
+ */
+export function urlForMailbox(url: string, email: string | null): string {
+  if (!email || !/^[^\s/?#]+@[^\s/?#]+$/.test(email)) return url;
+  try {
+    const u = new URL(url);
+    if (u.hostname.toLowerCase() !== 'mail.google.com') return url;
+    const swapped = u.pathname.replace(/^\/mail\/u\/\d+\//, `/mail/u/${email}/`);
+    if (swapped === u.pathname) return url;
+    u.pathname = swapped;
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
  * Recognises an attachment URL
  *
  * @param url

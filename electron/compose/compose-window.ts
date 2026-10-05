@@ -40,6 +40,7 @@ export function openCompose(
   });
   attachExternalLinkHandling(win.webContents, {
     surface: 'mail',
+    accountKey: `u${index}`,
     openInApp: (url) => manager?.openInOwningSurface({ kind: 'authuser', index }, 'mail', url),
   });
   void win.loadURL(composeUrl(index, fields));
@@ -64,6 +65,7 @@ export function openFullThreadWindow(index: number, threadId: string, messageId?
   });
   attachExternalLinkHandling(win.webContents, {
     surface: 'mail',
+    accountKey: `u${index}`,
     openInApp: (url) => manager?.openInOwningSurface({ kind: 'authuser', index }, 'mail', url),
   });
   // Hung off the load rather than off loadURL's promise: Gmail routinely supersedes its own

@@ -9,6 +9,8 @@ import {
   isPopoutUrl,
   isFullMessageViewUrl,
   isAttachmentUrl,
+  isPrintViewUrl,
+  urlForMailbox,
 } from '../electron/gmail/google-urls';
 
 describe('google urls', () => {
@@ -131,5 +133,27 @@ describe('isAttachmentUrl', () => {
     expect(isAttachmentUrl('https://drive.google.com/file/d/abc/view')).toBe(false);
     expect(isAttachmentUrl('https://example.com/?view=att')).toBe(false);
     expect(isAttachmentUrl('not a url')).toBe(false);
+  });
+
+  it('detects the print page (view=pt)', () => {
+    expect(isPrintViewUrl('https://mail.google.com/mail/u/0/?ik=abc&view=pt&search=all&permthid=thread-f:1')).toBe(true);
+    expect(isPrintViewUrl('https://mail.google.com/mail/u/0/?ik=abc&view=lg&permmsgid=msg-f:1')).toBe(false);
+    expect(isPrintViewUrl('https://example.com/?view=pt')).toBe(false);
+    expect(isPrintViewUrl('not a url')).toBe(false);
+  });
+
+  it('addresses a Gmail url by mailbox, since the browser numbers its sessions differently', () => {
+    expect(urlForMailbox('https://mail.google.com/mail/u/2/?ik=abc&view=pt', 'a@b.nl')).toBe(
+      'https://mail.google.com/mail/u/a@b.nl/?ik=abc&view=pt',
+    );
+  });
+
+  it('leaves a url alone when there is no address or no slot to swap', () => {
+    const url = 'https://mail.google.com/mail/u/2/?ik=abc&view=pt';
+    expect(urlForMailbox(url, null)).toBe(url);
+    expect(urlForMailbox(url, 'not/an address')).toBe(url);
+    const delegated = 'https://mail.google.com/mail/b/xyz/u/0/?ik=abc&view=pt';
+    expect(urlForMailbox(delegated, 'a@b.nl')).toBe(delegated);
+    expect(urlForMailbox('https://example.com/mail/u/0/', 'a@b.nl')).toBe('https://example.com/mail/u/0/');
   });
 });
