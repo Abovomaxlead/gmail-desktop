@@ -31,15 +31,15 @@ import {
 } from '../delegation/delegated-picker';
 import { closeReleaseNotes } from '../updates/release-notes-overlay';
 import {
-  controlCopyRun,
   copyToMailboxes,
   decideJobRun,
   decideOrphanRun,
   pendingJobDecision,
   pendingOrphanDecision,
-  retryFailedCopy,
   retryFailedJob,
 } from '../mail/mail-drop-controller';
+import { controlCopyRun } from '../mail/copy/copy-run';
+import { retryFailedCopy } from '../mail/copy/copy-retry';
 import {
   cancelMailDropPull,
   closeDropPreview,

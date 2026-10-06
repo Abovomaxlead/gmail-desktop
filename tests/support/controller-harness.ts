@@ -27,6 +27,8 @@ import type {
 } from '../../electron/core/ipc';
 import type * as GmailApi from '../../electron/gmail/gmail-api';
 import type * as MailDropController from '../../electron/mail/mail-drop-controller';
+import type * as CopyRun from '../../electron/mail/copy/copy-run';
+import type * as CopyRetry from '../../electron/mail/copy/copy-retry';
 import type * as PullController from '../../electron/mail/pull/pull-controller';
 import type * as PullRetry from '../../electron/mail/pull/pull-retry';
 import type * as RunSweep from '../../electron/mail/copy/copy-marker-run-sweep';
@@ -39,7 +41,11 @@ import { FakeGmail, bare } from './fake-gmail';
 // Types
 //===========================
 
-export type Controller = typeof MailDropController & typeof PullController & typeof PullRetry;
+export type Controller = typeof MailDropController &
+  typeof CopyRun &
+  typeof CopyRetry &
+  typeof PullController &
+  typeof PullRetry;
 
 export type CopyAnswer = MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult;
 
@@ -358,12 +364,14 @@ async function fresh(): Promise<Controller> {
   vi.resetModules();
   const s = state();
   s.dropOverlay = null;
-  const [mailDrop, pull, pullRetry] = await Promise.all([
+  const [mailDrop, copyRun, copyRetry, pull, pullRetry] = await Promise.all([
     import('../../electron/mail/mail-drop-controller'),
+    import('../../electron/mail/copy/copy-run'),
+    import('../../electron/mail/copy/copy-retry'),
     import('../../electron/mail/pull/pull-controller'),
     import('../../electron/mail/pull/pull-retry'),
   ]);
-  s.controller = { ...mailDrop, ...pull, ...pullRetry };
+  s.controller = { ...mailDrop, ...copyRun, ...copyRetry, ...pull, ...pullRetry };
   return s.controller;
 }
 
