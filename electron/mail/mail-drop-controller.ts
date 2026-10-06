@@ -227,6 +227,21 @@ import {
   type AccountLabels,
   type ThreadMessage,
 } from '../gmail/gmail-api';
+import {
+  bumpDropSerial,
+  copiedSerial,
+  dropSerial,
+  lastDropPreview,
+  lastDropSaved,
+  lastDropSource,
+  lastDropTree,
+  setCopiedSerial,
+  setLastDropPreview,
+  setLastDropSaved,
+  setLastDropSource,
+  setLastDropTree,
+  type SavedRef,
+} from './drop-state';
 
 //===========================
 // Types
@@ -235,18 +250,6 @@ import {
 /** Told how far a pull has got, in conversations. A total of nothing means the label is
  * still being listed. */
 type SaveProgress = (done: number, total: number) => void;
-
-interface SavedRef {
-  file: string;
-  messageId: string;
-  subject: string;
-  threadId: string;
-  /** The labels of a dragged tree this message was found under, empty for every other drag.
-   * What the copy turns into destination labels, one mailbox at a time. */
-  sourceLabels: string[];
-  /** Whether the source mailbox has this message unread, so the copy can land unread too */
-  unread: boolean;
-}
 
 /** What became of a job, sent once when its walk is over. The plan's own outcome vocabulary plus
  * 'stuck', which is not an outcome the plan file ever gets: a job stopped on a failed batch is
@@ -282,18 +285,6 @@ type PanelProgress = Omit<MailDropCopyProgress, 'jobEnd'> & { jobEnd?: JobEndInf
 // Module state
 //===========================
 
-let lastDropPreview: MailDropPreviewItem[] = [];
-
-let lastDropSaved: SavedRef[] = [];
-
-let lastDropSource = '';
-
-/** The tree the last drag turned out to be, or null when it was not a label drag. Read by the
- * picker, which draws what would be created, and by the copy, which plans against it. Cleared
- * at the start of every drop, so a conversation drag can never inherit the previous label
- * drag's tree. */
-let lastDropTree: MailDropTree | null = null;
-
 /** What the last duplicate scan found, stamped with the choice it answered, so a second attempt
  * against the same targets does not ask Gmail the same question again. */
 let lastScan: { key: string; hits: DuplicateHit[] } | null = null;
@@ -327,12 +318,6 @@ let lastPullFailures:
       from: { kind: 'drag'; rows: MailDropPayload['items'] } | { kind: 'label'; label: string; threads: TreeThread[] };
     }
   | null = null;
-
-let dropSerial = 0;
-
-/** The drag whose files a copy has begun inserting. Set before the first insert and read by the
- * picker's Kopieer and the pull retry, which would otherwise send that whole drag again. */
-let copiedSerial = -1;
 
 /** One pull at a time, and this is what says which one. */
 const dropLock = createDropLock();
@@ -785,7 +770,7 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
     // batch finishing threw the panel back in front of whatever the user was doing -- three times
     // over in a four-batch job. One job is one panel: it updates where it stands, and a panel the
     // user closed stays closed.
-    lastDropPreview = items;
+    setLastDropPreview(items);
     dropOverlay?.send(IPC.MAIL_DROP_PREVIEW, {
       items,
       tree: lastDropTree,
@@ -797,7 +782,7 @@ function openDropPreview(items: MailDropPreviewItem[], driven = false): void {
     return;
   }
   const overlay = dropPanel(mainWindow);
-  lastDropPreview = items;
+  setLastDropPreview(items);
   overlay.open({ items, tree: lastDropTree, driven, pullRetryId: lastPullFailures?.retryId, ...forThePage });
 }
 
@@ -1198,7 +1183,7 @@ async function saveLabel(
       error: `Logboek niet bijgeschreven: ${logError}`,
     });
   }
-  lastDropTree = { dragged: label, members: memberCounts(members, collected) };
+  setLastDropTree({ dragged: label, members: memberCounts(members, collected) });
   return {
     items,
     saved,
@@ -1507,13 +1492,13 @@ async function pullMailDrop(
   // Counted in conversations, and sent to every Gmail view: they are all locked by this pull,
   // so they all say how far it has got.
   const report = pullReporter();
-  lastDropSaved = [];
+  setLastDropSaved([]);
   lastPullFailures = null;
   lastCopyFailures = null;
   clearJobOffer();
-  dropSerial += 1;
-  lastDropSource = account;
-  lastDropTree = null;
+  bumpDropSerial();
+  setLastDropSource(account);
+  setLastDropTree(null);
   if (!payload.ik) {
     const error = 'Kon Gmail-token niet lezen';
     const logError = attemptWrite(() =>
@@ -1542,7 +1527,7 @@ async function pullMailDrop(
     // has been fetched at this point, so nothing is thrown away, and no plan is written for a
     // pull nobody wants any more.
     if (activePull?.stopped()) {
-      lastDropSaved = [];
+      setLastDropSaved([]);
       notifyLog('[maildrop] fetch cancelled while the label was being listed');
       return;
     }
@@ -1562,10 +1547,10 @@ async function pullMailDrop(
     // asked to copy, and what was fetched stays on disk for the three-day sweep to take. The
     // strip's line comes off the lock's note where the lock is released.
     if (activePull?.stopped()) {
-      lastDropSaved = [];
+      setLastDropSaved([]);
       return;
     }
-    lastDropSaved = refs;
+    setLastDropSaved(refs);
     rememberPullFailures(done, {
       acctKey,
       account,
@@ -1615,7 +1600,7 @@ async function pullMailDrop(
   );
 
   if (activePull?.stopped()) {
-    lastDropSaved = [];
+    setLastDropSaved([]);
     return;
   }
 
@@ -2689,8 +2674,8 @@ async function walkJob(): Promise<void> {
     pullDone = 0;
     try {
       const ts = new Date().toISOString();
-      dropSerial += 1;
-      lastDropSaved = [];
+      bumpDropSerial();
+      setLastDropSaved([]);
       const report = pullReporter();
       // No listing for a later batch: the plan already holds the conversations, and asking Gmail
       // again would both cost a hundred pages and risk a different answer than the one the
@@ -2712,9 +2697,9 @@ async function walkJob(): Promise<void> {
       // return: the walk's own stop check sits just past this block and is what ends the job and
       // lets the panel out of its walking phase. Leaving here would strand it there.
       if (pull.stopped()) {
-        lastDropSaved = [];
+        setLastDropSaved([]);
       } else {
-        lastDropSaved = saved;
+        setLastDropSaved(saved);
         recordJobBatchState(root, job.jobId, { index: at.index, state: 'pulled' });
         activeJob.job = readLabelJob(root, job.jobId) ?? job;
         // Shown, but marked as driven. Not showing it at all was the first answer to the
@@ -3573,7 +3558,7 @@ async function runCopyToMailboxes(arg: {
       return fail(`Niet gekopieerd: het rollback-journaal kon niet worden geschreven (${journalError})`);
     }
     // From here mail can land, so this drag must never be sent whole again
-    if (readyTargets.length > 0) copiedSerial = serialAtStart;
+    if (readyTargets.length > 0) setCopiedSerial(serialAtStart);
 
     // After the journal exists, because every created label is written to it the moment it lands,
     // and after the markers, because an insert without one must stay impossible. Before the first
@@ -3760,9 +3745,9 @@ export async function retryFailedPull(arg: {
     return { ok: false, error: 'Deze lijst is verlopen. Sleep de mail opnieuw.' };
   }
 
-  lastDropSaved = [...lastDropSaved, ...added];
+  setLastDropSaved([...lastDropSaved, ...added]);
   const items = [...replaceRows(lastDropPreview, held.at, next), ...(logWarning ? [logWarning] : [])];
-  lastDropPreview = items;
+  setLastDropPreview(items);
   lastScan = null;
   // startExistingScan skips a drag it already scanned, and this one now has more files
   existingScan = null;
