@@ -24,6 +24,7 @@ import {
 } from '../gmail/google-urls';
 import { surfaceForUrl } from '../../renderer/lib/surfaces';
 import { googleAppTarget, type GoogleAppTarget } from '../../renderer/lib/google-apps';
+import { notifyLog } from '../notify/notify-log';
 
 
 //===========================
@@ -182,6 +183,7 @@ export function attachExternalLinkHandling(
       googleAppsRouting(),
       opts?.surface ?? null,
     );
+    notifyLog(`[window] window.open ${JSON.stringify(url)} -> ${action}`);
     if (action === 'open-in-app' && opts?.openInApp) {
       opts.openInApp(url);
       return { action: 'deny' };
@@ -201,16 +203,73 @@ export function attachExternalLinkHandling(
   webContents.on('will-navigate', (event, url) => {
     if (!navigationLeavesApp(url, googleAppsRouting(), opts?.surface ?? null)) return;
     event.preventDefault();
+    notifyLog(`[window] navigation ${JSON.stringify(url)} -> open-external`);
     openExternally(url);
   });
 
   // A window the handler allowed -- Gmail's own pop-out, a popup, an app in its own window --
   // used to be born without any of this: no routing, no phishing gate, no containment. It
   // inherits the same rules as the page that opened it.
-  webContents.on('did-create-window', (win) => {
-    if (win?.webContents) attachExternalLinkHandling(win.webContents, opts);
+  webContents.on('did-create-window', (win, details) => {
+    notifyLog(`[window] external window opened: ${JSON.stringify(details?.url ?? '')}`);
+    if (!win?.webContents) return;
+    attachExternalLinkHandling(win.webContents, opts);
+    watchCreatedWindow(win.webContents);
   });
 }
+
+/**
+ * Writes down what a window the page opened goes through, so a blank one leaves a trail
+ *
+ * @param wc
+ */
+function watchCreatedWindow(wc: WebContents): void {
+  const id = wc.id;
+  wc.on('did-fail-load', (_e, code, description, url, isMainFrame) => {
+    if (!isMainFrame) return;
+    notifyLog(`[window ${id}] load failed ${code} ${description} ${JSON.stringify(url)}`);
+  });
+  wc.on('render-process-gone', (_e, details) => {
+    notifyLog(`[window ${id}] page process gone: ${details.reason}`);
+  });
+  wc.on('preload-error', (_e, _path, error) => {
+    notifyLog(`[window ${id}] preload error: ${error.message}`);
+  });
+  wc.on('console-message', (event) => {
+    if (event.level !== 'error') return;
+    notifyLog(`[window ${id}] page error: ${event.message.slice(0, 300)}`);
+  });
+  wc.once('destroyed', () => notifyLog(`[window ${id}] closed`));
+  wc.on('did-finish-load', () => {
+    notifyLog(`[window ${id}] loaded ${JSON.stringify(wc.getURL())}`);
+    setTimeout(() => {
+      if (wc.isDestroyed()) return;
+      let answered = false;
+      wc.executeJavaScript(POPOUT_PROBE)
+        .then((probe) => notifyLog(`[window ${id}] after 4s: ${JSON.stringify(probe)}`))
+        .catch((err: Error) => notifyLog(`[window ${id}] probe failed: ${err.message}`))
+        .finally(() => {
+          answered = true;
+        });
+      setTimeout(() => {
+        if (!answered && !wc.isDestroyed()) notifyLog(`[window ${id}] page did not answer the probe`);
+      }, 3000);
+    }, 4000);
+  });
+}
+
+const POPOUT_PROBE = `(() => {
+  let openerReadable = false;
+  try { openerReadable = !!(window.opener && window.opener.document); } catch {}
+  return {
+    url: location.href.slice(0, 120),
+    title: document.title,
+    textLength: (document.body && document.body.innerText || '').trim().length,
+    elements: document.getElementsByTagName('*').length,
+    hasOpener: !!window.opener,
+    openerReadable,
+  };
+})()`;
 
 
 //===========================
