@@ -110,6 +110,9 @@ export interface CopyJobHooks {
   /** Sets the job-wide stop the driver honours before its next batch, when the picker's own stop
    * dialog reaches a job with no run in flight for the gate to take it */
   requestJobStop(mode: 'keep' | 'rollback'): void;
+  /** Marks the stop the running batch is about to take as job-wide: once that batch's own
+   * rollback has drained, the batches that already finished are swept too */
+  rollBackWholeJob(): void;
   /** The running job's own progress line, for the strip that draws above one batch's bar --
    * undefined outside a walked job, which is what keeps a plain drag's line exactly as it always
    * was */
@@ -164,6 +167,7 @@ export let activeRun: {
 
 let jobHooks: CopyJobHooks = {
   requestJobStop: () => {},
+  rollBackWholeJob: () => {},
   jobProgressFor: () => undefined,
 };
 
@@ -936,7 +940,7 @@ function stopTheRun(
       // Only when this stop is the one that lands: once the gate is stopping its own stop() is a
       // no-op, and trashing the finished batches on the back of a stop that was already answered
       // as 'keep' would undo the mail the user asked to keep.
-      if (control.stopMode() === null) jobHooks.requestJobStop('rollback');
+      if (control.stopMode() === null) jobHooks.rollBackWholeJob();
       control.stop('rollback');
       return { ok: true };
     default:

@@ -1124,6 +1124,9 @@ setCopyJobHooks({
   requestJobStop: (mode) => {
     jobStopWanted = mode;
   },
+  rollBackWholeJob: () => {
+    rollbackWholeJob = true;
+  },
   jobProgressFor: jobProgressForSend,
 });
 setOrphanJobHooks({
