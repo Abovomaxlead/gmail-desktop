@@ -75,7 +75,7 @@ contextBridge.exposeInMainWorld('desktop', {
   addAccount: (): void => ipcRenderer.send(IPC.ADD_ACCOUNT),
   addDelegated: (): void => ipcRenderer.send(IPC.ADD_DELEGATED),
   onDelegatedPickerAsk: (cb: (ask: DelegatedPickerAsk) => void): void => {
-    ipcRenderer.on(IPC.DELEGATED_PICK_ASK, (_e, ask) => cb(ask));
+    listenAsOverlay(IPC.DELEGATED_PICK_ASK, cb);
   },
   pickDelegated: (emails: string[]): void => ipcRenderer.send(IPC.DELEGATED_PICK, { emails }),
   closeDelegatedPicker: (): void => ipcRenderer.send(IPC.DELEGATED_PICK_CLOSE),
@@ -91,7 +91,7 @@ contextBridge.exposeInMainWorld('desktop', {
   downloadUpdate: (): void => ipcRenderer.send(IPC.UPDATE_DOWNLOAD),
   installUpdate: (): void => ipcRenderer.send(IPC.UPDATE_INSTALL),
   onReleaseNotes: (cb: (ask: unknown) => void): void => {
-    ipcRenderer.on(IPC.RELEASE_NOTES_ASK, (_e, ask) => cb(ask));
+    listenAsOverlay(IPC.RELEASE_NOTES_ASK, cb);
   },
   closeReleaseNotes: (): void => ipcRenderer.send(IPC.RELEASE_NOTES_CLOSE),
   onUpdateStatus: (cb: (status: unknown) => void): void => {
@@ -170,7 +170,7 @@ contextBridge.exposeInMainWorld('desktop', {
   setReneMode: (v: boolean): void => ipcRenderer.send(IPC.SET_RENE_MODE, v),
   requestDefaultMail: (): void => ipcRenderer.send(IPC.SET_DEFAULT_MAIL),
   onMailDropPreview: (cb: (arg: unknown) => void): void => {
-    ipcRenderer.on(IPC.MAIL_DROP_PREVIEW, (_e, arg) => cb(arg));
+    listenAsOverlay(IPC.MAIL_DROP_PREVIEW, cb);
   },
   closeMailDropPreview: (): void => ipcRenderer.send(IPC.MAIL_DROP_PREVIEW_CLOSE),
   getMailDropPreview: (): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_PREVIEW_GET),
@@ -225,7 +225,7 @@ contextBridge.exposeInMainWorld('desktop', {
     choice: 'continue' | 'keep' | 'rollback',
   ): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.MAIL_DROP_JOB_DECIDE, { jobId, choice }),
   onReconnectList: (cb: (arg: { accounts: ReconnectAccount[] }) => void): void => {
-    ipcRenderer.on(IPC.OAUTH_RECONNECT_LIST, (_e, arg) => cb(arg));
+    listenAsOverlay(IPC.OAUTH_RECONNECT_LIST, cb);
   },
   getReconnectList: (): Promise<{ accounts: ReconnectAccount[] }> =>
     ipcRenderer.invoke(IPC.OAUTH_RECONNECT_GET),
@@ -298,3 +298,23 @@ window.addEventListener('unhandledrejection', (e: PromiseRejectionEvent) => {
     where: location.href,
   });
 });
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * Listens for an overlay's payload and tells main it may now send it
+ *
+ * Main holds the payload until this arrives: sent on did-finish-load it could beat React's
+ * hydration and be dropped.
+ *
+ * @param channel
+ * @param cb
+ * @private
+ */
+function listenAsOverlay<T>(channel: string, cb: (payload: T) => void): void {
+  ipcRenderer.on(channel, (_e, payload) => cb(payload));
+  ipcRenderer.send(IPC.OVERLAY_READY);
+}

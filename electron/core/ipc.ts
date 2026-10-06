@@ -43,6 +43,7 @@ export const IPC = {
   UPDATE_INSTALL: 'update:install',
   RELEASE_NOTES_ASK: 'release-notes:ask',
   RELEASE_NOTES_CLOSE: 'release-notes:close',
+  OVERLAY_READY: 'overlay:ready',
   SET_AUTO_START: 'prefs:auto-start',
   SET_LAUNCH_MINIMIZED: 'prefs:launch-minimized',
   SET_APPEARANCE: 'prefs:appearance',
