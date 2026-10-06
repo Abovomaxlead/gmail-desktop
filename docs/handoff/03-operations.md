@@ -204,4 +204,5 @@ in the internal file.
 | Did the token file survive? | `sealed elsewhere`, `unopenable` |
 
 Every one of these is a literal `notifyLog(...)` string, so `git grep` on the text finds the
-code that wrote it. Most mail-drop lines come from `electron/mail/mail-drop-controller.ts`.
+code that wrote it. Most mail-drop lines come from `electron/mail/job/job-driver.ts`,
+`electron/mail/copy/copy-run.ts` and `electron/mail/pull/pull-collect.ts`.

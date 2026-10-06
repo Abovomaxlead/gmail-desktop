@@ -239,7 +239,7 @@ adapts its ceiling by itself, so this is a slowdown, not an outage.
 **Repair.**
 1. In `electron/gmail/quota.ts`, set `UNITS_PER_SECOND` to `100` and update the prices in
    `QUOTA_COST` from Google's current quota page.
-2. Re-measure `COPY_IN_FLIGHT` in `mail-drop-controller.ts`.
+2. Re-measure `COPY_IN_FLIGHT` in `electron/mail/copy/copy-run.ts`.
 3. Release.
 
 ### R7. Gmail changes its page
@@ -389,8 +389,9 @@ on an LTS version.
 **Known gap.** A 401 while copying **into a delegated mailbox** cannot recover. `copyToMailbox`
 calls `forceRefresh`, which only knows own accounts. The mail fails with "Verbinding verlopen"
 and the delegated mailbox lands in the reconnect list. Fix: use `freshTokenAfter401` from
-`electron/auth/mailbox-token.ts` there (`mail-drop-controller.ts`, both `forceRefresh` call
-sites). It bites on long copies into `support@`.
+`electron/auth/mailbox-token.ts` there (`electron/mail/copy/upload.ts`'s `copyToMailbox` and
+`electron/mail/copy/duplicate-scan.ts`'s label lookup, both `forceRefresh` call sites). It
+bites on long copies into `support@`.
 
 **Repair after the fact.**
 1. Every run's journal (`<runId>.rollback.jsonl` in the drop folder) lists what it inserted.

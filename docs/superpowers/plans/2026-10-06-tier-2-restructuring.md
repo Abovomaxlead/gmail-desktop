@@ -1,60 +1,82 @@
-# Tier 2 restructuring — proposed, not started
+# Tier 2 restructuring — T2-1 done, T2-2 through T2-7 proposed
 
-Status: **awaiting review.** Nothing below has been done. It is what the structural audit of
-2026-10-06 proposed after Tier 1 (dead code, small duplications, misplaced modules) was
-finished in commits `353935d`, `0652197`, `c819698` and `8d5d6d4`.
+Status: **T2-1 is done.** T2-2 through T2-7 are unstarted; nothing about them has changed.
+They are what the structural audit of 2026-10-06 proposed after Tier 1 (dead code, small
+duplications, misplaced modules) was finished in commits `353935d`, `0652197`, `c819698` and
+`8d5d6d4`.
 
 Every item is behaviour-preserving restructuring: same IPC, same log lines, same files on
-disk. Line numbers are for `dev` at `8d5d6d4` and drift; function names do not.
+disk. Line numbers for the items still to do are for `dev` at `8d5d6d4` and drift; function
+names do not.
 
-Order of risk, highest first: T2-1, T2-4, T2-2, T2-3, T2-5, T2-6, T2-7. Each item stands
-alone and can be approved, deferred or dropped on its own.
+Order of risk, highest first: T2-1 (done), T2-4, T2-2, T2-3, T2-5, T2-6, T2-7. Each remaining
+item stands alone and can be approved, deferred or dropped on its own.
 
 
-## T2-1. Split `electron/mail/mail-drop-controller.ts` (4,485 lines)
+## T2-1. Split `electron/mail/mail-drop-controller.ts` (4,485 lines) — done
 
-**Problem.** One file carries six separate jobs. Their module state is declared as one block
-(about lines 282-417), plus three variables declared far from it: `existingScan` (~1785),
-`pendingOrphans` (~3858) and `pendingJob` (~3864). The `// Helper functions` tail (4061-end)
-mixes helpers for every one of the six jobs.
+**Landed** in commits `c4b8584..085032b`. The prerequisite (untangling `copyToMailboxes` from
+the job driver's own bookkeeping) and the module split both happened as planned, with one
+correction found while doing it: the final layout has no separate `mail-drop-controller.ts`
+and no `job/job-retry.ts`. What was left of the controller after every other job moved out
+*was* the job driver, so it became `job/job-driver.ts` outright — hook wiring included —
+rather than staying behind as a thin wrapper around it. `retryFailedJob` stayed in
+`job/job-driver.ts` too, rather than moving to its own file as first proposed, because it
+shares the job's offer state (`lastJobFailures`, `pendingJob`) with `advanceJob` and
+`decideJobRun`.
 
-**Prerequisite: untangle copy and job driver.** `copyToMailboxes` (2833-3520, ~690 lines) does
-seven things at once: re-entrancy guards, tree planning, the duplicate check and confirm,
-recording job choices, creating marker labels, the upload loop with its journal/sweep/warnings
-tail, and finally job bookkeeping plus `void advanceJob()` to drive the next batch.
-`walkJob` (2656) calls `copyToMailboxes`, whose tail calls `advanceJob` again. That mutual
-recursion is why `advanceJob` needs its own re-entrancy guard.
+**Original problem**, for the record: one file carried six separate jobs. Their module state
+was declared as one block (about lines 282-417), plus three variables declared far from it:
+`existingScan` (~1785), `pendingOrphans` (~3858) and `pendingJob` (~3864). The `// Helper
+functions` tail (4061-end) mixed helpers for every one of the six jobs. `copyToMailboxes`
+(2833-3520, ~690 lines) did seven things at once: re-entrancy guards, tree planning, the
+duplicate check and confirm, recording job choices, creating marker labels, the upload loop
+with its journal/sweep/warnings tail, and finally job bookkeeping plus `void advanceJob()` to
+drive the next batch. `walkJob` (2656) called `copyToMailboxes`, whose tail called
+`advanceJob` again; that mutual recursion is why `advanceJob` needed its own re-entrancy
+guard. The fix: `runCopyToMailboxes` returns its result and knows nothing about jobs;
+`copyToMailboxes` — now the job-aware wrapper in `job/job-driver.ts` — does the batch-state
+bookkeeping and decides the next batch itself, using what the copy returned. The picker's own
+Kopieer button and plain IPC copies never touched job state and keep not touching it.
 
-*Change:* `copyToMailboxes` returns its result and knows nothing about jobs. `walkJob`, which
-is already job-only code, does the batch-state bookkeeping and decides the next batch itself,
-using what the copy returned. The picker's own Kopieer button and plain IPC copies never
-touched job state and keep not touching it.
+**Final module list:**
 
-**Then split into modules** (names provisional):
-
-| New module | Holds | State it owns |
+| Module | Holds | State it owns |
 |---|---|---|
-| `mail-drop-pull.ts` | `saveOneThread` (525), `saveLabel` (1053), `writeCollected`, `collectLabelThreads`, `listLabelTree`, `fetchThreadSlice`, `handleMailDrop` (1328), `planJob` (1432), `withPullLock`, `pullMailDrop` (1498), `cancelMailDropPull`, preview helpers (`dropPreviewItems`, `openDropPreview`, `closeDropPreview`, `showJobReport`, `jobReportPayload`) | `lastDropPreview`, `lastDropSaved`, `lastDropSource`, `lastDropTree`, `dropSerial`, `dropLock`, `activePull`, `pullDone`, `lastPullFailures`, `batchPullFailedThreads` |
-| `mail-drop-duplicates.ts` | `findDuplicates` (692), `labelsForMailboxes` (1691), `labelsForCopyTargets`, `labelsForEveryMailbox`, `existingSnapshot` (1784), `startExistingScan` (1808), `existingForCopyTargets` | `lastScan`, `lastExisting`, `existingScan` |
-| `mail-drop-tree-setup.ts` | `planTrees` (2204), `createTreeLabels` (2275), the `TreePlanning` type | none — already pure over `gmail-api` + `label-tree` |
-| `mail-drop-upload.ts` | `CopyOutcome`, `copyToMailbox` (1919), `copyOneFile` (2022) | none — everything arrives as arguments (plus `messageIndex`) |
-| `mail-drop-job-driver.ts` | `advanceJob` (2621), `walkJob` (2656), `stopWalkedJob` (2799), `sendJobPanel` (2476), `sendJobEnd`, `endWalkedJob` (2546), `rollbackFinishedBatches`, `jobStopOutcome`, `endJobWithStop`, `pendingJobDecision`, `decideJobRun` (4023) | `activeJob`, `rollbackWholeJob`, `jobStopWanted`, `jobDriving`, `jobFailures`/`jobFailuresFor`/`jobFailuresPartial`, `jobOfferToast`, `lastJobFailures`, `lastJobEnd`, `pendingJob` |
-| `mail-drop-retry.ts` | `retryFailedCopy` (3521), `retryFailedPull` (3572), `retryFailedJob` (3699) | `lastCopyFailures`, `retryInFlight`, `lastRunFailures` |
-| `mail-drop-orphans.ts` | `finishOrphanRun`, `resumeOrphanedCopyRuns` (3913), `pendingOrphanDecision`, `decideOrphanRun` (3970) | `pendingOrphans` |
+| `drop-state.ts` | shared drag state | `dropSerial`, `copiedSerial`, `lastDropSaved`, `lastDropSource`, `lastDropTree`, `lastDropPreview`, `activePull`, `pullDone`, `batchPullFailedThreads` |
+| `pull/pull-collect.ts` | `saveOneThread`, `saveLabel`, `collectLabelThreads`, `writeCollected`, `listLabelTree`, `fetchThreadSlice` | none — pure over `gmail-api` + `drop-state.ts` |
+| `pull/pull-controller.ts` | `handleMailDrop`, `planJob`, `withPullLock`, `pullMailDrop`, `cancelMailDropPull`, preview helpers (`dropPreviewItems`, `openDropPreview`, `closeDropPreview`, `showJobReport`, `jobReportPayload`), `mailDropFolder`, the `JobDriverHooks` interface and registry | `lastPullFailures`, the `hooks: JobDriverHooks` registry |
+| `pull/pull-retry.ts` | `retryFailedPull` | none — reads/writes state in `drop-state.ts` and `pull-controller.ts` |
+| `copy/duplicate-scan.ts` | `findDuplicates`, `labelsForMailboxes`, `labelsForCopyTargets`, `labelsForEveryMailbox`, `existingSnapshot`, `startExistingScan`, `existingForCopyTargets` | `lastScan`, `lastExisting`, `existingScan` |
+| `copy/tree-setup.ts` | `planTrees`, `createTreeLabels`, the `TreePlanning` type | none — pure over `gmail-api` + `label-tree` |
+| `copy/upload.ts` | `CopyOutcome`, `copyToMailbox`, `copyOneFile` | none — everything arrives as arguments (plus `messageIndex`) |
+| `copy/copy-run.ts` | `runCopyToMailboxes` (the engine, ≈1,040 lines), `controlCopyRun`, `sweepRunMarkers`, the `CopyJobHooks` interface | `activeRun`, the `jobHooks: CopyJobHooks` registry, `COPY_IN_FLIGHT` |
+| `copy/copy-retry.ts` | `retryFailedCopy`, the `CopyEntryPoint` registry | `lastCopyFailures`, `lastRunFailures`, `retryInFlight`, `copyEntry` |
+| `copy/orphan-runs.ts` | `resumeOrphanedCopyRuns`, `pendingOrphanDecision`, `decideOrphanRun`, the `OrphanJobHooks` registry | `pendingOrphans`, the `jobHooks: OrphanJobHooks` registry |
+| `job/job-guard.ts` | `JobEndInfo`, `JobPlanRef`, `sameJobPlan`, `pullRefusal` | none |
+| `job/job-driver.ts` | `copyToMailboxes` (the job-aware entry, ≈1,140 lines), `advanceJob`, `walkJob`, `stopWalkedJob`, `retryFailedJob`, `pendingJobDecision`, `decideJobRun`, plus the hook wiring (`setJobDriverHooks`, `setCopyJobHooks`, `setOrphanJobHooks`, `setCopyEntryPoint`) at the bottom | `activeJob`, `rollbackWholeJob`, `jobStopWanted`, `jobDriving`, `jobFailures`/`jobFailuresFor`/`jobFailuresPartial`, `jobOfferToast`, `lastJobFailures`, `lastJobEnd`, `pendingJob` |
 
-`controlCopyRun` (2401), `stopTheRun` and `sendPausedProgress` (pause/resume/stop) go with
-whichever module ends up owning `activeRun`. Each helper in the shared tail moves with the
-only part that uses it. `mail-drop-controller.ts` stays as the thin entry point
-`ipc-handlers.ts` and `main.ts` already import from, so the IPC wiring does not change.
+`ipc-handlers.ts` and `main.ts` now import `handleMailDrop`/`planJob`/`pullMailDrop`/
+`cancelMailDropPull`/`mailDropFolder` straight from `pull/pull-controller.ts`, and
+`copyToMailboxes`/`retryFailedJob`/`decideJobRun`/`pendingJobDecision` straight from
+`job/job-driver.ts`; there is no wiring-only file left to import from instead.
 
-**Cycle risk.** Pull ↔ job driver (planJob ends a stale job; walkJob pulls) and job driver ↔
-retry share state. Cross-module calls that point upward go through hooks set in
-`wireModules()`, the project's existing convention. Check with `node scripts/cycles.mjs`.
+**Cycle risk**, as predicted: pull ↔ job driver (`planJob` ends a stale job; `walkJob` pulls)
+and job driver ↔ copy/orphan state all cross through the setter registries above
+(`setJobDriverHooks` in `pull-controller.ts`, `setCopyJobHooks` in `copy-run.ts`,
+`setOrphanJobHooks` in `orphan-runs.ts`, `setCopyEntryPoint` in `copy-retry.ts`) — the
+project's existing hook convention — so no module imports the one that drives it. Checked
+with `node scripts/cycles.mjs`.
 
-**Verification.** The controller harness tests (`tests/maildrop-*.test.ts`,
-`tests/support/controller-harness.ts`) drive the real controller against a fake Gmail and are
-the safety net. Run them after each module moves, not only at the end. After that, do one real
-label drag of more than 2,000 conversations (a batched job) plus pause/stop/rollback by hand.
+**Still oversized.** `job/job-driver.ts` (≈1,140 lines) and `copy/copy-run.ts` (≈1,040 lines)
+are the two files left above the ~900-line target this split was aiming for. Both are now a
+single job apiece rather than six, so a further split is a later, separate decision, not a
+leftover of this one.
+
+**Verified with.** The controller harness tests (`tests/maildrop-*.test.ts`,
+`tests/support/controller-harness.ts`), which drive the real code against a fake Gmail, plus
+one real label drag of more than 2,000 conversations (a batched job) and pause/stop/rollback
+by hand.
 
 
 ## T2-2. Split `electron/windows/profile-view-manager.ts` (1,288 lines)
@@ -72,7 +94,7 @@ that only need `this.views`:
 
 **Change.** Move the first into `windows/mail-thread-navigator.ts` and the second into
 `windows/mail-view-messages.ts`. Each takes one dependency, a lookup from account key to
-`WebContents`. Callers (`toast-activation.ts`, `mail-drop-controller.ts`, `notify-gating.ts`)
+`WebContents`. Callers (`toast-activation.ts`, `mail/pull/pull-controller.ts`, `mail/job/job-driver.ts`, `notify-gating.ts`)
 call the new modules or keep calling thin delegating methods. Decide which during the change;
 prefer direct calls with no delegators left behind.
 
