@@ -5,6 +5,7 @@
 // makes every write a named call one grep finds.
 
 import type { MailDropPreviewItem, MailDropTree } from '../core/ipc';
+import type { PullControl } from './pull/pull-control';
 
 
 //===========================
@@ -52,6 +53,18 @@ export let lastDropTree: MailDropTree | null = null;
  * every pull and every batch the job driver shows. */
 export let lastDropPreview: MailDropPreviewItem[] = [];
 
+/** The gate of the pull that holds the drop lock, or null when nothing is being pulled. One at
+ * a time is not an assumption but a property of the lock: dropLock.take admits one holder, and
+ * both the ordinary pull and the job driver's own walk create this where they take the lock and
+ * clear it where they release it. Read by the collection primitives too, so a label listing or
+ * a thread fetch can answer a cancel without the pull wrapper threading its gate through every
+ * call. */
+export let activePull: PullControl | null = null;
+
+/** How many conversations the pull that holds the lock has fetched, so a cancel can say how far
+ * it got. Reset where the gate is created. */
+export let pullDone = 0;
+
 
 //===========================
 // Exported functions
@@ -75,4 +88,10 @@ export function setLastDropTree(v: MailDropTree | null): void {
 }
 export function setLastDropPreview(v: MailDropPreviewItem[]): void {
   lastDropPreview = v;
+}
+export function setActivePull(v: PullControl | null): void {
+  activePull = v;
+}
+export function setPullDone(v: number): void {
+  pullDone = v;
 }
