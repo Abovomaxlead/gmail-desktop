@@ -11,7 +11,7 @@ import type { CopyStopMode } from '../mail/copy-run-types';
 import { writeFileAtomic } from './json-store';
 import { OAUTH_CONFIG_PATH } from './paths';
 import { SESSION_PARTITION } from './session-partition';
-import { activeTab, activeTabIn, colors, currentLocale, downloadHistory, hidden, mainWindow, manager, oauthStatuses, oauthTokens, prefs, profiles, keyOf, recentLabels, reconnectAccounts, setSettingsPanelOpen, settingsPanelOpen, startedWithoutAccounts, toastWindow, toasts } from './runtime';
+import { activeTab, activeTabIn, colors, downloadHistory, hidden, mainWindow, manager, oauthStatuses, oauthTokens, prefs, profiles, keyOf, recentLabels, reconnectAccounts, setSettingsPanelOpen, settingsPanelOpen, startedWithoutAccounts, toastWindow, toasts } from './runtime';
 import { pushPrefs, pushProfiles, pushUnread, pushWindowState, refreshBadge } from './broadcast';
 import { tabsFor } from '../windows/tab-window-registry';
 import {
@@ -57,23 +57,12 @@ import { reportRendererError } from '../feedback/crash-controller';
 import { openSurfaceForAccount, showTestNotification } from '../windows/surface-opener';
 import { applyViewBudget, syncCalendarViews } from '../windows/view-surfaces';
 import { applyMinWindowSize, applyReneZoom, applyTitleBarOverlay } from '../windows/window-chrome';
-import { rememberWebNotifySource } from '../toast/toast-activation';
-import { showToast, toastAccountFor } from '../toast/toast-presenter';
-import {
-  hiddenNotificationText,
-  playNotificationSound,
-  refreshNotifyAllowed,
-} from '../notify/notify-gating';
-import {
-  mergeNotificationsFromPanel,
-  notificationPersist,
-  notificationSilent,
-} from '../notify/notification-policy';
+import { showWebNotification } from '../toast/toast-activation';
+import { refreshNotifyAllowed } from '../notify/notify-gating';
+import { mergeNotificationsFromPanel } from '../notify/notification-policy';
 import { notifyLog } from '../notify/notify-log';
-import { type NotifiedMail } from '../notify/notify-match';
 import { applyTraySetting, refreshTray } from '../menus/tray-setup';
 import { popupNativeMenu, type MenuAnchor } from '../menus/native-menu';
-import { nativeLabels } from '../menus/native-labels';
 import {
   applyAutoUpdateCheck,
   applyUpdateChannel,
@@ -86,10 +75,10 @@ import { checkOAuthHealth, clearRefreshFailure } from '../auth/oauth-health-chec
 import { oauthConfig } from '../auth/oauth-config';
 import { connectAccount } from '../auth/oauth-flow';
 import { checkOAuthConfigFile } from '../auth/oauth-config-file';
-import { startMailSync, syncRunnerFor } from '../push/mail-sync-controller';
+import { startMailSync } from '../push/mail-sync-controller';
 import { downloadFolder, knownDownloadPath } from '../system/session-setup';
 import { requestDefaultMail, setAutoStart, setLaunchMinimized } from '../system/system-integration';
-import { webNotifySourceKey, type ToastAction } from '../../renderer/lib/toast';
+import type { ToastAction } from '../../renderer/lib/toast';
 import type { NativeMenuItem } from '../../renderer/lib/native-menu';
 import type { Surface } from '../windows/profile-view-manager';
 
@@ -310,33 +299,7 @@ export function registerIpc(): void {
         );
         return;
       }
-      const p = prefs.getAll();
-      const hidden = hiddenNotificationText(p);
-      const L = nativeLabels(currentLocale(), p.reneMode === true);
-      const sourceKey = webNotifySourceKey(e.sender.id, arg.id);
-      const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
-      rememberWebNotifySource(sourceKey, { wc: e.sender, pageId: arg.id, email: profile.email, notified });
-      // The page's own word wins over the per-account default, in one direction only: it may
-      // keep a card up, never take one down. Google Agenda marks every event reminder this
-      // way, and six seconds of a reminder is the same as no reminder -- there is no badge and
-      // no list to find it back in afterwards, the way there is for mail.
-      const persist = notificationPersist(p, profile.email) || arg.requireInteraction === true;
-      notifyLog(
-        `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
-          ` persist=${persist}${arg.requireInteraction === true ? ' (the page asked for it)' : ''}` +
-          ` silent=${notificationSilent(p, profile.email, 'mail')}` +
-          `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
-      );
-      showToast({
-        kind: 'mail',
-        title: hidden.hiddenSender ?? arg.title,
-        body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
-        account: toastAccountFor(profile.email),
-        webNotifyId: sourceKey,
-        persist,
-      });
-      if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
-      void syncRunnerFor(profile.email)?.run();
+      showWebNotification(profile, e.sender, arg);
     },
   );
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {

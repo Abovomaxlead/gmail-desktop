@@ -4,7 +4,8 @@
 // instead of being caught here. The renderer holds the real types.
 
 import { contextBridge, ipcRenderer } from 'electron';
-import { IPC, type MailDropFolderStatus } from './core/ipc';
+import { IPC, type MailDropCopyTarget, type MailDropFolderStatus } from './core/ipc';
+import type { CopyMode } from './mail/mail-copy';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from '../renderer/lib/reconnect';
@@ -12,7 +13,7 @@ import type { OAuthStatusReport } from '../renderer/lib/oauth-status';
 import type { HiddenAccount } from '../renderer/lib/hidden-accounts';
 import type { DelegatedPickerAsk } from '../renderer/lib/delegated-picker';
 import type { WindowTabs } from '../renderer/lib/window-tabs';
-import type { RecentLabelUse } from '../renderer/app/recent-labels';
+import type { RecentLabelUse } from '../renderer/lib/recent-labels';
 
 
 //===========================
@@ -190,8 +191,8 @@ contextBridge.exposeInMainWorld('desktop', {
     ipcRenderer.on(IPC.MAIL_DROP_EXISTING, (_e, arg) => cb(arg));
   },
   copyMailDrop: (
-    targets: Array<{ email: string; labelIds: string[] }>,
-    mode?: 'check' | 'new' | 'all',
+    targets: MailDropCopyTarget[],
+    mode?: CopyMode,
   ): Promise<unknown> => ipcRenderer.invoke(IPC.MAIL_DROP_COPY, { targets, mode }),
   retryMailDropCopy: (retryId: string, mode?: string): Promise<unknown> =>
     ipcRenderer.invoke(IPC.MAIL_DROP_COPY_RETRY, { retryId, mode }),

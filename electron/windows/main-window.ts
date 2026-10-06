@@ -66,6 +66,7 @@ import {
   saveWindowBounds,
   scheduleSaveBounds,
 } from './window-chrome';
+import { bringToFront } from './window-focus';
 import { ToastWindow } from '../toast/toast-window';
 import { ToastController } from '../toast/toast-controller';
 import { drainToSystem, repairToastStack } from '../toast/toast-presenter';
@@ -241,9 +242,7 @@ export function createWindow(): void {
     onActivateSummary: (accountKey) => {
       if (accountKey) activateNotification(accountKey, 'mail');
       else if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
+        bringToFront(mainWindow);
       }
     },
     onAction: (toast, action) => void runToastAction(toast, action),
@@ -314,9 +313,7 @@ export function createWindow(): void {
  */
 export function openSettingsPanel(section?: string): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+  bringToFront(mainWindow);
   setSettingsPanelOpen(true);
   manager?.hideAll();
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN, { section });

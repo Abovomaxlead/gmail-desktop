@@ -9,10 +9,10 @@ import { hasClickableItem, type NativeMenuItem } from '../lib/native-menu';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import { accountCountVisible } from '../lib/badge-visibility';
 import { pinnedSurfacesFor, surfaceLabel } from '../lib/google-apps';
-import { openableSurfaces } from '../lib/surfaces';
+import { openableSurfaces, type Surface } from '../lib/surfaces';
 import { SURFACE_ICON_DATA_URIS } from '../lib/surface-icon-data';
 import type { UiStrings } from './strings';
-import type { Profile, Surface, UpdateStatus, Prefs } from './page';
+import type { Profile, UpdateStatus, Prefs } from '../lib/desktop-bridge';
 
 // The bar is the window's own title bar, which sets two rules for this file. The empty
 // middle is the drag region, so every control needs `no-drag` or it cannot be clicked. And

@@ -1,7 +1,7 @@
 // What a batched job lost across all its batches, gathered so one retry at the end can send
 // exactly that mail again. Pure: the controller owns when, this owns how they merge.
 
-import type { FailedFile, FailedFileRef, TargetFailures } from './copy-failures';
+import { failedConversations, type FailedFile, type FailedFileRef, type TargetFailures } from './copy-failures';
 
 
 //===========================
@@ -164,9 +164,7 @@ export function isEmpty<T extends { email: string }, F extends FailedFileRef, P 
 export function lostConversations<T extends { email: string }, F extends FailedFileRef, P extends { threadId: string }>(
   acc: JobFailures<T, F, P>,
 ): number {
-  const ids = new Set(acc.pull.map((p) => p.threadId));
-  for (const t of acc.copy) for (const f of t.files) ids.add(f.file.threadId);
-  return ids.size;
+  return failedConversations(acc.copy, acc.pull.map((p) => p.threadId));
 }
 
 

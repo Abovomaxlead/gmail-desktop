@@ -29,16 +29,17 @@ import type {
   MailDropCopyWarnedResult,
   MailDropFolderStatus,
   MailDropPayload,
+  MailDropPreview,
   MailDropPreviewItem,
   MailDropTree,
 } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
 import { SESSION_PARTITION } from '../core/session-partition';
 import { currentLocale, currentlyDark, dropOverlay, recentLabels, keyOf, mainWindow, manager, oauthTokens, prefs, profiles, messageIndex, setDropOverlay } from '../core/runtime';
-import type { Locale } from '../core/locale';
 import type { JobPanel, PendingJob, PendingOrphan } from '../../renderer/lib/maildrop-copy';
 import { createUploadBudget, mapLimit, memoise, type UploadBudget } from '../core/concurrency';
 import { OverlayView } from '../windows/overlay-view';
+import { bringToFront } from '../windows/window-focus';
 import type { Profile } from '../windows/profile-view-manager';
 import { forceRefresh } from '../auth/oauth-flow';
 import type { OAuthConfig } from '../auth/google-oauth';
@@ -270,9 +271,11 @@ interface JobEndInfo {
 /** What a job lost, in the controller's own types */
 type JobLosses = JobFailures<MailDropCopyTarget, SavedRef, TreeThread>;
 
-/** The progress payload widened with the two things one continuous job panel needs. Kept local
- * rather than added to core/ipc.ts's mirror, the same way the picker page widens its own copy. */
-type PanelProgress = MailDropCopyProgress & { panel?: JobPanel; jobEnd?: JobEndInfo };
+/** The progress payload, with `jobEnd` narrowed back to this controller's own shape: core/ipc.ts's
+ * mirror (by way of renderer/lib/maildrop-copy.ts) types that field as the full JobEnd, jobId
+ * included, but no job end this controller ever builds carries one -- see JobEndInfo's own
+ * comment. `panel` needs no such override; the mirror already carries the same JobPanel. */
+type PanelProgress = Omit<MailDropCopyProgress, 'jobEnd'> & { jobEnd?: JobEndInfo };
 
 
 //===========================
@@ -1648,17 +1651,7 @@ async function pullMailDrop(
  * The job carried alongside it is what a window reopened halfway through a walk needs: without it
  * that window would come back in its picking phase and offer Kopieer for mail the driver already
  * has in flight. */
-export function dropPreviewItems(): {
-  items: MailDropPreviewItem[];
-  tree: MailDropTree | null;
-  locale: Locale;
-  reneMode: boolean;
-  dark: boolean;
-  panel?: JobPanel;
-  job?: MailDropCopyProgress['job'];
-  pullRetryId?: string;
-  jobEnd?: JobEndInfo;
-} {
+export function dropPreviewItems(): MailDropPreview {
   // A held job offer is what the panel lands on, with no list it could offer Kopieer for
   if (lastJobFailures && lastJobEnd) return jobReportPayload(lastJobEnd);
   const panel = jobPanelInfo();
@@ -1682,9 +1675,7 @@ export function closeDropPreview(): void {
  */
 export function showJobReport(): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+  bringToFront(mainWindow);
   if (!lastJobFailures || !lastJobEnd) return;
   dropPanel(mainWindow).open(jobReportPayload(lastJobEnd));
 }

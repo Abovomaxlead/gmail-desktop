@@ -90,7 +90,7 @@ hides it to the tray.
 | Pause / stop / undo a copy | `mail/copy-control.ts`, `mail/copy-journal.ts`, `mail/copy-marker-sweep.ts`, `resumeOrphanedCopyRuns` |
 | Empty a label ("Labels opruimen") | `mail/label-purge.ts`, `mail/label-purge-controller.ts`, settings section in `renderer/app/settings/` |
 | Verification code copied automatically | `gmail/verification-code.ts`, `push/mail-sync-controller.ts` |
-| `mailto:` / default mail client | `compose/`, `mail/mailto.ts`, `system/mail-client-registration.ts` |
+| `mailto:` / default mail client | `compose/`, `compose/mailto.ts`, `system/mail-client-registration.ts` |
 | Google apps (Calendar, Drive, Docs, …) in the app | `renderer/lib/surfaces.ts` (the nine surfaces), `windows/surface-opener.ts` |
 | Low-memory mode | `windows/view-budget.ts`, `windows/view-surfaces.ts` |
 | Phishing check on external links | `system/link-guard.ts` |

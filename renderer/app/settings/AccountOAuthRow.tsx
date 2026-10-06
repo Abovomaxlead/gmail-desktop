@@ -4,11 +4,7 @@ import { useEffect, useState } from 'react';
 import type { OAuthStatus, OAuthStatusReport } from '../../lib/oauth-status';
 import type { UiStrings } from '../strings';
 import { BUTTON, DANGER_TEXT, PANEL } from './tokens';
-
-const listeners = new Set<(report: OAuthStatusReport) => void>();
-let subscribed = false;
-let known: OAuthStatusReport = { configured: true, accounts: [] };
-let seenAnything = false;
+import { createPushState } from './push-state';
 
 
 //===========================
@@ -21,28 +17,15 @@ let seenAnything = false;
  * @returns {OAuthStatusReport} two separate facts: whether this machine can link at all,
  *   and the per-account statuses. An account with no entry gets no status line — a
  *   delegated mailbox has no link of its own, and nothing has been computed yet before the
- *   first health check.
+ *   first health check. A fetch that resolves after a push has already landed is dropped: a
+ *   stale answer must never overwrite a newer pushed one.
  */
-export function useOAuthStatuses(): OAuthStatusReport {
-  const [report, setReport] = useState<OAuthStatusReport>(known);
-
-  useEffect(() => {
-    const unsubscribe = subscribeToStatus(setReport);
-    const pending = window.desktop?.getOAuthStatus();
-    if (pending) {
-      void pending.then((fetched) => {
-        if (!seenAnything) {
-          known = fetched;
-          seenAnything = true;
-          setReport(fetched);
-        }
-      });
-    }
-    return unsubscribe;
-  }, []);
-
-  return report;
-}
+export const useOAuthStatuses = createPushState<OAuthStatusReport>(
+  (cb) => window.desktop?.onOAuthStatus(cb),
+  () => window.desktop?.getOAuthStatus(),
+  { configured: true, accounts: [] },
+  false,
+);
 
 
 
@@ -204,21 +187,6 @@ function WarningIcon({ className = '' }: { className?: string }) {
 //===========================
 // Helper functions
 //===========================
-
-function subscribeToStatus(cb: (report: OAuthStatusReport) => void): () => void {
-  listeners.add(cb);
-  if (!subscribed) {
-    subscribed = true;
-    window.desktop?.onOAuthStatus((report) => {
-      known = report;
-      seenAnything = true;
-      for (const l of listeners) l(report);
-    });
-  }
-  return () => {
-    listeners.delete(cb);
-  };
-}
 
 function statusLabel(status: OAuthStatus, S: UiStrings): string {
   switch (status) {

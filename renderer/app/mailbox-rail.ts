@@ -8,7 +8,7 @@
 // anything to find. Everything here is derived, so the rail can never disagree with the
 // list beside it: the match count comes out of the same filter the list uses.
 
-import { filterLabels } from './label-search';
+import { filterLabels } from '../lib/label-search';
 import type { ExistingInMailbox } from './existing-labels';
 
 

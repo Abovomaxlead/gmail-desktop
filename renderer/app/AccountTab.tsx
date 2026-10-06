@@ -7,7 +7,7 @@ import { unreadLabel } from './unread-label';
 import { Avatar } from './Avatar';
 import { TAB_AVATAR_ONLY } from './topbar-tabs';
 import { createTabDragImage, TAB_GHOST_GRAB } from './tab-drag-image';
-import type { Profile } from './page';
+import type { Profile } from '../lib/desktop-bridge';
 
 /** The drag format a tab carries. Ours alone, so no page can be dropped a tab by accident. */
 export const TAB_DRAG_MIME = 'application/x-gmail-desktop-tab';

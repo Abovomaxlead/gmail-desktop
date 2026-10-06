@@ -111,6 +111,34 @@ async function freshTokenAfter401(email: string): Promise<string | null> {
 }
 
 /**
+ * Runs one call against an already-minted token, recovering once from a 401 the way this
+ * mailbox can
+ *
+ * The shared tail of withDelegatedToken and withTokenFor: both mint their own token per call
+ * and differ only in how that token is obtained.
+ *
+ * @param email the mailbox the token belongs to
+ * @param token the token to try first
+ * @param fn the call to run
+ * @returns whatever fn resolves to
+ * @private
+ */
+async function runWithRecovery<T>(
+  email: string,
+  token: string,
+  fn: (token: string) => Promise<T>,
+): Promise<T> {
+  try {
+    return await fn(token);
+  } catch (e) {
+    if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
+    const fresh = await freshTokenAfter401(email);
+    if (!fresh) throw e;
+    return await fn(fresh);
+  }
+}
+
+/**
  * Runs calls against a mailbox, recovering once from a 401 the way that mailbox can
  *
  * @param email the mailbox to run against
@@ -157,14 +185,7 @@ export function withDelegatedToken(
   return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
     const granted = await delegatedTokenFor(email);
     if (!granted.ok) throw new Error(granted.error);
-    try {
-      return await fn(granted.token);
-    } catch (e) {
-      if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
-      const fresh = await freshTokenAfter401(email);
-      if (!fresh) throw e;
-      return await fn(fresh);
-    }
+    return runWithRecovery(email, granted.token, fn);
   };
 }
 
@@ -185,17 +206,6 @@ export function withTokenFor(
   return async <T>(fn: (token: string) => Promise<T>): Promise<T> => {
     const token = await accessTokenFor(cfg, oauthTokens!, email);
     if (!token) throw new Error('no token');
-    try {
-      return await fn(token);
-    } catch (e) {
-      if (!(e instanceof GmailHttpError) || e.status !== 401) throw e;
-      const fresh = await forceRefresh(cfg, oauthTokens!, email);
-      if (!fresh) {
-        markRefreshFailed(email);
-        throw e;
-      }
-      clearRefreshFailure(email);
-      return await fn(fresh);
-    }
+    return runWithRecovery(email, token, fn);
   };
 }

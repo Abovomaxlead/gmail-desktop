@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { DownloadRecord } from '../page';
+import type { DownloadRecord } from '../../lib/desktop-bridge';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import {

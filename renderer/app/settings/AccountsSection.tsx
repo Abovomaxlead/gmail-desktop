@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { HiddenAccount } from '../../lib/hidden-accounts';
-import type { Profile } from '../page';
+import type { Profile } from '../../lib/desktop-bridge';
 import type { UiStrings } from '../strings';
 import { Avatar } from '../Avatar';
 import { AccountOAuthRow, OAuthNotConfiguredNotice, useOAuthStatuses } from './AccountOAuthRow';
+import { createPushState } from './push-state';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
 import {
@@ -34,42 +35,22 @@ const CARD_FOCUS_RING = SURFACE_FOCUS_RING;
 // Hook
 //===========================
 
-const hiddenListeners = new Set<(list: HiddenAccount[]) => void>();
-let hiddenSubscribed = false;
-let hiddenKnown: HiddenAccount[] = [];
-
 /**
  * The mailboxes main is keeping off the screen, live
  *
  * One ipcRenderer listener for the life of the window: the preload has no way to take one off
- * again, and this panel is mounted afresh every time settings opens.
+ * again, and this panel is mounted afresh every time settings opens. Its own fetch is told to
+ * every mounted hook exactly like a push, since nothing here depends on one fetch outrunning
+ * another the way OAuth status's does.
  *
- * @returns {HiddenAccount[]}
  * @private
  */
-function useHiddenAccounts(): HiddenAccount[] {
-  const [list, setList] = useState<HiddenAccount[]>(hiddenKnown);
-
-  useEffect(() => {
-    hiddenListeners.add(setList);
-    if (!hiddenSubscribed) {
-      hiddenSubscribed = true;
-      window.desktop?.onHiddenAccounts(tell);
-    }
-    const pending = window.desktop?.getHiddenAccounts();
-    if (pending) void pending.then(tell);
-    return () => {
-      hiddenListeners.delete(setList);
-    };
-  }, []);
-
-  return list;
-}
-
-function tell(list: HiddenAccount[]): void {
-  hiddenKnown = list;
-  for (const fn of hiddenListeners) fn(list);
-}
+const useHiddenAccounts = createPushState<HiddenAccount[]>(
+  (cb) => window.desktop?.onHiddenAccounts(cb),
+  () => window.desktop?.getHiddenAccounts(),
+  [],
+  true,
+);
 
 
 //===========================

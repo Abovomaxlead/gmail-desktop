@@ -16,7 +16,7 @@
 // The diagnostics stay in English whatever language the app is in: they are read by whoever
 // fixes the bug, not by the person reporting it.
 
-import type { MailtoFields } from '../mail/mailto';
+import type { MailtoFields } from '../compose/mailto';
 import { MESSAGE_CHARS } from '../../renderer/lib/feedback';
 
 export { MESSAGE_CHARS };

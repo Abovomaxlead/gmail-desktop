@@ -1,7 +1,7 @@
 // Builds Gmail's standalone compose URL for account `index`, optionally prefilled
 // from mailto fields. With no fields this is the plain compose URL.
 
-import type { MailtoFields } from '../mail/mailto';
+import type { MailtoFields } from './mailto';
 
 /**
  * Builds Gmail's standalone compose URL

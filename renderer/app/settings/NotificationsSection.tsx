@@ -1,6 +1,6 @@
 'use client';
 
-import type { AccountPref, Prefs, Profile } from '../page';
+import type { AccountPref, Prefs, Profile } from '../../lib/desktop-bridge';
 import { isCompleteTime } from '../settings-utils';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';

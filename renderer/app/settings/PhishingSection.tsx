@@ -1,6 +1,6 @@
 'use client';
 
-import type { Prefs } from '../page';
+import type { Prefs } from '../../lib/desktop-bridge';
 import type { UiStrings } from '../strings';
 import { EmptyNote, Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';

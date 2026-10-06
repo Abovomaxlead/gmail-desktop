@@ -47,6 +47,7 @@ vi.mock('../electron/gmail/gmail-api', () => ({
   archiveMessage: vi.fn(),
   markMessageRead: vi.fn(),
 }));
+vi.mock('../electron/push/mail-sync-controller', () => ({ syncRunnerFor: () => undefined }));
 
 const { activateToast, setToastActivationHooks } = await import(
   '../electron/toast/toast-activation'

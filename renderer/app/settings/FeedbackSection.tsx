@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Profile } from '../page';
+import type { Profile } from '../../lib/desktop-bridge';
 import { MESSAGE_CHARS } from '../../lib/feedback';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';

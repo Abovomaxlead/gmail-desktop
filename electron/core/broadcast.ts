@@ -72,6 +72,9 @@ const SEED_KEY_PREFIX = 'seed:';
 // injected rather than imported: it belongs to the OAuth layer, which imports this one
 let onProfilesPushed: () => void = () => {};
 
+// injected rather than imported: it belongs to the notify layer, which imports this one
+let retainNotifyGating: (emails: Iterable<string>) => void = () => {};
+
 // the last badge trace, so a total that does not move is written once instead of every report
 let lastBadgeTrace = '';
 
@@ -82,6 +85,10 @@ let lastBadgeTrace = '';
 
 export function setOnProfilesPushed(fn: () => void): void {
   onProfilesPushed = fn;
+}
+
+export function setRetainNotifyGating(fn: (emails: Iterable<string>) => void): void {
+  retainNotifyGating = fn;
 }
 
 /**
@@ -95,11 +102,13 @@ export function pushProfiles(): void {
   const rows = decorate([...profiles]);
   for (const win of shellWindows()) win.webContents.send(IPC.PROFILES_CHANGED, rows);
   saveAccountCache(rows);
-  // the list of accounts is the only thing that says which counts are still somebody's
+  // the list of accounts is the only thing that says which counts are still somebody's, both
+  // for the unread store and for notify-gating's "may notify" memory
   if (unread.retain(profiles.map(keyOf))) {
     pushUnread();
     refreshBadge();
   }
+  retainNotifyGating(profiles.map((p) => p.email));
   onProfilesPushed();
 }
 
@@ -187,7 +196,10 @@ export function refreshBadge(): void {
   // profile to compare against: before that, a count belongs to an account detection has
   // not confirmed yet, and dropping it would leave the badge behind until the page speaks
   // again.
-  if (profiles.length > 0) unread.retain(profiles.map(keyOf));
+  if (profiles.length > 0) {
+    unread.retain(profiles.map(keyOf));
+    retainNotifyGating(profiles.map((p) => p.email));
+  }
   const counts = unread.snapshot();
   const excluded = excludedBadgeKeys();
   const total = applyBadge(counts, (n) => app.setBadgeCount(n), excluded, () => {

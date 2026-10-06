@@ -7,7 +7,7 @@
 import type { MessageRef } from '../mail/dropzone';
 import type { CopyResult } from '../mail/mail-copy';
 import type { CopyStopMode, RollbackOutcome } from '../mail/copy-run-types';
-import type { ByMailbox, JobLine } from '../../renderer/lib/maildrop-copy';
+import type { ByMailbox, CopyProgress, JobEnd, JobLine, JobPanel, MailDropTree } from '../../renderer/lib/maildrop-copy';
 
 
 //===========================
@@ -173,7 +173,27 @@ export interface MailDropPreviewItem {
  * with how many conversations each holds. Absent for a drag that was not a label drag, which
  * is what tells the picker to draw its ordinary ticking screen. Declared in
  * renderer/lib/maildrop-copy.ts, where the picker reads the same shape. */
-export type { MailDropTree } from '../../renderer/lib/maildrop-copy';
+export type { MailDropTree };
+
+/** Everything main sends with a drag, or answers when the picker asks what the open drag is.
+ * `driven` marks a batch a running job is showing rather than a fresh drag, and the language
+ * fields travel with it the way ToastState carries them, since this window has no prefs of
+ * its own. */
+export interface MailDropPreview {
+  items: MailDropPreviewItem[];
+  tree?: MailDropTree | null;
+  panel?: JobPanel;
+  job?: JobLine;
+  driven?: boolean;
+  pullRetryId?: string;
+  /** A finished job's report, sent only while its retry offer is held; never a drag to pick for */
+  jobEnd?: Omit<JobEnd, 'jobId'>;
+  locale?: 'en' | 'nl';
+  reneMode?: boolean;
+  /** Whether the app is drawing dark; this window cannot read the class the sidebar page puts
+   * on itself */
+  dark?: boolean;
+}
 
 export type {
   CopyTarget as MailDropCopyTarget,
@@ -188,18 +208,10 @@ export type {
 /** How far a copy has got, over all the chosen mailboxes at once, or how far a rollback has
  * got undoing one. No mailbox is named for a running copy -- several run at once, so naming
  * one would say something untrue -- but a paused run breaks its count down per mailbox
- * (`byMailbox`), which is exactly what the stop dialog has to show. */
-export interface MailDropCopyProgress {
-  phase: 'check' | 'copy' | 'rollback';
-  done: number;
-  total: number;
-  paused?: boolean;
-  byMailbox?: ByMailbox[];
-  /** Present only while a batched job is running. `done` and `total` above count the batch on
-   * screen; these count the whole job, in conversations, so a bar that fills five times still
-   * reads as one piece of work. */
-  job?: JobLine;
-}
+ * (`byMailbox`), which is exactly what the stop dialog has to show. Declared in
+ * renderer/lib/maildrop-copy.ts, where the picker reads the same shape, widened there with the
+ * `panel`/`jobEnd` fields its own job phase needs. */
+export type { CopyProgress as MailDropCopyProgress };
 
 /** What the paused dialog may ask the copy in flight to do. The two stop actions used to be
  * one: inside a batched job 'stop-rollback' is ambiguous, so it names its scope. A plain drag is

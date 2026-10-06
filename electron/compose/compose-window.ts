@@ -8,7 +8,7 @@ import { notifyLog } from '../notify/notify-log';
 import { composeUrl } from './compose-url';
 import { SESSION_PARTITION } from '../core/session-partition';
 import { manager } from '../core/runtime';
-import type { MailtoFields } from '../mail/mailto';
+import type { MailtoFields } from './mailto';
 
 
 //===========================

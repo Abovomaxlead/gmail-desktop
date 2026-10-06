@@ -1,7 +1,7 @@
 // Parsing mailto: links, including the one Windows passes in argv.
 
 import { describe, it, expect } from 'vitest';
-import { parseMailto, extractMailtoFromArgv } from '../electron/mail/mailto';
+import { parseMailto, extractMailtoFromArgv } from '../electron/compose/mailto';
 
 describe('parseMailto', () => {
   it('returns null for a non-mailto url', () => {

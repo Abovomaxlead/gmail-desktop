@@ -1,7 +1,7 @@
 // Narrowing the label picker to what you type, without losing what you already ticked.
 
 import { describe, it, expect } from 'vitest';
-import { filterLabels } from '../renderer/app/label-search';
+import { filterLabels } from '../renderer/lib/label-search';
 
 const labels = [
   { id: 'INBOX', name: 'Postvak IN' },

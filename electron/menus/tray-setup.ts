@@ -7,6 +7,7 @@
 
 import { app } from 'electron';
 import type { Tray } from 'electron';
+import { bringToFront } from '../windows/window-focus';
 import { ICON_PATH } from '../core/paths';
 import { pushPrefs } from '../core/broadcast';
 import {
@@ -116,9 +117,7 @@ function openFromTrayIcon(): void {
     }
   }
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+  bringToFront(mainWindow);
 }
 
 function getTrayState(): TrayState {

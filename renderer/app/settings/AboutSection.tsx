@@ -1,6 +1,6 @@
 'use client';
 
-import type { UpdateStatus } from '../page';
+import type { UpdateStatus } from '../../lib/desktop-bridge';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';

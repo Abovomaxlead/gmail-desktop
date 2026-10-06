@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url';
 import { RENDERER_DIST } from './core/paths';
 import { PrefsStore } from './core/prefs-store';
 import { registerIpc } from './core/ipc-handlers';
-import { setOnProfilesPushed } from './core/broadcast';
+import { setOnProfilesPushed, setRetainNotifyGating } from './core/broadcast';
 import { pickVariant } from './core/locale';
 import {
   currentLocale,
@@ -33,6 +33,7 @@ import {
 } from './core/runtime';
 import { createWindow, openSettingsPanel } from './windows/main-window';
 import { applyTitleBarOverlay } from './windows/window-chrome';
+import { bringToFront } from './windows/window-focus';
 import { openExternalGuarded } from './windows/surface-opener';
 import { dispatchMailto } from './compose/mailto-controller';
 import { activateNotification, setToastActivationHooks } from './toast/toast-activation';
@@ -45,6 +46,7 @@ import {
 } from './system/system-integration';
 import {
   refreshNotifyAllowed,
+  retainNotifyGating,
   setNotifyGatingHooks,
   startNotifyTimer,
 } from './notify/notify-gating';
@@ -56,7 +58,7 @@ import {
   setExternalOpener,
   setGoogleAppsRouting,
 } from './system/external-links';
-import { extractMailtoFromArgv } from './mail/mailto';
+import { extractMailtoFromArgv } from './compose/mailto';
 import { startMailDropCleanup } from './mail/mail-drop-cleanup';
 import { mailDropFolder, resumeOrphanedCopyRuns, showJobReport } from './mail/mail-drop-controller';
 import { notifyLog } from './notify/notify-log';
@@ -116,9 +118,7 @@ if (!gotTheLock) {
 } else {
   app.on('second-instance', (_e, argv) => {
     if (!mainWindow) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
+    bringToFront(mainWindow);
     const url = extractMailtoFromArgv(argv);
     if (url) void dispatchMailto(url);
   });
@@ -133,6 +133,7 @@ if (!gotTheLock) {
  * each one is a hook and not an import. */
 function wireModules(): void {
   setOnProfilesPushed(() => scheduleOAuthHealthCheck());
+  setRetainNotifyGating(retainNotifyGating);
   setUpdateHooks({
     openSettingsPanel: (section) => openSettingsPanel(section),
     onStatusChanged: () => refreshTray(),

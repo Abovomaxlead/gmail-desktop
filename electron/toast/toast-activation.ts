@@ -10,8 +10,10 @@
 
 import { shell } from 'electron';
 import { IPC } from '../core/ipc';
+import { bringToFront } from '../windows/window-focus';
 import { mapLimit } from '../core/concurrency';
 import {
+  currentLocale,
   idxOfKey,
   keyOf,
   mainWindow,
@@ -27,6 +29,8 @@ import { withTokenFor } from '../auth/mailbox-token';
 import { forgetDownloadClickPath, takeDownloadClickAction } from '../system/session-setup';
 import { notifyLog } from '../notify/notify-log';
 import { pickNotifiedMessage, type NotifiedMail } from '../notify/notify-match';
+import { hiddenNotificationText, playNotificationSound } from '../notify/notify-gating';
+import { notificationPersist, notificationSilent } from '../notify/notification-policy';
 import {
   archiveMessage,
   fetchMessageMeta,
@@ -35,8 +39,11 @@ import {
   type MessageMeta,
 } from '../gmail/gmail-api';
 import { surfacesForRef } from '../../renderer/lib/surfaces';
-import type { Surface } from '../windows/profile-view-manager';
-import type { Toast, ToastAction } from '../../renderer/lib/toast';
+import { nativeLabels } from '../menus/native-labels';
+import { showToast, toastAccountFor } from './toast-presenter';
+import { syncRunnerFor } from '../push/mail-sync-controller';
+import type { Profile, Surface } from '../windows/profile-view-manager';
+import { webNotifySourceKey, type Toast, type ToastAction } from '../../renderer/lib/toast';
 
 
 //===========================
@@ -83,6 +90,49 @@ export function rememberWebNotifySource(
   webNotifySources.set(key, source);
 }
 
+/**
+ * Builds and raises the toast for a notification Gmail's own page raised, remembering the
+ * source so a click on it can find the message again
+ *
+ * @param profile the account the notification came from
+ * @param wc the view's web contents, kept so a click can look the message back up
+ * @param arg the page's own notification: its id, title, body and persistence request
+ */
+export function showWebNotification(
+  profile: Profile,
+  wc: Electron.WebContents,
+  arg: { id: string; title: string; body: string; requireInteraction?: boolean },
+): void {
+  const p = prefs?.getAll();
+  if (!p) return;
+  const hidden = hiddenNotificationText(p);
+  const L = nativeLabels(currentLocale(), p.reneMode === true);
+  const sourceKey = webNotifySourceKey(wc.id, arg.id);
+  const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
+  rememberWebNotifySource(sourceKey, { wc, pageId: arg.id, email: profile.email, notified });
+  // The page's own word wins over the per-account default, in one direction only: it may
+  // keep a card up, never take one down. Google Agenda marks every event reminder this
+  // way, and six seconds of a reminder is the same as no reminder -- there is no badge and
+  // no list to find it back in afterwards, the way there is for mail.
+  const persist = notificationPersist(p, profile.email) || arg.requireInteraction === true;
+  notifyLog(
+    `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
+      ` persist=${persist}${arg.requireInteraction === true ? ' (the page asked for it)' : ''}` +
+      ` silent=${notificationSilent(p, profile.email, 'mail')}` +
+      `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
+  );
+  showToast({
+    kind: 'mail',
+    title: hidden.hiddenSender ?? arg.title,
+    body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
+    account: toastAccountFor(profile.email),
+    webNotifyId: sourceKey,
+    persist,
+  });
+  if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
+  void syncRunnerFor(profile.email)?.run();
+}
+
 export function activateNotification(
   accountKey: string,
   surface: Surface,
@@ -111,9 +161,7 @@ export function activateNotification(
     return;
   }
   if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    bringToFront(mainWindow);
   }
   if (settingsPanelOpen) {
     setSettingsPanelOpen(false);
@@ -235,9 +283,7 @@ export function activateToast(toast: Toast): void {
     return;
   }
   if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    bringToFront(mainWindow);
   }
 }
 

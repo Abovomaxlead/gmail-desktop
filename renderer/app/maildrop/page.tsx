@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  MailDropItem,
-  MailDropCopyResult,
   MailDropCopyDuplicate,
-  MailDropCopyMode,
+  MailDropCopyResult,
   MailDropExisting,
   MailDropPreview,
-} from '../MailDropModal';
-import { recentFor, type RecentLabelUse } from '../recent-labels';
+  MailDropPreviewItem,
+} from '../../../electron/core/ipc';
+import type { CopyMode } from '../../../electron/mail/mail-copy';
+import { recentFor, type RecentLabelUse } from '../../lib/recent-labels';
 import { dropFailures } from '../../lib/drop-outcome';
 import { failedRowIndexes, cutList } from '../../lib/failure-list';
 import {
@@ -25,7 +25,7 @@ import {
   localPart,
   type PickedChip,
 } from '../mailbox-rail';
-import { filterLabels } from '../label-search';
+import { filterLabels } from '../../lib/label-search';
 import { parentInsideTree } from '../../../electron/mail/label-tree';
 import { treeTopPlace } from '../tree-place';
 import { labelKind } from '../label-kind';
@@ -175,7 +175,7 @@ function jobEndColour(end: JobEnd, otherwise: string): string {
 //===========================
 
 export default function MailDropModalPage() {
-  const [items, setItems] = useState<MailDropItem[]>([]);
+  const [items, setItems] = useState<MailDropPreviewItem[]>([]);
   const [pullRetryId, setPullRetryId] = useState<string | null>(null);
   const [pullRetrying, setPullRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
@@ -598,7 +598,7 @@ export default function MailDropModalPage() {
     }
   };
 
-  const copy = async (mode: MailDropCopyMode = 'check') => {
+  const copy = async (mode: CopyMode = 'check') => {
     const bridge = window.desktop;
     if (!bridge) return;
     // The duplicate screen's buttons answer whichever copy raised it
@@ -632,7 +632,7 @@ export default function MailDropModalPage() {
    * @param mode
    * @returns {Promise<CopyOrStoppedResult>}
    */
-  const retryJobCall = async (retryId: string, mode: MailDropCopyMode): Promise<CopyOrStoppedResult> => {
+  const retryJobCall = async (retryId: string, mode: CopyMode): Promise<CopyOrStoppedResult> => {
     const bridge = window.desktop;
     if (!bridge) throw new Error('No bridge');
     const r = (await bridge.retryMailDropJob(retryId, mode)) as CopyOrStoppedResult;
@@ -1820,7 +1820,7 @@ function PullMisses({
   onRetry,
   S,
 }: {
-  misses: MailDropItem[];
+  misses: MailDropPreviewItem[];
   total: number;
   busy: boolean;
   error: string | null;
