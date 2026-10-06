@@ -43,7 +43,11 @@ export interface JobEnd {
   copiedBatches: number;
   done: number;
   total: number;
+  /** Conversations lost across every batch; absent or 0 when none were */
+  failed?: number;
   error?: string;
+  /** Set on a completed job with losses: the id its one retry button sends */
+  retryId?: string;
 }
 
 export interface ByMailbox {

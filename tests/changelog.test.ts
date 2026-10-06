@@ -125,6 +125,22 @@ describe('releaseNotesMarkdown', () => {
     ).toBe('- Nieuw.\n\n- Ouder.');
   });
 
+  it('turns the HTML of the releases feed back into markdown the parser reads', () => {
+    const html =
+      '<h3>Toegevoegd</h3>\n<ul>\n<li><strong>Iets nieuws.</strong> Ging bij slepen<br>\n' +
+      'mis, dan zei het &quot;1 mislukt&quot; &amp; niets.</li>\n<li>\n<p>Tweede.</p>\n</li>\n</ul>\n' +
+      '<h3>Opgelost</h3>\n<ul>\n<li>Iets <code>kapots</code>.</li>\n</ul>';
+    const markdown = releaseNotesMarkdown(html);
+    expect(markdown).not.toMatch(/<|&quot;|&amp;/);
+    const notes = parseReleaseNotes('1.2.3', markdown);
+    expect(notes?.entries.map((e) => e.heading)).toEqual(['Toegevoegd', 'Opgelost']);
+    expect(notes?.entries[0].items).toEqual([
+      '**Iets nieuws.** Ging bij slepen mis, dan zei het "1 mislukt" & niets.',
+      'Tweede.',
+    ]);
+    expect(notes?.entries[1].items).toEqual(['Iets `kapots`.']);
+  });
+
   it('is empty for a release page that carried nothing', () => {
     expect(releaseNotesMarkdown(null)).toBe('');
     expect(releaseNotesMarkdown([{ version: '1.2.3', note: null }])).toBe('');

@@ -415,5 +415,6 @@ function statusIconPath(kind: ToastKind): string | null {
   if (kind === 'download') return 'M8 2.8v7.4M4.9 7.5L8 10.6l3.1-3.1M3.6 13.2h8.8';
   if (kind === 'update') return 'M8 13.2V3.6M4.4 7.2L8 3.6l3.6 3.6';
   if (kind === 'error') return 'M8 2.6L1.5 13.4h13L8 2.6zM8 6.6v3.2M8 11.7v.3';
+  if (kind === 'maildrop') return 'M2.4 4.2h11.2v7.6H2.4zM2.4 4.2L8 8.6l5.6-4.4';
   return null;
 }

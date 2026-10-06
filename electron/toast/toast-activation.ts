@@ -51,6 +51,8 @@ import type { Toast, ToastAction } from '../../renderer/lib/toast';
  * list of sections belongs to the renderer, so it travels as a string. */
 export interface ToastActivationHooks {
   openSettingsPanel(section?: string): void;
+  /** Opens the mail-drop panel on a finished job's report, which lives in the mail layer */
+  openJobReport(): void;
 }
 
 
@@ -58,7 +60,7 @@ export interface ToastActivationHooks {
 // Module state
 //===========================
 
-let hooks: ToastActivationHooks = { openSettingsPanel: () => {} };
+let hooks: ToastActivationHooks = { openSettingsPanel: () => {}, openJobReport: () => {} };
 
 
 //===========================
@@ -226,6 +228,10 @@ export function activateToast(toast: Toast): void {
   // would be the wrong place to send it.
   if (toast.kind === 'error') {
     hooks.openSettingsPanel();
+    return;
+  }
+  if (toast.kind === 'maildrop') {
+    hooks.openJobReport();
     return;
   }
   if (mainWindow && !mainWindow.isDestroyed()) {

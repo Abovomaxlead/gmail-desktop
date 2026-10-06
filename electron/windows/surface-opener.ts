@@ -87,6 +87,7 @@ function openGoogleAppWindow(url: string, ref: AccountRef, surface: Surface): vo
   });
   attachExternalLinkHandling(win.webContents, {
     surface,
+    accountKey: accountKey(ref),
     // A link out of this window into another app obeys the setting like anywhere else, and
     // one that belongs in the app lands in the shared view rather than in a third window.
     openInApp: (target) => manager?.openInOwningSurface(ref, surface, target),

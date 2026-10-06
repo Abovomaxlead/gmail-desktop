@@ -42,6 +42,7 @@ import {
   authuserFromPath,
   ikFromPage,
   resultText,
+  resultState,
   savingText,
   type DragNode,
   type MessageRef,
@@ -653,7 +654,7 @@ function installDropzone(
     showResult: (r: MailDropResult) => {
       mine = false;
       showLine(resultText(r));
-      setState(r.ok ? 'done' : 'failed');
+      setState(resultState(r));
       if (clearTimer) clearTimeout(clearTimer);
       clearTimer = setTimeout(reset, 2000);
     },
@@ -740,6 +741,15 @@ if (typeof document !== 'undefined') {
       const payload = webNotifyPayload(id, title, options);
       bodies.set(id, payload.body);
       log(`Gmail raised a notification, handing ${id} to main`);
+      // Calendar's reminders carry no date in their text, so what else it sends is the only way to tell a stale one
+      if (location.hostname !== 'mail.google.com') {
+        const o = (options ?? {}) as NotificationOptions & { timestamp?: number };
+        log(
+          `notification ${id} options: tag=${JSON.stringify(o.tag ?? null)}` +
+            ` timestamp=${typeof o.timestamp === 'number' ? new Date(o.timestamp).toISOString() : 'none'}` +
+            ` data=${JSON.stringify(o.data ?? null)?.slice(0, 200)} requireInteraction=${o.requireInteraction === true}`,
+        );
+      }
       ipcRenderer.send(IPC.WEB_NOTIFY_SHOW, payload);
       return () => {
         log(`Gmail closed notification ${id}`);

@@ -561,6 +561,69 @@ describe('reloading a view that was redirected away', () => {
   });
 });
 
+// A delegated mailbox's id changes per session. A view opened on an id that has expired is
+// moved to the fresh one in place, without tearing the view down: a view that is thrown away
+// leaves the tab empty while it still looks selected.
+describe('moving a delegated view to a fresh url', () => {
+  const FRESH = 'https://mail.google.com/mail/u/3/d/fresh/';
+
+  it('knows the url a view was opened with', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+
+    expect(m.homeOf('d:stub@example.nl', 'mail')).toBe('https://mail.google.com/mail/u/3/d/xyz/');
+    expect(m.homeOf('d:nobody@example.nl', 'mail')).toBeNull();
+  });
+
+  it('loads the fresh url in the same view', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    wc.navigations.length = 0;
+
+    expect(m.moveHome('d:stub@example.nl', 'mail', FRESH)).toBe(true);
+
+    expect(wc.navigations).toEqual([FRESH]);
+    expect(win.contentView.addChildView).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes the fresh url the home a reload goes back to', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    m.moveHome('d:stub@example.nl', 'mail', FRESH);
+    wc.url = 'https://mail.google.com/mail/u/3/';
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual([FRESH]);
+  });
+
+  it('does nothing for a view that is not there', () => {
+    const m = manager(fakeWin());
+
+    expect(m.moveHome('d:stub@example.nl', 'mail', FRESH)).toBe(false);
+  });
+
+  // The notice replaces the page but not the home, so Ctrl+R still tries the mailbox again
+  it('shows a notice without forgetting where the view belongs', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.show(withUrl, 'mail');
+    const wc = pageOf(win);
+    m.showNotice('d:stub@example.nl', 'mail', 'data:text/html,x');
+    wc.navigations.length = 0;
+
+    m.reloadActive();
+
+    expect(wc.navigations).toEqual(['https://mail.google.com/mail/u/3/d/xyz/']);
+  });
+});
+
 // A page whose process is gone is not reloaded by Electron: the view stays attached, stays on
 // top, and never paints again. Clicks land on nothing, so the whole window reads as frozen --
 // and until this existed, every renderer crash was a hang that only a restart cured.

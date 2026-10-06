@@ -87,6 +87,11 @@ The release workflow builds and publishes **Windows only**. It runs when a `v*` 
    ```
    For a stable release, use a version without a suffix, such as `1.0.0`. It becomes
    GitHub's "Latest" and is offered to everyone.
+
+   **Once a stable version is out, a beta must carry the next number.** Semver ranks
+   `1.0.0-beta.<n>` *below* `1.0.0`, so after 1.0.0 that beta is never offered to anyone.
+   Betas towards the next version are `1.1.0-beta.$(date +%s)` (or `1.0.1-beta.…` for a fix
+   release), and the stable that follows them is `1.1.0`.
 3. **Write the changelog section by hand** at the top of `CHANGELOG.md`, headed exactly
    `## [1.0.0-beta.<n>] — YYYY-MM-DD`. It is written for end users. It becomes the GitHub
    release notes and the in-app "what's new" panel. A wrong heading silently drops both.

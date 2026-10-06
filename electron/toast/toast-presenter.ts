@@ -22,20 +22,32 @@ import type { ToastAccount } from '../../renderer/lib/toast';
  *
  * A null controller happens twice in the app's life, before createWindow and after the main
  * window closes; there is no stack to put a card in then and nothing to repair.
+ *
+ * @param input
+ * @returns the card's id on the stack, or undefined when it went to Windows instead
  */
-export function showToast(input: ToastInput): void {
+export function showToast(input: ToastInput): string | undefined {
   if (!toasts) {
     notifyLog(`[toast] no stack at all to show "${input.title}" in — falling back to Windows`);
     systemNotify(input.title, input.body);
-    return;
+    return undefined;
   }
   if (toastWindow?.isBroken() && !repairToastStack()) {
     notifyLog(`[toast] stack cannot be repaired — "${input.title}" goes to Windows instead`);
     systemNotify(input.title, input.body);
-    return;
+    return undefined;
   }
   notifyLog(`[toast] stack draws "${input.title}"`);
-  toasts.show(input);
+  return toasts.show(input);
+}
+
+/**
+ * Takes a card off the stack once what it offered is gone
+ *
+ * @param id the id showToast answered; a card already dismissed or collapsed is left alone
+ */
+export function dismissShownToast(id: string): void {
+  toasts?.dismiss(id);
 }
 
 export function repairToastStack(): boolean {

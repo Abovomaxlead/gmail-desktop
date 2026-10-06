@@ -72,6 +72,12 @@ describe('windowOpenAction', () => {
     expect(windowOpenAction(ATTACHMENT, 'app', true, false)).toBe('open-external');
   });
 
+  it('sends the print page to the browser, which has a print preview', () => {
+    const PRINT = 'https://mail.google.com/mail/u/0/?ik=abc&view=pt&search=all&permthid=thread-f:1';
+    expect(windowOpenAction(PRINT, 'app', false, false)).toBe('print-external');
+    expect(windowOpenAction(PRINT, 'window', true, false)).toBe('print-external');
+  });
+
   it('opens a download of the attachment bytes externally too', () => {
     expect(
       windowOpenAction(

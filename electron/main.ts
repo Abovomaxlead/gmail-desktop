@@ -28,6 +28,8 @@ import {
   setIsQuitting,
   pendingMailtos,
   toasts,
+  profiles,
+  keyOf,
 } from './core/runtime';
 import { createWindow, openSettingsPanel } from './windows/main-window';
 import { applyTitleBarOverlay } from './windows/window-chrome';
@@ -49,10 +51,14 @@ import {
 import { applyTraySetting, refreshTray, setTrayHooks } from './menus/tray-setup';
 import { applyAutoUpdateCheck, setUpdateHooks, setupUpdater } from './updates/update-controller';
 import { attachContextMenu, LABELS_NORMAL, LABELS_RENE, LABELS_NL } from './menus/context-menu';
-import { setExternalOpener, setGoogleAppsRouting } from './system/external-links';
+import {
+  setAccountEmailLookup,
+  setExternalOpener,
+  setGoogleAppsRouting,
+} from './system/external-links';
 import { extractMailtoFromArgv } from './mail/mailto';
 import { startMailDropCleanup } from './mail/mail-drop-cleanup';
-import { mailDropFolder, resumeOrphanedCopyRuns } from './mail/mail-drop-controller';
+import { mailDropFolder, resumeOrphanedCopyRuns, showJobReport } from './mail/mail-drop-controller';
 import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { flushCrashReports, installCrashReporting } from './feedback/crash-controller';
@@ -134,6 +140,7 @@ function wireModules(): void {
   setNotifyGatingHooks({ onDndCleared: () => refreshTray() });
   setToastActivationHooks({
     openSettingsPanel: (section) => openSettingsPanel(section),
+    openJobReport: () => showJobReport(),
   });
   setTrayHooks({
     refreshNotifyAllowed: () => refreshNotifyAllowed(),
@@ -169,6 +176,7 @@ app.whenReady().then(() => {
   attachSessionHandlers(session.defaultSession);
   setExternalOpener(openExternalGuarded);
   setGoogleAppsRouting(() => prefs?.getAll().googleApps ?? null);
+  setAccountEmailLookup((key) => profiles.find((p) => keyOf(p) === key)?.email || null);
   wireModules();
   registerAppProtocol();
   setupNotifications();

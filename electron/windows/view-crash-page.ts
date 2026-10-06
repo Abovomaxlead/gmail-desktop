@@ -50,6 +50,24 @@ const RENE: ViewCrashText = Object.freeze({
   hint: 'Druk Ctrl+R om het nog eens te proberen. Helpt dat niet, zet de app dan uit en weer aan.',
 });
 
+const LOST_EN: ViewCrashText = Object.freeze({
+  title: 'This mailbox cannot be opened',
+  body: 'Gmail kept opening a different mailbox here, so the app stopped trying. Your access may have been withdrawn.',
+  hint: 'Press Ctrl+R to try again, or ask whoever manages the mailbox whether you still have access.',
+});
+
+const LOST_NL: ViewCrashText = Object.freeze({
+  title: 'Dit postvak kan niet geopend worden',
+  body: 'Gmail bleef hier een ander postvak openen, dus de app is gestopt met proberen. Misschien is je toegang ingetrokken.',
+  hint: 'Druk op Ctrl+R om het opnieuw te proberen, of vraag de beheerder van het postvak of je nog toegang hebt.',
+});
+
+const LOST_RENE: ViewCrashText = Object.freeze({
+  title: 'Dit postvak gaat niet open',
+  body: 'Gmail liet hier steeds een ander postvak zien. Misschien mag je er niet meer in.',
+  hint: 'Druk Ctrl+R om het nog eens te proberen. Lukt dat niet, vraag dan of je er nog bij mag.',
+});
+
 
 //===========================
 // Exported functions
@@ -64,6 +82,17 @@ const RENE: ViewCrashText = Object.freeze({
  */
 export function viewCrashText(locale: Locale, reneMode: boolean): ViewCrashText {
   return pickVariant(locale, reneMode, { en: EN, nl: NL, rene: RENE });
+}
+
+/**
+ * The wording for a delegated mailbox the app could not open
+ *
+ * @param locale
+ * @param reneMode
+ * @returns the three lines the page shows, for viewCrashUrl
+ */
+export function delegatedLostText(locale: Locale, reneMode: boolean): ViewCrashText {
+  return pickVariant(locale, reneMode, { en: LOST_EN, nl: LOST_NL, rene: LOST_RENE });
 }
 
 /**

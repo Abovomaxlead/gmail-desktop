@@ -41,6 +41,7 @@ import { buildRawMail } from './crash-mail';
 import { FEEDBACK_TO } from './feedback-mail';
 import {
   MAX_TRIES,
+  childGoneDecision,
   crashBody,
   crashLogLine,
   crashSubject,
@@ -101,6 +102,11 @@ let flushing = false;
 
 let flushTimer: NodeJS.Timeout | null = null;
 
+/** When the GPU process went, for this run of the app only. Deliberately not on disk: a machine
+ * that loses its GPU process once a week is a machine nothing is wrong with, and the streak that
+ * is worth a report happens inside one session. */
+let gpuGone: number[] = [];
+
 
 //===========================
 // Exported functions
@@ -150,11 +156,26 @@ export function installCrashReporting(): void {
   });
   app.on('child-process-gone', (_e, details) => {
     if (details.reason === 'clean-exit') return;
+    const at = Date.now();
+    const decision = childGoneDecision({ type: details.type, recent: gpuGone, at });
+    if (details.type === 'GPU') gpuGone = decision.recent;
+    const what = `a ${details.type} process is gone: ${details.reason} (exit ${details.exitCode})`;
+    if (!decision.report) {
+      // Logged and not mailed: Chromium starts another one and the window keeps painting, so
+      // there is nothing for anybody to do -- but the line is what makes the report that does
+      // go out readable, since it says how long this had been going on.
+      notifyLog(`[crash] ${what}; Chromium will start another (${decision.streak} in a row)`);
+      return;
+    }
     reportCrash({
       kind: 'child-gone',
-      message: `a ${details.type} process is gone: ${details.reason} (exit ${details.exitCode})`,
+      message:
+        details.type === 'GPU'
+          ? `the GPU process has gone ${decision.streak} times in a row: ${details.reason} (exit ${details.exitCode})`
+          : what,
       where: details.name ?? details.serviceName,
-      at: Date.now(),
+      detail: details.type === 'GPU' ? gpuSummary() : undefined,
+      at,
     });
   });
   app.on('web-contents-created', (_e, contents) => {
@@ -374,6 +395,27 @@ function safeUrl(contents: { isDestroyed?: () => boolean; getURL?: () => string 
     return contents.getURL?.() ?? '';
   } catch {
     return '';
+  }
+}
+
+/**
+ * What the machine's graphics are doing, for a report about the GPU process
+ *
+ * Without this a GPU report says "gone (exit 34)" and nothing else, which names no driver, no
+ * vendor and no feature -- unanswerable, and a report nobody can answer is a report not worth
+ * sending. Chromium's own feature list is what it decided about this machine and is the part
+ * that differs between the machine that is fine and the one that is not.
+ *
+ * @returns one line per feature, or nothing when Electron will not say
+ * @private
+ */
+function gpuSummary(): string | undefined {
+  try {
+    const status = app.getGPUFeatureStatus() as unknown as Record<string, string>;
+    const lines = Object.entries(status).map(([feature, state]) => `${feature}: ${state}`);
+    return lines.length ? lines.join('\n') : undefined;
+  } catch {
+    return undefined;
   }
 }
 

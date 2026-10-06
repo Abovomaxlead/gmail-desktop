@@ -3,6 +3,66 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.0] — 2026-10-06
+
+### Let op
+- **Dit is 1.0.0, de eerste definitieve versie.** Hij is gelijk aan de laatste testversie
+  (1.0.0-beta.1791189638) en bevat alles wat in de testversies hieronder staat. Iedereen krijgt
+  hem aangeboden, ook wie de testversies uit heeft staan.
+
+## [1.0.0-beta.1791189638] — 2026-10-05
+
+### Opgelost
+- **Afdrukken werkt weer.** De printknop in Gmail deed niets bruikbaars: de afdrukpagina
+  verscheen in plaats van je inbox, zonder voorbeeld. Nu opent die pagina in je browser, op
+  hetzelfde account, met het gewone afdrukvoorbeeld. Je moet daarvoor in je browser met dat
+  account ingelogd zijn.
+- **De melding over een nieuwe versie toont gewone tekst.** Wat er in een update nieuw is,
+  stond vol met codes als `<p>` en `<strong>`. Je leest het nu zoals het bedoeld is.
+
+### Let op
+- **Dit is de nieuwe testversie voor 1.0.0.** Hij bevat alles uit de vorige testversie, plus
+  deze twee reparaties.
+
+## [1.0.0-beta.1791184086] — 2026-10-05
+
+### Toegevoegd
+- **Mail die niet overkwam, krijgt een naam en een tweede kans.** Ging bij slepen of kopiëren
+  één mail mis, dan zei het paneel "1 mislukt" en verder niets: welke mail, waarom en hoe je hem
+  er alsnog bij kreeg, moest je zelf uitzoeken. Nu staat in het paneel per mail het onderwerp en
+  de reden, met één knop die precies die mails opnieuw verstuurt, naar dezelfde postvakken en
+  labels als de eerste keer. Wat al was aangekomen, wordt niet nog een keer verstuurd.
+- **Een grote kopieeropdracht biedt aan het eind aan wat er onderweg misging.** Bij een opdracht
+  die in delen loopt, worden de verloren mails per deel bijgehouden en pas aan het eind samen
+  aangeboden, met een knop onder de slotregel. Heb je het paneel al dichtgedaan, dan komt er een
+  melding; klik je die aan, dan opent het paneel op het verslag, met dezelfde knop.
+
+### Opgelost
+- **Een gedelegeerd postvak toont niet meer stilletjes je eigen inbox.** Google geeft een
+  gedeeld postvak bij elke start een nieuw adres, en een oud adres werkt meestal nog maar soms
+  niet meer. Dan liet het tabblad je eigen inbox zien alsof het het gedeelde postvak was, of het
+  bleef leeg terwijl het geselecteerd leek. De app opent het postvak nu meteen, ziet binnen een
+  paar seconden als er het verkeerde postvak staat, en zet het tabblad dan zelf op het nieuwe
+  adres. Lukt dat na een paar pogingen nog steeds niet, dan staat er in het tabblad dat het
+  postvak niet geopend kan worden, in plaats van dat je ongemerkt in de verkeerde mail werkt.
+- **Een half gelukte sleep kleurt niet meer groen.** Kwam maar een deel van de mail aan, dan zag
+  het resultaat er hetzelfde uit als een sleep die helemaal gelukt was.
+- **Een gekopieerde sleep wordt nooit nog eens helemaal gekopieerd.** Was een kopie eenmaal
+  begonnen, dan kon een tweede klik op Kopieer alles opnieuw versturen — zo kwamen er in augustus
+  717 mails dubbel in een postvak. Dat kan niet meer; alleen de mails die echt misgingen kunnen
+  nog een keer.
+
+### Gewijzigd
+- **Een haperende grafische kaart levert geen foutmelding meer op voor iets wat vanzelf herstelt.**
+  Windows start dat onderdeel zelf opnieuw en het venster blijft gewoon tekenen, dus een enkele
+  keer wordt nu alleen in het logboek gezet. Pas als het binnen tien minuten drie keer gebeurt,
+  gaat er een melding naar de ontwikkelaar.
+
+### Let op
+- **Dit is de testversie voor 1.0.0, de eerste definitieve versie.** Gebruik hem een paar dagen
+  zoals je de app altijd gebruikt. Zit er niets meer in wat stoort, dan komt dezelfde versie uit
+  als 1.0.0, en die krijgt iedereen aangeboden, ook wie de testversies uit heeft staan.
+
 ## [1.0.0-beta.1789652279] — 2026-09-17
 
 ### Toegevoegd

@@ -251,6 +251,7 @@ export class ProfileViewManager {
     });
     attachExternalLinkHandling(view.webContents, {
       surface,
+      accountKey: acctKey,
       getOpenMode: this.getOpenMode,
       openInApp: (url) => this.openInOwningSurface(ref, surface, url),
       isNotificationClickInFlight: () => Date.now() < (this.notifClickUntil.get(k) ?? 0),
@@ -472,6 +473,43 @@ export class ProfileViewManager {
     if (!viewLeftItsHome(home, wc.getURL())) return false;
     void wc.loadURL(home!);
     return true;
+  }
+
+  homeOf(accountKey: string, surface: Surface): string | null {
+    return this.homeUrls.get(viewKey(accountKey, surface)) ?? null;
+  }
+
+  /**
+   * Moves a view to a new home url, in place
+   *
+   * For a delegated mailbox whose id expired. The view is kept rather than torn down, so a
+   * tab that is on screen never drops to an empty window while it still looks selected.
+   *
+   * @param accountKey
+   * @param surface
+   * @param url the fresh url, which a reload goes back to from now on
+   * @returns true when there was a live view to move
+   */
+  moveHome(accountKey: string, surface: Surface, url: string): boolean {
+    const k = viewKey(accountKey, surface);
+    const wc = this.views.get(k)?.webContents;
+    if (!wc || wc.isDestroyed()) return false;
+    this.homeUrls.set(k, url);
+    void wc.loadURL(url);
+    return true;
+  }
+
+  /**
+   * Shows a page in a view without making it the view's home
+   *
+   * @param accountKey
+   * @param surface
+   * @param url a document saying what went wrong; Ctrl+R leaves it for the view's home
+   */
+  showNotice(accountKey: string, surface: Surface, url: string): void {
+    const wc = this.views.get(viewKey(accountKey, surface))?.webContents;
+    if (!wc || wc.isDestroyed()) return;
+    void wc.loadURL(url);
   }
 
   /**

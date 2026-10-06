@@ -5,6 +5,7 @@
 // point.
 
 import { mapLimit } from '../core/concurrency';
+import type { FailureLine } from './copy-failures';
 
 
 
@@ -45,6 +46,10 @@ export interface CopyResult {
   needsConfirm?: boolean;
   duplicates?: CopyDuplicate[];
   newCount?: number;
+  /** Set when some mail did not land and may be tried again from the panel */
+  retryId?: string;
+  /** A job retry's conversations that still could not be fetched; their subject may be empty */
+  unfetched?: FailureLine[];
 }
 
 export type CopyMode = 'check' | 'new' | 'all';
@@ -55,6 +60,7 @@ export interface CopyAccountResult {
   skipped: number;
   total: number;
   error?: string;
+  failures?: FailureLine[];
 }
 
 export interface DuplicateHit {
