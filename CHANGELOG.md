@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/).
 - **Een agendaherinnering volgt nu dezelfde "blijf staan"-knop als je mail.** Staat die knop
   voor het account aan, dan blijft de herinnering staan tot je hem wegklikt. Staat hij uit, dan
   verdwijnt hij na een paar seconden, net als een mailmelding.
+## [1.0.0] — 2026-10-06
+
+### Let op
+- **Dit is 1.0.0, de eerste definitieve versie.** Hij is gelijk aan de laatste testversie
+  (1.0.0-beta.1791189638) en bevat alles wat in de testversies hieronder staat. Iedereen krijgt
+  hem aangeboden, ook wie de testversies uit heeft staan.
 
 ## [1.0.0-beta.1791189638] — 2026-10-05
 
