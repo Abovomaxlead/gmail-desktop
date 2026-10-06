@@ -30,7 +30,7 @@ jobs:
       # anyone copying a file into AppData first. It is not in the repository — that is
       # public, and a client secret in a public repository is found by credential scanners
       # and withdrawn — so it arrives here from a repository secret holding the whole
-      # google-oauth.json, relayUrl and pushTopic included.
+      # google-oauth.json, the relay addresses for delegated mailboxes included.
       #
       # Without the secret this writes an empty file and printf still succeeds, which used to
       # publish a release that could not link an account. The step after it is what refuses.

@@ -4,10 +4,10 @@
 // quietly when it is missing, so the app looked healthy and did nothing.
 //
 // The panel can now import one. These tests are about what it accepts. The one that matters
-// most is the pass-through: relayUrl and pushTopic live in the same file and are what make
-// push notifications work, so a validator that rebuilt the file from the two fields it
-// checks would produce a machine that links accounts and then never notifies about them —
-// a worse failure than the one being fixed, because it looks like success.
+// most is the pass-through: the relay addresses for delegated mailboxes live in the same file,
+// so a validator that rebuilt the file from the two fields it checks would produce a machine
+// whose delegated mailboxes never get a token — a worse failure than the one being fixed,
+// because it looks like success.
 
 import { describe, expect, it } from 'vitest';
 import { checkOAuthConfigFile } from '../electron/auth/oauth-config-file';
@@ -15,8 +15,8 @@ import { checkOAuthConfigFile } from '../electron/auth/oauth-config-file';
 const full = JSON.stringify({
   clientId: '1234-abc.apps.googleusercontent.com',
   clientSecret: 'GOCSPX-secret',
-  relayUrl: 'wss://relay.example',
-  pushTopic: 'projects/p/topics/t',
+  delegatedTokenUrl: 'https://relay.example/delegated/token',
+  delegatedMailboxesUrl: 'https://relay.example/delegated/mailboxes',
 });
 
 describe('checkOAuthConfigFile', () => {
@@ -25,13 +25,14 @@ describe('checkOAuthConfigFile', () => {
     expect(r.ok).toBe(true);
   });
 
-  it('passes the file through verbatim, so push settings survive the import', () => {
+  it('passes the file through verbatim, so the relay addresses survive the import', () => {
     const r = checkOAuthConfigFile(full);
-    expect(r.ok && r.text).toBe(full);
+    if (!r.ok) throw new Error('expected the config to be accepted');
+    expect(r.text).toBe(full);
     // The point stated as the property it protects:
-    const written = JSON.parse((r as { text: string }).text);
-    expect(written.relayUrl).toBe('wss://relay.example');
-    expect(written.pushTopic).toBe('projects/p/topics/t');
+    const written = JSON.parse(r.text);
+    expect(written.delegatedTokenUrl).toBe('https://relay.example/delegated/token');
+    expect(written.delegatedMailboxesUrl).toBe('https://relay.example/delegated/mailboxes');
   });
 
   it('keeps keys it has no opinion about', () => {
@@ -98,8 +99,8 @@ describe('checkOAuthConfigFile', () => {
     expect(JSON.parse((r as { text: string }).text).clientId).toBe('a.apps.googleusercontent.com');
   });
 
-  // Our own shape must still pass through untouched — converting it would drop relayUrl
-  // and pushTopic, which is the whole reason the pass-through exists.
+  // Our own shape must still pass through untouched — converting it would drop every key
+  // beyond the two credentials, which is the whole reason the pass-through exists.
   it('prefers our own shape and leaves it verbatim when both could apply', () => {
     const ours = JSON.stringify({
       clientId: 'ours',

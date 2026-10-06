@@ -88,7 +88,6 @@ for (const where of ['assets/oauth-defaults.json', null]) {
     const num = clientProjectNumber(cfg.clientId);
     appNumber ??= num;
     console.log(`  ${label.padEnd(24)} client project number ${num ?? '(unreadable)'}`);
-    console.log(`  ${''.padEnd(24)} pushTopic ${cfg.pushTopic ?? '(not set — push is off)'}`);
   } catch {
     console.log(`  ${label.padEnd(24)} (no config)`);
   }

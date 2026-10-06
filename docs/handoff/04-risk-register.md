@@ -131,7 +131,7 @@ user agent, which names Electron.
 **Repair.**
 1. Restore the full comma-separated scope list on that client id:
    `https://www.googleapis.com/auth/gmail.readonly`, `…/gmail.insert`, `…/gmail.modify`,
-   `…/userinfo.email`, `…/admin.directory.user.readonly`.
+   `…/gmail.send`, `…/userinfo.email`, `…/admin.directory.user.readonly`.
 2. Run `node scripts/check-dwd.mjs` against the key to confirm. Propagation can take minutes.
 3. If the admin subject changed, set `DELEGATED_ADMIN_SUBJECT` to a current admin and run
    `docker compose up -d`.
