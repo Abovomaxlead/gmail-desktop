@@ -80,10 +80,10 @@ hides it to the tray.
 | Delegated mailboxes in the tab bar | `delegation/delegated-controller.ts`, `windows/switcher-reader.ts` |
 | Notifications, own accounts | shim in `preload.ts` (`createNotificationShim`), then `notify/`, then `toast/` |
 | Notifications, delegated mailboxes | `push/mail-sync-controller.ts` (15-second sweep) |
-| Click a notification → the right mail | `toast/toast-activation.ts`, `notify/notify-match.ts`, `gmail/message-anchor.ts` |
+| Click a notification → the right mail | `toast/toast-activation.ts`, `notify/notify-match.ts`, `windows/mail-thread-navigator.ts`, `gmail/message-anchor.ts` |
 | Unread badge | `unread/` plus `preload.ts` `computeAndReport` |
 | Drag mail onto the strip → `.eml` on disk | `mail/drag/dropzone.ts` (in-page), `mail/pull/pull-controller.ts` `handleMailDrop`, `mail/pull/mail-archive.ts` |
-| Copy dragged mail into other mailboxes ("Kopieer") | `mail/job/job-driver.ts` `copyToMailboxes` → `mail/copy/copy-run.ts` `runCopyToMailboxes` → `mail/copy/upload.ts` `copyToMailbox` → `copyOneFile`; UI `renderer/app/maildrop/page.tsx` |
+| Copy dragged mail into other mailboxes ("Kopieer") | `mail/job/job-driver.ts` `copyToMailboxes` → `mail/copy/copy-run.ts` `runCopyToMailboxes` → `mail/copy/upload.ts` `copyToMailbox` → `copyOneFile`; UI `renderer/app/maildrop/page.tsx` (state) and `report-parts.tsx` (reports and dialogs) |
 | "Staat er al": duplicate warning | `mail/copy/duplicate-scan.ts` `startExistingScan`, `findDuplicates`; `mail/copy/message-index.ts`; `gmail-api.ts` `labelsHoldingMany` |
 | Drag a whole label, with or without its structure | `mail/drag/label-drop.ts`, `mail/copy/label-tree.ts` |
 | Big label (> 2,000 conversations) in batches | `mail/job/label-job.ts`, `mail/pull/pull-controller.ts` `planJob`, `mail/job/job-driver.ts` `advanceJob` / `walkJob`, `mail/job/job-guard.ts` |

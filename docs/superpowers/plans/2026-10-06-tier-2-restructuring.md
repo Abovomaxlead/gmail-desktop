@@ -1,6 +1,7 @@
-# Tier 2 restructuring — T2-1 done, T2-2 through T2-7 proposed
+# Tier 2 restructuring — T2-1, T2-2 and T2-3 step 1 done; the rest left as is
 
-Status: **T2-1 is done.** T2-2 through T2-7 are unstarted; nothing about them has changed.
+Status: **T2-1, T2-2 and T2-3 step 1 are done.** T2-3 step 2 and T2-4 through T2-7 are
+deliberately left as they are, by the owner's decision of 2026-10-06.
 They are what the structural audit of 2026-10-06 proposed after Tier 1 (dead code, small
 duplications, misplaced modules) was finished in commits `353935d`, `0652197`, `c819698` and
 `8d5d6d4`.
@@ -81,6 +82,12 @@ by hand.
 
 ## T2-2. Split `electron/windows/profile-view-manager.ts` (1,288 lines)
 
+**Done** in `573ee19`. `windows/mail-thread-navigator.ts` (≈355 lines) and
+`windows/mail-view-messages.ts` (≈117) are small classes the manager owns; the manager drops
+to ≈1,016 lines. The manager keeps its public methods (`openMailThread`, `popOutThread`,
+`sendDropLock`, …) as one-line forwards to them, so no caller changed: the view-manager tests
+call those methods on the manager directly.
+
 **Problem.** The class owns view lifecycle and window hosting. It also holds two concerns
 that only need `this.views`:
 
@@ -104,6 +111,9 @@ notification and confirm it opens the right message, then pop that message out.
 
 
 ## T2-3. Split `renderer/app/maildrop/page.tsx` (1,855 lines)
+
+**Step 1 done** in `8f9472e`: the 16 components are in `maildrop/report-parts.tsx` (≈936
+lines), `page.tsx` is ≈959. Step 2 (the `useMailDropCopy` hook) is not planned.
 
 **Problem.** `MailDropModalPage` (177-~995) has 20 `useState` hooks, the preview, label and
 existing-scan effects, the whole copy/retry/job/orphan state machine (`copy`, `retryCopy`,
