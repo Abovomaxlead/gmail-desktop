@@ -44,11 +44,6 @@ export function shellWindows(): BrowserWindow[] {
   return mainWindow && !mainWindow.isDestroyed() ? [mainWindow, ...live] : live;
 }
 
-/** The windows that were made by dragging a tab out. */
-export function detachedWindows(): BrowserWindow[] {
-  return tabWindows.filter((w) => !w.isDestroyed());
-}
-
 export function isTabWindow(win: BrowserWindow | null): boolean {
   return !!win && tabWindows.includes(win);
 }

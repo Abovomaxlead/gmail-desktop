@@ -597,23 +597,6 @@ export class ProfileViewManager {
   }
 
   /**
-   * The view on screen, surface included
-   *
-   * activeKey() answers with the account alone, which is not enough to decide what to keep:
-   * looking at one account's calendar must not spare that account's mail view.
-   *
-   * @returns the visible view, or null when none is
-   */
-  activeViewId(): ViewId | null {
-    const k = this.activeByWindow.get(this.focusedHost().id) ?? null;
-    if (!k) return null;
-    return {
-      accountKey: acctKeyOfViewKey(k),
-      surface: k.slice(k.lastIndexOf(':') + 1) as Surface,
-    };
-  }
-
-  /**
    * Every view on screen, one per window
    *
    * What the low-memory sweep must spare. activeViewId() answers for the window in front,
