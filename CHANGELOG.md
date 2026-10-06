@@ -22,10 +22,36 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [1.0.0] — 2026-10-06
 
-### Let op
-- **Dit is 1.0.0, de eerste definitieve versie.** Hij is gelijk aan de laatste testversie
-  (1.0.0-beta.1791189638) en bevat alles wat in de testversies hieronder staat. Iedereen krijgt
-  hem aangeboden, ook wie de testversies uit heeft staan.
+### Toegevoegd
+- **Een postvak in zijn eigen venster.** Sleep een tabblad van de balk af en dat postvak krijgt
+  een eigen venster, bijvoorbeeld op je tweede scherm. Terugslepen naar de balk zet het weer
+  terug. Via het rechtermuismenu op een tabblad kan het ook.
+- **Gedeelde postvakken: zelf kiezen, meldingen, en ze blijven weg als je ze weghaalt.** Je vinkt
+  aan welke gedeelde postbussen erbij komen. Ze geven nu ook meldingen bij nieuwe mail. Een
+  postvak dat je weghaalt, komt na een herstart of update niet meer terug. Wordt je toegang
+  ingetrokken, dan verdwijnt het binnen het uur uit de balk.
+- **Mail kopiëren naar andere postvakken is sneller en veiliger.** Meerdere postvakken worden
+  naast elkaar gevuld. Ongelezen mail komt ongelezen aan. Bovenaan de labellijst staan de labels
+  waar je vandaag al naartoe kopieerde. Mislukt er een mail, dan zie je welke en waarom, met één
+  knop om precies die opnieuw te versturen. Een kopie wordt nooit twee keer gedaan.
+- **Een rondleiding bij de eerste start.** Laat zien wat de app aan Gmail toevoegt, zoals mail
+  naar het venster slepen. Opnieuw te starten bij Instellingen → Algemeen.
+- **Een update laat eerst zien wat erin zit,** voordat je hem installeert.
+- **De app meldt zelf wat er misgaat.** Een crash gaat met de logboeken automatisch naar de
+  ontwikkelaar, zonder dat je iets hoeft te doen.
+- **Testversies zijn een keuze.** Alleen wie bij Instellingen → Updates de testversies aanzet,
+  krijgt ze.
+
+### Gewijzigd
+- **Nieuwere Chrome eronder,** dus Google zegt niet meer dat je browser te oud is.
+- **Klik je op een melding, dan opent precies die mail,** niet een oudere mail uit hetzelfde
+  gesprek.
+- **Een gedeeld postvak toont nooit stilletjes je eigen inbox.** Lukt openen niet, dan staat dat
+  er gewoon.
+- **De balk blijft leesbaar met veel postvakken,** de sneltoetsen Ctrl+1 tot 9 volgen de
+  volgorde van je tabbladen, en alle vensters van de app volgen de donkere modus.
+- **De instelling "Google-apps" geldt overal,** hoe je zo'n app ook opent.
+- **Afdrukken werkt:** de afdrukpagina opent in je browser met het gewone voorbeeld.
 
 ## [1.0.0-beta.1791189638] — 2026-10-05
 
