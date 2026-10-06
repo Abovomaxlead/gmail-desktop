@@ -2833,9 +2833,10 @@ async function stopWalkedJob(mode: 'keep' | 'rollback'): Promise<void> {
 export async function copyToMailboxes(arg: {
   targets: MailDropCopyTarget[];
   mode?: CopyMode;
-  /** Set only by the job driver. Every other caller -- the picker's Kopieer, an IPC message, a
-   * stale window -- leaves it unset, which is what the guard below reads to refuse a second copy
-   * of mail a running job is already copying. */
+  /** Set only by the job driver, when this copy is one batch of a walked job. Every other
+   * caller -- the picker's Kopieer, an IPC message, a stale window -- leaves it unset, which is
+   * what the guard below reads to refuse a second copy of mail a running job is already
+   * copying. */
   fromJob?: boolean;
   /** Set only by retryFailedCopy and retryFailedJob: the mailboxes and, per mailbox, the files
    * that failed there */
@@ -2843,6 +2844,180 @@ export async function copyToMailboxes(arg: {
   /** Set only by retryFailedJob, which rebuilds the job's offer from this run's failures rather
    * than letting the tail hold a part-1 offer */
   jobRetry?: boolean;
+}): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
+  // A copy nobody asked for is worse than a copy refused. While the driver is walking a job it
+  // is already copying `lastDropSaved`, and a second call against the same files inserts every
+  // one of them again: 717 mails landed twice that way on 2026-08-26, off a preview that
+  // reopened for batch 2 with a live Kopieer button.
+  //
+  // The duplicate scan is no defence here and cannot be made one -- Gmail's index had not caught
+  // up with inserts made seconds earlier, so the scan found nothing and the second copy went
+  // ahead in good faith. Only knowing that a job owns these files right now can refuse it.
+  if (jobDriving && !arg?.fromJob) {
+    notifyLog('[maildrop] second copy refused: the job is already copying this mail itself');
+    return {
+      ok: false,
+      copied: 0,
+      skipped: 0,
+      total: 0,
+      accounts: [],
+      error: 'Er loopt een klus die deze mail zelf kopieert. Pauzeer of stop die eerst.',
+    };
+  }
+  // The plan this copy answers for, captured rather than read again at the far end. The driver's
+  // own walk runs minutes after this line, and a plan replaced in between took this batch's
+  // insert count into its own file: two thousand conversations recorded as copied that nobody
+  // had copied. What recordBatchAndAdvance compares against is sameJobPlan.
+  const forPlan: JobPlanRef | null = activeJob ? { jobId: activeJob.job.jobId } : null;
+  return await runCopyToMailboxes({
+    ...arg,
+    partOfJob: Boolean(arg?.fromJob) || Boolean(arg?.jobRetry) || forPlan !== null,
+    // Recorded the moment the copy is accepted rather than when it finishes: these are the
+    // choices, and a crash between here and the end of batch zero must resume with them rather
+    // than ask again. Only the first batch writes them; every later one is running because of
+    // them. A no-op outside a job, and after the first batch of one.
+    noteJobChoices: (targets, mode) => {
+      if (!activeJob || activeJob.job.choices) return;
+      const choices = { targets, mode: inheritedMode(mode === 'all' ? 'all' : mode === 'new' ? 'new' : null) };
+      const failed = attemptWrite(() => recordJobChoices(activeJob!.root, activeJob!.job.jobId, choices));
+      if (failed) notifyLog(`[maildrop] could not record the job's choices: ${failed}`);
+      activeJob.job = { ...activeJob.job, choices };
+    },
+    // Asked at the two moments a job-wide stop can still change this batch's own outcome before
+    // its gate exists to take it -- see runCopyToMailboxes's own call sites. Consumes the stop
+    // once taken, so a second ask answers null unless another stop arrived meanwhile.
+    jobStop: arg?.fromJob
+      ? () => {
+          if (!jobStopWanted) return null;
+          const stopMode = jobStopWanted;
+          // The job-wide sweep, exactly as the running stop sets it: this batch has nothing of
+          // its own to undo, and only the batches that already finished are anybody's question.
+          if (stopMode === 'rollback') rollbackWholeJob = true;
+          jobStopWanted = null;
+          return stopMode;
+        }
+      : undefined,
+    // A job's batch adds to what the job lost; a job retry hands its failures to retryFailedJob
+    // instead, which runCopyToMailboxes does on its own.
+    onJobFailures: (failuresByTarget) => {
+      if (forPlan && activeJob?.job.jobId === forPlan.jobId && jobFailuresFor === forPlan.jobId) {
+        jobFailures = addCopyFailures(jobFailures, failuresByTarget);
+      }
+    },
+    onBatchResult: (result, runId, failuresByTarget) =>
+      recordBatchAndAdvance(forPlan, result, runId, failuresByTarget),
+  });
+}
+
+/**
+ * Records a walked batch's outcome against the job it belonged to, and lets the walk go on
+ *
+ * Reads the plan afresh rather than trusting what copyToMailboxes started with: a plan replaced
+ * while the copy was running must not have this batch's count written into its file. What
+ * matches is sameJobPlan, and a job that no longer matches gets nothing written for it -- see
+ * copyToMailboxes's own comment on `forPlan` for why a drag can no longer land here.
+ *
+ * @param forPlan the plan this copy was started for, captured before it ran, or null outside
+ *   any job
+ * @param result what the copy answered
+ * @param runId the copy's own run id, for the batch state line
+ * @param failuresByTarget what the copy could not land, per mailbox
+ * @private
+ */
+async function recordBatchAndAdvance(
+  forPlan: JobPlanRef | null,
+  result: MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult,
+  runId: CopyRunId,
+  failuresByTarget: TargetFailures<MailDropCopyTarget, SavedRef>[],
+): Promise<void> {
+  const held = activeJob ? { jobId: activeJob.job.jobId } : null;
+  const ours = sameJobPlan(forPlan, held) ? activeJob : null;
+  if (forPlan && !ours) {
+    notifyLog('[maildrop] batch state not recorded: this job is no longer being walked');
+    // The flag was set for a job that is no longer walked. Left standing it would roll back
+    // the finished batches of whatever job is walked next.
+    rollbackWholeJob = false;
+  }
+  // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
+  // failed outright is recorded as failed and nextBatch then stops the job rather than trying
+  // the next two thousand into a mailbox that just refused us.
+  if (ours) {
+    const at = nextBatch(ours.job);
+    if (at) {
+      const stopped = 'stopped' in result && result.stopped;
+      const failedHard = !stopped && 'ok' in result && !result.ok;
+      const failed = attemptWrite(() =>
+        recordJobBatchState(ours.root, ours.job.jobId, {
+          index: at.index,
+          state: failedHard ? 'failed' : 'copied',
+          runId,
+          copied: 'copied' in result ? result.copied : undefined,
+          skipped: 'skipped' in result ? result.skipped : undefined,
+          error: failedHard ? (result as MailDropCopyResult).error : undefined,
+          failed: failedConversations(failuresByTarget, batchPullFailedThreads),
+        }),
+      );
+      if (failed) notifyLog(`[maildrop] could not record the state of batch ${at.index}: ${failed}`);
+      ours.job = readLabelJob(ours.root, ours.job.jobId) ?? ours.job;
+      // A stop is the user's final word on the whole job, not just on this batch, so the driver
+      // is not started. What the stop rolls back is decided just below.
+      if (!stopped) void advanceJob();
+    }
+  }
+  // The same plan again, for the same reason: a stop closes the job this copy belonged to and
+  // never one that took its place.
+  if (ours && 'stopped' in result && result.stopped) {
+    await endJobWithStop(ours.job, ours.root, result.mode, rollbackWholeJob, 'stopped during a batch');
+  }
+}
+
+/**
+ * Copies whatever the last drag saved into the chosen labels, in the chosen mailboxes -- the
+ * engine itself, with no knowledge of any batched job
+ *
+ * Runs in three modes. 'check' scans for messages already there and reports them rather than
+ * copying; 'all' skips the scan; the default copies what the scan said was new.
+ *
+ * The mails of one mailbox go up alongside each other, the mailboxes themselves one after the
+ * other: the progress bar names the mailbox it is working on, and that only stays true with one
+ * at a time.
+ *
+ * A copy that is paused and then stopped ends in one of three ways: 'completed' when it was
+ * never stopped at all, 'kept' when the user chose to leave what had already landed, or a
+ * rollback outcome when they chose to undo it -- see copyOneFile and the tail of this function
+ * for where each of those is decided.
+ *
+ * @param arg
+ * @returns {Promise<MailDropCopyResult|MailDropCopyWarnedResult|MailDropCopyStoppedResult>} what
+ *   the picker draws: the counts, the duplicate question, or how the stop was settled
+ * @private
+ */
+async function runCopyToMailboxes(arg: {
+  targets: MailDropCopyTarget[];
+  mode?: CopyMode;
+  fromJob?: boolean;
+  retry?: { retryId: string; targets: MailDropCopyTarget[]; files: Map<string, SavedRef[]> };
+  jobRetry?: boolean;
+  /** Whether this copy belongs to a job in any way -- a walked batch, a job retry, or batch zero
+   * while a job is being planned. Set only by copyToMailboxes; decides whether a plain-drag
+   * retry offer is held for a failure here. */
+  partOfJob?: boolean;
+  /** Called once, before the duplicate check's own stop window. Set only by copyToMailboxes. */
+  noteJobChoices?: (targets: MailDropCopyTarget[], mode: CopyMode) => void;
+  /** Asked at the two moments a job-wide stop can still change this batch's own outcome before
+   * its gate exists to take it. Set only by copyToMailboxes; consumes the stop once taken. */
+  jobStop?: () => CopyStopMode | null;
+  /** Called with this run's per-mailbox failures, when it is not a job retry's own copy. Set
+   * only by copyToMailboxes, to fold them into the job's own losses when this batch belongs to
+   * one. */
+  onJobFailures?: (failuresByTarget: TargetFailures<MailDropCopyTarget, SavedRef>[]) => void;
+  /** Called once the copy has settled, with the run's own id and what it could not land, only
+   * by copyToMailboxes -- which is what decides what the run meant for any job it belonged to. */
+  onBatchResult?: (
+    result: MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult,
+    runId: CopyRunId,
+    failuresByTarget: TargetFailures<MailDropCopyTarget, SavedRef>[],
+  ) => Promise<void> | void;
 }): Promise<MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult> {
   const cfg = oauthConfig();
   const retry = arg?.retry;
@@ -2859,18 +3034,6 @@ export async function copyToMailboxes(arg: {
     accounts: [],
     error,
   });
-  // A copy nobody asked for is worse than a copy refused. While the driver is walking a job it
-  // is already copying `lastDropSaved`, and a second call against the same files inserts every
-  // one of them again: 717 mails landed twice that way on 2026-08-26, off a preview that
-  // reopened for batch 2 with a live Kopieer button.
-  //
-  // The duplicate scan is no defence here and cannot be made one -- Gmail's index had not caught
-  // up with inserts made seconds earlier, so the scan found nothing and the second copy went
-  // ahead in good faith. Only knowing that a job owns these files right now can refuse it.
-  if (jobDriving && !arg?.fromJob) {
-    notifyLog('[maildrop] second copy refused: the job is already copying this mail itself');
-    return fail('Er loopt een klus die deze mail zelf kopieert. Pauzeer of stop die eerst.');
-  }
   // The same class from the other side: a stale Kopieer after this drag already went out. The
   // duplicate scan cannot refuse it for the reason above, so only knowing it was copied can.
   if (!retry && !arg?.fromJob && copiedSerial === dropSerial) {
@@ -2914,11 +3077,6 @@ export async function copyToMailboxes(arg: {
   // attempts against a journal of landings is what made the line fall the moment the user
   // pressed pause, 1535 to 1074 on a batch where no mail had moved.
   let landed = 0;
-  // The plan this copy answers for, captured rather than read again at the far end. The tail runs
-  // minutes after this line, and a plan replaced in between took this batch's insert count into
-  // its own file: two thousand conversations recorded as copied that nobody had copied. What the
-  // tail compares against is sameJobPlan.
-  const forPlan: JobPlanRef | null = activeJob ? { jobId: activeJob.job.jobId } : null;
   // The mailboxes actually being written to. The job line divides inserts by this to reach
   // conversations, and the paused line divides the journal's entries by the same figure --
   // readyTargets, since a mailbox without a marker label is never inserted into. Dividing the
@@ -3002,32 +3160,19 @@ export async function copyToMailboxes(arg: {
     }
   }
 
-  // Recorded the moment the copy is accepted rather than when it finishes: these are the
-  // choices, and a crash between here and the end of batch zero must resume with them rather
-  // than ask again. Only the first batch writes them; every later one is running because of
-  // them.
-  if (activeJob && !activeJob.job.choices) {
-    const choices = { targets, mode: inheritedMode(mode === 'all' ? 'all' : mode === 'new' ? 'new' : null) };
-    const failed = attemptWrite(() => recordJobChoices(activeJob!.root, activeJob!.job.jobId, choices));
-    if (failed) notifyLog(`[maildrop] could not record the job's choices: ${failed}`);
-    activeJob.job = { ...activeJob.job, choices };
-  }
+  arg.noteJobChoices?.(targets, mode);
 
   // The stop the user asked for while this batch was still being scanned for duplicates. There
   // is no gate to take it during 'check' -- activeRun is not set until the copy itself starts --
   // so it was recorded and then only looked at between batches, which meant watching the whole
   // batch copy after asking it to stop. Consumed here instead: before the marker labels, before
   // the journal, before a single insert, so nothing of this batch exists to answer for.
-  if (arg?.fromJob && jobStopWanted) {
-    const stopMode: CopyStopMode = jobStopWanted;
-    // The job-wide sweep, exactly as the running stop sets it: this batch has nothing of its
-    // own to undo, and only the batches that already finished are anybody's question.
-    if (jobStopWanted === 'rollback') rollbackWholeJob = true;
-    jobStopWanted = null;
+  const stop1 = arg.jobStop?.();
+  if (stop1) {
     notifyLog('[maildrop] batch stopped during the duplicate check, nothing of it was sent');
     return {
       stopped: true,
-      mode: stopMode,
+      mode: stop1,
       copied: 0,
       byMailbox: [],
     } satisfies MailDropCopyStoppedResult;
@@ -3300,10 +3445,10 @@ export async function copyToMailboxes(arg: {
       // A job's batch adds to what the job lost; a job retry hands its failures to retryFailedJob
       if (arg?.jobRetry) {
         lastRunFailures = failuresByTarget;
-      } else if (!retry && forPlan && activeJob?.job.jobId === forPlan.jobId && jobFailuresFor === forPlan.jobId) {
-        jobFailures = addCopyFailures(jobFailures, failuresByTarget);
+      } else if (!retry) {
+        arg.onJobFailures?.(failuresByTarget);
       }
-      const left = !arg?.fromJob && !arg?.jobRetry && !activeJob ? copyFailuresOf(failuresByTarget) : null;
+      const left = !arg?.partOfJob ? copyFailuresOf(failuresByTarget) : null;
       // Held only while its own drag is still the current one: a retry plans against that tree
       lastCopyFailures =
         left && serialAtStart === dropSerial ? { retryId: randomUUID(), serial: serialAtStart, targets: left } : null;
@@ -3409,11 +3554,8 @@ export async function copyToMailboxes(arg: {
     // A stop asked for while the marker labels were being made, which is the one window between
     // the check above and the gate below. Handed to the gate rather than acted on here: stopping
     // a run is the gate's job, and every worker below asks it before it starts anything.
-    if (arg?.fromJob && jobStopWanted) {
-      if (jobStopWanted === 'rollback') rollbackWholeJob = true;
-      control.stop(jobStopWanted);
-      jobStopWanted = null;
-    }
+    const stop2 = arg.jobStop?.();
+    if (stop2) control.stop(stop2);
 
     // The write that anchors the whole record, and the one this file used to make unguarded. No
     // journal means no insert may go out: the markers already minted are the only handle a later
@@ -3455,57 +3597,7 @@ export async function copyToMailboxes(arg: {
     }
 
     const result = await runCopy();
-    // Only ever the plan this copy was started for. Read afresh, this recorded the batch against
-    // whichever plan happened to be held when the copy answered -- a second drag mid-copy was
-    // enough -- and that plan's own first batch was then marked copied, carrying this run's
-    // insert count, with its two thousand conversations skipped for good. A drag can no longer
-    // land here (see pullRefusal), and this is what makes the write safe rather than merely
-    // unlikely.
-    const held = activeJob ? { jobId: activeJob.job.jobId } : null;
-    const ours = sameJobPlan(forPlan, held) ? activeJob : null;
-    if (forPlan && !ours) {
-      notifyLog('[maildrop] batch state not recorded: this job is no longer being walked');
-      // The flag was set for a job that is no longer walked. Left standing it would roll back
-      // the finished batches of whatever job is walked next.
-      rollbackWholeJob = false;
-    }
-    // The batch is only 'copied' once the copy answered, whatever it answered: a batch that
-    // failed outright is recorded as failed and nextBatch then stops the job rather than trying
-    // the next two thousand into a mailbox that just refused us.
-    if (ours) {
-      const at = nextBatch(ours.job);
-      if (at) {
-        const stopped = 'stopped' in result && result.stopped;
-        const failedHard = !stopped && 'ok' in result && !result.ok;
-        const failed = attemptWrite(() =>
-          recordJobBatchState(ours.root, ours.job.jobId, {
-            index: at.index,
-            state: failedHard ? 'failed' : 'copied',
-            runId,
-            copied: 'copied' in result ? result.copied : undefined,
-            skipped: 'skipped' in result ? result.skipped : undefined,
-            error: failedHard ? (result as MailDropCopyResult).error : undefined,
-            failed: failedConversations(failuresByTarget, batchPullFailedThreads),
-          }),
-        );
-        if (failed) notifyLog(`[maildrop] could not record the state of batch ${at.index}: ${failed}`);
-        ours.job = readLabelJob(ours.root, ours.job.jobId) ?? ours.job;
-        // A stop is the user's final word on the whole job, not just on this batch, so the driver
-        // is not started. What the stop rolls back is decided just below.
-        if (!stopped) void advanceJob();
-      }
-    }
-    // The same plan again, for the same reason: a stop closes the job this copy belonged to and
-    // never one that took its place.
-    if (ours && 'stopped' in result && result.stopped) {
-      await endJobWithStop(
-        ours.job,
-        ours.root,
-        result.mode,
-        rollbackWholeJob,
-        'stopped during a batch',
-      );
-    }
+    await arg.onBatchResult?.(result, runId, failuresByTarget);
     return result;
   } finally {
     if (activeRun?.runId === runId) activeRun = null;
