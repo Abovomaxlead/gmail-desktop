@@ -164,6 +164,18 @@ export function setJobDriverHooks(h: JobDriverHooks): void {
   hooks = h;
 }
 
+/** What the job driver answers right now, for a retry's own refusal check -- the only place
+ * outside this file that needs more than one of JobDriverHooks' questions at once. */
+export interface JobDriverStatus {
+  driving: boolean;
+  active: boolean;
+  copying: boolean;
+}
+
+export function jobDriverStatus(): JobDriverStatus {
+  return { driving: hooks.isDriving(), active: hooks.isActive(), copying: hooks.copyBusy() };
+}
+
 /**
  * Where dragged mail is kept
  *

@@ -39,7 +39,6 @@ import {
   pendingOrphanDecision,
   retryFailedCopy,
   retryFailedJob,
-  retryFailedPull,
 } from '../mail/mail-drop-controller';
 import {
   cancelMailDropPull,
@@ -48,6 +47,7 @@ import {
   mailDropFolder,
   mailDropStatus,
 } from '../mail/pull/pull-controller';
+import { retryFailedPull } from '../mail/pull/pull-retry';
 import {
   existingForCopyTargets,
   labelsForCopyTargets,
