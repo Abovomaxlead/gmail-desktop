@@ -65,6 +65,7 @@ import { mailDropFolder, showJobReport } from './mail/pull/pull-controller';
 import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';
 import { flushCrashReports, installCrashReporting } from './feedback/crash-controller';
+import { fallBackToSoftwareRendering } from './system/gpu-fallback';
 
 
 //===========================
@@ -89,7 +90,7 @@ try {
 // while the window is being built, is exactly the crash a user cannot report themselves --
 // there is no window to report it from. The queue this fills is sent once there is a mailbox
 // to send from, which is after createWindow.
-installCrashReporting();
+installCrashReporting({ onGpuStreak: fallBackToSoftwareRendering });
 
 
 //===========================

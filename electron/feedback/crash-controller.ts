@@ -118,8 +118,10 @@ let gpuGone: number[] = [];
  * Called before the app is ready, so a crash during startup -- the ones that leave a user with
  * a window that never appears -- is caught too. The queue is not flushed here: there is no
  * token store yet at that point. main.ts flushes once the window exists.
+ *
+ * @param hooks what main does about a failure beyond reporting it; this module shows nothing
  */
-export function installCrashReporting(): void {
+export function installCrashReporting(hooks: { onGpuStreak?: () => void } = {}): void {
   if (installed) return;
   installed = true;
 
@@ -166,6 +168,12 @@ export function installCrashReporting(): void {
       // go out readable, since it says how long this had been going on.
       notifyLog(`[crash] ${what}; Chromium will start another (${decision.streak} in a row)`);
       return;
+    }
+    if (details.type === 'GPU') {
+      try {
+        hooks.onGpuStreak?.();
+      } catch {
+      }
     }
     reportCrash({
       kind: 'child-gone',
