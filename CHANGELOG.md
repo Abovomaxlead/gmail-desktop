@@ -3,6 +3,19 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1791296022] — 2026-10-06
+
+### Opgelost
+- **Een venster dat Gmail opent, blijft niet meer wit op een computer waar het beeld steeds
+  uitvalt.** Valt de grafische weergave kort na elkaar steeds uit, dan zet de app
+  hardwareversnelling uit en vraagt of hij opnieuw mag opstarten. Aanzetten kan weer via
+  Instellingen > Geavanceerd.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversie, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt hem
+  aangeboden.
+
 ## [1.0.1-beta.1791288374] — 2026-10-06
 
 ### Gewijzigd
