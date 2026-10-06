@@ -33,13 +33,12 @@ import { closeReleaseNotes } from '../updates/release-notes-overlay';
 import {
   copyToMailboxes,
   decideJobRun,
-  decideOrphanRun,
   pendingJobDecision,
-  pendingOrphanDecision,
   retryFailedJob,
 } from '../mail/mail-drop-controller';
 import { controlCopyRun } from '../mail/copy/copy-run';
 import { retryFailedCopy } from '../mail/copy/copy-retry';
+import { decideOrphanRun, pendingOrphanDecision } from '../mail/copy/orphan-runs';
 import {
   cancelMailDropPull,
   closeDropPreview,
