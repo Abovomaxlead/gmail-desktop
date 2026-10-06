@@ -1,31 +1,29 @@
-// Dragging mail out of Gmail and onto the desktop, and copying what that saved into another
-// mailbox.
+// Walking a label too big for one run: pulling and copying it batch after batch, stopping or
+// undoing it as a whole, and offering one retry for what the whole job lost.
 //
-// Two routes reach the same list and do not find the same messages. The API lists every
-// message in a thread; the page route can only save what Gmail's "show original" page links
-// to, and a long conversation arrives there collapsed. The API goes first for that reason,
-// and the page is what is left when a mailbox has no token.
+// Also the job-aware entry to the copy. copyToMailboxes below is what the picker's Kopieer and
+// the walk both call: it wraps copy/copy-run.ts's engine with the job's bookkeeping, so the
+// engine itself never learns a job exists. The pull (pull/pull-controller.ts), the copy
+// (copy/copy-run.ts, copy/copy-retry.ts) and start-up's orphan scan (copy/orphan-runs.ts) sit
+// below this file and cannot import it without a cycle; every question they ask the job comes
+// back through the hooks wired once at the bottom of this file.
 //
-// A mailbox reached by delegation has no second route at all -- its page needs the
-// /d/<token>/ a drag does not carry -- so there an API failure is the answer.
-//
-// One mail leaves per drag: the last message quotes the ones before it, which is the whole
-// reason a thread gets dragged. Fetching them all is how the newest is known to be newest.
+// The drag itself -- what a drop saved, where, and which mail it was -- lives in drop-state.ts,
+// pull/ and drag/; see docs/handoff/02-architecture.md for which file owns which step.
 
 import { randomUUID } from 'node:crypto';
-import { IPC } from '../core/ipc';
+import { IPC } from '../../core/ipc';
 import type {
-  MailDropCopyControlAction,
   MailDropCopyProgress,
   MailDropCopyResult,
   MailDropCopyStoppedResult,
   MailDropCopyTarget,
   MailDropCopyWarnedResult,
-} from '../core/ipc';
-import { currentLocale, dropOverlay, keyOf, manager, prefs, profiles } from '../core/runtime';
-import type { JobPanel, PendingJob } from '../../renderer/lib/maildrop-copy';
-import { type CopyMode } from './copy/mail-copy';
-import { type TreeThread } from './drag/label-drop';
+} from '../../core/ipc';
+import { currentLocale, dropOverlay, keyOf, manager, prefs, profiles } from '../../core/runtime';
+import type { JobPanel, PendingJob } from '../../../renderer/lib/maildrop-copy';
+import { type CopyMode } from '../copy/mail-copy';
+import { type TreeThread } from '../drag/label-drop';
 import {
   JOB_BATCH_THREADS,
   finishLabelJob,
@@ -39,17 +37,17 @@ import {
   type JobOutcome,
   type LabelJob,
   type RunningBatchProgress,
-} from './job/label-job';
-import { sameJobPlan, type JobEndInfo, type JobPlanRef } from './job/job-guard';
-import { BUSY_TEXT, cancelledText } from './drag/dropzone';
-import { createPullControl } from './pull/pull-control';
+} from './label-job';
+import { sameJobPlan, type JobEndInfo, type JobPlanRef } from './job-guard';
+import { BUSY_TEXT, cancelledText } from '../drag/dropzone';
+import { createPullControl } from '../pull/pull-control';
 import {
   copyFailuresOf,
   failedConversations,
   retryRefusal,
   type FailureLine,
   type TargetFailures,
-} from './copy/copy-failures';
+} from '../copy/copy-failures';
 import {
   addCopyFailures,
   addFetchedToAllTargets,
@@ -60,13 +58,13 @@ import {
   retryFiles,
   takePullSlice,
   type JobFailures,
-} from './job/job-failures';
-import { dismissShownToast, showToast } from '../toast/toast-presenter';
-import { nativeLabels } from '../menus/native-labels';
-import { notifyLog } from '../notify/notify-log';
-import { failedRowIndexes } from '../../renderer/lib/failure-list';
-import { attemptWrite, finishCopyJournal, readCopyJournal, withWarnings } from './copy/copy-journal';
-import type { CopyRunId, CopyStopMode } from './copy/copy-run-types';
+} from './job-failures';
+import { dismissShownToast, showToast } from '../../toast/toast-presenter';
+import { nativeLabels } from '../../menus/native-labels';
+import { notifyLog } from '../../notify/notify-log';
+import { failedRowIndexes } from '../../../renderer/lib/failure-list';
+import { attemptWrite, finishCopyJournal, readCopyJournal, withWarnings } from '../copy/copy-journal';
+import type { CopyRunId, CopyStopMode } from '../copy/copy-run-types';
 import {
   activePull,
   batchPullFailedThreads,
@@ -77,7 +75,7 @@ import {
   setLastDropSaved,
   setPullDone,
   type SavedRef,
-} from './drop-state';
+} from '../drop-state';
 import {
   dropLock,
   mailDropFolder,
@@ -86,11 +84,11 @@ import {
   rememberPullFailures,
   setJobDriverHooks,
   withPullLock,
-} from './pull/pull-controller';
-import { fetchThreadSlice, saveLabel, writeCollected } from './pull/pull-collect';
-import { activeRun, runCopyToMailboxes, settled, setCopyJobHooks, sweepRunMarkers } from './copy/copy-run';
-import { lastRunFailures, retryInFlight, setCopyEntryPoint, setLastCopyFailures, setLastRunFailures, setRetryInFlight } from './copy/copy-retry';
-import { setOrphanJobHooks } from './copy/orphan-runs';
+} from '../pull/pull-controller';
+import { fetchThreadSlice, saveLabel, writeCollected } from '../pull/pull-collect';
+import { activeRun, runCopyToMailboxes, settled, setCopyJobHooks, sweepRunMarkers } from '../copy/copy-run';
+import { lastRunFailures, retryInFlight, setCopyEntryPoint, setLastCopyFailures, setLastRunFailures, setRetryInFlight } from '../copy/copy-retry';
+import { setOrphanJobHooks } from '../copy/orphan-runs';
 
 //===========================
 // Types

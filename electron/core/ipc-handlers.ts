@@ -35,7 +35,7 @@ import {
   decideJobRun,
   pendingJobDecision,
   retryFailedJob,
-} from '../mail/mail-drop-controller';
+} from '../mail/job/job-driver';
 import { controlCopyRun } from '../mail/copy/copy-run';
 import { retryFailedCopy } from '../mail/copy/copy-retry';
 import { decideOrphanRun, pendingOrphanDecision } from '../mail/copy/orphan-runs';

@@ -24,7 +24,7 @@ export interface CopyTarget {
 }
 
 /** Per mailbox, per Message-ID, the label ids that mailbox resolved the dragged tree to.
- * Built once a mailbox's own labels exist (mail-drop-controller.ts) and only read here, which
+ * Built once a mailbox's own labels exist (copy/tree-setup.ts) and only read here, which
  * is what keeps this file free of the network. A message that is missing has no label to land
  * in -- its label failed to be created -- and is skipped rather than filed somewhere near. */
 export type ResolvedTreeLabels = Map<string, Map<string, string[]>>;
@@ -122,8 +122,8 @@ export interface MailboxCopyLog {
  * the file did not fail. */
 export type CopyOutcomeKind = 'copied' | 'skipped' | 'failed' | 'stopped';
 
-/** One file's outcome, as far as tallying needs to know -- matches mail-drop-controller.ts's
- * own CopyOutcome without importing it, so this file stays free of that module's types. */
+/** One file's outcome, as far as tallying needs to know -- matches upload.ts's own
+ * CopyOutcome without importing it, so this file stays free of that module's types. */
 export interface CopyOutcomeTally {
   kind: CopyOutcomeKind;
   /** The message of a 'failed' file, and of nothing else */

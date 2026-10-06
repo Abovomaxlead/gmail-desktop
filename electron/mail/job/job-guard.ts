@@ -1,10 +1,10 @@
 // Who may act while a label job is walking.
 //
 // Three questions with one thing in common: they are all answered minutes apart from the moment
-// the work started, and mail-drop-controller.ts used to answer each of them by reading a
+// the work started, and the mail-drop controller used to answer each of them by reading a
 // module-level variable again at the far end. A plan swapped in between, a gate that had already
 // decided, a drag that arrived mid-copy -- each read the state of a different moment than the one
-// it belonged to. Pulled out here so the answers can be pinned by a test; the controller has none.
+// it belonged to. Pulled out here so the answers can be pinned by a test; the driver has none.
 //
 // Nothing here decides which mail lands where. These answer when a stop takes hold, what the panel
 // is told, and which plan a finished batch is written into.

@@ -1,11 +1,11 @@
 // Sweeping every mailbox a run touched: strip on a clean finish, trash on a rollback.
 //
-// Split off from mail-drop-controller.ts, which is where every one of its call sites still
+// Split off from what is now copy-run.ts, which is where every one of its call sites still
 // lives, for the same reason copy-rollback.ts and copy-reconcile.ts used to be split off:
-// mail-drop-controller.ts pulls in Electron's `app` at module load (via core/paths.ts) and so
-// can never be imported directly by a test. Every dependency here is therefore taken in,
-// never imported for real -- the real Gmail calls are wired at the one call site in
-// mail-drop-controller.ts, which already needs them regardless.
+// copy-run.ts pulls in Electron's `app` at module load (via core/paths.ts) and so can never
+// be imported directly by a test. Every dependency here is therefore taken in, never
+// imported for real -- the real Gmail calls are wired at the one call site in copy-run.ts,
+// which already needs them regardless.
 //
 // Deliberately takes `markers`, never journal entries: what gets acted on is whatever the
 // listing itself reports under the marker, which is exactly what makes a severed insert the

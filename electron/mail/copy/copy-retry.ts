@@ -3,7 +3,7 @@
 // Shares copy-run.ts's own engine: a retry is the same copyToMailboxes a fresh Kopieer press
 // is, narrowed to the files that failed, which is what lets the journal, the marker, pause/
 // cancel/rollback, quota and the job guard all apply unchanged. copyToMailboxes itself stays
-// in mail-drop-controller.ts -- the job-aware wrapper that decides whether a job owns these
+// in job/job-driver.ts -- the job-aware wrapper that decides whether a job owns these
 // files right now -- so this file reaches it through a hook rather than importing the module
 // above it, the same reason pull-retry.ts reaches the job driver through jobDriverStatus().
 
@@ -26,7 +26,7 @@ import { jobDriverStatus } from '../pull/pull-controller';
 
 type CopyAnswer = MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult;
 
-/** The job-aware entry point in mail-drop-controller.ts, wired once so this file never imports
+/** The job-aware entry point in job/job-driver.ts, wired once so this file never imports
  * the module above it. A retry is, to copyToMailboxes, an ordinary copy narrowed to a `retry`
  * file set -- the same re-entrancy guard and job bookkeeping apply. */
 type CopyEntryPoint = (arg: {
@@ -41,14 +41,14 @@ type CopyEntryPoint = (arg: {
 //===========================
 
 /** What the last copy could not land, held for the panel's retry button. Only for a copy the
- * picker ran itself: a job's batches are part 2, held in mail-drop-controller.ts's own
+ * picker ran itself: a job's batches are part 2, held in job/job-driver.ts's own
  * lastJobFailures instead. */
 export let lastCopyFailures:
   | { retryId: string; serial: number; targets: TargetFailures<MailDropCopyTarget, SavedRef>[] }
   | null = null;
 
 /** A job retry's copy failures, left by the tail of copy-run.ts's runCopyToMailboxes for
- * mail-drop-controller.ts's own retryFailedJob to take */
+ * job/job-driver.ts's own retryFailedJob to take */
 export let lastRunFailures: TargetFailures<MailDropCopyTarget, SavedRef>[] | null = null;
 
 /** Set while a retry is under way, which copy-run.ts's own activeRun only covers once the copy

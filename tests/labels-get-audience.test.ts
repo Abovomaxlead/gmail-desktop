@@ -30,18 +30,11 @@ const labelsForEveryMailbox = vi.fn(async () => ({
   accounts: [{ email: 'luca@x.nl' }, { email: 'support@x.nl' }],
 }));
 
-vi.mock('../electron/mail/mail-drop-controller', () => ({
-  cancelMailDropPull: () => {},
-  closeDropPreview: () => {},
-  controlCopyRun: () => {},
+vi.mock('../electron/mail/job/job-driver', () => ({
   copyToMailboxes: () => {},
   decideJobRun: () => {},
-  decideOrphanRun: () => {},
-  dropPreviewItems: () => ({}),
-  mailDropFolder: () => '/drop',
-  mailDropStatus: () => ({}),
   pendingJobDecision: () => null,
-  pendingOrphanDecision: () => null,
+  retryFailedJob: () => {},
 }));
 
 vi.mock('../electron/mail/copy/duplicate-scan', () => ({

@@ -6,7 +6,7 @@
 // to, and a long conversation arrives there collapsed. The API goes first for that reason,
 // and the page is what is left when a mailbox has no token.
 //
-// A big label's job drives this same pull one batch at a time, from mail-drop-controller.ts --
+// A big label's job drives this same pull one batch at a time, from job/job-driver.ts --
 // walking a job never touches anything below, only the pull and the picker it opens. What the
 // pull needs from the job in the other direction (whether it may run at all, where a stale job
 // goes, what a batch's own loss is folded into) comes back through JobDriverHooks, wired once at
@@ -88,7 +88,7 @@ export interface PullFailureHeld {
   from: { kind: 'drag'; rows: MailDropPayload['items'] } | { kind: 'label'; label: string; threads: TreeThread[] };
 }
 
-/** What the job driver in mail-drop-controller.ts answers for while it still owns every batch
+/** What the job driver in job/job-driver.ts answers for while it still owns every batch
  * and the copy that runs between them. Read-only questions plus the handful of writes a pull
  * makes into job state -- a stale job let go for a new drag, a job just planned, a batch's own
  * loss, a cancel that reaches a driving job -- each named for the one moment it is called, so a

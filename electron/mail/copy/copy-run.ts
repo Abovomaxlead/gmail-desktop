@@ -2,11 +2,11 @@
 // labels, the upload itself with its journal/sweep tail, and pause/resume/stop of the run that is
 // doing it.
 //
-// Runs as a job's own batch too, driven one batch at a time by mail-drop-controller.ts's walk --
+// Runs as a job's own batch too, driven one batch at a time by job/job-driver.ts's walk --
 // but knows nothing about that itself. runCopyToMailboxes takes every bit of job-only behaviour
 // (noting the choices batch zero made, honouring a job-wide stop, folding this batch's losses
 // into what the job has lost, recording what the batch came to) as plain callbacks; copyToMailboxes,
-// the job-aware wrapper the driver calls, stays in mail-drop-controller.ts and supplies them. What
+// the job-aware wrapper the driver calls, stays in job/job-driver.ts and supplies them. What
 // this file cannot answer about a job on its own -- its own progress line, and a stop the picker's
 // dialog asks for while no run of this file's own is left to take it -- comes back through
 // CopyJobHooks, wired once at that file's module scope, the same way pull-controller.ts's
@@ -101,7 +101,7 @@ import { jobDriverStatus, mailDropFolder } from '../pull/pull-controller';
 // Types
 //===========================
 
-/** What the job driver in mail-drop-controller.ts answers for while a batch of its own may be
+/** What the job driver in job/job-driver.ts answers for while a batch of its own may be
  * running here, or while its own stop dialog reaches a job with no run left to take it. Wired
  * once, for the same reason pull-controller.ts's own JobDriverHooks is: this file must never
  * import the driver above it. Everything else the driver answers for is already read-only and
@@ -185,7 +185,7 @@ export function setCopyJobHooks(h: CopyJobHooks): void {
  * file pulls in Electron's `app` at module load (core/paths.ts, by way of pull-controller.ts's
  * mailDropFolder), so nothing importing it can ever run under a test.
  *
- * Exported for mail-drop-controller.ts's own rollbackFinishedBatches, and for
+ * Exported for job/job-driver.ts's own rollbackFinishedBatches, and for
  * copy/orphan-runs.ts, which sweeps a run this app never heard the end of the same way.
  *
  * @param runId
@@ -283,7 +283,7 @@ export function controlCopyRun(action: MailDropCopyControlAction): MailDropCopyC
  * rollback outcome when they chose to undo it -- see copyOneFile (copy/upload.ts) and the tail
  * of this function for where each of those is decided.
  *
- * Exported for mail-drop-controller.ts's job-aware copyToMailboxes, the only caller: that wrapper
+ * Exported for job/job-driver.ts's job-aware copyToMailboxes, the only caller: that wrapper
  * adds the re-entrancy guard against a job's own walk, and the callbacks below, which are no-ops
  * outside a job.
  *
@@ -1027,7 +1027,7 @@ function sweepWarning(m: RollbackOutcome['mailboxes'][number], verb: string): st
  * must be left open for the next resumed sweep rather than closed as if it were done. Only
  * when every mailbox is one or the other does this run's journal get its closing line.
  *
- * Exported for mail-drop-controller.ts's own rollbackFinishedBatches, and for
+ * Exported for job/job-driver.ts's own rollbackFinishedBatches, and for
  * copy/orphan-runs.ts's finishOrphanRun.
  *
  * @param outcome

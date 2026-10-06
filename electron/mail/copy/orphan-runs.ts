@@ -7,7 +7,7 @@
 // decision at all, and a job stopped on a failed batch, are the two cases this app must still
 // ask the user about.
 //
-// A found job is handed to mail-drop-controller.ts's own pendingJob through a hook: that state
+// A found job is handed to job/job-driver.ts's own pendingJob through a hook: that state
 // belongs to the job driver, which this file must never import without opening a cycle.
 
 import { notifyLog } from '../../notify/notify-log';
@@ -16,7 +16,6 @@ import {
   attemptWrite,
   finishCopyJournal,
   findOrphanedRuns,
-  readCopyJournal,
   recordCopyJournalDecision,
   type CopyJournalOutcome,
   type CopyJournalRead,
@@ -32,7 +31,7 @@ import { mailDropFolder } from '../pull/pull-controller';
 // Types
 //===========================
 
-/** What mail-drop-controller.ts's own job driver answers to, for the one job a resumed start-up
+/** What job/job-driver.ts answers to, for the one job a resumed start-up
  * may find still open on a batch. Wired once, for the same reason copy-run.ts's own
  * CopyJobHooks is. */
 export interface OrphanJobHooks {

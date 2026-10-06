@@ -26,7 +26,7 @@ import type {
   MailDropPreviewItem,
 } from '../../electron/core/ipc';
 import type * as GmailApi from '../../electron/gmail/gmail-api';
-import type * as MailDropController from '../../electron/mail/mail-drop-controller';
+import type * as JobDriver from '../../electron/mail/job/job-driver';
 import type * as CopyRun from '../../electron/mail/copy/copy-run';
 import type * as CopyRetry from '../../electron/mail/copy/copy-retry';
 import type * as OrphanRuns from '../../electron/mail/copy/orphan-runs';
@@ -42,7 +42,7 @@ import { FakeGmail, bare } from './fake-gmail';
 // Types
 //===========================
 
-export type Controller = typeof MailDropController &
+export type Controller = typeof JobDriver &
   typeof CopyRun &
   typeof CopyRetry &
   typeof OrphanRuns &
@@ -366,15 +366,15 @@ async function fresh(): Promise<Controller> {
   vi.resetModules();
   const s = state();
   s.dropOverlay = null;
-  const [mailDrop, copyRun, copyRetry, orphanRuns, pull, pullRetry] = await Promise.all([
-    import('../../electron/mail/mail-drop-controller'),
+  const [jobDriver, copyRun, copyRetry, orphanRuns, pull, pullRetry] = await Promise.all([
+    import('../../electron/mail/job/job-driver'),
     import('../../electron/mail/copy/copy-run'),
     import('../../electron/mail/copy/copy-retry'),
     import('../../electron/mail/copy/orphan-runs'),
     import('../../electron/mail/pull/pull-controller'),
     import('../../electron/mail/pull/pull-retry'),
   ]);
-  s.controller = { ...mailDrop, ...copyRun, ...copyRetry, ...orphanRuns, ...pull, ...pullRetry };
+  s.controller = { ...jobDriver, ...copyRun, ...copyRetry, ...orphanRuns, ...pull, ...pullRetry };
   return s.controller;
 }
 
