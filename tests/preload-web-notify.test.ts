@@ -12,25 +12,7 @@ describe('webNotifyPayload', () => {
       id: 'w1',
       title: 'Ada Lovelace',
       body: 'Re: the engine',
-      requireInteraction: false,
     });
-  });
-
-  // Google Agenda sets this on every event reminder. Dropped here, the card faded after six
-  // seconds and the reminder was gone for good: no badge, no list, nothing to find it in.
-  it('passes on the page asking for a card that stays up', () => {
-    expect(
-      webNotifyPayload('w9', 'Standup', { body: '09:30 - 09:45', requireInteraction: true })
-        .requireInteraction,
-    ).toBe(true);
-  });
-
-  it('treats anything but a true requireInteraction as not asked for', () => {
-    expect(webNotifyPayload('w10', 'Ada', { body: 'x' }).requireInteraction).toBe(false);
-    expect(
-      webNotifyPayload('w11', 'Ada', { requireInteraction: 'yes' as unknown as boolean })
-        .requireInteraction,
-    ).toBe(false);
   });
 
   it('sends an empty body when the page passed no options', () => {
@@ -38,7 +20,6 @@ describe('webNotifyPayload', () => {
       id: 'w2',
       title: 'Ada',
       body: '',
-      requireInteraction: false,
     });
   });
 
@@ -47,7 +28,6 @@ describe('webNotifyPayload', () => {
       id: 'w3',
       title: 'Ada',
       body: '',
-      requireInteraction: false,
     });
   });
 

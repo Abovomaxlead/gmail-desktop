@@ -3,6 +3,13 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Gewijzigd
+- **Een agendaherinnering volgt nu dezelfde "blijf staan"-knop als je mail.** Staat die knop
+  voor het account aan, dan blijft de herinnering staan tot je hem wegklikt. Staat hij uit, dan
+  verdwijnt hij na een paar seconden, net als een mailmelding.
+
 ## [1.0.0-beta.1791189638] — 2026-10-05
 
 ### Opgelost

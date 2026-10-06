@@ -280,11 +280,6 @@ export function webNotifyPageId(loadNonce: string, seq: number): string {
  * non-primitive handed to React as a child unmounts the toasts page — taking every later
  * notification with it.
  *
- * `requireInteraction` comes along because it is the page saying the card must stay up until
- * somebody dismisses it. Google Agenda sets it on every event reminder, and a reminder that
- * fades after six seconds is a reminder nobody gets: unlike mail, nothing is left behind to
- * find it back with.
- *
  * @param id
  * @param title
  * @param options
@@ -294,13 +289,12 @@ export function webNotifyPayload(
   id: string,
   title: string,
   options?: NotificationOptions,
-): { id: string; title: string; body: string; requireInteraction: boolean } {
+): { id: string; title: string; body: string } {
   const raw = options?.body;
   return {
     id,
     title: title === undefined || title === null ? '' : String(title),
     body: raw === undefined || raw === null ? '' : String(raw),
-    requireInteraction: options?.requireInteraction === true,
   };
 }
 

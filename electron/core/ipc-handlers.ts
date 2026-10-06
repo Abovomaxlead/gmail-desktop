@@ -287,7 +287,7 @@ export function registerIpc(): void {
 
   ipcMain.on(
     IPC.WEB_NOTIFY_SHOW,
-    (e, arg: { id: string; title: string; body: string; requireInteraction?: boolean }) => {
+    (e, arg: { id: string; title: string; body: string }) => {
       if (!prefs) return;
 
       if (typeof arg?.id !== 'string') {

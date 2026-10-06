@@ -96,12 +96,12 @@ export function rememberWebNotifySource(
  *
  * @param profile the account the notification came from
  * @param wc the view's web contents, kept so a click can look the message back up
- * @param arg the page's own notification: its id, title, body and persistence request
+ * @param arg the page's own notification: its id, title and body
  */
 export function showWebNotification(
   profile: Profile,
   wc: Electron.WebContents,
-  arg: { id: string; title: string; body: string; requireInteraction?: boolean },
+  arg: { id: string; title: string; body: string },
 ): void {
   const p = prefs?.getAll();
   if (!p) return;
@@ -110,14 +110,13 @@ export function showWebNotification(
   const sourceKey = webNotifySourceKey(wc.id, arg.id);
   const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
   rememberWebNotifySource(sourceKey, { wc, pageId: arg.id, email: profile.email, notified });
-  // The page's own word wins over the per-account default, in one direction only: it may
-  // keep a card up, never take one down. Google Agenda marks every event reminder this
-  // way, and six seconds of a reminder is the same as no reminder -- there is no badge and
-  // no list to find it back in afterwards, the way there is for mail.
-  const persist = notificationPersist(p, profile.email) || arg.requireInteraction === true;
+  // Agenda reminders follow the same per-account "persist" switch as mail: the page's own
+  // requireInteraction is ignored, so a reminder fades after a few seconds unless the
+  // account is set to keep its notifications up.
+  const persist = notificationPersist(p, profile.email);
   notifyLog(
     `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
-      ` persist=${persist}${arg.requireInteraction === true ? ' (the page asked for it)' : ''}` +
+      ` persist=${persist}` +
       ` silent=${notificationSilent(p, profile.email, 'mail')}` +
       `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
   );
