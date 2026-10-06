@@ -10,21 +10,31 @@ export class ColorStore {
   /**
    * Reads colors.json, treating anything unusable as no colours at all
    *
-   * @returns colour per email
+   * Keys are normalised the same way get and set key them, so a file saved before this
+   * normalisation existed — mixed-case keys — still matches. Where two keys collide after
+   * normalising, the first one in the file wins.
+   *
+   * @returns colour per normalised email
    * @private
    */
   private read(): Record<string, string> {
     const parsed = readJsonFile(this.filePath);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+    const raw = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as Record<string, string>)
       : {};
+    const normalised: Record<string, string> = {};
+    for (const [email, color] of Object.entries(raw)) {
+      const key = email.trim().toLowerCase();
+      if (!(key in normalised)) normalised[key] = color;
+    }
+    return normalised;
   }
 
   get(email: string): string | undefined {
-    return this.read()[email];
+    return this.read()[email.trim().toLowerCase()];
   }
 
   set(email: string, color: string): void {
-    writeJsonFile(this.filePath, { ...this.read(), [email]: color });
+    writeJsonFile(this.filePath, { ...this.read(), [email.trim().toLowerCase()]: color });
   }
 }

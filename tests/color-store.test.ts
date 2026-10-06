@@ -24,6 +24,19 @@ describe('ColorStore', () => {
     const reopened = new ColorStore((store as unknown as { filePath: string }).filePath);
     expect(reopened.get('a@x.com')).toBe('#EA4335');
   });
+  // The address arrives from a profile, from an IPC message and a settings row, and those
+  // do not agree on case or surrounding spaces.
+  it('recognises an address whatever case and spacing it is asked in', () => {
+    store.set('Ana@Example.com ', '#EA4335');
+    expect(store.get('ana@example.com')).toBe('#EA4335');
+  });
+  it('finds a colour saved under a mixed-case key before normalisation existed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'colors-'));
+    const fp = join(dir, 'colors.json');
+    writeFileSync(fp, JSON.stringify({ 'Ana@Example.com': '#4285F4' }), 'utf8');
+    const s = new ColorStore(fp);
+    expect(s.get('ana@example.com')).toBe('#4285F4');
+  });
   it('tolerates a corrupt or non-object file (returns undefined, then can still write)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'colors-'));
     const fp = join(dir, 'colors.json');
