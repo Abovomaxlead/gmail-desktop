@@ -17,7 +17,7 @@ import {
   recordCopyJournalLabel,
   recordCopyJournalDecision,
   withWarnings,
-} from '../electron/mail/copy-journal';
+} from '../electron/mail/copy/copy-journal';
 
 let dir: string;
 

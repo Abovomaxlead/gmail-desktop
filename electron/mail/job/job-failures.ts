@@ -1,7 +1,7 @@
 // What a batched job lost across all its batches, gathered so one retry at the end can send
 // exactly that mail again. Pure: the controller owns when, this owns how they merge.
 
-import { failedConversations, type FailedFile, type FailedFileRef, type TargetFailures } from './copy-failures';
+import { failedConversations, type FailedFile, type FailedFileRef, type TargetFailures } from '../copy/copy-failures';
 
 
 //===========================

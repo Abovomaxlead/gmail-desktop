@@ -254,7 +254,7 @@ change plus a test.
 | The avatar (`a[aria-label]` with an e-mail address and an `img`) | **no accounts detected**; the first mailbox shows but no tab appears | `electron/preload.ts` `extractIdentity` |
 | `data-legacy-thread-id` / `data-legacy-message-id` | notification clicks open the inbox, not the mail | `preload.ts`, `gmail/message-anchor.ts` |
 | Gmail no longer calls `window.Notification` | no notifications for own accounts; `shim installed` but never `Gmail raised a notification` | `preload.ts` shim |
-| The list rows, label links or the drag gesture | the drop strip does nothing, or picks the wrong row | `electron/mail/dropzone.ts`, `label-drop.ts` |
+| The list rows, label links or the drag gesture | the drop strip does nothing, or picks the wrong row | `electron/mail/drag/dropzone.ts`, `label-drop.ts` |
 | The account switcher widget | delegated mailboxes never get a URL: `still unresolved after` | `electron/delegation/delegation.ts` `SWITCHER_SCRAPE_JS`, `windows/switcher-reader.ts` |
 | The `AddSession` URL | "+" does nothing | `electron/gmail/google-urls.ts` |
 | The batch reply format | silent; logs `batch … falling back one by one` and keeps working, slower | `electron/gmail/batch.ts` |
@@ -408,7 +408,7 @@ sites). It bites on long copies into `support@`.
 continue or undo. Hidden `_gmd-copy-…` labels stay on the copied mail.
 
 **Cause.** *Found in this review, not yet reproduced.* `expiredEntries` in
-`electron/mail/mail-drop-cleanup.ts` keeps only `log.jsonl`. Journals (`*.rollback.jsonl`) and
+`electron/mail/pull/mail-drop-cleanup.ts` keeps only `log.jsonl`. Journals (`*.rollback.jsonl`) and
 job plans (`*.job.jsonl`) older than three days are deleted like any saved mail. This only
 matters for a run left undecided for more than three days.
 
@@ -486,5 +486,5 @@ broken Pub/Sub key can block the relay from starting.
 |---|---|---|
 | 10 own accounts | `accounts/detection-planner.ts` `maxAccounts` | the 11th signed-in account is never detected |
 | one domain, `abovomaxlead.nl` | `auth/account-domain.ts`, also `hd=` in `google-oauth.ts` and the relay's `ALLOWED_DOMAINS` | a rename or a second domain cannot link, and its tokens are **deleted** at start |
-| labels up to 50,000 conversations by API (2,000 by page scrape) | `mail/label-drop.ts` | the rest is not copied; the app says so |
+| labels up to 50,000 conversations by API (2,000 by page scrape) | `mail/drag/label-drop.ts` | the rest is not copied; the app says so |
 | updater installs on quit without checking for a running copy | `updates/update-controller.ts` `installUpdate` | the copy is interrupted; the journal offers it back at the next start |

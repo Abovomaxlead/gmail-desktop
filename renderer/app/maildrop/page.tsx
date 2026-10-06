@@ -8,7 +8,7 @@ import type {
   MailDropPreview,
   MailDropPreviewItem,
 } from '../../../electron/core/ipc';
-import type { CopyMode } from '../../../electron/mail/mail-copy';
+import type { CopyMode } from '../../../electron/mail/copy/mail-copy';
 import { recentFor, type RecentLabelUse } from '../../lib/recent-labels';
 import { dropFailures } from '../../lib/drop-outcome';
 import { failedRowIndexes, cutList } from '../../lib/failure-list';
@@ -26,7 +26,7 @@ import {
   type PickedChip,
 } from '../mailbox-rail';
 import { filterLabels } from '../../lib/label-search';
-import { parentInsideTree } from '../../../electron/mail/label-tree';
+import { parentInsideTree } from '../../../electron/mail/copy/label-tree';
 import { treeTopPlace } from '../tree-place';
 import { labelKind } from '../label-kind';
 import {

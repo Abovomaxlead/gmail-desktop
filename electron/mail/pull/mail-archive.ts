@@ -12,9 +12,9 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { mapLimit } from '../core/concurrency';
-import type { EmlHeaders } from './eml';
-import type { MessageRef } from './dropzone';
+import { mapLimit } from '../../core/concurrency';
+import type { EmlHeaders } from '../shared/eml';
+import type { MessageRef } from '../drag/dropzone';
 
 
 

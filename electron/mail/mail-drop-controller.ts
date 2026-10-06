@@ -59,7 +59,7 @@ import {
   withMailboxToken,
 } from '../auth/mailbox-token';
 import { notifyLog } from '../notify/notify-log';
-import { htmlToText, parseHeaders } from './eml';
+import { htmlToText, parseHeaders } from './shared/eml';
 import {
   appendLog,
   draggedMessage,
@@ -68,7 +68,7 @@ import {
   writeThread,
   type LogRecord,
   type SavedMessage,
-} from './mail-archive';
+} from './pull/mail-archive';
 import {
   assembleCopy,
   checkLogLine,
@@ -95,7 +95,7 @@ import {
   type ExistingResult,
   type MailboxScan,
   type ScanOutcome,
-} from './mail-copy';
+} from './copy/mail-copy';
 import {
   API_MAX_THREADS,
   LABEL_SCRAPE_JS,
@@ -109,7 +109,7 @@ import {
   scrapeSettled,
   type LabelThread,
   type TreeThread,
-} from './label-drop';
+} from './drag/label-drop';
 import {
   JOB_BATCH_THREADS,
   findUnfinishedJobs,
@@ -126,7 +126,7 @@ import {
   type JobOutcome,
   type LabelJob,
   type RunningBatchProgress,
-} from './label-job';
+} from './job/label-job';
 import {
   STOP_TOO_LATE_TEXT,
   jobStopFromAction,
@@ -134,16 +134,16 @@ import {
   sameJobPlan,
   stopReachesRun,
   type JobPlanRef,
-} from './job-guard';
+} from './job/job-guard';
 import {
   labelTreeMembers,
   parentInsideTree,
   planLabelTree,
   resolveMessageLabels,
   type LabelTreePlan,
-} from './label-tree';
-import { fetchThreadEmls } from './mail-fetch';
-import { emptyIndex, indexedScan, remember } from './message-index';
+} from './copy/label-tree';
+import { fetchThreadEmls } from './pull/mail-fetch';
+import { emptyIndex, indexedScan, remember } from './copy/message-index';
 import {
   BUSY_TEXT,
   NO_SUBJECT,
@@ -151,12 +151,12 @@ import {
   cancelledText,
   dropOutcome,
   type MessageRef,
-} from './dropzone';
-import { createPullControl, type PullControl } from './pull-control';
-import { DROP_LOCK_MS, createDropLock } from './drop-lock';
-import { chunk } from './chunk';
-import { defaultMailFolder, looksRemoteFolder } from './mail-folder';
-import { createCopyRunControl, type CopyRunControl } from './copy-control';
+} from './drag/dropzone';
+import { createPullControl, type PullControl } from './pull/pull-control';
+import { DROP_LOCK_MS, createDropLock } from './drag/drop-lock';
+import { chunk } from './shared/chunk';
+import { defaultMailFolder, looksRemoteFolder } from './pull/mail-folder';
+import { createCopyRunControl, type CopyRunControl } from './copy/copy-control';
 import {
   ALREADY_COPIED_TEXT,
   copyFailuresOf,
@@ -167,7 +167,7 @@ import {
   wholeTargetFailed,
   type FailureLine,
   type TargetFailures,
-} from './copy-failures';
+} from './copy/copy-failures';
 import {
   addCopyFailures,
   addFetchedToAllTargets,
@@ -178,7 +178,7 @@ import {
   retryFiles,
   takePullSlice,
   type JobFailures,
-} from './job-failures';
+} from './job/job-failures';
 import { dismissShownToast, showToast } from '../toast/toast-presenter';
 import { nativeLabels } from '../menus/native-labels';
 import { failedRowIndexes, replaceRows } from '../../renderer/lib/failure-list';
@@ -195,8 +195,8 @@ import {
   type CopyJournalOutcome,
   type CopyJournalRead,
   type CopyJournalRemainder,
-} from './copy-journal';
-import { deleteCreatedLabels, sweepRunMarkers as runSweep } from './copy-marker-run-sweep';
+} from './copy/copy-journal';
+import { deleteCreatedLabels, sweepRunMarkers as runSweep } from './copy/copy-marker-run-sweep';
 import type {
   CopyJournalEntry,
   CopyRunId,
@@ -204,7 +204,7 @@ import type {
   CreatedLabel,
   MarkerLabel,
   RollbackOutcome,
-} from './copy-run-types';
+} from './copy/copy-run-types';
 import {
   GmailCancelledError,
   GmailHttpError,

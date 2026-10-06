@@ -2,7 +2,7 @@
 // a copy of. Tested once here rather than once per caller.
 
 import { describe, it, expect } from 'vitest';
-import { chunk } from '../electron/mail/chunk';
+import { chunk } from '../electron/mail/shared/chunk';
 
 const ids = (n: number, from = 0) => Array.from({ length: n }, (_, i) => `m${i + from}`);
 

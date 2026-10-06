@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { RecentLabelStore, RECENT_KEPT, localDay } from '../electron/mail/recent-labels-store';
+import { RecentLabelStore, RECENT_KEPT, localDay } from '../electron/mail/copy/recent-labels-store';
 
 describe('localDay', () => {
   // The day has to be the user's, not UTC. notify.log stamps UTC and this does not: at half

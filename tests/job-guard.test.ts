@@ -9,7 +9,7 @@ import {
   sameJobPlan,
   stopReachesRun,
   jobStopFromAction,
-} from '../electron/mail/job-guard';
+} from '../electron/mail/job/job-guard';
 
 // A second drag landing while a job copies used to replace the walking job: the batch in flight
 // then had its result written into the new job's plan, and the panel left its walking phase while

@@ -26,8 +26,8 @@ import type {
   MailDropPreviewItem,
 } from '../../electron/core/ipc';
 import type * as GmailApi from '../../electron/gmail/gmail-api';
-import type * as RunSweep from '../../electron/mail/copy-marker-run-sweep';
-import type { CopyMode } from '../../electron/mail/mail-copy';
+import type * as RunSweep from '../../electron/mail/copy/copy-marker-run-sweep';
+import type { CopyMode } from '../../electron/mail/copy/mail-copy';
 import type { Profile } from '../../electron/windows/profile-view-manager';
 import { FakeGmail, bare } from './fake-gmail';
 
@@ -281,7 +281,7 @@ vi.mock('../../electron/gmail/gmail-api', async (importOriginal) => {
   return { ...real, ...live };
 });
 
-vi.mock('../../electron/mail/copy-marker-run-sweep', async (importOriginal) => {
+vi.mock('../../electron/mail/copy/copy-marker-run-sweep', async (importOriginal) => {
   const real = await importOriginal<typeof RunSweep>();
   const noWait = async (): Promise<void> => {};
   return {

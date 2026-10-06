@@ -4,7 +4,7 @@
 // back, and that a pull which never answers cannot hold it for ever.
 
 import { describe, it, expect } from 'vitest';
-import { createDropLock, DROP_LOCK_MS } from '../electron/mail/drop-lock';
+import { createDropLock, DROP_LOCK_MS } from '../electron/mail/drag/drop-lock';
 
 describe('createDropLock', () => {
   it('hands the lock to the first caller', () => {

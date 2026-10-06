@@ -129,7 +129,7 @@ describe('messageAnchorScript finds the message', () => {
 // Gmail hangs the id of the mail an attachment belongs to on the chip drawn in the inbox
 // row, so the list holds a match for the very message being looked for. Clicking it opens
 // the attachment and, worse, counts as done — the conversation then never gets anchored at
-// all and the reader is back on the older mail. mail/dropzone.ts narrowed the same way.
+// all and the reader is back on the older mail. mail/drag/dropzone.ts narrowed the same way.
 describe('messageAnchorScript refuses a list row', () => {
   it('passes over the attachment chip and takes the message', () => {
     const chip = chipInRow(REPLY);

@@ -9,7 +9,7 @@
 // `matchThreadsBySubject` in the page: the two are each other's fallback.
 
 import type { MessageMeta } from '../gmail/gmail-api';
-import { displayName } from '../mail/mail-archive';
+import { displayName } from '../mail/pull/mail-archive';
 
 
 

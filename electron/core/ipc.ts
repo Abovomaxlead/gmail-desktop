@@ -4,9 +4,9 @@
 // a channel per field, and NotifyState carries only what the Gmail page itself decides —
 // whether it may notify at all, and whether it may make noise. The text is main's.
 
-import type { MessageRef } from '../mail/dropzone';
-import type { CopyResult } from '../mail/mail-copy';
-import type { CopyStopMode, RollbackOutcome } from '../mail/copy-run-types';
+import type { MessageRef } from '../mail/drag/dropzone';
+import type { CopyResult } from '../mail/copy/mail-copy';
+import type { CopyStopMode, RollbackOutcome } from '../mail/copy/copy-run-types';
 import type { ByMailbox, CopyProgress, JobEnd, JobLine, JobPanel, MailDropTree } from '../../renderer/lib/maildrop-copy';
 
 
@@ -203,7 +203,7 @@ export type {
   ExistingLabel as MailDropExistingLabel,
   ExistingInMailbox as MailDropExistingInMailbox,
   ExistingResult as MailDropExisting,
-} from '../mail/mail-copy';
+} from '../mail/copy/mail-copy';
 
 /** How far a copy has got, over all the chosen mailboxes at once, or how far a rollback has
  * got undoing one. No mailbox is named for a running copy -- several run at once, so naming

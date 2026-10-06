@@ -7,7 +7,7 @@ import {
   parsePermMsgIds,
   permMsgIdsToFetch,
   permMsgIdFromLink,
-} from '../electron/mail/mail-fetch';
+} from '../electron/mail/pull/mail-fetch';
 
 describe('omUrl', () => {
   it('builds the show-original url for a thread', () => {

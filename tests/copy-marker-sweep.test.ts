@@ -1,7 +1,7 @@
 // Sweeping every message under one run's marker label to convergence.
 
 import { describe, it, expect } from 'vitest';
-import { sweepMarker, type SweepDeps, type SweepPage } from '../electron/mail/copy-marker-sweep';
+import { sweepMarker, type SweepDeps, type SweepPage } from '../electron/mail/copy/copy-marker-sweep';
 import { BATCH_MODIFY_LIMIT } from '../electron/gmail/gmail-api';
 
 const noSleep = async () => {};

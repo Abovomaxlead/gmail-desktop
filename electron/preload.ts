@@ -18,7 +18,7 @@ import {
   type MailDropSaveProgress,
   type MailDropLock,
 } from './core/ipc';
-import { labelFromDragTarget } from './mail/label-drop';
+import { labelFromDragTarget } from './mail/drag/label-drop';
 import {
   DROPZONE_ID,
   DROPZONE_CSS,
@@ -46,7 +46,7 @@ import {
   savingText,
   type DragNode,
   type MessageRef,
-} from './mail/dropzone';
+} from './mail/drag/dropzone';
 
 
 //===========================

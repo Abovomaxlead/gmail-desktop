@@ -10,16 +10,16 @@
 // no caller that should be able to reach a permanent removal through this file.
 
 import { randomUUID } from 'node:crypto';
-import { withMailboxToken } from '../auth/mailbox-token';
+import { withMailboxToken } from '../../auth/mailbox-token';
 import {
   BATCH_MODIFY_LIMIT,
   batchModifyMessages,
   fetchMessageListPage,
   fetchUserLabelMap,
-} from '../gmail/gmail-api';
-import { notifyLog } from '../notify/notify-log';
-import { chunk } from './chunk';
-import { labelTreeMembers } from './label-tree';
+} from '../../gmail/gmail-api';
+import { notifyLog } from '../../notify/notify-log';
+import { chunk } from '../shared/chunk';
+import { labelTreeMembers } from '../copy/label-tree';
 import {
   PURGE_LIST_MAX,
   createPurgeStore,

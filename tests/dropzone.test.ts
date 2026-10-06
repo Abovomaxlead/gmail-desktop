@@ -2,7 +2,7 @@
 // geometry.
 
 import { describe, it, expect } from 'vitest';
-import { labelFromDragTarget } from '../electron/mail/label-drop';
+import { labelFromDragTarget } from '../electron/mail/drag/label-drop';
 import {
   pressFromDragTarget,
   messageRefFromDragTarget,
@@ -31,7 +31,7 @@ import {
   cancelledText,
   resultState,
   type DragNode,
-} from '../electron/mail/dropzone';
+} from '../electron/mail/drag/dropzone';
 
 //===========================
 // The fixture

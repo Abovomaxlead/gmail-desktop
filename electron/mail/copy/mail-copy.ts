@@ -4,7 +4,7 @@
 // Skipped messages are reported apart from `copied` and are not errors — skipping is the
 // point.
 
-import { mapLimit } from '../core/concurrency';
+import { mapLimit } from '../../core/concurrency';
 import type { FailureLine } from './copy-failures';
 
 

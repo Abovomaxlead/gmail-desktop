@@ -5,7 +5,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MailDropCopyResult } from '../electron/core/ipc';
-import { ALREADY_COPIED_TEXT } from '../electron/mail/copy-failures';
+import { ALREADY_COPIED_TEXT } from '../electron/mail/copy/copy-failures';
 import { SOURCE, TARGET_A, TARGET_B, startHarness, stopHarness, type Harness } from './support/controller-harness';
 
 

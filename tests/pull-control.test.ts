@@ -4,7 +4,7 @@
 // shouldWait shape mapLimit already takes.
 
 import { describe, it, expect } from 'vitest';
-import { createPullControl } from '../electron/mail/pull-control';
+import { createPullControl } from '../electron/mail/pull/pull-control';
 
 describe('createPullControl', () => {
   it('lets work start while nothing has been cancelled', async () => {

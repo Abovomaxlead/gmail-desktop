@@ -50,7 +50,7 @@ export type MessageAnchor = 'missing' | 'unsure' | 'hidden' | 'shown' | 'opened'
 //===========================
 
 /** The block Gmail wraps one message of a conversation in. Read the same way in
- * mail/dropzone.ts, which is what says this attribute is really there. */
+ * mail/drag/dropzone.ts, which is what says this attribute is really there. */
 const MESSAGE_BLOCK_ATTR = 'data-legacy-message-id';
 
 /** Gmail's message body, by the two classes it is drawn under. Both are in the stylesheet

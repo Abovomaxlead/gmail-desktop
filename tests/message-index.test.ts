@@ -17,7 +17,7 @@ import {
   toRecords,
   fromRecords,
   MessageIndexStore,
-} from '../electron/mail/message-index';
+} from '../electron/mail/copy/message-index';
 
 const day = 24 * 60 * 60 * 1000;
 

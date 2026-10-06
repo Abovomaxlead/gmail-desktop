@@ -8,7 +8,7 @@
 // Everything matches on structure, role/aria-* and hrefs, never on visible text or Gmail's
 // obfuscated class names.
 
-import { NOTHING_SAVED } from '../../renderer/lib/drop-outcome';
+import { NOTHING_SAVED } from '../../../renderer/lib/drop-outcome';
 
 
 //===========================

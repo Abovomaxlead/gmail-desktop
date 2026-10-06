@@ -59,7 +59,7 @@ import {
   setGoogleAppsRouting,
 } from './system/external-links';
 import { extractMailtoFromArgv } from './compose/mailto';
-import { startMailDropCleanup } from './mail/mail-drop-cleanup';
+import { startMailDropCleanup } from './mail/pull/mail-drop-cleanup';
 import { mailDropFolder, resumeOrphanedCopyRuns, showJobReport } from './mail/mail-drop-controller';
 import { notifyLog } from './notify/notify-log';
 import { APP_SCHEME, APP_SCHEME_PRIVILEGES } from './system/app-scheme';

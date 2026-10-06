@@ -8,7 +8,7 @@ import {
   planLabelTree,
   parentInsideTree,
   resolveMessageLabels,
-} from '../electron/mail/label-tree';
+} from '../electron/mail/copy/label-tree';
 
 describe('labelTreeMembers', () => {
   const all = ['Klanten', 'Klanten/Acme', 'Klanten/Acme/2025', 'Klantenservice', 'Archief'];

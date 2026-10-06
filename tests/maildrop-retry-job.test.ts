@@ -7,8 +7,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC } from '../electron/core/ipc';
 import type { MailDropCopyResult } from '../electron/core/ipc';
-import type * as LabelJobModule from '../electron/mail/label-job';
-import { findUnfinishedJobs, readLabelJob, type LabelJob } from '../electron/mail/label-job';
+import type * as LabelJobModule from '../electron/mail/job/label-job';
+import { findUnfinishedJobs, readLabelJob, type LabelJob } from '../electron/mail/job/label-job';
 import {
   SOURCE,
   TARGET_A,
@@ -26,8 +26,8 @@ import {
 
 // The controller reads the batch size through this export only: planJob, the existing-scan
 // limit at module load, and the retry's pull slice
-vi.mock('../electron/mail/label-job', async () => ({
-  ...(await vi.importActual<typeof LabelJobModule>('../electron/mail/label-job')),
+vi.mock('../electron/mail/job/label-job', async () => ({
+  ...(await vi.importActual<typeof LabelJobModule>('../electron/mail/job/label-job')),
   JOB_BATCH_THREADS: 2,
 }));
 

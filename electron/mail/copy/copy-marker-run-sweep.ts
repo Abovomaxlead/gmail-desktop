@@ -11,7 +11,7 @@
 // listing itself reports under the marker, which is exactly what makes a severed insert the
 // local journal never recorded still get trashed on a rollback -- see copy-run-types.ts.
 
-import { GmailHttpError } from '../gmail/gmail-api';
+import { GmailHttpError } from '../../gmail/gmail-api';
 import { sweepMarker, type SweepAction, type SweepDeps } from './copy-marker-sweep';
 import type {
   CopyRunId,

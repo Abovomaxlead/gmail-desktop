@@ -7,7 +7,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { IPC, type MailDropCopyControlAction, type MailDropCopyTarget } from './ipc';
-import type { CopyStopMode } from '../mail/copy-run-types';
+import type { CopyStopMode } from '../mail/copy/copy-run-types';
 import { writeFileAtomic } from './json-store';
 import { OAUTH_CONFIG_PATH } from './paths';
 import { SESSION_PARTITION } from './session-partition';
@@ -49,8 +49,8 @@ import {
   retryFailedJob,
   retryFailedPull,
 } from '../mail/mail-drop-controller';
-import { countLabelForPurge, purgeCountedLabel } from '../mail/label-purge-controller';
-import { type CopyMode } from '../mail/mail-copy';
+import { countLabelForPurge, purgeCountedLabel } from '../mail/purge/label-purge-controller';
+import { type CopyMode } from '../mail/copy/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';
 import { openFeedbackCompose } from '../feedback/feedback-controller';
 import { reportRendererError } from '../feedback/crash-controller';

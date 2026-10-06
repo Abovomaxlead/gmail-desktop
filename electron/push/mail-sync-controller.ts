@@ -38,9 +38,9 @@ import {
 import { notifyLog } from '../notify/notify-log';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
 import { nativeLabels } from '../menus/native-labels';
-import { displayName } from '../mail/mail-archive';
-import { remember } from '../mail/message-index';
-import { extractPlainText } from '../mail/eml';
+import { displayName } from '../mail/pull/mail-archive';
+import { remember } from '../mail/copy/message-index';
+import { extractPlainText } from '../mail/shared/eml';
 import { findVerificationCode, subjectSuggestsCode } from '../gmail/verification-code';
 import {
   fetchHistoryPage,

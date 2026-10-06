@@ -15,7 +15,7 @@
 
 import { readdir, stat, rm, readFile, writeFile, rename } from 'node:fs/promises';
 import { join } from 'node:path';
-import { notifyLog } from '../notify/notify-log';
+import { notifyLog } from '../../notify/notify-log';
 
 
 //===========================

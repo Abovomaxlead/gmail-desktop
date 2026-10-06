@@ -14,7 +14,7 @@ import {
   PAGE_SIZE,
   type LabelThread,
   type TreeThread,
-} from '../electron/mail/label-drop';
+} from '../electron/mail/drag/label-drop';
 
 const node = (attrs: Record<string, string>, parent: any = null, descendants: any[] = []): any => ({
   getAttribute: (n: string) => attrs[n] ?? null,

@@ -5,7 +5,7 @@
 // why the resolver takes the platform rather than reading this machine's own.
 
 import { describe, it, expect } from 'vitest';
-import { defaultMailFolder, looksRemoteFolder } from '../electron/mail/mail-folder';
+import { defaultMailFolder, looksRemoteFolder } from '../electron/mail/pull/mail-folder';
 
 const windows = {
   platform: 'win32',

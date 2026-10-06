@@ -20,7 +20,7 @@ import type {
   CreatedLabel,
   MarkerLabel,
 } from './copy-run-types';
-import { appendJsonLine, jsonLines, parsedFilesWithSuffix, readParsed } from './jsonl-store';
+import { appendJsonLine, jsonLines, parsedFilesWithSuffix, readParsed } from '../shared/jsonl-store';
 
 
 //===========================

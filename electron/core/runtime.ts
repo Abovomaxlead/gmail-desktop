@@ -18,11 +18,11 @@ import type { ProfileViewManager, Profile, Surface } from '../windows/profile-vi
 import type { ColorStore } from '../accounts/color-store';
 import type { DelegatedStore } from '../delegation/delegated-store';
 import type { HiddenStore } from '../accounts/hidden-store';
-import type { RecentLabelStore } from '../mail/recent-labels-store';
+import type { RecentLabelStore } from '../mail/copy/recent-labels-store';
 import type { PrefsStore } from './prefs-store';
 import type { OAuthStore } from '../auth/oauth-store';
 import type { HistoryStore } from '../gmail/history-store';
-import type { MessageIndexStore } from '../mail/message-index';
+import type { MessageIndexStore } from '../mail/copy/message-index';
 import type { DownloadHistoryStore } from '../system/download-history';
 import type { AccountCacheStore, CachedAccount } from '../accounts/account-cache';
 import type { OverlayView } from '../windows/overlay-view';

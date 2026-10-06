@@ -15,8 +15,8 @@ import {
   newestMessage,
   draggedMessage,
   type SavedMessage,
-} from '../electron/mail/mail-archive';
-import type { EmlHeaders } from '../electron/mail/eml';
+} from '../electron/mail/pull/mail-archive';
+import type { EmlHeaders } from '../electron/mail/shared/eml';
 
 const root = () => mkdtempSync(join(tmpdir(), 'maildrop-'));
 

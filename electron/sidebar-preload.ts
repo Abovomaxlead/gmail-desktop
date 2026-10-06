@@ -5,7 +5,7 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC, type MailDropCopyTarget, type MailDropFolderStatus } from './core/ipc';
-import type { CopyMode } from './mail/mail-copy';
+import type { CopyMode } from './mail/copy/mail-copy';
 import type { Surface } from '../renderer/lib/surfaces';
 import type { NativeMenuItem } from '../renderer/lib/native-menu';
 import type { ReconnectAccount } from '../renderer/lib/reconnect';

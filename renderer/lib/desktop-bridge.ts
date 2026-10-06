@@ -3,7 +3,7 @@
 // The Prefs, UpdateState and DownloadRecord shapes are copied from electron/ rather than
 // imported, because an `import type` from the main process pulls Electron into the renderer
 // bundle. The mail-drop payload shapes below are the opposite: they already live in
-// electron/core/ipc.ts and electron/mail/mail-copy.ts, declared once and imported here,
+// electron/core/ipc.ts and electron/mail/copy/mail-copy.ts, declared once and imported here,
 // because those files carry no Electron-specific types of their own.
 //
 // Declared in renderer/lib rather than in a page, so every page that needs `window.desktop`
@@ -33,7 +33,7 @@ import type {
   MailDropPreview,
   MailDropPreviewItem,
 } from '../../electron/core/ipc';
-import type { CopyMode } from '../../electron/mail/mail-copy';
+import type { CopyMode } from '../../electron/mail/copy/mail-copy';
 
 
 //===========================
