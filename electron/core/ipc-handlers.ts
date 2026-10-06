@@ -38,9 +38,6 @@ import {
   decideJobRun,
   decideOrphanRun,
   dropPreviewItems,
-  existingForCopyTargets,
-  labelsForCopyTargets,
-  labelsForEveryMailbox,
   mailDropFolder,
   mailDropStatus,
   pendingJobDecision,
@@ -49,6 +46,11 @@ import {
   retryFailedJob,
   retryFailedPull,
 } from '../mail/mail-drop-controller';
+import {
+  existingForCopyTargets,
+  labelsForCopyTargets,
+  labelsForEveryMailbox,
+} from '../mail/copy/duplicate-scan';
 import { countLabelForPurge, purgeCountedLabel } from '../mail/purge/label-purge-controller';
 import { type CopyMode } from '../mail/copy/mail-copy';
 import { applyComposeAskSize, settleComposeAsk } from '../compose/mailto-controller';

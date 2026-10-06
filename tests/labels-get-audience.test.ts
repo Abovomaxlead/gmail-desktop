@@ -38,13 +38,16 @@ vi.mock('../electron/mail/mail-drop-controller', () => ({
   decideJobRun: () => {},
   decideOrphanRun: () => {},
   dropPreviewItems: () => ({}),
-  existingForCopyTargets: () => ({}),
-  labelsForCopyTargets,
-  labelsForEveryMailbox,
   mailDropFolder: () => '/drop',
   mailDropStatus: () => ({}),
   pendingJobDecision: () => null,
   pendingOrphanDecision: () => null,
+}));
+
+vi.mock('../electron/mail/copy/duplicate-scan', () => ({
+  existingForCopyTargets: () => ({}),
+  labelsForCopyTargets,
+  labelsForEveryMailbox,
 }));
 
 const { registerIpc } = await import('../electron/core/ipc-handlers');
