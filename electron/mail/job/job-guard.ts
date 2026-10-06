@@ -9,6 +9,8 @@
 // Nothing here decides which mail lands where. These answer when a stop takes hold, what the panel
 // is told, and which plan a finished batch is written into.
 
+import type { JobOutcome } from './label-job';
+
 
 //===========================
 // Types
@@ -18,6 +20,26 @@
  * only has to recognise the plan it started out with. */
 export interface JobPlanRef {
   jobId: string;
+}
+
+/** What became of a job, sent once when its walk is over. The plan's own outcome vocabulary plus
+ * 'stuck', which is not an outcome the plan file ever gets: a job stopped on a failed batch is
+ * left open on purpose, so the next start can offer to continue it.
+ *
+ * Deliberately not renderer/lib/maildrop-copy.ts's own JobEnd: that one requires a `jobId` this
+ * side has never sent, and a job end is addressed to the one panel that is watching. */
+export interface JobEndInfo {
+  outcome: JobOutcome | 'stuck';
+  label: string;
+  done: number;
+  total: number;
+  batches: number;
+  copiedBatches: number;
+  targets: string[];
+  error?: string;
+  failed?: number;
+  /** Set only on a completed job whose losses are held for one retry */
+  retryId?: string;
 }
 
 /** Enough of a copy run's gate to know whether a stop can still change its outcome. `decided`

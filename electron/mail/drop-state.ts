@@ -65,6 +65,9 @@ export let activePull: PullControl | null = null;
  * it got. Reset where the gate is created. */
 export let pullDone = 0;
 
+/** Conversations the last pull could not fetch, which a job's batch counts as lost */
+export let batchPullFailedThreads: string[] = [];
+
 
 //===========================
 // Exported functions
@@ -94,4 +97,7 @@ export function setActivePull(v: PullControl | null): void {
 }
 export function setPullDone(v: number): void {
   pullDone = v;
+}
+export function setBatchPullFailedThreads(v: string[]): void {
+  batchPullFailedThreads = v;
 }

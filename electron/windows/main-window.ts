@@ -74,7 +74,7 @@ import { activateNotification, activateToast, forgetToastResources, runToastActi
 import { cancelComposeAsk } from '../compose/mailto-controller';
 import { onIdentity, startDetection } from '../accounts/detection-controller';
 import { loadDelegatedProfiles, startDelegatedUrlRefreshOnce } from '../delegation/delegated-controller';
-import { handleMailDrop } from '../mail/mail-drop-controller';
+import { handleMailDrop } from '../mail/pull/pull-controller';
 import { checkOAuthHealth } from '../auth/oauth-health-check';
 import { notificationSilent } from '../notify/notification-policy';
 import { notifyLog, openNotifyLog } from '../notify/notify-log';

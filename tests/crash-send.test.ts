@@ -69,7 +69,7 @@ vi.mock('../electron/gmail/gmail-api', () => ({
 
 // The drop folder is the same temporary directory here, so a seeded log.jsonl is found the way
 // a real one is: beside the saved mail rather than in userData.
-vi.mock('../electron/mail/mail-drop-controller', () => ({ mailDropFolder: () => userData }));
+vi.mock('../electron/mail/pull/pull-controller', () => ({ mailDropFolder: () => userData }));
 
 vi.mock('../electron/notify/notify-log', () => ({ notifyLog: () => {} }));
 

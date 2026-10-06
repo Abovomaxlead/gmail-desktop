@@ -31,21 +31,23 @@ import {
 } from '../delegation/delegated-picker';
 import { closeReleaseNotes } from '../updates/release-notes-overlay';
 import {
-  cancelMailDropPull,
-  closeDropPreview,
   controlCopyRun,
   copyToMailboxes,
   decideJobRun,
   decideOrphanRun,
-  dropPreviewItems,
-  mailDropFolder,
-  mailDropStatus,
   pendingJobDecision,
   pendingOrphanDecision,
   retryFailedCopy,
   retryFailedJob,
   retryFailedPull,
 } from '../mail/mail-drop-controller';
+import {
+  cancelMailDropPull,
+  closeDropPreview,
+  dropPreviewItems,
+  mailDropFolder,
+  mailDropStatus,
+} from '../mail/pull/pull-controller';
 import {
   existingForCopyTargets,
   labelsForCopyTargets,

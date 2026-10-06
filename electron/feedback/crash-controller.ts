@@ -34,7 +34,7 @@ import { readJsonFile, writeJsonFile } from '../core/json-store';
 import { oauthTokens, profiles } from '../core/runtime';
 import { sendRawMessage } from '../gmail/gmail-api';
 import { notifyLog } from '../notify/notify-log';
-import { mailDropFolder } from '../mail/mail-drop-controller';
+import { mailDropFolder } from '../mail/pull/pull-controller';
 import { dropLogTail } from './drop-log';
 import { redactedLogs } from './app-logs';
 import { buildRawMail } from './crash-mail';

@@ -63,6 +63,16 @@ import { activePull, lastDropTree, setLastDropTree, type SavedRef } from '../dro
  * still being listed. */
 export type SaveProgress = (done: number, total: number) => void;
 
+/** What a label's tree resolved to, whether scraped or listed over the API: every conversation
+ * found, the members the tree carries and the order they were resolved in, and whether the
+ * count hit its cap. */
+export interface LabelTreeListing {
+  threads: TreeThread[];
+  members: string[];
+  capped: boolean;
+  cap: number;
+}
+
 type ApiThreadResult =
   | { kind: 'messages'; messages: ThreadMessage[] }
   | { kind: 'failed'; error: string }
@@ -299,7 +309,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function collectLabelThreads(
   authuser: string,
   label: string,
-): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number }> {
+): Promise<LabelTreeListing> {
   const threads: TreeThread[] = [];
   let capped = false;
   let members: string[] = [label];
@@ -376,7 +386,7 @@ export async function listLabelTree(
   account: string,
   label: string,
   found: (count: number) => void = () => {},
-): Promise<{ threads: TreeThread[]; members: string[]; capped: boolean; cap: number } | null> {
+): Promise<LabelTreeListing | null> {
   if (!account) return null;
   const withToken = await withMailboxToken(account);
   if (!withToken) return null;
@@ -499,7 +509,7 @@ export async function saveLabel(
    * The caller has to list before it can decide whether this label needs a plan at all, and
    * listing twice would double the threads.list pages of every ordinary label drag. Null for a
    * job's later batch, which has no fresh listing and does not need one. */
-  listed: Awaited<ReturnType<typeof listLabelTree>>,
+  listed: LabelTreeListing | null,
   /** One batch of a job's plan, or null for an ordinary drag, which fetches everything the
    * listing above answered. Null is what keeps a label that fits in one batch byte-for-byte
    * today's drag. */
