@@ -17,7 +17,8 @@ on a user's machine. Line numbers are for `dev` at `3231a06` and drift; the file
 | Relay server | separate repo `gmail-push-relay` (Bitbucket) | Node + TypeScript in Docker behind Traefik |
 | Build and release | `.github/workflows/`, `electron-builder.yml`, `scripts/` | GitHub Actions on Windows and macOS runners |
 
-The only runtime npm dependency of the app is `ws`. Everything else is Electron and Node itself.
+The app has no runtime npm dependencies: esbuild bundles what main needs (`electron-updater`
+included) into `dist-electron/`. Everything else is Electron and Node itself.
 
 
 ## 2. Main-process folders

@@ -311,7 +311,7 @@ describe('pressFromDragTarget', () => {
     // heading armed on the card exactly as it did before either fix.
     it('refuses a card under an ancestor that carries the thread id', () => {
       const card = gmailCard();
-      const pane = node({ 'data-legacy-thread-id': '1a023b6' }, null, [openedMessage(), card]);
+      node({ 'data-legacy-thread-id': '1a023b6' }, null, [openedMessage(), card]);
       expect(pressFromDragTarget(card.children[0])).toEqual({ kind: 'refused' });
       expect(threadIdOf(card.children[0])).toBeNull();
     });

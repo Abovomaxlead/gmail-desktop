@@ -14,7 +14,7 @@ import { flushPendingMailto } from '../compose/mailto-controller';
 import { wantsCalendarView } from '../notify/notification-policy';
 import { WarmupTracker } from './view-warmup';
 import { mayBuildAheadOfDemand, viewsToDiscard } from './view-budget';
-import type { AccountRef } from '../accounts/account-ref';
+import type { AccountRef } from '../../renderer/lib/account-ref';
 import type { Profile, Surface } from './profile-view-manager';
 
 

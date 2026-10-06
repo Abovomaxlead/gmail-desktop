@@ -30,7 +30,7 @@ import { notifyLog } from '../notify/notify-log';
 import { titleShowsSubject } from '../notify/notify-match';
 import type { KeyInput } from '../menus/shortcuts';
 import { SURFACES, SURFACE_CONFIG, surfaceForUrl, surfacesForRef, type Surface } from '../../renderer/lib/surfaces';
-import { accountKey, type AccountRef } from '../accounts/account-ref';
+import { accountKey, type AccountRef } from '../../renderer/lib/account-ref';
 import { SESSION_PARTITION } from '../core/session-partition';
 
 export type { Surface };

@@ -33,7 +33,7 @@ import { applyBadge } from '../unread/badge-controller';
 import { accountCountVisible } from '../../renderer/lib/badge-visibility';
 import { surfacesForRef } from '../../renderer/lib/surfaces';
 import { isOurProgId, readMailtoProgId } from '../system/mail-client-registration';
-import type { AccountRef } from '../accounts/account-ref';
+import type { AccountRef } from '../../renderer/lib/account-ref';
 import type { Profile } from '../windows/profile-view-manager';
 
 

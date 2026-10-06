@@ -15,7 +15,7 @@ import { expect, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { accountKey } from '../../electron/accounts/account-ref';
+import { accountKey } from '../../renderer/lib/account-ref';
 import { IPC } from '../../electron/core/ipc';
 import type {
   MailDropCopyResult,

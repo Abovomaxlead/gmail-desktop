@@ -26,7 +26,6 @@ import {
   parseMessageIds,
   parseMessageLabelIds,
   labelsHoldingMessage,
-  STOP_URL,
   PROFILE_URL,
   HISTORY_URL,
   parseProfileHistoryId,

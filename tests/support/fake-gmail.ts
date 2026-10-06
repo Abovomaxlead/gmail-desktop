@@ -135,7 +135,6 @@ export class FakeGmail {
   private nextId = 1;
   private readonly insertFailures = new Map<string, InsertFailure[]>();
   private readonly fetchFailures = new Map<string, number>();
-  private readonly failures = new Map<keyof FakeApi, unknown[]>();
   private readonly holds = new Map<keyof FakeApi, Array<() => Promise<void>>>();
   private readonly insertAttempts = new Map<string, number>();
   private readonly fetchCounts = new Map<string, number>();
@@ -236,18 +235,6 @@ export class FakeGmail {
   }
 
   /**
-   * Makes the next call of one faked function throw, before it does anything
-   *
-   * @param name
-   * @param error what it throws, a plain Error when left out
-   */
-  failNext(name: keyof FakeApi, error: unknown = new Error(`fake Gmail: ${name} failed`)): void {
-    const queue = this.failures.get(name) ?? [];
-    queue.push(error);
-    this.failures.set(name, queue);
-  }
-
-  /**
    * Holds the next call of one faked function until released, so a scenario can act while
    * that call is genuinely in flight
    *
@@ -291,12 +278,6 @@ export class FakeGmail {
   stored(email: string, messageId: string): FakeMessage[] {
     const wanted = bare(messageId);
     return this.box(email).messages.filter((m) => !m.seeded && bare(m.messageId) === wanted);
-  }
-
-  /** The names of a message's labels, a missing label kept as its id */
-  labelNames(email: string, message: FakeMessage): string[] {
-    const box = this.box(email);
-    return message.labelIds.map((id) => box.labels.find((l) => l.id === id)?.name ?? id);
   }
 
   /** Every Message-ID any mailbox holds or was asked to take */
@@ -462,8 +443,6 @@ export class FakeGmail {
     const box = this.box(email);
     const gate = this.holds.get(name)?.shift();
     if (gate) await gate();
-    const queued = this.failures.get(name);
-    if (queued && queued.length > 0) throw queued.shift();
     return box;
   }
 

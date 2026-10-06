@@ -8,7 +8,7 @@
 
 import { app, nativeTheme } from 'electron';
 import type { BrowserWindow } from 'electron';
-import { accountKey, parseAccountKey, type AccountRef } from '../accounts/account-ref';
+import { accountKey, parseAccountKey, type AccountRef } from '../../renderer/lib/account-ref';
 import { colorForIndex } from '../accounts/palette';
 import { resolveLocale, type Locale } from './locale';
 import { isDarkTheme } from '../windows/titlebar';
