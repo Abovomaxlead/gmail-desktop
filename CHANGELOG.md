@@ -3,12 +3,23 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [1.0.1-beta.1791288374] — 2026-10-06
 
 ### Gewijzigd
 - **Een agendaherinnering volgt nu dezelfde "blijf staan"-knop als je mail.** Staat die knop
   voor het account aan, dan blijft de herinnering staan tot je hem wegklikt. Staat hij uit, dan
   verdwijnt hij na een paar seconden, net als een mailmelding.
+
+### Opgelost
+- **Een account houdt zijn kleur.** Kwam het adres van een account met hoofdletters binnen, dan
+  werd de kleur die je had gekozen niet gevonden.
+- **Een venster dat de app over Gmail heen opent, krijgt zijn inhoud altijd mee.** Soms ging die
+  inhoud verloren als het venster nog niet klaar was, en bleef het leeg.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0, plus
+  deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt hem aangeboden.
+
 ## [1.0.0] — 2026-10-06
 
 ### Let op

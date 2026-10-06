@@ -103,6 +103,9 @@ The release workflow builds and publishes **Windows only**. It runs when a `v*` 
    git push origin dev
    git push origin v1.0.0-beta.<n>
    ```
+   After a **stable** release, also merge it into `master`, the default branch, so `master`
+   is always the newest stable version: `git checkout master && git merge --no-ff v<version>
+   && git push origin master`.
 5. **Watch the run:** `gh run list -R Abovomaxlead/gmail-desktop`. It takes about 2 minutes. The
    workflow:
    1. writes the OAuth config from `GOOGLE_OAUTH_JSON`;
