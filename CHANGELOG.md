@@ -3,6 +3,32 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1792143613] — 2026-10-16
+
+### Opgelost
+- **Een mailmelding toont wie je mailt, niet jezelf.** Op de kaart stond de foto van je eigen
+  account, waardoor het leek alsof je jezelf had gemaild. Nu staat er de foto van de afzender
+  als Gmail die meegeeft, en anders de eerste letter van zijn naam. Welk account de mail kreeg,
+  zie je aan de gekleurde rand en het adres onderaan. Staat "afzender tonen" uit, dan blijft
+  ook de foto weg.
+- **"Verbinding met Gmail verlopen" verschijnt niet meer als alleen het internet even weg
+  was.** De app vroeg je opnieuw te verbinden zodra het verlengen van de koppeling één keer
+  mislukte, ook als dat kwam doordat de laptop net uit de slaapstand kwam en nog geen internet
+  had. Nu vraagt hij dat alleen als Google de koppeling echt weigert. Lukt verlengen niet om een
+  andere reden, dan probeert hij het na 30 seconden opnieuw. De app verlengt de toegang nu ook
+  tien minuten vóórdat die afloopt, en meteen na het ontwaken uit de slaapstand. Elke mislukte
+  verlenging staat met de reden in het meldingenlog.
+- **Na opnieuw inloggen komt ook het gedeelde postvak terug, in zijn eigen tabblad en
+  venster.** Was je uitgelogd, dan kwam na het inloggen alleen je eigen mail terug. Het
+  tabblad van een gedeeld postvak bleef op de inlogpagina staan, of toonde je eigen inbox.
+  Nu gaat elk tabblad na het inloggen terug naar het postvak waar het voor is, ongeacht in
+  welk tabblad je inlogde.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1791296022] — 2026-10-06
 
 ### Opgelost
