@@ -31,6 +31,7 @@ import { accountKey, type AccountRef } from '../../renderer/lib/account-ref';
 import { SESSION_PARTITION } from '../core/session-partition';
 import { MailThreadNavigator, type MailViewLookup } from './mail-thread-navigator';
 import { MailViewMessages, type ViewLookup } from './mail-view-messages';
+import { isSignInUrl } from '../gmail/google-urls';
 
 export type { Surface };
 
@@ -99,6 +100,9 @@ export class ProfileViewManager {
   /** When each view's renderer process died, newest last. Only what falls inside
    * RENDERER_CRASH_WINDOW_MS is kept, which is what tells a crash loop from bad luck. */
   private rendererCrashes = new Map<string, number[]>();
+  /** The views sitting on a sign-in page. A view leaving one for anything else is a sign-in
+   * that just finished, which is what returnAfterSignIn waits for. */
+  private onSignInPage = new Set<string>();
   private readonly mailThreadNavigator: MailThreadNavigator;
   private readonly mailViewMessages: MailViewMessages;
 
@@ -302,6 +306,14 @@ export class ProfileViewManager {
     this.homeUrls.set(k, home);
     void view.webContents.loadURL(home);
     view.webContents.on('before-input-event', (_e, input) => this.onInput(acctKey, input as unknown as KeyInput));
+    // Main frame only: did-navigate is the page itself, after every redirect has settled.
+    view.webContents.on('did-navigate', (_e, url) => {
+      if (isSignInUrl(url)) {
+        this.onSignInPage.add(k);
+        return;
+      }
+      if (this.onSignInPage.delete(k)) this.returnAfterSignIn(k);
+    });
     view.webContents.on('did-finish-load', () => {
       view.webContents.setZoomLevel(this.getZoom(acctKey));
       if (surface === 'mail') view.webContents.setAudioMuted(this.getSilent(acctKey));
@@ -342,6 +354,7 @@ export class ProfileViewManager {
       const host = this.hostOfView(k);
       this.views.delete(k);
       this.homeUrls.delete(k);
+      this.onSignInPage.delete(k);
       this.warming.delete(k);
       this.hostOf.delete(k);
       if (this.activeByWindow.get(host.id) === k) this.activeByWindow.delete(host.id);
@@ -956,6 +969,34 @@ export class ProfileViewManager {
     const home = this.homeUrls.get(vk) ?? null;
     if (viewLeftItsHome(home, wc.getURL())) void wc.loadURL(home!);
     else wc.reload();
+  }
+
+  /**
+   * Sends every view a sign-in carried off back to its own mailbox
+   *
+   * Signed out, every view lands on Google's sign-in page, the delegated ones included. Signing
+   * back in, in whichever tab, continues into the signed-in account's own inbox, and the other
+   * tabs stay on the sign-in page -- so before this, only the user's own mailbox came back and a
+   * delegated tab showed either a login page or the wrong mailbox. The title check in
+   * delegated-health.ts cannot see a login page, whose title names no mailbox.
+   *
+   * Each view is loaded in place, so every mailbox comes back in the window and tab it was in.
+   * A view the user has since moved on from is left alone: only the one that signed in and the
+   * ones still on a sign-in page are touched, and only when they left their own url. The "+"
+   * view is never sent back: its home is the sign-in page, and leaving it is the point.
+   *
+   * @param signedIn the view the sign-in finished in
+   * @private
+   */
+  private returnAfterSignIn(signedIn: string): void {
+    for (const vk of [signedIn, ...this.onSignInPage]) {
+      const wc = this.views.get(vk)?.webContents;
+      if (!wc || wc.isDestroyed()) continue;
+      const home = this.homeUrls.get(vk) ?? null;
+      if (!home || isSignInUrl(home) || !viewLeftItsHome(home, wc.getURL())) continue;
+      notifyLog(`[view ${vk}] back to its own mailbox after a sign-in in ${signedIn}`);
+      void wc.loadURL(home);
+    }
   }
 
   /**

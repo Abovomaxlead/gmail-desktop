@@ -15,6 +15,7 @@
 import { describe, it, expect, vi, type Mock } from 'vitest';
 import type { AccountRef } from '../renderer/lib/account-ref';
 import type { Profile, ProfileViewManager as ViewManager } from '../electron/windows/profile-view-manager';
+import { addAccountUrl } from '../electron/gmail/google-urls';
 
 const { FakeWebContentsView } = vi.hoisted(() => {
   class FakeWebContents {
@@ -558,6 +559,64 @@ describe('reloading a view that was redirected away', () => {
     m.reloadActive();
 
     expect(wc.navigations).toEqual(['reload']);
+  });
+});
+
+// Signed out, every tab lands on Google's sign-in page. Signing back in, in whichever tab,
+// used to bring back only the signed-in account's own mailbox: the delegated tab stayed on the
+// login page, or showed the own inbox when the sign-in happened in it.
+describe('signing back in', () => {
+  const LOGIN = 'https://accounts.google.com/v3/signin/identifier?continue=https://mail.google.com/mail/';
+  const DELEGATED_HOME = 'https://mail.google.com/mail/u/3/d/xyz/';
+
+  const signedOut = () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.ensureView(owned, 'mail', true);
+    m.ensureView(withUrl, 'mail', false);
+    const own = pageOf(win, 0);
+    const delegated = pageOf(win, 1);
+    for (const wc of [own, delegated]) {
+      wc.url = LOGIN;
+      wc.emit('did-navigate', {}, LOGIN);
+      wc.navigations.length = 0;
+    }
+    return { own, delegated };
+  };
+
+  it('brings the delegated tab back when the sign-in happened in the own tab', () => {
+    const { own, delegated } = signedOut();
+
+    own.url = 'https://mail.google.com/mail/u/0/#inbox';
+    own.emit('did-navigate', {}, own.url);
+
+    expect(delegated.navigations).toEqual([DELEGATED_HOME]);
+    // already on its own mailbox, so it is not loaded a second time
+    expect(own.navigations).toEqual([]);
+  });
+
+  it('sends the delegated tab back when the sign-in in it continued into the own inbox', () => {
+    const { own, delegated } = signedOut();
+
+    delegated.url = 'https://mail.google.com/mail/u/3/#inbox';
+    delegated.emit('did-navigate', {}, delegated.url);
+
+    expect(delegated.navigations).toEqual([DELEGATED_HOME]);
+    expect(own.navigations).toEqual(['https://mail.google.com/mail/u/0/']);
+  });
+
+  it('leaves the add-account tab where the sign-in took it', () => {
+    const win = fakeWin();
+    const m = manager(win);
+    m.ensureView({ kind: 'authuser', index: 4 }, 'mail', true, addAccountUrl());
+    const wc = pageOf(win);
+    wc.emit('did-navigate', {}, addAccountUrl());
+    wc.navigations.length = 0;
+
+    wc.url = 'https://mail.google.com/mail/u/4/#inbox';
+    wc.emit('did-navigate', {}, wc.url);
+
+    expect(wc.navigations).toEqual([]);
   });
 });
 

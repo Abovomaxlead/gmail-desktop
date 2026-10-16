@@ -188,6 +188,16 @@ export function isFederatedLoginUrl(url: string): boolean {
 }
 
 /**
+ * Whether a URL is a sign-in page, Google's own or the Microsoft login it federates to
+ *
+ * @param url
+ * @returns true for accounts.google.com and the federated login hosts
+ */
+export function isSignInUrl(url: string): boolean {
+  return hostOf(url) === 'accounts.google.com' || isFederatedLoginUrl(url);
+}
+
+/**
  * Where the "+" flow sends the user to sign in
  *
  * @returns Google's add-session URL, continuing into Gmail
