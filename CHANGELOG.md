@@ -3,6 +3,20 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1792152552] — 2026-10-16
+
+### Gewijzigd
+- **Een mailmelding zegt nu precies van wie hij komt en waar hij binnenkwam.** Bovenaan staat
+  het e-mailadres van de afzender, daaronder het onderwerp en de eerste regels van de mail.
+  Onderaan staat in welk postvak de mail binnenkwam, als "Inbox: jouw@adres.nl". Kan de app
+  de mail niet zo snel opzoeken, dan verschijnt de melding zoals voorheen, met de naam van de
+  afzender. Staat "onderwerp tonen" uit, dan blijven ook de eerste regels weg.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1792143613] — 2026-10-16
 
 ### Opgelost
