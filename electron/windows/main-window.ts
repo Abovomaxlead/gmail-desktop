@@ -8,7 +8,7 @@
 // One ordering matters: the toast controller is built after the window it belongs to and
 // torn down with it.
 
-import { BrowserWindow, nativeTheme, screen } from 'electron';
+import { BrowserWindow, nativeTheme, powerMonitor, screen } from 'electron';
 import { app } from 'electron';
 import { join } from 'node:path';
 import { watch } from 'node:fs';
@@ -75,7 +75,7 @@ import { cancelComposeAsk } from '../compose/mailto-controller';
 import { onIdentity, startDetection } from '../accounts/detection-controller';
 import { loadDelegatedProfiles, startDelegatedUrlRefreshOnce } from '../delegation/delegated-controller';
 import { handleMailDrop } from '../mail/pull/pull-controller';
-import { checkOAuthHealth } from '../auth/oauth-health-check';
+import { checkOAuthHealth, scheduleOAuthHealthCheck } from '../auth/oauth-health-check';
 import { notificationSilent } from '../notify/notification-policy';
 import { notifyLog, openNotifyLog } from '../notify/notify-log';
 import { ColorStore } from '../accounts/color-store';
@@ -261,6 +261,8 @@ export function createWindow(): void {
   if (DEV_URL) watchPreloadForReload();
 
   setInterval(() => void checkOAuthHealth(), 5 * 60 * 1000);
+  // Every token ran out while the laptop slept; renew them now rather than at the next round.
+  powerMonitor.on('resume', () => scheduleOAuthHealthCheck());
 
   win.webContents.on('did-finish-load', () => {
     loadDelegatedProfiles();

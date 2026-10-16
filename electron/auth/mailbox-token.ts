@@ -13,7 +13,7 @@ import { keyOf, manager, oauthTokens, profiles } from '../core/runtime';
 import { GmailHttpError } from '../gmail/gmail-api';
 import { accessTokenFor, forceRefresh } from './oauth-flow';
 import { delegatedTokenUrl, oauthConfig } from './oauth-config';
-import { clearRefreshFailure, markRefreshFailed } from './oauth-health-check';
+import { scheduleOAuthHealthCheck } from './oauth-health-check';
 import type { Profile } from '../windows/profile-view-manager';
 
 
@@ -102,11 +102,7 @@ async function freshTokenAfter401(email: string): Promise<string | null> {
   const cfg = oauthConfig();
   if (!cfg || !oauthTokens) return null;
   const fresh = await forceRefresh(cfg, oauthTokens, email);
-  if (!fresh) {
-    markRefreshFailed(email);
-    return null;
-  }
-  clearRefreshFailure(email);
+  if (!fresh) scheduleOAuthHealthCheck();
   return fresh;
 }
 

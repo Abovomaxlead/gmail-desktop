@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import type { MailDropCopyTarget } from '../../core/ipc';
 import { messageIndex } from '../../core/runtime';
 import { mapLimit, type UploadBudget } from '../../core/concurrency';
-import { clearRefreshFailure, markRefreshFailed } from '../../auth/oauth-health-check';
+import { scheduleOAuthHealthCheck } from '../../auth/oauth-health-check';
 import { forceRefresh } from '../../auth/oauth-flow';
 import type { OAuthConfig } from '../../auth/google-oauth';
 import type { OAuthStore } from '../../auth/oauth-store';
@@ -103,12 +103,8 @@ export async function copyToMailbox(arg: {
     if (token !== used) return token;
     refreshing ??= (async () => {
       const fresh = await forceRefresh(cfg, tokens, target.email);
-      if (fresh) {
-        token = fresh;
-        clearRefreshFailure(target.email);
-      } else {
-        markRefreshFailed(target.email);
-      }
+      if (fresh) token = fresh;
+      else scheduleOAuthHealthCheck();
       return fresh;
     })().finally(() => {
       refreshing = null;

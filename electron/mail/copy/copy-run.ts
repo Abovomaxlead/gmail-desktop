@@ -28,7 +28,7 @@ import { dropOverlay, oauthTokens, recentLabels } from '../../core/runtime';
 import { createUploadBudget, mapLimit } from '../../core/concurrency';
 import { oauthConfig } from '../../auth/oauth-config';
 import { isAllowedAccount } from '../../auth/account-domain';
-import { markRefreshFailed } from '../../auth/oauth-health-check';
+import { scheduleOAuthHealthCheck } from '../../auth/oauth-health-check';
 import { isDelegatedMailbox, mailboxToken } from '../../auth/mailbox-token';
 import { notifyLog } from '../../notify/notify-log';
 import { appendLog, type LogRecord } from '../pull/mail-archive';
@@ -593,7 +593,7 @@ export async function runCopyToMailboxes(arg: {
               isDelegatedMailbox(target.email) ? 'delegated' : 'own'
             }): no token after ${tokenMs}ms — ${got.error}`,
           );
-          if (!isDelegatedMailbox(target.email)) markRefreshFailed(target.email);
+          if (!isDelegatedMailbox(target.email)) scheduleOAuthHealthCheck();
           done += filesFor(target.email).length;
           progress('copy');
           const lost = wholeTargetFailed(filesFor(target.email), got.error);

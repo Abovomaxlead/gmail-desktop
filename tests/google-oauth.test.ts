@@ -10,6 +10,7 @@ import {
   refreshBody,
   applyTokenResponse,
   isExpired,
+  renewalDue,
   hasScopes,
   REDIRECT_URI,
   SCOPES,
@@ -151,6 +152,12 @@ describe('isExpired / hasScopes', () => {
   it('is expired at or past the expiry', () => {
     expect(isExpired(token, 999)).toBe(false);
     expect(isExpired(token, 1000)).toBe(true);
+  });
+  it('is due for renewal ten minutes before the expiry, not just at it', () => {
+    const later: StoredToken = { ...token, expiresAt: 60 * 60 * 1000 };
+    expect(renewalDue(later, later.expiresAt - 10 * 60 * 1000 - 1)).toBe(false);
+    expect(renewalDue(later, later.expiresAt - 10 * 60 * 1000)).toBe(true);
+    expect(renewalDue(later, later.expiresAt + 1)).toBe(true);
   });
   it('checks that every wanted scope was granted', () => {
     expect(hasScopes(token)).toBe(true);

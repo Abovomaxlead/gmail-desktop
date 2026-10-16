@@ -10,7 +10,7 @@ import { notifyLog } from '../../notify/notify-log';
 import { oauthConfig } from '../../auth/oauth-config';
 import { copyTargetEmails } from '../../auth/account-domain';
 import { forceRefresh } from '../../auth/oauth-flow';
-import { clearRefreshFailure, markRefreshFailed } from '../../auth/oauth-health-check';
+import { scheduleOAuthHealthCheck } from '../../auth/oauth-health-check';
 import {
   delegatedTokenFor,
   forgetDelegatedToken,
@@ -222,7 +222,6 @@ async function labelsForMailboxes(source: string): Promise<{ accounts: AccountLa
       if (fresh) {
         try {
           const labels = await fetchLabels(fresh);
-          if (!isDelegatedMailbox(email)) clearRefreshFailure(email);
           return { email, labels };
         } catch (e2) {
 
@@ -234,7 +233,7 @@ async function labelsForMailboxes(source: string): Promise<{ accounts: AccountLa
         }
       }
       if (refused) {
-        if (!isDelegatedMailbox(email)) markRefreshFailed(email);
+        if (!isDelegatedMailbox(email)) scheduleOAuthHealthCheck();
         return { email, labels: [], error: mailboxRefusedText(email) };
       }
       return { email, labels: [], error: (e as Error).message };

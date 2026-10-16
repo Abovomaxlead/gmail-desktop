@@ -3,14 +3,15 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { BrowserWindow } from 'electron';
-import { accessTokenFor, forceRefresh, connectAccount } from '../electron/auth/oauth-flow';
+import { accessTokenFor, forceRefresh, connectAccount, grantRejected } from '../electron/auth/oauth-flow';
 import type { OAuthConfig, StoredToken } from '../electron/auth/google-oauth';
 import type { OAuthStore } from '../electron/auth/oauth-store';
 
 const ELECTRON_ID = require.resolve('electron');
 let realElectron: NodeJS.Module | undefined;
 
-let respond: ((json: unknown) => void) | null = null;
+let respond: ((json: unknown, statusCode?: number) => void) | null = null;
+let failRequest: ((err: Error) => void) | null = null;
 
 type Handler = (...args: unknown[]) => void;
 
@@ -20,16 +21,17 @@ const fakeNet = {
   request: () => {
     requestCount++;
     const reqHandlers = new Map<string, Handler>();
-    respond = (json) => {
+    respond = (json, statusCode = 200) => {
       const resHandlers = new Map<string, Handler>();
       const res = {
-        statusCode: 200,
+        statusCode,
         on: (event: string, fn: Handler) => resHandlers.set(event, fn),
       };
       reqHandlers.get('response')?.(res);
       resHandlers.get('data')?.(Buffer.from(JSON.stringify(json), 'utf8'));
       resHandlers.get('end')?.();
     };
+    failRequest = (err) => reqHandlers.get('error')?.(err);
     return {
       setHeader: () => undefined,
       on: (event: string, fn: Handler) => reqHandlers.set(event, fn),
@@ -240,5 +242,45 @@ describe('forceRefresh', () => {
     await expect(pending).resolves.toBeNull();
     expect(written).toEqual([]);
     expect(map.has('a@x.nl')).toBe(false);
+  });
+});
+
+describe('a refresh that fails', () => {
+  it('counts as a dead link only when Google refuses the grant', async () => {
+    const { store } = fakeStore({ 'dood@x.nl': expired() });
+    const pending = accessTokenFor(cfg, store, 'dood@x.nl', NOW);
+    respond!({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, 400);
+    await expect(pending).resolves.toBeNull();
+    expect(grantRejected('dood@x.nl')).toBe(true);
+  });
+
+  it('is no dead link when there is no network, as just after waking from sleep', async () => {
+    const { store } = fakeStore({ 'offline@x.nl': expired() });
+    const pending = accessTokenFor(cfg, store, 'offline@x.nl', NOW);
+    failRequest!(new Error('net::ERR_INTERNET_DISCONNECTED'));
+    await expect(pending).resolves.toBeNull();
+    expect(grantRejected('offline@x.nl')).toBe(false);
+  });
+
+  it('is no dead link when Google has a bad moment', async () => {
+    const { store } = fakeStore({ 'storing@x.nl': expired() });
+    const pending = accessTokenFor(cfg, store, 'storing@x.nl', NOW);
+    respond!({ error: 'backend_error' }, 503);
+    await expect(pending).resolves.toBeNull();
+    expect(grantRejected('storing@x.nl')).toBe(false);
+  });
+
+  it('stops counting as dead once a refresh succeeds again', async () => {
+    const { store, map } = fakeStore({ 'terug@x.nl': expired() });
+    const first = accessTokenFor(cfg, store, 'terug@x.nl', NOW);
+    respond!({ error: 'invalid_grant' }, 400);
+    await first;
+    expect(grantRejected('terug@x.nl')).toBe(true);
+
+    map.set('terug@x.nl', expired());
+    const second = accessTokenFor(cfg, store, 'terug@x.nl', NOW);
+    respond!({ access_token: 'nieuw', expires_in: 3600 });
+    await expect(second).resolves.toBe('nieuw');
+    expect(grantRejected('terug@x.nl')).toBe(false);
   });
 });

@@ -74,7 +74,7 @@ import {
   installUpdate,
   loadChangelog,
 } from '../updates/update-controller';
-import { checkOAuthHealth, clearRefreshFailure } from '../auth/oauth-health-check';
+import { checkOAuthHealth } from '../auth/oauth-health-check';
 import { oauthConfig } from '../auth/oauth-config';
 import { connectAccount } from '../auth/oauth-flow';
 import { checkOAuthConfigFile } from '../auth/oauth-config-file';
@@ -287,7 +287,7 @@ export function registerIpc(): void {
 
   ipcMain.on(
     IPC.WEB_NOTIFY_SHOW,
-    (e, arg: { id: string; title: string; body: string }) => {
+    (e, arg: { id: string; title: string; body: string; icon?: unknown }) => {
       if (!prefs) return;
 
       if (typeof arg?.id !== 'string') {
@@ -419,7 +419,6 @@ export function registerIpc(): void {
     }
     const result = await connectAccount(mainWindow, SESSION_PARTITION, cfg, oauthTokens, arg.email);
     if (!result.ok) return result;
-    clearRefreshFailure(arg.email);
     void checkOAuthHealth();
     startMailSync();
     return { ok: true };

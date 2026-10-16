@@ -232,8 +232,7 @@ vi.mock('../../electron/auth/oauth-flow', () => ({
 }));
 
 vi.mock('../../electron/auth/oauth-health-check', () => ({
-  markRefreshFailed: () => {},
-  clearRefreshFailure: () => {},
+  scheduleOAuthHealthCheck: () => {},
 }));
 
 vi.mock('../../electron/windows/overlay-view', () => ({
