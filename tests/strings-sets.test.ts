@@ -76,6 +76,8 @@ const SAME_IN_BOTH = new Set([
   'languageEnglish',
   'languageDutch',
   'escKey',
+  // The user asked for "Inbox" on the cards, and it is the word Dutch users say for it too
+  'toastInbox',
   'calendarToggle',
   'navAccounts',
   'navDownloads',

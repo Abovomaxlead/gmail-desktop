@@ -34,6 +34,10 @@ export interface Toast {
   messageId?: string;
   webNotifyId?: string;
   senderAvatarUrl?: string;
+  /** The first lines of the mail, when the message could be looked up */
+  preview?: string;
+  /** The address the mail arrived in, on mail cards only -- an agenda reminder has none */
+  inbox?: string;
   expiresAt?: number;
 }
 

@@ -86,6 +86,7 @@ const meta = (id: string, threadId: string, subject: string, date: number): Mess
   subject,
   internalDate: date,
   messageId: `<${id}@mail.example.com>`,
+  snippet: '',
 });
 
 const account = {

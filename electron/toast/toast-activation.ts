@@ -5,8 +5,9 @@
 // view matches the subject against the rows it is rendering, a guess; and failing both, the
 // account is opened, which at least lands in the right mailbox.
 //
-// The API lookup runs only on a click, so mail nobody opens costs nothing, and on a short
-// deadline, since the person is waiting and the page's own lookup is still behind it.
+// For mail the API lookup runs when the card is raised, since the card shows the sender's
+// address and the first lines of the mail, and its answer is kept for the click. It runs on a
+// short deadline both times: the card is waiting, and the page's own lookup is behind it.
 
 import { shell } from 'electron';
 import { IPC } from '../core/ipc';
@@ -28,6 +29,8 @@ import { openFullThreadWindow } from '../compose/compose-window';
 import { withTokenFor } from '../auth/mailbox-token';
 import { forgetDownloadClickPath, takeDownloadClickAction } from '../system/session-setup';
 import { notifyLog } from '../notify/notify-log';
+import { hostOf } from '../system/link-guard';
+import { senderAddress } from '../mail/pull/mail-archive';
 import { pickNotifiedMessage, type NotifiedMail } from '../notify/notify-match';
 import { hiddenNotificationText, playNotificationSound } from '../notify/notify-gating';
 import { notificationPersist, notificationSilent } from '../notify/notification-policy';
@@ -78,15 +81,18 @@ export function setToastActivationHooks(h: ToastActivationHooks): void {
   hooks = h;
 }
 
-const webNotifySources = new Map<
-  string,
-  { wc: Electron.WebContents; pageId: string; email: string; notified: NotifiedMail }
->();
+interface WebNotifySource {
+  wc: Electron.WebContents;
+  pageId: string;
+  email: string;
+  notified: NotifiedMail;
+  /** The message the API matched when the card was raised, so a click need not ask again */
+  found?: MessageMeta;
+}
 
-export function rememberWebNotifySource(
-  key: string,
-  source: { wc: Electron.WebContents; pageId: string; email: string; notified: NotifiedMail },
-): void {
+const webNotifySources = new Map<string, WebNotifySource>();
+
+export function rememberWebNotifySource(key: string, source: WebNotifySource): void {
   webNotifySources.set(key, source);
 }
 
@@ -94,42 +100,66 @@ export function rememberWebNotifySource(
  * Builds and raises the toast for a notification Gmail's own page raised, remembering the
  * source so a click on it can find the message again
  *
+ * The page says only the sender's name and the subject. The card leads with the sender's
+ * address and shows the first lines of the mail, which only the API knows -- so for mail the
+ * message is looked up first, on the same short deadline a click uses. A lookup that fails or
+ * runs late costs nothing but those two lines: the card goes up with what the page said.
+ * Agenda reminders come through here too, from the calendar view; they are not looked up and
+ * get no inbox line.
+ *
  * @param profile the account the notification came from
  * @param wc the view's web contents, kept so a click can look the message back up
  * @param arg the page's own notification: its id, title, body and sender picture
  */
-export function showWebNotification(
+export async function showWebNotification(
   profile: Profile,
   wc: Electron.WebContents,
   arg: { id: string; title: string; body: string; icon?: unknown },
-): void {
+): Promise<void> {
   const p = prefs?.getAll();
   if (!p) return;
   const hidden = hiddenNotificationText(p);
   const L = nativeLabels(currentLocale(), p.reneMode === true);
   const sourceKey = webNotifySourceKey(wc.id, arg.id);
   const notified: NotifiedMail = { sender: String(arg.title ?? ''), subject: String(arg.body ?? '') };
-  rememberWebNotifySource(sourceKey, { wc, pageId: arg.id, email: profile.email, notified });
+  const isMail = !wc.isDestroyed() && hostOf(wc.getURL()) === 'mail.google.com';
+  // Nothing to look up when the privacy settings hide both lines it would fill in.
+  const wanted = isMail && (hidden.hiddenSender === undefined || hidden.hiddenSubject === undefined);
+  const found = wanted
+    ? await withDeadline(lookupNotifiedMessage(profile.email, notified), NOTIFY_LOOKUP_TIMEOUT_MS, null)
+    : null;
+  rememberWebNotifySource(sourceKey, {
+    wc,
+    pageId: arg.id,
+    email: profile.email,
+    notified,
+    ...(found ? { found } : {}),
+  });
   // Agenda reminders follow the same per-account "persist" switch as mail: the page's own
   // requireInteraction is ignored, so a reminder fades after a few seconds unless the
   // account is set to keep its notifications up.
   const persist = notificationPersist(p, profile.email);
   // The picture is the sender's face, so it goes wherever the sender's name goes.
   const senderAvatarUrl = hidden.hiddenSender === undefined ? senderPicture(arg.icon) : undefined;
+  // The body of the mail is as private as its subject, so it is hidden by the same switch.
+  const preview = hidden.hiddenSubject === undefined ? found?.snippet : undefined;
   notifyLog(
     `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
       ` persist=${persist}` +
       ` silent=${notificationSilent(p, profile.email, 'mail')}` +
       ` picture=${senderAvatarUrl ? new URL(senderAvatarUrl).host : 'none'}` +
+      ` lookup=${!wanted ? 'skipped' : found ? 'found' : 'none'}` +
       `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
   );
   showToast({
     kind: 'mail',
-    title: hidden.hiddenSender ?? arg.title,
-    body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
+    title: hidden.hiddenSender ?? (senderAddress(found?.from ?? '') || arg.title),
+    body: hidden.hiddenSubject ?? (found?.subject || arg.body || L.noSubject),
     account: toastAccountFor(profile.email),
     webNotifyId: sourceKey,
     ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
+    ...(preview ? { preview } : {}),
+    ...(isMail ? { inbox: profile.email } : {}),
     persist,
   });
   if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
@@ -226,11 +256,9 @@ async function openNotifiedThread(toast: Toast): Promise<void> {
   const source = webNotifySources.get(key);
   webNotifySources.delete(key);
   if (source) {
-    const found = await withDeadline(
-      lookupNotifiedMessage(source.email, source.notified),
-      NOTIFY_LOOKUP_TIMEOUT_MS,
-      null,
-    );
+    const found =
+      source.found ??
+      (await withDeadline(lookupNotifiedMessage(source.email, source.notified), NOTIFY_LOOKUP_TIMEOUT_MS, null));
     if (found && toast.account) {
       notifyLog(`[notify] click ${key}: the api says thread=${found.threadId} message=${found.id}`);
       activateNotification(

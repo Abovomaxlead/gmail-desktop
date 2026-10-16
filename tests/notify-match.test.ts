@@ -11,6 +11,7 @@ const meta = (over: Partial<MessageMeta> = {}): MessageMeta => ({
   from: 'Anna Bos <anna@example.com>',
   subject: 'Offerte week 33',
   internalDate: 1000,
+  snippet: '',
   ...over,
 });
 

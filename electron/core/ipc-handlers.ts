@@ -302,7 +302,7 @@ export function registerIpc(): void {
         );
         return;
       }
-      showWebNotification(profile, e.sender, arg);
+      void showWebNotification(profile, e.sender, arg);
     },
   );
   ipcMain.handle(IPC.DOWNLOAD_FOLDER_PICK, async () => {

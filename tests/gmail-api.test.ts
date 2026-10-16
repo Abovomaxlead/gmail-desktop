@@ -753,6 +753,7 @@ describe('message metadata', () => {
       subject: 'Offerte',
       internalDate: 1780000000000,
       messageId: '',
+      snippet: '',
     });
   });
 
@@ -1034,6 +1035,16 @@ describe('parseMessageMeta, the Message-ID it now also carries', () => {
 
   it('asks Gmail for the header, or it would never arrive', () => {
     expect(MESSAGE_META_HEADERS).toContain('Message-ID');
+  });
+
+  it('reads the preview, with the entities Gmail writes it in decoded', () => {
+    const meta = parseMessageMeta({
+      id: 'm1',
+      threadId: 't1',
+      internalDate: '1700000000000',
+      snippet: 'Hoi Robbin, de feed &amp; de url staan goed. Kun je &#39;m checken?',
+    });
+    expect(meta?.snippet).toBe("Hoi Robbin, de feed & de url staan goed. Kun je 'm checken?");
   });
 });
 

@@ -11,6 +11,7 @@ import { mapLimit } from '../core/concurrency';
 import { isRateLimit, withRetry, type RetryMethod } from './retry';
 import { notifyLog } from '../notify/notify-log';
 import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
+import { htmlToText } from '../mail/shared/eml';
 import {
   BATCH_LIMIT,
   BATCH_URL,
@@ -73,6 +74,8 @@ export interface MessageMeta {
   internalDate: number;
   /** The RFC822 Message-ID, empty when Gmail did not hand the header over */
   messageId: string;
+  /** Gmail's own plain-text preview of the body, entities decoded; empty when none came */
+  snippet: string;
 }
 
 /**
@@ -791,6 +794,7 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
     id?: unknown;
     threadId?: unknown;
     internalDate?: unknown;
+    snippet?: unknown;
     payload?: { headers?: unknown };
   };
   const id = stringFrom(raw?.id);
@@ -812,6 +816,7 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
     subject: header('subject'),
     internalDate,
     messageId: header('message-id'),
+    snippet: htmlToText(stringFrom(raw?.snippet) ?? ''),
   };
 }
 

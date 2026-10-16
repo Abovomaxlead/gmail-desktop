@@ -107,6 +107,19 @@ export function displayName(address: string): string {
 }
 
 /**
+ * The address part of an address header
+ *
+ * @param address a From header, `Name <a@b.nl>` or a bare `a@b.nl`
+ * @returns the bare address, lowercased; empty when the header holds none
+ */
+export function senderAddress(address: string): string {
+  const a = (address || '').trim();
+  const bracketed = /<([^<>\s]+@[^<>\s]+)>/.exec(a);
+  if (bracketed) return bracketed[1].toLowerCase();
+  return /^[^\s<>@]+@[^\s<>@]+$/.test(a) ? a.toLowerCase() : '';
+}
+
+/**
  * The one message worth keeping out of a conversation
  *
  * The last one, since it quotes the others: a dragged conversation is wanted as one mail,

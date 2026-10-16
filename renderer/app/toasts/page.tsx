@@ -189,6 +189,7 @@ export default function ToastsPage() {
                   toast={t}
                   archiveLabel={S.toastArchive}
                   readLabel={S.toastMarkRead}
+                  inboxLabel={S.toastInbox}
                   dismissLabel={S.toastDismiss}
                   hovered={hoveredId === t.id}
                 />
@@ -210,12 +211,14 @@ function ToastCard({
   toast,
   archiveLabel,
   readLabel,
+  inboxLabel,
   dismissLabel,
   hovered,
 }: {
   toast: Toast;
   archiveLabel: string;
   readLabel: string;
+  inboxLabel: string;
   dismissLabel: string;
   hovered: boolean;
 }) {
@@ -265,11 +268,16 @@ function ToastCard({
           <span className="truncate text-[13px] text-neutral-600 dark:text-neutral-400">
             {toast.body}
           </span>
+          {toast.preview ? (
+            <span className="mt-0.5 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">
+              {toast.preview}
+            </span>
+          ) : null}
           <span className="mt-1 flex h-5 items-center gap-1">
             <span
               className={`truncate text-xs text-neutral-400 dark:text-neutral-500 ${showActions ? 'hidden' : ''}`}
             >
-              {toast.account?.email ?? ''}
+              {toast.inbox ? `${inboxLabel}: ${toast.inbox}` : toast.account?.email ?? ''}
             </span>
             {showActions ? (
               <span className="flex gap-1">
