@@ -5,7 +5,9 @@
 // absent on toasts belonging to the app rather than a mailbox, and those carry no actions.
 // `messageId` is present only on push-sourced mail; a notification relayed from the Gmail
 // page carries `webNotifyId` instead, since only that page still holds the subject the
-// thread lookup matches against.
+// thread lookup matches against. `senderAvatarUrl` is the sender's picture when Gmail's page
+// supplied one; a mail card never shows the account's own picture, which would read as mail
+// from yourself.
 
 
 //===========================
@@ -31,6 +33,7 @@ export interface Toast {
   threadId?: string;
   messageId?: string;
   webNotifyId?: string;
+  senderAvatarUrl?: string;
   expiresAt?: number;
 }
 

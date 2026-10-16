@@ -96,12 +96,12 @@ export function rememberWebNotifySource(
  *
  * @param profile the account the notification came from
  * @param wc the view's web contents, kept so a click can look the message back up
- * @param arg the page's own notification: its id, title and body
+ * @param arg the page's own notification: its id, title, body and sender picture
  */
 export function showWebNotification(
   profile: Profile,
   wc: Electron.WebContents,
-  arg: { id: string; title: string; body: string },
+  arg: { id: string; title: string; body: string; icon?: unknown },
 ): void {
   const p = prefs?.getAll();
   if (!p) return;
@@ -114,10 +114,13 @@ export function showWebNotification(
   // requireInteraction is ignored, so a reminder fades after a few seconds unless the
   // account is set to keep its notifications up.
   const persist = notificationPersist(p, profile.email);
+  // The picture is the sender's face, so it goes wherever the sender's name goes.
+  const senderAvatarUrl = hidden.hiddenSender === undefined ? senderPicture(arg.icon) : undefined;
   notifyLog(
     `[notify] raise web ${profile.email} src=${sourceKey} subject=${JSON.stringify(notified.subject.slice(0, 60))}` +
       ` persist=${persist}` +
       ` silent=${notificationSilent(p, profile.email, 'mail')}` +
+      ` picture=${senderAvatarUrl ? new URL(senderAvatarUrl).host : 'none'}` +
       `${hidden.hiddenSender || hidden.hiddenSubject ? ' (text hidden by the privacy settings)' : ''}`,
   );
   showToast({
@@ -126,6 +129,7 @@ export function showWebNotification(
     body: hidden.hiddenSubject ?? (arg.body || L.noSubject),
     account: toastAccountFor(profile.email),
     webNotifyId: sourceKey,
+    ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
     persist,
   });
   if (!notificationSilent(p, profile.email, 'mail')) playNotificationSound(p);
@@ -297,5 +301,27 @@ export async function runToastAction(toast: Toast, action: ToastAction): Promise
     else await withToken((t) => markMessageRead(t, messageId));
   } catch (e) {
     console.warn(`[toast] ${action} failed for ${email}:`, e);
+  }
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+/**
+ * The sender's picture from a page notification, when it is one the toast window can load
+ *
+ * The value comes straight out of Google's page, so only a plain https address passes.
+ *
+ * @param icon what the page set as the notification's icon
+ * @returns the address, or undefined when there is none worth showing
+ */
+function senderPicture(icon: unknown): string | undefined {
+  if (typeof icon !== 'string' || icon === '') return undefined;
+  try {
+    return new URL(icon).protocol === 'https:' ? icon : undefined;
+  } catch {
+    return undefined;
   }
 }

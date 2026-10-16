@@ -246,10 +246,16 @@ function ToastCard({
         onClick={() => window.desktop?.activateToast(toast.id)}
         className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left outline-none"
       >
+        {/* A mail card shows who sent it; the account is already the colour edge and the address
+            line, and its own face here reads as mail from yourself. */}
         <Avatar
-          url={toast.account?.avatarUrl}
+          url={toast.kind === 'mail' ? toast.senderAvatarUrl : toast.account?.avatarUrl}
           color={color}
-          name={toast.account?.label || toast.account?.email || toast.title}
+          name={
+            toast.kind === 'mail'
+              ? toast.title
+              : toast.account?.label || toast.account?.email || toast.title
+          }
           fallback={statusFallback(toast)}
         />
         <span className="flex min-w-0 flex-1 flex-col">

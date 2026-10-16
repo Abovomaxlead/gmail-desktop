@@ -276,25 +276,28 @@ export function webNotifyPageId(loadNonce: string, seq: number): string {
 /**
  * What travels to main when the page raises a notification
  *
- * Both text fields are coerced: `title: string` is the DOM signature, not what arrives, and a
+ * Every field is coerced: `title: string` is the DOM signature, not what arrives, and a
  * non-primitive handed to React as a child unmounts the toasts page — taking every later
- * notification with it.
+ * notification with it. `icon` is the sender's picture Gmail puts on the notification; main
+ * decides whether it is usable.
  *
  * @param id
  * @param title
  * @param options
- * @returns the payload, with both text fields strings whatever the page passed
+ * @returns the payload, with every text field a string whatever the page passed
  */
 export function webNotifyPayload(
   id: string,
   title: string,
   options?: NotificationOptions,
-): { id: string; title: string; body: string } {
+): { id: string; title: string; body: string; icon: string } {
   const raw = options?.body;
+  const icon = options?.icon;
   return {
     id,
     title: title === undefined || title === null ? '' : String(title),
     body: raw === undefined || raw === null ? '' : String(raw),
+    icon: typeof icon === 'string' ? icon : '',
   };
 }
 

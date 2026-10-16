@@ -7,28 +7,40 @@ import { webNotifyPageId, webNotifyPayload } from '../electron/preload';
 import { webNotifySourceKey } from '../renderer/lib/toast';
 
 describe('webNotifyPayload', () => {
-  it('carries the title, the body and the id', () => {
-    expect(webNotifyPayload('w1', 'Ada Lovelace', { body: 'Re: the engine' })).toEqual({
+  it('carries the title, the body, the sender picture and the id', () => {
+    expect(
+      webNotifyPayload('w1', 'Ada Lovelace', {
+        body: 'Re: the engine',
+        icon: 'https://lh3.googleusercontent.com/a/ada',
+      }),
+    ).toEqual({
       id: 'w1',
       title: 'Ada Lovelace',
       body: 'Re: the engine',
+      icon: 'https://lh3.googleusercontent.com/a/ada',
     });
   });
 
-  it('sends an empty body when the page passed no options', () => {
+  it('sends an empty body and picture when the page passed no options', () => {
     expect(webNotifyPayload('w2', 'Ada', undefined)).toEqual({
       id: 'w2',
       title: 'Ada',
       body: '',
+      icon: '',
     });
   });
 
-  it('sends an empty body when the page passed options without one', () => {
+  it('sends an empty body and picture when the page passed options without them', () => {
     expect(webNotifyPayload('w3', 'Ada', { tag: 'x' })).toEqual({
       id: 'w3',
       title: 'Ada',
       body: '',
+      icon: '',
     });
+  });
+
+  it('drops a picture that is not a string', () => {
+    expect(webNotifyPayload('w9', 'Ada', { icon: { a: 1 } as unknown as string }).icon).toBe('');
   });
 
   it('stringifies a body that is not a string', () => {
