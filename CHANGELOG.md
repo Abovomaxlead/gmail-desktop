@@ -3,6 +3,23 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1792480638] — 2026-10-20
+
+### Opgelost
+- **Klik je op een mailmelding, dan opent de nieuwe mail, niet een oude.** Komen er meer
+  mails met hetzelfde onderwerp binnen, zoals antwoorden in een gesprek, dan opende een klik
+  vaak de allereerste mail van dat gesprek, soms van lang geleden. Dat gebeurde vooral als
+  Gmail elke mail als eigen regel toont in plaats van als gesprek. Nu opent de mail waar de
+  melding over ging, en ook de afzender en de eerste regels op de melding horen bij die mail.
+- **De geopende mail begint bovenaan.** Na een klik op een melding sprong het scherm naar
+  het midden van de mail, bij een lange mail ver de tekst in. Nu staat de kop van de mail
+  bovenaan in beeld.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1792152552] — 2026-10-16
 
 ### Gewijzigd
