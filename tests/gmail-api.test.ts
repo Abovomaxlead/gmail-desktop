@@ -60,9 +60,29 @@ import {
   userLabelMap,
   parseErrorReason,
   GmailHttpError,
+  parseThreadInboxMeta,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
+
+describe('parseThreadInboxMeta', () => {
+  const msg = (id: string, labelIds: string[], date: string) => ({
+    id,
+    threadId: 't1',
+    labelIds,
+    internalDate: date,
+    payload: { headers: [{ name: 'Subject', value: 'Re: Offerte' }] },
+  });
+
+  // A notification is never about the user's own reply, which sits in the same thread with
+  // the same subject and would otherwise win as the newest mail.
+  it('leaves out the mail that is not in the inbox', () => {
+    const out = parseThreadInboxMeta({
+      messages: [msg('m1', ['INBOX'], '1'), msg('m2', ['INBOX', 'UNREAD'], '2'), msg('m3', ['SENT'], '3')],
+    });
+    expect(out.map((m) => m.id)).toEqual(['m1', 'm2']);
+  });
+});
 
 describe('parseLabels', () => {
   it('keeps your own labels, sorted by name', () => {

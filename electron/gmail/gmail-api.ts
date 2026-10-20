@@ -895,6 +895,43 @@ export async function fetchMessageMeta(
   return parseMessageMeta(await requestJson(messageMetaUrl(messageId), accessToken));
 }
 
+export function threadMetaUrl(threadId: string): string {
+  const q = new URLSearchParams({ format: 'metadata' });
+  for (const h of MESSAGE_META_HEADERS) q.append('metadataHeaders', h);
+  return `${THREADS_URL}/${encodeURIComponent(threadId)}?${q.toString()}`;
+}
+
+/**
+ * The inbox mail of one conversation, headers only
+ *
+ * Read straight from the thread rather than from a listing: `messages.list` answers from
+ * Gmail's search index, which trails a newly arrived mail by a second or more, while the
+ * thread itself already holds it. Mail without the INBOX label is left out — that is the
+ * user's own replies, which no notification is ever about.
+ *
+ * @param json a threads.get response in metadata format
+ * @returns the conversation's inbox messages, in the thread's own order
+ */
+export function parseThreadInboxMeta(json: unknown): MessageMeta[] {
+  if (!json || typeof json !== 'object' || !('messages' in json)) return [];
+  const raw = json.messages;
+  if (!Array.isArray(raw)) return [];
+  const out: MessageMeta[] = [];
+  for (const m of raw) {
+    if (!parseMessageLabelIds(m).includes('INBOX')) continue;
+    const meta = parseMessageMeta(m);
+    if (meta) out.push(meta);
+  }
+  return out;
+}
+
+export async function fetchThreadInboxMeta(
+  accessToken: string,
+  threadId: string,
+): Promise<MessageMeta[]> {
+  return parseThreadInboxMeta(await requestJson(threadMetaUrl(threadId), accessToken));
+}
+
 /**
  * A Message-ID without the angle brackets it is usually written with
  *

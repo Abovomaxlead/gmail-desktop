@@ -27,6 +27,7 @@ import {
 class FakeEl {
   clicks = 0;
   scrolls = 0;
+  scrolledTo: unknown = null;
   parentElement: FakeEl | null = null;
   constructor(
     readonly attrs: Record<string, string | undefined>,
@@ -45,8 +46,9 @@ class FakeEl {
   click(): void {
     this.clicks++;
   }
-  scrollIntoView(): void {
+  scrollIntoView(opts?: { block?: string }): void {
     this.scrolls++;
+    this.scrolledTo = opts?.block;
   }
 }
 
@@ -119,6 +121,15 @@ describe('messageAnchorScript finds the message', () => {
     expect(run(look(REPLY), doc(target))).toBe('shown');
     expect(target.clicks).toBe(0);
     expect(target.scrolls).toBe(1);
+  });
+
+  // An open mail is taller than the window; centring it put the reader halfway down the
+  // body, measured at 1000px into a 2540px mail in Gmail itself.
+  it('scrolls to the top of the message, where its header is', () => {
+    const target = block(REPLY, { open: true, height: 2540 });
+
+    run(look(REPLY), doc(target));
+    expect(target.scrolledTo).toBe('start');
   });
 
   it('says missing while the conversation is not on screen yet', () => {

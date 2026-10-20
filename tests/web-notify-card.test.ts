@@ -44,6 +44,8 @@ vi.mock('../electron/auth/mailbox-token', () => ({
 vi.mock('../electron/gmail/gmail-api', () => ({
   fetchRecentInboxIds: async () => state.inbox.map((m) => m.id),
   fetchMessageMeta: async (_t: string, id: string) => state.inbox.find((m) => m.id === id) ?? null,
+  fetchThreadInboxMeta: async (_t: string, threadId: string) =>
+    state.inbox.filter((m) => m.threadId === threadId),
   archiveMessage: vi.fn(),
   markMessageRead: vi.fn(),
 }));

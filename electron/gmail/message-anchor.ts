@@ -100,6 +100,24 @@ export function isLegacyMessageId(messageId: string): boolean {
 }
 
 /**
+ * The hash that opens the conversation a notification was about, on the mail it named
+ *
+ * By the message when there is a usable one, not by the thread. Gmail's thread is not always
+ * what it draws as one: with conversation view off every mail is a row of its own, all with
+ * the same thread id, and that id is the *first* mail's — so `#inbox/<thread>` opened the
+ * oldest mail of the lot. `#inbox/<message>` opens that mail's row with conversation view
+ * off and the conversation holding it with it on. An id Gmail did not write never reaches
+ * the page, for the same reason the anchor script refuses one.
+ *
+ * @param threadId
+ * @param messageId the legacy hex id of the mail, when known
+ * @returns `#inbox/<id>`
+ */
+export function conversationHash(threadId: string, messageId?: string): string {
+  return `#inbox/${messageId && isLegacyMessageId(messageId) ? messageId : threadId}`;
+}
+
+/**
  * Builds the script that looks for one message, and may unfold it
  *
  * Folded, the block is the header row and clicking it is what opens it; open, that same
@@ -144,7 +162,9 @@ export function messageAnchorScript(
   let el = null;
   for (let i = 0; i < all.length && !el; i++) if (!inRow(all[i])) el = all[i];
   if (!el) return 'missing';
-  if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' });
+  // Its top, not its middle: an open mail runs far past the window, and centring it lands
+  // the reader halfway down the body (or in the quoted history) instead of at the header.
+  if (typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'start' });
   const body = el.querySelector(${JSON.stringify(MESSAGE_BODY_SELECTOR)});
   if (body && (body.offsetParent !== null || body.offsetHeight > 0)) return 'shown';
   const folded = (h) => h > 0 && h < ${FOLDED_MAX_HEIGHT};

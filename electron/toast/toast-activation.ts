@@ -38,6 +38,7 @@ import {
   archiveMessage,
   fetchMessageMeta,
   fetchRecentInboxIds,
+  fetchThreadInboxMeta,
   markMessageRead,
   type MessageMeta,
 } from '../gmail/gmail-api';
@@ -241,10 +242,26 @@ async function lookupNotifiedMessage(
   try {
     const ids = await withToken((t) => fetchRecentInboxIds(t, NOTIFY_LOOKUP_MESSAGES));
     const metas = await mapLimit(ids, 4, (id) => withToken((t) => fetchMessageMeta(t, id)));
-    return pickNotifiedMessage(
+    const listed = pickNotifiedMessage(
       metas.filter((m): m is MessageMeta => m !== null),
       notified,
     );
+    if (!listed?.threadId) return listed;
+    // The listing comes from Gmail's search index, which trails a fresh mail: asked the moment
+    // the page announces it, the newest match it holds can be an older mail of the same
+    // conversation — every reply in a thread carries the same subject. The thread itself is
+    // current, so the answer is settled there. A thread that cannot be read keeps the listing's.
+    const inThread = await withToken((t) => fetchThreadInboxMeta(t, listed.threadId)).catch(
+      (e: Error) => {
+        notifyLog(`[notify] thread ${listed.threadId} unreadable for ${email}: ${e.message}`);
+        return [];
+      },
+    );
+    const found = pickNotifiedMessage(inThread, notified) ?? listed;
+    if (found.id !== listed.id) {
+      notifyLog(`[notify] listing said ${listed.id}, the conversation says ${found.id}`);
+    }
+    return found;
   } catch (e) {
     notifyLog(`[notify] api lookup failed for ${email}: ${(e as Error).message}`);
     return null;

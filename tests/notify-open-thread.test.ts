@@ -3,9 +3,10 @@
 // unfolds is not the mail the card was about — and where Gmail instead unfolds the oldest
 // unread reply, a thread holding several of them lands just as far back.
 //
-// So the view is told both: the conversation to go to, and the message to show once it is
-// there. This file runs the second step against a fake conversation, the way the browser
-// would: the script the app hands to Gmail's page is executed, not read.
+// So the view is navigated by the message itself — the thread id would open only the first
+// mail where Gmail draws every mail as its own row — and the message is then pointed at once
+// the conversation is there. This file runs that second step against a fake conversation,
+// the way the browser would: the script the app hands to Gmail's page is executed, not read.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { AccountRef } from '../renderer/lib/account-ref';
@@ -178,7 +179,9 @@ describe('openMailThread points at the mail, not just the conversation', () => {
     m.openMailThread(accountKey({ kind: 'authuser', index: 0 }), THREAD, REPLY);
     await vi.waitFor(() => expect(wc.conversation[1].clicks).toBe(1));
 
-    expect(wc.hash).toBe(`#inbox/${THREAD}`);
+    // Navigated by the reply, not the thread: with conversation view off every mail is its
+    // own row under the same thread id, and `#inbox/<thread>` opens only the first of them.
+    expect(wc.hash).toBe(`#inbox/${REPLY}`);
     expect(wc.conversation[1].scrolls).toBe(1);
     // The oldest message is left exactly as Gmail drew it.
     expect(wc.conversation[0].clicks).toBe(0);

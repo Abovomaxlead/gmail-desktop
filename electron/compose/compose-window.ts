@@ -3,7 +3,7 @@
 
 import { BrowserWindow } from 'electron';
 import { attachExternalLinkHandling } from '../system/external-links';
-import { anchorMessage } from '../gmail/message-anchor';
+import { anchorMessage, conversationHash } from '../gmail/message-anchor';
 import { notifyLog } from '../notify/notify-log';
 import { composeUrl } from './compose-url';
 import { SESSION_PARTITION } from '../core/session-partition';
@@ -73,7 +73,7 @@ export function openFullThreadWindow(index: number, threadId: string, messageId?
   if (messageId) {
     win.webContents.once('did-finish-load', () => void anchorThreadWindow(win, messageId));
   }
-  void win.loadURL(`https://mail.google.com/mail/u/${index}/#inbox/${threadId}`).catch(() => {});
+  void win.loadURL(`https://mail.google.com/mail/u/${index}/${conversationHash(threadId, messageId)}`).catch(() => {});
 }
 
 

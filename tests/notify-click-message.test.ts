@@ -21,6 +21,8 @@ const state = vi.hoisted(() => ({
   openFullThreadWindow: vi.fn(),
   notificationOpen: 'inline' as 'inline' | 'window',
   inbox: [] as MessageMeta[],
+  /** What the conversation holds when the listing has not caught up with it; null: the same. */
+  thread: null as MessageMeta[] | null | 'unreadable',
   tokenFor: (async (fn: (t: string) => unknown) => fn('token')) as unknown,
 }));
 
@@ -65,6 +67,10 @@ vi.mock('../electron/gmail/gmail-api', () => ({
   fetchRecentInboxIds: async () => state.inbox.map((m) => m.id),
   fetchMessageMeta: async (_t: string, id: string) =>
     state.inbox.find((m) => m.id === id) ?? null,
+  fetchThreadInboxMeta: async (_t: string, threadId: string) => {
+    if (state.thread === 'unreadable') throw new Error('HTTP 500');
+    return (state.thread ?? state.inbox).filter((m) => m.threadId === threadId);
+  },
   archiveMessage: vi.fn(),
   markMessageRead: vi.fn(),
 }));
@@ -112,6 +118,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 beforeEach(() => {
   vi.clearAllMocks();
   state.notificationOpen = 'inline';
+  state.thread = null;
   state.inbox = [
     meta(REPLY, THREAD, 'Re: Radiocommercial AI', 1_700_000_200_000),
     meta(THREAD, THREAD, 'Radiocommercial AI', 1_700_000_100_000),
@@ -143,6 +150,32 @@ describe('a clicked notification opens the mail it was about', () => {
     await flush();
 
     expect(state.openMailThread).toHaveBeenCalledWith('u0', THREAD, THREAD);
+  });
+
+  // The failure seen in the log: Gmail's page announces a reply before the API's listing
+  // carries it, and the newest same-subject mail the listing does hold is an older one in
+  // the very same conversation. Only the thread itself knows the reply is there.
+  it('opens the new reply when the listing still only holds an older one of its conversation', async () => {
+    const OLDER = '1a01f13a00000001';
+    const older = meta(OLDER, THREAD, 'Re: Radiocommercial AI', 1_700_000_150_000);
+    const reply = meta(REPLY, THREAD, 'Re: Radiocommercial AI', 1_700_000_200_000);
+    const opening = meta(THREAD, THREAD, 'Radiocommercial AI', 1_700_000_100_000);
+    state.inbox = [older, opening];
+    state.thread = [opening, older, reply];
+
+    activateToast(webNotifyToast('Re: Radiocommercial AI'));
+    await flush();
+
+    expect(state.openMailThread).toHaveBeenCalledWith('u0', THREAD, REPLY);
+  });
+
+  it('keeps the listing\'s answer when the conversation cannot be read', async () => {
+    state.thread = 'unreadable';
+
+    activateToast(webNotifyToast('Re: Radiocommercial AI'));
+    await flush();
+
+    expect(state.openMailThread).toHaveBeenCalledWith('u0', THREAD, REPLY);
   });
 
   it('asks the page instead when the API recognises nothing, and opens no thread itself', async () => {

@@ -9,7 +9,7 @@
 
 import type { BrowserWindow, WebContents } from 'electron';
 import { mailSearchHash } from '../gmail/google-urls';
-import { anchorMessage } from '../gmail/message-anchor';
+import { anchorMessage, conversationHash } from '../gmail/message-anchor';
 import { notifyLog } from '../notify/notify-log';
 import { titleShowsSubject } from '../notify/notify-match';
 
@@ -69,20 +69,40 @@ export class MailThreadNavigator {
   /**
    * Sends the mail view to one conversation, and to one message inside it
    *
-   * The thread is what Gmail is navigated by; the message is what the notification was
-   * about, and without it Gmail picks one of its own — an older one, which is the bug this
-   * argument exists for. Pointing at it is a second step because Gmail navigates on its own
-   * clock, so it runs unawaited and says in the log how it went.
+   * Gmail is navigated by the message when there is one (see conversationHash), so the view
+   * lands on the mail the card named even where Gmail draws every mail as its own row. Gmail
+   * still navigates on its own clock, so pointing at the message inside the conversation is a
+   * second step that runs unawaited and says in the log how it went.
    *
    * @param accountKey
    * @param threadId
    * @param messageId the mail the card named, when it is known
    */
   openMailThread(accountKey: string, threadId: string, messageId?: string): void {
+    const wc = this.showConversation(accountKey, threadId, messageId);
+    if (!wc || !messageId) return;
+    const run = this.anchorRun.get(accountKey);
+    void this.anchorMailMessage(wc, accountKey, messageId, () => this.anchorRun.get(accountKey) !== run);
+  }
+
+  /**
+   * Writes the hash that opens a conversation, and claims the view for it
+   *
+   * @param accountKey
+   * @param threadId
+   * @param messageId opened instead of the thread when known
+   * @returns the mail view, or undefined when the account has none
+   * @private
+   */
+  private showConversation(
+    accountKey: string,
+    threadId: string,
+    messageId?: string,
+  ): WebContents | undefined {
     const wc = this.views.mailWebContents(accountKey);
     if (!wc || wc.isDestroyed()) {
       notifyLog(`[notify] ${accountKey} open ${threadId}: no mail view`);
-      return;
+      return undefined;
     }
 
     notifyLog(
@@ -93,10 +113,11 @@ export class MailThreadNavigator {
     // Claimed before the navigation, and whether or not this one has a message to point at:
     // sending the view somewhere else is exactly what makes an anchor still looking for the
     // last conversation wrong, and it would otherwise unfold what it finds when it arrives.
-    const run = this.claimMailView(accountKey);
-    void wc.executeJavaScript(`location.hash = ${JSON.stringify(`#inbox/${threadId}`)}`).catch(() => {});
-    if (!messageId) return;
-    void this.anchorMailMessage(wc, accountKey, messageId, () => this.anchorRun.get(accountKey) !== run);
+    this.claimMailView(accountKey);
+    void wc
+      .executeJavaScript(`location.hash = ${JSON.stringify(conversationHash(threadId, messageId))}`)
+      .catch(() => {});
+    return wc;
   }
 
   /**
@@ -207,7 +228,8 @@ export class MailThreadNavigator {
     const titleBefore = wc.getTitle();
     // Already there means there is nothing to wait for: the conversation on screen is the
     // one that was asked for, and no navigation is going to change the title.
-    const alreadyOpen = before === `#inbox/${threadId}`;
+    const opened = conversationHash(threadId, messageId);
+    const alreadyOpen = before === opened;
     const showsTheThread = (title: string): boolean =>
       alreadyOpen || (subject ? titleShowsSubject(title, subject) : title !== titleBefore);
     this.popoutExpectUntil.set(accountKey, Date.now() + 6000);
@@ -225,13 +247,13 @@ export class MailThreadNavigator {
     };
     wc.once('did-create-window', onCreated);
     try {
-      this.openMailThread(accountKey, threadId);
+      this.showConversation(accountKey, threadId, messageId);
       const clicked = await this.clickPopoutButton(wc, showsTheThread);
       if (clicked) await waitUntil(() => popoutOpened, POPOUT_WINDOW_WAIT_MS);
       notifyLog(`[notify] ${accountKey} pop-out clicked=${clicked} window=${popoutOpened}`);
       // The view is leaving this conversation, so nothing may still be looking in it.
       this.claimMailView(accountKey);
-      this.restoreHash(wc, before, threadId);
+      this.restoreHash(wc, before, opened);
       return clicked;
     } finally {
       if (!wc.isDestroyed()) wc.removeListener('did-create-window', onCreated);
@@ -253,18 +275,18 @@ export class MailThreadNavigator {
   /**
    * Sends the mail view back to where it was before the pop-out
    *
-   * A view that was already showing the thread was not disturbed and is left alone —
+   * A view that was already showing the conversation was not disturbed and is left alone —
    * sending it "back" would take the user off the mail they had open. A view with no hash
    * at all goes to the inbox: `location.hash = ''` is not a navigation Gmail acts on.
    *
    * @param wc
    * @param before the hash the view was on
-   * @param threadId
+   * @param opened the hash the pop-out was opened from
    * @private
    */
-  private restoreHash(wc: WebContents, before: string, threadId: string): void {
+  private restoreHash(wc: WebContents, before: string, opened: string): void {
     if (wc.isDestroyed()) return;
-    if (before === `#inbox/${threadId}`) {
+    if (before === opened) {
       notifyLog('[notify] mail view was already on that thread, left as it was');
       return;
     }
