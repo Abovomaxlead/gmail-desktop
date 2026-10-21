@@ -3,6 +3,19 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1792585101] — 2026-10-21
+
+### Opgelost
+- **Een mailmelding opent de mail in je leesvenster.** Heb je het leesvenster naast of onder
+  de lijst staan, dan opende een klik op een melding de mail toch over de hele breedte van
+  het venster, en was je lijst weg. Nu opent de mail zoals wanneer je er zelf op klikt: in
+  het leesvenster, met de lijst ernaast. Zonder leesvenster opent hij zoals altijd.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1792480638] — 2026-10-20
 
 ### Opgelost
