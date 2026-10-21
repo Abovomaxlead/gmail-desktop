@@ -253,6 +253,7 @@ change plus a test.
 | The title format `(n) … - Gmail` | wrong or zero unread badge; tabs warm up slowly (25-second cap) | `electron/unread/unread-parser.ts` |
 | The avatar (`a[aria-label]` with an e-mail address and an `img`) | **no accounts detected**; the first mailbox shows but no tab appears | `electron/preload.ts` `extractIdentity` |
 | `data-legacy-thread-id` / `data-legacy-message-id` | notification clicks open the inbox, not the mail | `preload.ts`, `gmail/message-anchor.ts` |
+| List rows (`role="row"` around `data-legacy-thread-id`, `data-legacy-last-message-id` inside), or Gmail ignoring a synthetic click on one | a notification click opens the mail full width despite the reading pane; `notify.log` says `row in the list: missing` or `ignored` | `electron/gmail/list-row-open.ts` |
 | Gmail no longer calls `window.Notification` | no notifications for own accounts; `shim installed` but never `Gmail raised a notification` | `preload.ts` shim |
 | The list rows, label links or the drag gesture | the drop strip does nothing, or picks the wrong row | `electron/mail/drag/dropzone.ts`, `label-drop.ts` |
 | The account switcher widget | delegated mailboxes never get a URL: `still unresolved after` | `electron/delegation/delegation.ts` `SWITCHER_SCRAPE_JS`, `windows/switcher-reader.ts` |

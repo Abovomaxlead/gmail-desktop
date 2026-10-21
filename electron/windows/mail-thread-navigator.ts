@@ -2,6 +2,9 @@
 // own reading window. The one thing both need is the mail view's WebContents for an account,
 // which is why the manager is not imported here: it is handed in as a lookup instead.
 //
+// Opening is a click on the mail's row wherever the list shows it (see list-row-open.ts), so
+// the mail lands in the reading pane when the reader has one; the hash is the fallback.
+//
 // Only Gmail can open a working pop-out, and its button exists only while the thread is
 // open -- so popOutThread opens the thread, clicks the button, and sends the view back. The
 // restore waits for the pop-out window rather than the click, since Gmail works
@@ -10,6 +13,7 @@
 import type { BrowserWindow, WebContents } from 'electron';
 import { mailSearchHash } from '../gmail/google-urls';
 import { anchorMessage, conversationHash } from '../gmail/message-anchor';
+import { openFromList } from '../gmail/list-row-open';
 import { notifyLog } from '../notify/notify-log';
 import { titleShowsSubject } from '../notify/notify-match';
 
@@ -67,57 +71,110 @@ export class MailThreadNavigator {
   }
 
   /**
-   * Sends the mail view to one conversation, and to one message inside it
+   * Opens one conversation in the mail view, and one message inside it
    *
-   * Gmail is navigated by the message when there is one (see conversationHash), so the view
-   * lands on the mail the card named even where Gmail draws every mail as its own row. Gmail
-   * still navigates on its own clock, so pointing at the message inside the conversation is a
-   * second step that runs unawaited and says in the log how it went.
+   * The mail's row in the list is clicked, so Gmail opens it the way the reader set it up —
+   * in the reading pane when there is one. Where no row can be clicked the view is navigated
+   * by the message (see conversationHash), so it still lands on the mail the card named even
+   * where Gmail draws every mail as its own row. Gmail opens on its own clock either way, so
+   * pointing at the message inside the conversation is a second step that runs unawaited and
+   * says in the log how it went.
    *
    * @param accountKey
    * @param threadId
    * @param messageId the mail the card named, when it is known
    */
   openMailThread(accountKey: string, threadId: string, messageId?: string): void {
-    const wc = this.showConversation(accountKey, threadId, messageId);
-    if (!wc || !messageId) return;
-    const run = this.anchorRun.get(accountKey);
-    void this.anchorMailMessage(wc, accountKey, messageId, () => this.anchorRun.get(accountKey) !== run);
+    const wc = this.mailView(accountKey, threadId, messageId);
+    if (!wc) return;
+    const run = this.claimMailView(accountKey);
+    void this.openAndAnchor(wc, accountKey, threadId, messageId, () => this.anchorRun.get(accountKey) !== run);
+  }
+
+  /**
+   * Clicks the mail open from the list or else navigates to it, then points at the message
+   *
+   * @param wc
+   * @param accountKey
+   * @param threadId
+   * @param messageId
+   * @param superseded true once a later click has taken this view over
+   * @private
+   */
+  private async openAndAnchor(
+    wc: WebContents,
+    accountKey: string,
+    threadId: string,
+    messageId: string | undefined,
+    superseded: () => boolean,
+  ): Promise<void> {
+    const exec = (script: string): Promise<unknown> =>
+      wc.isDestroyed() ? Promise.resolve(null) : wc.executeJavaScript(script);
+    const how = await openFromList(exec, threadId, messageId, {
+      showList: () => this.writeHash(wc, '#inbox'),
+      superseded,
+    });
+    notifyLog(`[notify] ${accountKey} row in the list: ${how}`);
+    if (how === 'superseded') return;
+    if (how !== 'clicked') this.writeHash(wc, conversationHash(threadId, messageId));
+    if (messageId) await this.anchorMailMessage(wc, accountKey, messageId, superseded);
   }
 
   /**
    * Writes the hash that opens a conversation, and claims the view for it
    *
+   * What the pop-out opens the thread with. It sends the view back afterwards, so how the
+   * conversation is laid out in the meantime does not matter, and the click route's waiting
+   * would only delay the pop-out.
+   *
    * @param accountKey
    * @param threadId
    * @param messageId opened instead of the thread when known
+   * @private
+   */
+  private showConversation(accountKey: string, threadId: string, messageId?: string): void {
+    const wc = this.mailView(accountKey, threadId, messageId);
+    if (!wc) return;
+    // Claimed before the navigation: sending the view somewhere else is exactly what makes an
+    // anchor still looking for the last conversation wrong, and it would otherwise unfold what
+    // it finds when it arrives.
+    this.claimMailView(accountKey);
+    this.writeHash(wc, conversationHash(threadId, messageId));
+  }
+
+  /**
+   * The mail view a conversation is about to be opened in, with the log line saying so
+   *
+   * @param accountKey
+   * @param threadId
+   * @param messageId
    * @returns the mail view, or undefined when the account has none
    * @private
    */
-  private showConversation(
-    accountKey: string,
-    threadId: string,
-    messageId?: string,
-  ): WebContents | undefined {
+  private mailView(accountKey: string, threadId: string, messageId?: string): WebContents | undefined {
     const wc = this.views.mailWebContents(accountKey);
     if (!wc || wc.isDestroyed()) {
       notifyLog(`[notify] ${accountKey} open ${threadId}: no mail view`);
       return undefined;
     }
-
     notifyLog(
       `[notify] ${accountKey} open thread=${JSON.stringify(threadId)}` +
         ` message=${JSON.stringify(messageId ?? 'none')}` +
         ` (loading=${wc.isLoading()}, at ${wc.getURL()})`,
     );
-    // Claimed before the navigation, and whether or not this one has a message to point at:
-    // sending the view somewhere else is exactly what makes an anchor still looking for the
-    // last conversation wrong, and it would otherwise unfold what it finds when it arrives.
-    this.claimMailView(accountKey);
-    void wc
-      .executeJavaScript(`location.hash = ${JSON.stringify(conversationHash(threadId, messageId))}`)
-      .catch(() => {});
     return wc;
+  }
+
+  /**
+   * Sends the mail view to a hash
+   *
+   * @param wc
+   * @param hash
+   * @private
+   */
+  private writeHash(wc: WebContents, hash: string): void {
+    if (wc.isDestroyed()) return;
+    void wc.executeJavaScript(`location.hash = ${JSON.stringify(hash)}`).catch(() => {});
   }
 
   /**

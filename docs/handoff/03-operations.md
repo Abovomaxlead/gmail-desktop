@@ -203,6 +203,7 @@ in the internal file.
 | Why did a drag do nothing? | `second drag refused`, `drag refused: a job is already copying`, `could not be listed over the API` |
 | Did a copy finish or get stuck? | `copy done: X copied, Y skipped`, `sweep of run … not complete yet, will be resumed`, `journal could not be started` |
 | Did a notification click open the right mail? | `message … on screen:` followed by `shown`, `opened`, `stuck`, `hidden` or `missing` |
+| Did a notification click keep the reading pane? | `row in the list:` followed by `clicked` (opened from its row) or `missing` / `ignored` (navigated, so full width) |
 | Are custom notifications failing? | `[toast] page reported no size`, `giving up on the stack` |
 | Did the token file survive? | `sealed elsewhere`, `unopenable` |
 
