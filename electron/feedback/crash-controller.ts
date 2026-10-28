@@ -149,6 +149,12 @@ export function installCrashReporting(hooks: { onGpuStreak?: () => void } = {}):
   app.on('render-process-gone', (_e, contents, details) => {
     // A page the user closed is not a crash: Electron reports that as 'clean-exit'.
     if (details.reason === 'clean-exit') return;
+    // Nor is one stopped from outside -- Windows shutting down, an installer replacing the
+    // app, Task Manager. Every process goes at once then, and each mailed its own report.
+    if (details.reason === 'killed') {
+      notifyLog(`[crash] a page's process was killed from outside (exit ${details.exitCode}); not a crash`);
+      return;
+    }
     reportCrash({
       kind: 'renderer-gone',
       message: `a page's process is gone: ${details.reason} (exit ${details.exitCode})`,
@@ -158,6 +164,10 @@ export function installCrashReporting(hooks: { onGpuStreak?: () => void } = {}):
   });
   app.on('child-process-gone', (_e, details) => {
     if (details.reason === 'clean-exit') return;
+    if (details.reason === 'killed') {
+      notifyLog(`[crash] a ${details.type} process was killed from outside (exit ${details.exitCode}); not a crash`);
+      return;
+    }
     const at = Date.now();
     const decision = childGoneDecision({ type: details.type, recent: gpuGone, at });
     if (details.type === 'GPU') gpuGone = decision.recent;

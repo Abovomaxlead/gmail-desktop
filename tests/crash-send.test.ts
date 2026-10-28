@@ -18,11 +18,13 @@ const sent: Buffer[] = [];
 const notifications: Array<{ kind: string; title: string; body: string; persist: boolean }> = [];
 let sendFails = false;
 let account: { email: string; scopes: string[] } | null = null;
+const appListeners = new Map<string, (...args: unknown[]) => void>();
 
 vi.mock('electron', () => ({
   app: {
     getVersion: () => '1.2.3',
     getPath: () => userData,
+    on: (event: string, fn: (...args: unknown[]) => void) => appListeners.set(event, fn),
   },
 }));
 
@@ -76,6 +78,7 @@ vi.mock('../electron/notify/notify-log', () => ({ notifyLog: () => {} }));
 interface Controller {
   reportCrash: (event: CrashEvent) => void;
   flushCrashReports: () => Promise<void>;
+  installCrashReporting: () => void;
 }
 
 /** Loaded per test rather than imported once, because the controller's queue-in-flight guard
@@ -259,5 +262,24 @@ describe('an automatic crash report', () => {
     await flushCrashReports();
     expect(sent).toHaveLength(2);
     expect(notifications).toEqual([]);
+  });
+});
+
+describe('a process that is gone', () => {
+  it('is no crash when it was killed from outside, as every process is when Windows shuts down', async () => {
+    const { installCrashReporting } = await load();
+    // The process-wide handlers would otherwise outlive this test in the worker running it
+    const on = vi.spyOn(process, 'on').mockImplementation(() => process);
+    installCrashReporting();
+    on.mockRestore();
+    account = null;
+    const page = { getURL: () => 'https://mail.google.com/mail/u/0/' };
+
+    appListeners.get('render-process-gone')!({}, page, { reason: 'killed', exitCode: 1 });
+    appListeners.get('child-process-gone')!({}, { type: 'Utility', reason: 'killed', exitCode: 1 });
+    expect(queued()).toEqual([]);
+
+    appListeners.get('child-process-gone')!({}, { type: 'Utility', reason: 'crashed', exitCode: -1 });
+    expect(queued()).toHaveLength(1);
   });
 });
