@@ -840,9 +840,10 @@ export class ProfileViewManager {
    * @param accountKey
    * @param threadId
    * @param messageId the mail the card named, when it is known
+   * @param opts.reply opens Gmail's reply box on that mail once it is on screen
    */
-  openMailThread(accountKey: string, threadId: string, messageId?: string): void {
-    this.mailThreadNavigator.openMailThread(accountKey, threadId, messageId);
+  openMailThread(accountKey: string, threadId: string, messageId?: string, opts?: { reply?: boolean }): void {
+    this.mailThreadNavigator.openMailThread(accountKey, threadId, messageId, opts);
   }
 
   /**

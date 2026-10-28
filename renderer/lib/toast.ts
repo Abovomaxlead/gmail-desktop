@@ -57,7 +57,7 @@ export interface ToastState extends ToastStack {
   dark: boolean;
 }
 
-export type ToastAction = 'archive' | 'read';
+export type ToastAction = 'archive' | 'read' | 'trash' | 'reply';
 
 
 //===========================

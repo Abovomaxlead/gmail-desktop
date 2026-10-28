@@ -32,7 +32,14 @@ const ROUNDING_SLACK = 2;
 const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
 
 const ACTION =
-  'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none dark:text-neutral-200 dark:hover:bg-white/10';
+  'flex h-5 w-6 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/[0.06] hover:text-neutral-900 motion-reduce:transition-none dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white';
+
+const ACTION_ICON: Record<ToastAction, string> = {
+  reply: 'M6.5 4L2.5 8l4 4M2.5 8h7a4 4 0 0 1 4 4v1',
+  archive: 'M2 3.5h12v3H2zM3 6.5v6h10v-6M6.5 9h3',
+  trash: 'M2.5 4.5h11M6 4.5V3h4v1.5M3.8 4.5l.7 9h7l.7-9M6.7 7v4.5M9.3 7v4.5',
+  read: 'M3 8.5l3 3 7-7',
+};
 
 const SUMMARY_ID = 'summary';
 
@@ -189,6 +196,8 @@ export default function ToastsPage() {
                   toast={t}
                   archiveLabel={S.toastArchive}
                   readLabel={S.toastMarkRead}
+                  trashLabel={S.toastTrash}
+                  replyLabel={S.toastReply}
                   inboxLabel={S.toastInbox}
                   dismissLabel={S.toastDismiss}
                   hovered={hoveredId === t.id}
@@ -211,6 +220,8 @@ function ToastCard({
   toast,
   archiveLabel,
   readLabel,
+  trashLabel,
+  replyLabel,
   inboxLabel,
   dismissLabel,
   hovered,
@@ -218,12 +229,16 @@ function ToastCard({
   toast: Toast;
   archiveLabel: string;
   readLabel: string;
+  trashLabel: string;
+  replyLabel: string;
   inboxLabel: string;
   dismissLabel: string;
   hovered: boolean;
 }) {
   const color = toast.account?.color ?? '#5f6368';
-  const hasActions = Boolean(toast.messageId);
+  // A card relayed from Gmail's page may not have its message yet; main looks it up on use.
+  // `inbox` is only set when that page was Gmail, which keeps Calendar and Chat cards bare.
+  const hasActions = Boolean(toast.messageId || (toast.webNotifyId && toast.inbox));
   const run = useCallback(
     (action: ToastAction) => window.desktop?.runToastAction({ id: toast.id, action }),
     [toast.id],
@@ -280,31 +295,31 @@ function ToastCard({
               {toast.inbox ? `${inboxLabel}: ${toast.inbox}` : toast.account?.email ?? ''}
             </span>
             {showActions ? (
-              <span className="flex gap-1">
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className={ACTION}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    run('archive');
-                  }}
-                  onKeyDown={keyRun('archive')}
-                >
-                  {archiveLabel}
-                </span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className={ACTION}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    run('read');
-                  }}
-                  onKeyDown={keyRun('read')}
-                >
-                  {readLabel}
-                </span>
+              <span className="flex gap-0.5">
+                {(
+                  [
+                    ['reply', replyLabel],
+                    ['archive', archiveLabel],
+                    ['trash', trashLabel],
+                    ['read', readLabel],
+                  ] as const
+                ).map(([action, label]) => (
+                  <span
+                    key={action}
+                    role="button"
+                    tabIndex={0}
+                    title={label}
+                    aria-label={label}
+                    className={ACTION}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      run(action);
+                    }}
+                    onKeyDown={keyRun(action)}
+                  >
+                    <ActionIcon action={action} />
+                  </span>
+                ))}
               </span>
             ) : null}
           </span>
@@ -401,6 +416,27 @@ function statusFallback(toast: Toast): ReactNode | undefined {
     <svg viewBox="0 0 16 16" className="h-4 w-4">
       <path
         d={status}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+/**
+ * The glyph on a quick-action button, drawn in the same 16-unit stroke style as the rest
+ *
+ * @param action
+ * @returns the icon
+ */
+function ActionIcon({ action }: { action: ToastAction }) {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden>
+      <path
+        d={ACTION_ICON[action]}
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"

@@ -26,7 +26,7 @@ import {
 } from '../core/runtime';
 import { openSurfaceForAccount } from '../windows/surface-opener';
 import { openFullThreadWindow } from '../compose/compose-window';
-import { withTokenFor } from '../auth/mailbox-token';
+import { withMailboxToken, withTokenFor } from '../auth/mailbox-token';
 import { forgetDownloadClickPath, takeDownloadClickAction } from '../system/session-setup';
 import { notifyLog } from '../notify/notify-log';
 import { hostOf } from '../system/link-guard';
@@ -40,6 +40,7 @@ import {
   fetchRecentInboxIds,
   fetchThreadInboxMeta,
   markMessageRead,
+  trashMessage,
   type MessageMeta,
 } from '../gmail/gmail-api';
 import { surfacesForRef } from '../../renderer/lib/surfaces';
@@ -158,6 +159,9 @@ export async function showWebNotification(
     body: hidden.hiddenSubject ?? (found?.subject || arg.body || L.noSubject),
     account: toastAccountFor(profile.email),
     webNotifyId: sourceKey,
+    // What the quick actions on the card act on; the click itself still goes through the
+    // source, which also knows how to ask the view when the API had no answer.
+    ...(found ? { messageId: found.id, threadId: found.threadId } : {}),
     ...(senderAvatarUrl ? { senderAvatarUrl } : {}),
     ...(preview ? { preview } : {}),
     ...(isMail ? { inbox: profile.email } : {}),
@@ -167,12 +171,24 @@ export async function showWebNotification(
   void syncRunnerFor(profile.email)?.run();
 }
 
+/**
+ * Opens what a notification was about
+ *
+ * @param accountKey
+ * @param surface
+ * @param threadId
+ * @param subject
+ * @param messageId
+ * @param opts.reply opens Gmail's reply box on the mail too. Always in the main window,
+ *   whatever the "open in a window" setting says: a reply belongs beside the inbox
+ */
 export function activateNotification(
   accountKey: string,
   surface: Surface,
   threadId?: string,
   subject?: string,
   messageId?: string,
+  opts: { reply?: boolean } = {},
 ): void {
   const idx = idxOfKey(accountKey);
   // A click shows the window that is there; it never builds one. Without a window there is
@@ -181,10 +197,11 @@ export function activateNotification(
   const profile = profiles.find((p) => keyOf(p) === accountKey);
   if (!profile) return;
   if (threadId && surface === 'mail') manager?.markNotificationClickHandled(accountKey, 'mail');
-  const windowMode = prefs?.getAll().notificationOpen === 'window';
+  const reply = opts.reply === true;
+  const windowMode = !reply && prefs?.getAll().notificationOpen === 'window';
 
   notifyLog(
-    `[notify] activate ${accountKey} surface=${surface} thread=${JSON.stringify(threadId ?? 'none')} message=${JSON.stringify(messageId ?? 'none')} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}`,
+    `[notify] activate ${accountKey} surface=${surface} thread=${JSON.stringify(threadId ?? 'none')} message=${JSON.stringify(messageId ?? 'none')} subject=${JSON.stringify(subject ?? '')} mode=${windowMode ? 'window' : 'inline'}${reply ? ' reply' : ''}`,
   );
 
   if (threadId && surface === 'mail' && windowMode) {
@@ -210,7 +227,8 @@ export function activateNotification(
   // this goes through the same funnel as the button in the bar. Mail is exempt inside it.
   if (surfacesForRef(profile.ref).includes(surface)) openSurfaceForAccount(profile.ref, surface);
   if (surface !== 'mail') return;
-  if (threadId) manager?.openMailThread(accountKey, threadId, messageId);
+  if (threadId && reply) manager?.openMailThread(accountKey, threadId, messageId, { reply });
+  else if (threadId) manager?.openMailThread(accountKey, threadId, messageId);
   else if (subject) manager?.openMailSearch(accountKey, subject);
 }
 
@@ -335,17 +353,56 @@ export function activateToast(toast: Toast): void {
   }
 }
 
+/**
+ * Runs one of the buttons on a mail card
+ *
+ * Reply opens the mail in the main window with Gmail's reply box open; the rest act
+ * through the API in the background, and open nothing. A card relayed from Gmail's page
+ * names its message only when the lookup at raise time found it, so a miss then is asked
+ * once more here. The action took the card off the stack as handled, which skips onDiscard,
+ * so the source is released here once nothing below can still need it.
+ *
+ * @param toast
+ * @param action
+ */
 export async function runToastAction(toast: Toast, action: ToastAction): Promise<void> {
   const email = toast.account?.email;
-  const messageId = toast.messageId;
-  if (!email || !messageId) return;
-  const withToken = withTokenFor(email);
-  if (!withToken) return;
+  if (!email) return;
+  const target = toast.messageId
+    ? { id: toast.messageId, threadId: toast.threadId }
+    : await relayedMessage(toast);
+  if (action === 'reply') {
+    // The main window, with Gmail's reply box open on the mail. A card whose conversation
+    // cannot be told opens the mail the way a click does, which still finds it.
+    if (!target?.threadId) {
+      notifyLog(`[toast] reply on ${email}: no conversation, opening the mail instead`);
+      activateToast(toast);
+      return;
+    }
+    if (toast.webNotifyId) webNotifySources.delete(toast.webNotifyId);
+    activateNotification(toast.account!.key, 'mail', target.threadId, undefined, target.id, { reply: true });
+    return;
+  }
+  if (toast.webNotifyId) webNotifySources.delete(toast.webNotifyId);
+  if (!target) {
+    notifyLog(`[toast] ${action} on ${email}: no message to act on`);
+    return;
+  }
+  const messageId = target.id;
+  // The mailbox's own route, which for a delegated mailbox is the relay: withTokenFor knows
+  // only the user's own accounts, and every button on a delegated card failed silently on it.
+  const withToken = await withMailboxToken(email);
+  if (!withToken) {
+    notifyLog(`[toast] ${action} on ${email}: no token for this mailbox`);
+    return;
+  }
   try {
     if (action === 'archive') await withToken((t) => archiveMessage(t, messageId));
+    else if (action === 'trash') await withToken((t) => trashMessage(t, messageId));
     else await withToken((t) => markMessageRead(t, messageId));
+    notifyLog(`[toast] ${action} on ${email} message=${messageId}: done`);
   } catch (e) {
-    console.warn(`[toast] ${action} failed for ${email}:`, e);
+    notifyLog(`[toast] ${action} on ${email} message=${messageId} failed: ${String(e)}`);
   }
 }
 
@@ -353,6 +410,21 @@ export async function runToastAction(toast: Toast, action: ToastAction): Promise
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * The message a relayed card is about, when the lookup at raise time came back empty
+ *
+ * @param toast
+ * @returns the message, or undefined when it still cannot be told
+ */
+async function relayedMessage(toast: Toast): Promise<MessageMeta | undefined> {
+  const source = toast.webNotifyId ? webNotifySources.get(toast.webNotifyId) : undefined;
+  if (!source) return undefined;
+  const found =
+    source.found ??
+    (await withDeadline(lookupNotifiedMessage(source.email, source.notified), NOTIFY_LOOKUP_TIMEOUT_MS, null));
+  return found ?? undefined;
+}
 
 /**
  * The sender's picture from a page notification, when it is one the toast window can load

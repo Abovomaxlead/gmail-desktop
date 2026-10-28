@@ -235,6 +235,8 @@ export interface UiStrings {
   persistToggleTitle: string;
   toastArchive: string;
   toastMarkRead: string;
+  toastTrash: string;
+  toastReply: string;
   /** In front of the address a mail arrived in, at the foot of a mail card */
   toastInbox: string;
   toastDismiss: string;
@@ -817,6 +819,8 @@ export const STRINGS_NORMAL: UiStrings = {
   persistToggleTitle: 'Keep notifications on screen until you dismiss them, instead of hiding them after a few seconds',
   toastArchive: 'Archive',
   toastMarkRead: 'Mark read',
+  toastTrash: 'Delete',
+  toastReply: 'Reply',
   toastInbox: 'Inbox',
   toastDismiss: 'Dismiss',
   toastDismissAll: 'Dismiss all',
@@ -1347,6 +1351,8 @@ export const STRINGS_RENE: UiStrings = {
   persistToggleTitle: 'Berichtjes blijven staan tot u ze wegklikt, in plaats van vanzelf weg te gaan',
   toastArchive: 'Opbergen',
   toastMarkRead: 'Al gezien',
+  toastTrash: 'Weggooien',
+  toastReply: 'Terugschrijven',
   toastInbox: 'Inbox',
   toastDismiss: 'Weg ermee',
   toastDismissAll: 'Alles weg',
@@ -1887,6 +1893,8 @@ export const STRINGS_NL: UiStrings = {
   persistToggleTitle: 'Houd meldingen op het scherm tot je ze wegklikt, in plaats van ze na een paar tellen te laten verdwijnen',
   toastArchive: 'Archiveren',
   toastMarkRead: 'Gelezen',
+  toastTrash: 'Verwijderen',
+  toastReply: 'Beantwoorden',
   toastInbox: 'Inbox',
   toastDismiss: 'Sluiten',
   toastDismissAll: 'Alles sluiten',

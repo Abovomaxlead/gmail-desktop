@@ -13,6 +13,7 @@
 import type { BrowserWindow, WebContents } from 'electron';
 import { mailSearchHash } from '../gmail/google-urls';
 import { anchorMessage, conversationHash } from '../gmail/message-anchor';
+import { openReplyBox } from '../gmail/reply-open';
 import { openFromList } from '../gmail/list-row-open';
 import { notifyLog } from '../notify/notify-log';
 import { titleShowsSubject } from '../notify/notify-match';
@@ -83,12 +84,25 @@ export class MailThreadNavigator {
    * @param accountKey
    * @param threadId
    * @param messageId the mail the card named, when it is known
+   * @param opts.reply opens Gmail's reply box on that mail once it is on screen
    */
-  openMailThread(accountKey: string, threadId: string, messageId?: string): void {
+  openMailThread(
+    accountKey: string,
+    threadId: string,
+    messageId?: string,
+    opts: { reply?: boolean } = {},
+  ): void {
     const wc = this.mailView(accountKey, threadId, messageId);
     if (!wc) return;
     const run = this.claimMailView(accountKey);
-    void this.openAndAnchor(wc, accountKey, threadId, messageId, () => this.anchorRun.get(accountKey) !== run);
+    void this.openAndAnchor(
+      wc,
+      accountKey,
+      threadId,
+      messageId,
+      () => this.anchorRun.get(accountKey) !== run,
+      opts.reply === true,
+    );
   }
 
   /**
@@ -99,6 +113,7 @@ export class MailThreadNavigator {
    * @param threadId
    * @param messageId
    * @param superseded true once a later click has taken this view over
+   * @param reply opens the reply box once the message is on screen
    * @private
    */
   private async openAndAnchor(
@@ -107,6 +122,7 @@ export class MailThreadNavigator {
     threadId: string,
     messageId: string | undefined,
     superseded: () => boolean,
+    reply: boolean,
   ): Promise<void> {
     const exec = (script: string): Promise<unknown> =>
       wc.isDestroyed() ? Promise.resolve(null) : wc.executeJavaScript(script);
@@ -118,6 +134,9 @@ export class MailThreadNavigator {
     if (how === 'superseded') return;
     if (how !== 'clicked') this.writeHash(wc, conversationHash(threadId, messageId));
     if (messageId) await this.anchorMailMessage(wc, accountKey, messageId, superseded);
+    if (!reply || superseded()) return;
+    const outcome = await openReplyBox(exec, messageId, { gone: () => wc.isDestroyed() || superseded() });
+    notifyLog(`[notify] ${accountKey} reply box: ${outcome}`);
   }
 
   /**

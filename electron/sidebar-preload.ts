@@ -266,7 +266,7 @@ contextBridge.exposeInMainWorld('desktop', {
   activateToast: (id: string): void => ipcRenderer.send(IPC.TOAST_ACTIVATE, id),
   dismissToast: (id: string): void => ipcRenderer.send(IPC.TOAST_DISMISS, id),
   dismissAllToasts: (): void => ipcRenderer.send(IPC.TOAST_DISMISS_ALL),
-  runToastAction: (arg: { id: string; action: 'archive' | 'read' }): void =>
+  runToastAction: (arg: { id: string; action: 'archive' | 'read' | 'trash' | 'reply' }): void =>
     ipcRenderer.send(IPC.TOAST_ACTION, arg),
   setToastHovered: (hovered: boolean): void => ipcRenderer.send(IPC.TOAST_HOVER, hovered),
 });

@@ -12,6 +12,8 @@ const state = vi.hoisted(() => ({
   toasts: [] as Array<Record<string, unknown>>,
   inbox: [] as MessageMeta[],
   hidden: {} as { hiddenSender?: string; hiddenSubject?: string },
+  trashed: [] as string[],
+  opened: [] as unknown[][],
 }));
 
 vi.mock('electron', () => ({ shell: { openPath: vi.fn(), showItemInFolder: vi.fn() } }));
@@ -19,10 +21,15 @@ vi.mock('../electron/core/runtime', () => ({
   currentLocale: () => 'nl',
   idxOfKey: () => 0,
   keyOf: () => 'u0',
-  mainWindow: null,
-  manager: null,
-  prefs: { getAll: () => ({ reneMode: false }) },
-  profiles: [],
+  mainWindow: { isDestroyed: () => false },
+  manager: {
+    markNotificationClickHandled: vi.fn(),
+    openMailThread: (...args: unknown[]) => void state.opened.push(args),
+    popOutThread: vi.fn(),
+  },
+  // Set to open notifications in a window, which a reply must not follow
+  prefs: { getAll: () => ({ reneMode: false, notificationOpen: 'window' }) },
+  profiles: [{ email: 'robbin@abovomaxlead.nl', ref: { kind: 'authuser', index: 0 } }],
   setSettingsPanelOpen: vi.fn(),
   settingsPanelOpen: false,
 }));
@@ -40,6 +47,7 @@ vi.mock('../electron/toast/toast-presenter', () => ({
 }));
 vi.mock('../electron/auth/mailbox-token', () => ({
   withTokenFor: () => async (fn: (t: string) => unknown) => fn('token'),
+  withMailboxToken: async () => async (fn: (t: string) => unknown) => fn('token'),
 }));
 vi.mock('../electron/gmail/gmail-api', () => ({
   fetchRecentInboxIds: async () => state.inbox.map((m) => m.id),
@@ -48,16 +56,18 @@ vi.mock('../electron/gmail/gmail-api', () => ({
     state.inbox.filter((m) => m.threadId === threadId),
   archiveMessage: vi.fn(),
   markMessageRead: vi.fn(),
+  trashMessage: async (_t: string, id: string) => void state.trashed.push(id),
 }));
 vi.mock('../electron/push/mail-sync-controller', () => ({ syncRunnerFor: () => undefined }));
 vi.mock('../electron/compose/compose-window', () => ({ openFullThreadWindow: vi.fn() }));
+vi.mock('../electron/windows/window-focus', () => ({ bringToFront: vi.fn() }));
 vi.mock('../electron/system/session-setup', () => ({
   forgetDownloadClickPath: vi.fn(),
   takeDownloadClickAction: vi.fn(),
 }));
 vi.mock('../electron/windows/surface-opener', () => ({ openSurfaceForAccount: vi.fn() }));
 
-const { showWebNotification } = await import('../electron/toast/toast-activation');
+const { runToastAction, showWebNotification } = await import('../electron/toast/toast-activation');
 
 const profile = { email: 'robbin@abovomaxlead.nl', ref: { kind: 'authuser', index: 0 } } as never;
 const view = (url: string) => ({ id: 7, isDestroyed: () => false, getURL: () => url }) as never;
@@ -78,6 +88,8 @@ beforeEach(() => {
   state.toasts = [];
   state.inbox = [];
   state.hidden = {};
+  state.trashed = [];
+  state.opened = [];
 });
 
 describe('a card raised from the Gmail page', () => {
@@ -124,5 +136,30 @@ describe('a card raised from the Gmail page', () => {
     expect(state.toasts[0]).toMatchObject({ title: 'Overleg Recystel', body: '14:00 – 14:30' });
     expect(state.toasts[0]).not.toHaveProperty('inbox');
     expect(state.toasts[0]).not.toHaveProperty('preview');
+  });
+});
+
+describe('the quick actions on a card raised from the Gmail page', () => {
+  it('delete trashes the mail the lookup found when the card went up', async () => {
+    state.inbox = [rene];
+    await showWebNotification(profile, view(MAIL_VIEW), page);
+    await runToastAction({ id: 't1', ...state.toasts[0] } as never, 'trash');
+    expect(state.trashed).toEqual(['m1']);
+  });
+
+  it('delete still finds the mail when it was not yet indexed as the card went up', async () => {
+    await showWebNotification(profile, view(MAIL_VIEW), { ...page, id: 'p3' });
+    expect(state.toasts[0]).not.toHaveProperty('messageId');
+    state.inbox = [rene];
+    await runToastAction({ id: 't1', ...state.toasts[0] } as never, 'trash');
+    expect(state.trashed).toEqual(['m1']);
+  });
+
+  it('reply opens the mail in the main window with the reply box, even when mail opens in a window', async () => {
+    state.inbox = [rene];
+    await showWebNotification(profile, view(MAIL_VIEW), page);
+    await runToastAction({ id: 't1', ...state.toasts[0] } as never, 'reply');
+    expect(state.opened).toEqual([['u0', 't1', 'm1', { reply: true }]]);
+    expect(state.trashed).toEqual([]);
   });
 });
