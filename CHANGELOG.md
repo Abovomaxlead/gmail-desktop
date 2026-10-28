@@ -3,6 +3,26 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1793188749] — 2026-10-28
+
+### Nieuw
+- **Snelle acties op een mailmelding: beantwoorden, archiveren, verwijderen en gelezen.** Ga
+  met je muis over een melding en je ziet vier knoppen. Beantwoorden opent de mail in het
+  hoofdvenster met het antwoordvak al open, zodat je meteen kunt typen. Archiveren,
+  verwijderen en gelezen gebeuren op de achtergrond, zonder dat er iets opengaat; verwijderen
+  zet de mail in de prullenbak. Ga je met de muis over een knop, dan zie je wat hij doet.
+
+### Opgelost
+- **De knoppen staan nu ook op meldingen die Gmail zelf stuurt.** Bij de meeste meldingen
+  verschenen archiveren en gelezen niet als je met de muis over de melding ging. Nu wel.
+- **De knoppen op meldingen van een gedeeld postvak doen het.** Archiveren of gelezen op een
+  melding van een postvak waar je gemachtigde van bent, deed niets. Nu wel.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1792585101] — 2026-10-21
 
 ### Opgelost
