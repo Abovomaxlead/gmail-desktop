@@ -3,6 +3,21 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1793366777] — 2026-10-30
+
+### Nieuw
+- **Kies zelf hoe lang een melding blijft staan.** Bij accounts waar Blijft staan aan staat,
+  bleef een melding tot je hem wegklikte. Nu kies je in Instellingen → Meldingen of dat zo
+  blijft, of dat de melding na een tijd verdwijnt: een aantal seconden, minuten of uren.
+- **Een melding verdwijnt zodra je die mail in de app opent.** Open je de mail in de lijst,
+  in het leesvenster of via zoeken, dan gaat de melding over die mail weg. De andere meldingen
+  blijven staan.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1793363502] — 2026-10-30
 
 ### Opgelost
