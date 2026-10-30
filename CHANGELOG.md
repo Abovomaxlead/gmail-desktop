@@ -3,6 +3,19 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1-beta.1793363502] — 2026-10-30
+
+### Opgelost
+- **Verwijderen, archiveren en gelezen op een melding zie je meteen in Gmail.** De mail
+  verdween pas na een paar seconden uit je lijst, waardoor het leek alsof de knop niets deed.
+  Nu ververst de lijst direct na de knop. Staat de knop Vernieuwen niet in beeld, dan
+  haalt de app de mail zelf uit je inbox-lijst tot Gmail bijgewerkt is.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
 ## [1.0.1-beta.1793188749] — 2026-10-28
 
 ### Nieuw
