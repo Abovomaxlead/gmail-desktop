@@ -493,6 +493,18 @@ export class ProfileViewManager {
   }
 
   /**
+   * Hands scripts to an account's mail view, for the page work after an API change
+   *
+   * @param accountKey
+   * @returns the runner, which answers null once the view is gone; null without a view
+   */
+  mailViewRunner(accountKey: string): ((script: string) => Promise<unknown>) | null {
+    const wc = this.views.get(viewKey(accountKey, 'mail'))?.webContents;
+    if (!wc || wc.isDestroyed()) return null;
+    return (script) => (wc.isDestroyed() ? Promise.resolve(null) : wc.executeJavaScript(script));
+  }
+
+  /**
    * Moves a view to a new home url, in place
    *
    * For a delegated mailbox whose id expired. The view is kept rather than torn down, so a

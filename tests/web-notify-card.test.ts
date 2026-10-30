@@ -26,6 +26,7 @@ vi.mock('../electron/core/runtime', () => ({
     markNotificationClickHandled: vi.fn(),
     openMailThread: (...args: unknown[]) => void state.opened.push(args),
     popOutThread: vi.fn(),
+    mailViewRunner: () => null,
   },
   // Set to open notifications in a window, which a reply must not follow
   prefs: { getAll: () => ({ reneMode: false, notificationOpen: 'window' }) },

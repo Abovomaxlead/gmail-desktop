@@ -171,10 +171,10 @@ export async function openFromList(
 // Helper functions
 //===========================
 
-/** What both scripts read the page with: the list row an element stands in, and whether an
- * element is laid out at all. Gmail keeps lists it drew before in the page, hidden, so a row
- * that is there is not yet a row on screen. */
-const PAGE_HELPERS = `const attr = (el, name) =>
+/** What the list scripts read the page with: the list row an element stands in, and whether
+ * an element is laid out at all. Gmail keeps lists it drew before in the page, hidden, so a
+ * row that is there is not yet a row on screen. Shared with list-refresh.ts. */
+export const PAGE_HELPERS = `const attr = (el, name) =>
     typeof el.getAttribute === 'function' ? el.getAttribute(name) : null;
   const rowOf = (start) => {
     let cur = start;

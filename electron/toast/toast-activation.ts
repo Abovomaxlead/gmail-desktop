@@ -43,6 +43,7 @@ import {
   trashMessage,
   type MessageMeta,
 } from '../gmail/gmail-api';
+import { hideThreadRows, refreshMailList } from '../gmail/list-refresh';
 import { surfacesForRef } from '../../renderer/lib/surfaces';
 import { nativeLabels } from '../menus/native-labels';
 import { showToast, toastAccountFor } from './toast-presenter';
@@ -357,7 +358,8 @@ export function activateToast(toast: Toast): void {
  * Runs one of the buttons on a mail card
  *
  * Reply opens the mail in the main window with Gmail's reply box open; the rest act
- * through the API in the background, and open nothing. A card relayed from Gmail's page
+ * through the API in the background, open nothing, and then make the account's mail view
+ * show the change now (see list-refresh.ts). A card relayed from Gmail's page
  * names its message only when the lookup at raise time found it, so a miss then is asked
  * once more here. The action took the card off the stack as handled, which skips onDiscard,
  * so the source is released here once nothing below can still need it.
@@ -400,16 +402,47 @@ export async function runToastAction(toast: Toast, action: ToastAction): Promise
     if (action === 'archive') await withToken((t) => archiveMessage(t, messageId));
     else if (action === 'trash') await withToken((t) => trashMessage(t, messageId));
     else await withToken((t) => markMessageRead(t, messageId));
-    notifyLog(`[toast] ${action} on ${email} message=${messageId}: done`);
   } catch (e) {
     notifyLog(`[toast] ${action} on ${email} message=${messageId} failed: ${String(e)}`);
+    return;
   }
+  const shown = await showInList(toast.account!.key, action, target.threadId, withToken);
+  notifyLog(`[toast] ${action} on ${email} message=${messageId}: done, list ${shown}`);
 }
 
 
 //===========================
 // Helper functions
 //===========================
+
+/**
+ * Makes the mail view show an API change now rather than at Gmail's next sync
+ *
+ * Refresh first. Where none is on screen, an archived or deleted conversation's rows are
+ * hidden instead, once the API says nothing of it is left in the inbox.
+ *
+ * @param accountKey
+ * @param action
+ * @param threadId the conversation acted on, when known
+ * @param withToken the mailbox's own token route
+ * @returns what was done, for the log
+ */
+async function showInList(
+  accountKey: string,
+  action: ToastAction,
+  threadId: string | undefined,
+  withToken: <T>(fn: (token: string) => Promise<T>) => Promise<T>,
+): Promise<string> {
+  const run = manager?.mailViewRunner(accountKey);
+  if (!run) return 'no-view';
+  if ((await refreshMailList(run)) === 'pressed') return 'refreshed';
+  if (action === 'read' || !threadId) return 'no refresh button';
+  const left = await withToken((t) => fetchThreadInboxMeta(t, threadId)).catch(() => null);
+  if (left === null) return 'no refresh button, conversation unreadable';
+  if (left.length > 0) return `no refresh button, ${left.length} mail(s) of the conversation still in the inbox`;
+  const hidden = await hideThreadRows(run, threadId);
+  return hidden < 0 ? 'no refresh button, not an inbox view' : `no refresh button, hid ${hidden} row(s)`;
+}
 
 /**
  * The message a relayed card is about, when the lookup at raise time came back empty
