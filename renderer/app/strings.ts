@@ -233,6 +233,15 @@ export interface UiStrings {
   soundToggleTitle: string;
   persistToggle: string;
   persistToggleTitle: string;
+  persistDuration: string;
+  persistDurationDescription: string;
+  persistUntilDismissed: string;
+  persistForTime: string;
+  persistAmount: string;
+  persistUnit: string;
+  unitSeconds: string;
+  unitMinutes: string;
+  unitHours: string;
   toastArchive: string;
   toastMarkRead: string;
   toastTrash: string;
@@ -816,7 +825,17 @@ export const STRINGS_NORMAL: UiStrings = {
   soundToggle: 'Sound',
   soundToggleTitle: 'Play a sound with notifications for this account',
   persistToggle: 'Persist',
-  persistToggleTitle: 'Keep notifications on screen until you dismiss them, instead of hiding them after a few seconds',
+  persistToggleTitle: 'Keep notifications on screen longer than a few seconds: until you dismiss them, or for the time you choose below',
+  persistDuration: 'How Long Persisting Notifications Stay',
+  persistDurationDescription:
+    'For accounts with Persist turned on. Keep their notifications until you dismiss them, or let them go away after the time you choose. A notification also goes away once you open that mail in the app.',
+  persistUntilDismissed: 'Until dismissed',
+  persistForTime: 'For a set time',
+  persistAmount: 'Duration',
+  persistUnit: 'Unit',
+  unitSeconds: 'seconds',
+  unitMinutes: 'minutes',
+  unitHours: 'hours',
   toastArchive: 'Archive',
   toastMarkRead: 'Mark read',
   toastTrash: 'Delete',
@@ -1348,7 +1367,17 @@ export const STRINGS_RENE: UiStrings = {
   soundToggle: 'Geluid',
   soundToggleTitle: 'Speel een geluidje bij meldingen voor deze meneer of mevrouw',
   persistToggle: 'Blijft staan',
-  persistToggleTitle: 'Berichtjes blijven staan tot u ze wegklikt, in plaats van vanzelf weg te gaan',
+  persistToggleTitle: 'Berichtjes blijven langer staan: tot u ze wegklikt, of zo lang als u hieronder kiest',
+  persistDuration: 'Hoe lang blijven berichtjes staan?',
+  persistDurationDescription:
+    'Voor iedereen waar "Blijft staan" aan staat. Ze blijven tot u ze wegklikt, of gaan weg na de tijd die u kiest. Doet u het mailtje open in de app? Dan gaat het berichtje ook weg.',
+  persistUntilDismissed: 'Tot ik het wegklik',
+  persistForTime: 'Een tijdje',
+  persistAmount: 'Hoe lang',
+  persistUnit: 'Seconden, minuten of uren',
+  unitSeconds: 'seconden',
+  unitMinutes: 'minuten',
+  unitHours: 'uur',
   toastArchive: 'Opbergen',
   toastMarkRead: 'Al gezien',
   toastTrash: 'Weggooien',
@@ -1890,7 +1919,17 @@ export const STRINGS_NL: UiStrings = {
   soundToggle: 'Geluid',
   soundToggleTitle: 'Speel een geluid af bij meldingen voor dit account',
   persistToggle: 'Blijft staan',
-  persistToggleTitle: 'Houd meldingen op het scherm tot je ze wegklikt, in plaats van ze na een paar tellen te laten verdwijnen',
+  persistToggleTitle: 'Houd meldingen langer dan een paar tellen op het scherm: tot je ze wegklikt, of zo lang als je hieronder kiest',
+  persistDuration: 'Hoe lang blijvende meldingen staan',
+  persistDurationDescription:
+    'Voor accounts waar Blijft staan aan staat. Houd hun meldingen tot je ze wegklikt, of laat ze verdwijnen na de tijd die je kiest. Een melding verdwijnt ook zodra je die mail in de app opent.',
+  persistUntilDismissed: 'Tot je hem wegklikt',
+  persistForTime: 'Een gekozen tijd',
+  persistAmount: 'Duur',
+  persistUnit: 'Eenheid',
+  unitSeconds: 'seconden',
+  unitMinutes: 'minuten',
+  unitHours: 'uur',
   toastArchive: 'Archiveren',
   toastMarkRead: 'Gelezen',
   toastTrash: 'Verwijderen',

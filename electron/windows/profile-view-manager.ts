@@ -32,6 +32,7 @@ import { SESSION_PARTITION } from '../core/session-partition';
 import { MailThreadNavigator, type MailViewLookup } from './mail-thread-navigator';
 import { MailViewMessages, type ViewLookup } from './mail-view-messages';
 import { isSignInUrl } from '../gmail/google-urls';
+import { parseOpenConversations, type OpenConversation } from '../gmail/open-conversation';
 
 export type { Surface };
 
@@ -138,6 +139,9 @@ export class ProfileViewManager {
      * account that has no view yet still has a window, and that answer is tab-windows.ts's.
      * Left out, everything lives in the window handed in above. */
     private readonly hostFor?: (accountKey: string) => BrowserWindow | null,
+    /** A mail view opened a conversation it was not showing before -- in the reading pane,
+     * full width, from a search: whatever the page reports, already parsed. */
+    private readonly onConversationOpened?: (accountKey: string, open: OpenConversation[]) => void,
   ) {
     this.follow(this.win);
     const mailThreadLookup: MailViewLookup = {
@@ -287,6 +291,9 @@ export class ProfileViewManager {
           }
         } else if (channel === IPC.MAIL_DROP_ALLOWED_GET) {
           this.mailViewMessages.pushMailDropAllowed(acctKey);
+        } else if (channel === IPC.MAIL_CONVERSATION_OPENED) {
+          const open = parseOpenConversations(args[0]);
+          if (open.length > 0) this.onConversationOpened?.(acctKey, open);
         }
       }
       if (channel === IPC.NOTIFICATION_ACTIVATE) {

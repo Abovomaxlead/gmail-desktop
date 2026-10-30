@@ -19,6 +19,7 @@ import {
   type MailDropLock,
 } from './core/ipc';
 import { labelFromDragTarget } from './mail/drag/label-drop';
+import { OPEN_CHECK_DELAY_MS, newlyOpened, openConversations } from './gmail/open-conversation';
 import {
   DROPZONE_ID,
   DROPZONE_CSS,
@@ -790,6 +791,28 @@ if (typeof document !== 'undefined') {
         new MutationObserver(report).observe(titleEl, { childList: true });
       }
       setInterval(report, 5000);
+
+      // Which conversation is open, for a card about it to leave. The observer only arms a
+      // timer, so the stream of changes Gmail makes costs one look per burst.
+      let openNow = new Set(openConversations(document).map((c) => c.threadId));
+      let checkPending = false;
+      const checkOpen = (): void => {
+        checkPending = false;
+        const now = openConversations(document);
+        const opened = newlyOpened(openNow, now);
+        openNow = new Set(now.map((c) => c.threadId));
+        if (opened.length > 0) ipcRenderer.send(IPC.MAIL_CONVERSATION_OPENED, opened);
+      };
+      new MutationObserver(() => {
+        if (checkPending) return;
+        checkPending = true;
+        setTimeout(checkOpen, OPEN_CHECK_DELAY_MS);
+      }).observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden', 'data-legacy-thread-id'],
+      });
 
       let answered = false;
       ipcRenderer.on(IPC.MAIL_DROP_ALLOWED, (_e: unknown, allowed: boolean) => {

@@ -66,6 +66,9 @@ export type ToastAction = 'archive' | 'read' | 'trash' | 'reply';
 
 export const TOAST_WIDTH = 380;
 
+/** The longest the settings let a persisting card stay on a timer; longer is "until dismissed". */
+export const MAX_PERSIST_SECONDS = 24 * 60 * 60;
+
 
 //===========================
 // Exported functions

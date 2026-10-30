@@ -100,6 +100,8 @@ export interface Prefs {
     soundName: string;
     volume: number;
     googleApps: boolean;
+    /** 0 keeps a persisting card until dismissed */
+    persistSeconds: number;
   };
   accounts: Record<string, AccountPref>;
   mailDrop: { folder: string };
@@ -240,6 +242,7 @@ interface DesktopBridge {
     soundName?: string;
     volume?: number;
     googleApps?: boolean;
+    persistSeconds?: number;
   }): void;
   testNotification(): void;
   pickDownloadFolder(): Promise<string>;

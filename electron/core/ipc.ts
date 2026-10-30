@@ -17,6 +17,8 @@ import type { ByMailbox, CopyProgress, JobEnd, JobLine, JobPanel, MailDropTree }
 export const IPC = {
   UNREAD_UPDATE: 'unread:update',
   NOTIFICATION_ACTIVATE: 'notification:activate',
+  /** A Gmail view's open conversation changed; carries the newly opened ones */
+  MAIL_CONVERSATION_OPENED: 'mail:conversation-opened',
   ACCOUNT_IDENTITY: 'account:identity',
   MAIL_DROP: 'mail:drop',
   MAIL_DROP_ALLOWED_GET: 'maildrop:allowed-get',

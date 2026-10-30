@@ -100,6 +100,18 @@ export function rememberWebNotifySource(key: string, source: WebNotifySource): v
 }
 
 /**
+ * The subject Gmail's page notified with, for a card relayed from it
+ *
+ * Kept here rather than read off the card, whose body the privacy settings may have replaced.
+ *
+ * @param webNotifyId the card's webNotifyId
+ * @returns the subject, or undefined for a card that was not relayed or whose source is gone
+ */
+export function notifiedSubject(webNotifyId: string): string | undefined {
+  return webNotifySources.get(webNotifyId)?.notified.subject;
+}
+
+/**
  * Builds and raises the toast for a notification Gmail's own page raised, remembering the
  * source so a click on it can find the message again
  *

@@ -124,14 +124,17 @@ export function notificationSilent(
 }
 
 /**
- * Whether an account's cards stay up until dismissed
+ * How long an account's cards stay up
  *
  * @param prefs
  * @param email
- * @returns true to stay, false for a card that fades
+ * @returns false for a card that fades after a few seconds, true for one that stays until
+ *   dismissed, or the milliseconds a persisting card stays when a time has been chosen
  */
-export function notificationPersist(prefs: Prefs, email: string): boolean {
-  return prefs.accounts[email]?.notifyPersist === true;
+export function notificationPersist(prefs: Prefs, email: string): boolean | number {
+  if (prefs.accounts[email]?.notifyPersist !== true) return false;
+  const seconds = prefs.notifications.persistSeconds;
+  return seconds > 0 ? seconds * 1000 : true;
 }
 
 /**

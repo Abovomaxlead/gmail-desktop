@@ -38,7 +38,7 @@ function fakeWindow(overrides: Partial<ToastWindow> = {}): ToastWindow {
   } as unknown as ToastWindow;
 }
 
-function mailInput(n: number, persist = true): ToastInput {
+function mailInput(n: number, persist: boolean | number = true): ToastInput {
   return {
     kind: 'mail',
     title: `Sender ${n}`,
@@ -389,6 +389,41 @@ describe('ToastController — nothing fades before it has been seen', () => {
     h.setNow(TOAST_LIFETIME_MS * 2);
     vi.advanceTimersByTime(TOAST_LIFETIME_MS * 2);
     expect(h.discarded).toEqual([]);
+  });
+});
+
+describe('ToastController — a chosen time', () => {
+  it('keeps a persisting card for exactly the time chosen, not the default fade', () => {
+    vi.useFakeTimers();
+    const h = harness();
+    h.controller.show(mailInput(1, 60_000));
+    h.controller.show(mailInput(2));
+    h.controller.applySize(380, 184);
+
+    h.setNow(59_000);
+    vi.advanceTimersByTime(59_000);
+    expect(h.discarded).toEqual([]);
+
+    h.setNow(61_000);
+    vi.advanceTimersByTime(2000);
+    expect(ids(h.discarded)).toEqual(['src-1']);
+  });
+});
+
+describe('ToastController.dismissMany', () => {
+  const account = (key: string) => ({ key, email: `${key}@x.com`, label: key, color: '#000', avatarUrl: '' });
+
+  it('releases the cards it takes and leaves every other card up', () => {
+    const h = harness();
+    h.controller.show({ ...mailInput(1), account: account('a1') });
+    h.controller.show({ ...mailInput(2), account: account('a1') });
+    h.controller.show({ ...mailInput(3), account: account('a2') });
+
+    h.controller.dismissMany(['t1']);
+
+    expect(ids(h.discarded)).toEqual(['src-1']);
+    expect(ids(h.controller.mailCards('a1'))).toEqual(['src-2']);
+    expect(ids(h.controller.mailCards('a2'))).toEqual(['src-3']);
   });
 });
 

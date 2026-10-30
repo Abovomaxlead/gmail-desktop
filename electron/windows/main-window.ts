@@ -71,6 +71,7 @@ import { ToastWindow } from '../toast/toast-window';
 import { ToastController } from '../toast/toast-controller';
 import { drainToSystem, repairToastStack } from '../toast/toast-presenter';
 import { activateNotification, activateToast, forgetToastResources, runToastAction } from '../toast/toast-activation';
+import { dismissCardsForOpenedMail } from '../toast/toast-opened-mail';
 import { cancelComposeAsk } from '../compose/mailto-controller';
 import { onIdentity, startDetection } from '../accounts/detection-controller';
 import { loadDelegatedProfiles, startDelegatedUrlRefreshOnce } from '../delegation/delegated-controller';
@@ -219,6 +220,8 @@ export function createWindow(): void {
     // out. Asked of the registry rather than remembered by the manager: an account with no
     // view yet still has a window, and that is where its first view has to be built.
     (acctKey) => windowForAccount(acctKey),
+    // A conversation opened inside Gmail's page: its cards have been seen.
+    (acctKey, open) => dismissCardsForOpenedMail(acctKey, open),
   );
   setManager(views);
 

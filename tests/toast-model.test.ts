@@ -11,6 +11,7 @@ import {
   delayExpiries,
   dismissToast,
   expireToasts,
+  openedCards,
 } from '../electron/toast/toast-model';
 import type { Toast, ToastStack } from '../renderer/lib/toast';
 
@@ -158,6 +159,34 @@ describe('collapse', () => {
   it('leaves an already collapsed stack alone', () => {
     const before = withMails(6);
     expect(collapse(before)).toBe(before);
+  });
+});
+
+describe('openedCards', () => {
+  const open = [{ threadId: '1a18c42fc2d573bc', subject: 'Testmail  van de\nBouwplaats ' }];
+
+  it('takes a card by its thread id, never one about another conversation', () => {
+    const opened = { ...mail('m1'), threadId: '1a18c42fc2d573bc' };
+    const other = { ...mail('m2'), threadId: '1a18c4141e983de6' };
+    expect(openedCards([opened, other], open, () => undefined)).toEqual(['m1']);
+  });
+
+  it('takes a card without a thread id by the subject it was notified with', () => {
+    const relayed = { ...mail('m1'), webNotifyId: 'w1' };
+    const elsewhere = { ...mail('m2'), webNotifyId: 'w2' };
+    const subjects: Record<string, string> = { w1: 'testmail van de bouwplaats', w2: 'GRATIS Plenny Oats' };
+    expect(openedCards([relayed, elsewhere], open, (c) => subjects[c.webNotifyId!])).toEqual(['m1']);
+  });
+
+  it('does not let a card that knows its thread match on a shared subject', () => {
+    // every reply in a conversation carries the subject; the id is the better answer
+    const known = { ...mail('m1'), threadId: '1a18c4141e983de6' };
+    expect(openedCards([known], open, () => 'Testmail van de Bouwplaats')).toEqual([]);
+  });
+
+  it('never matches an empty subject', () => {
+    const blank = { ...mail('m1'), webNotifyId: 'w1' };
+    expect(openedCards([blank], [{ threadId: 'x', subject: '' }], () => '')).toEqual([]);
   });
 });
 
