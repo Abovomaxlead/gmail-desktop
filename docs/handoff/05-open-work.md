@@ -9,10 +9,8 @@ Tidy section 1 first, because it can lose work. The rest is a backlog.
 | What | Where | Do |
 |---|---|---|
 | Uncommitted work | `electron/feedback/crash-controller.ts`, `crash-report.ts`, `electron/preload.ts`, `tests/crash-report.test.ts` (about 140 lines, crash reporting), on the developer's machine only | Ask the developer, or review it, run the tests and commit. `renderer/next-env.d.ts` is only the dev/build flip; restore it. |
-| Untracked script | `scripts/check-rooms.mjs`, which diagnoses calendar room addresses and bookings | Commit it if it is still wanted. |
 | Unmerged feature | `origin/feature/beta-access-gate`: one commit beyond what is merged, `667b6c0`, "the relay decides who is offered betas", by Google-group membership. | **The relay side does not exist**: no such route is in the relay repository. The app treats "endpoint not deployed" as "no change", so merging is harmless, but the feature does nothing until the relay gets the route and the config gets `betaAccessUrl`. |
 | `master` | Brought level with `dev` on 2026-10-01, `feature/tab-windows` included | `dev` stays the working branch. Merge it into `master` when you want GitHub's default branch to show the current state. |
-| Local worktrees | `.claude/worktrees/big-label-batching`, `default-mail-client`, `eager-account-load` | Merged or abandoned. **Their `node_modules` are junctions into the main checkout:** remove the junctions first (PowerShell `[System.IO.Directory]::Delete(path, $false)`), then `git worktree remove`. |
 | Branches on the old remote | `old/docs/delegated-api` and a few `old/worktree-*` | Historical; nothing to recover. |
 
 The relay repository is clean: `main` equals Bitbucket. Its old GitHub remote

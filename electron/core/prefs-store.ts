@@ -8,6 +8,7 @@
 // Quiet-hours times are "HH:MM", dndUntil is epoch ms, an empty folder string means the OS
 // default, and hardwareAcceleration is read before app "ready" so it needs a restart.
 import { readJsonFile, writeJsonFile } from './json-store';
+import { MAX_PERSIST_SECONDS } from '../../renderer/lib/toast';
 import type { LanguagePref } from './locale';
 
 
@@ -40,6 +41,9 @@ export interface NotificationPrefs {
   soundName: string;
   volume: number;
   googleApps: boolean;
+  /** How long a card stays when its account has the persist switch on; 0 keeps it until
+   * dismissed, which is how the switch behaved before the time could be chosen. */
+  persistSeconds: number;
 }
 
 export type TrayColor = 'system' | 'light' | 'dark';
@@ -107,7 +111,7 @@ export type AppearancePatch = Partial<Omit<AppearancePrefs, 'tray'>> & {
 export type NotificationExtrasPatch = Partial<
   Pick<
     NotificationPrefs,
-    'showSender' | 'showSubject' | 'sound' | 'soundName' | 'volume' | 'googleApps'
+    'showSender' | 'showSubject' | 'sound' | 'soundName' | 'volume' | 'googleApps' | 'persistSeconds'
   >
 >;
 export interface WindowPrefs {
@@ -170,6 +174,7 @@ export const DEFAULT_PREFS: Prefs = {
     soundName: '',
     volume: 1,
     googleApps: true,
+    persistSeconds: 0,
   },
   accounts: {},
   mailDrop: { folder: '' },
@@ -241,6 +246,18 @@ function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T)
 function unitRange(v: unknown, fallback: number): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return fallback;
   return Math.min(1, Math.max(0, v));
+}
+
+/**
+ * Reads how long a persisting card stays, as whole seconds in 0..MAX_PERSIST_SECONDS
+ *
+ * @param v
+ * @returns the rounded, clamped seconds, or 0 (until dismissed) when v is not a finite number
+ * @private
+ */
+function persistSeconds(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 0;
+  return Math.min(MAX_PERSIST_SECONDS, Math.max(0, Math.round(v)));
 }
 
 /**
@@ -360,6 +377,7 @@ export class PrefsStore {
           soundName: typeof raw.notifications?.soundName === 'string' ? raw.notifications.soundName : '',
           volume: unitRange(raw.notifications?.volume, 1),
           googleApps: bool(raw.notifications?.googleApps, true),
+          persistSeconds: persistSeconds(raw.notifications?.persistSeconds),
         },
         accounts: accountsRecord(raw.accounts),
         mailDrop: {
@@ -504,7 +522,11 @@ export class PrefsStore {
   }
   setNotificationExtras(patch: NotificationExtrasPatch): void {
     const prefs = this.getAll();
-    this.write({ ...prefs, notifications: { ...prefs.notifications, ...patch } });
+    const next = { ...prefs.notifications, ...patch };
+    // the patch arrives from the settings page unvalidated, so the one number with a range is
+    // held to it here rather than trusted until the next read from disk
+    if ('persistSeconds' in patch) next.persistSeconds = persistSeconds(patch.persistSeconds);
+    this.write({ ...prefs, notifications: next });
   }
   setLaunchMinimized(v: boolean): void {
     this.write({ ...this.getAll(), launchMinimized: v });

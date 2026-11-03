@@ -11,6 +11,7 @@ const meta = (id: string, internalDate: number): MessageMeta => ({
   from: 'Jan <jan@x.nl>',
   subject: `Onderwerp ${id}`,
   internalDate,
+  snippet: '',
 });
 
 interface FakeOptions {

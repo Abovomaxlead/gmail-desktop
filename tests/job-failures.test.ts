@@ -11,7 +11,7 @@ import {
   replaceBatchPull,
   retryFiles,
   takePullSlice,
-} from '../electron/mail/job-failures';
+} from '../electron/mail/job/job-failures';
 
 type T = { email: string; labelIds: string[] };
 type F = { threadId: string; subject: string; messageId: string };

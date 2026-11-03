@@ -12,7 +12,7 @@ import {
   KEEP_DAYS,
   LOG_NAME,
   type DropEntry,
-} from '../electron/mail/mail-drop-cleanup';
+} from '../electron/mail/pull/mail-drop-cleanup';
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse('2026-08-18T12:00:00.000Z');

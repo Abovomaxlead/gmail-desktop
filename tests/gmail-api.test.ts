@@ -26,7 +26,6 @@ import {
   parseMessageIds,
   parseMessageLabelIds,
   labelsHoldingMessage,
-  STOP_URL,
   PROFILE_URL,
   HISTORY_URL,
   parseProfileHistoryId,
@@ -61,9 +60,29 @@ import {
   userLabelMap,
   parseErrorReason,
   GmailHttpError,
+  parseThreadInboxMeta,
 } from '../electron/gmail/gmail-api';
 
 const label = (id: string, name: string, type = 'user') => ({ id, name, type });
+
+describe('parseThreadInboxMeta', () => {
+  const msg = (id: string, labelIds: string[], date: string) => ({
+    id,
+    threadId: 't1',
+    labelIds,
+    internalDate: date,
+    payload: { headers: [{ name: 'Subject', value: 'Re: Offerte' }] },
+  });
+
+  // A notification is never about the user's own reply, which sits in the same thread with
+  // the same subject and would otherwise win as the newest mail.
+  it('leaves out the mail that is not in the inbox', () => {
+    const out = parseThreadInboxMeta({
+      messages: [msg('m1', ['INBOX'], '1'), msg('m2', ['INBOX', 'UNREAD'], '2'), msg('m3', ['SENT'], '3')],
+    });
+    expect(out.map((m) => m.id)).toEqual(['m1', 'm2']);
+  });
+});
 
 describe('parseLabels', () => {
   it('keeps your own labels, sorted by name', () => {
@@ -754,6 +773,7 @@ describe('message metadata', () => {
       subject: 'Offerte',
       internalDate: 1780000000000,
       messageId: '',
+      snippet: '',
     });
   });
 
@@ -1035,6 +1055,16 @@ describe('parseMessageMeta, the Message-ID it now also carries', () => {
 
   it('asks Gmail for the header, or it would never arrive', () => {
     expect(MESSAGE_META_HEADERS).toContain('Message-ID');
+  });
+
+  it('reads the preview, with the entities Gmail writes it in decoded', () => {
+    const meta = parseMessageMeta({
+      id: 'm1',
+      threadId: 't1',
+      internalDate: '1700000000000',
+      snippet: 'Hoi Robbin, de feed &amp; de url staan goed. Kun je &#39;m checken?',
+    });
+    expect(meta?.snippet).toBe("Hoi Robbin, de feed & de url staan goed. Kun je 'm checken?");
   });
 });
 

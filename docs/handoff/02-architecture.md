@@ -17,7 +17,8 @@ on a user's machine. Line numbers are for `dev` at `3231a06` and drift; the file
 | Relay server | separate repo `gmail-push-relay` (Bitbucket) | Node + TypeScript in Docker behind Traefik |
 | Build and release | `.github/workflows/`, `electron-builder.yml`, `scripts/` | GitHub Actions on Windows and macOS runners |
 
-The only runtime npm dependency of the app is `ws`. Everything else is Electron and Node itself.
+The app has no runtime npm dependencies: esbuild bundles what main needs (`electron-updater`
+included) into `dist-electron/`. Everything else is Electron and Node itself.
 
 
 ## 2. Main-process folders
@@ -30,7 +31,7 @@ The only runtime npm dependency of the app is `ws`. Everything else is Electron 
 | `auth/` | OAuth linking (PKCE, loopback redirect intercepted in-app), token store and sealing, config sources, health and reconnect banner, tokens for delegated mailboxes | `oauth-flow.ts`, `mailbox-token.ts` |
 | `delegation/` | Delegated mailboxes: relay calls, URL scraping from the account switcher, health checks, the removal guard | `delegated-controller.ts` |
 | `gmail/` | The Gmail API client, quota pacing, retry, batching, history cursor, opening the exact message | `gmail-api.ts`, `quota.ts`, `retry.ts` |
-| `mail/` | Mail drop, copy, label copy, batched jobs, duplicate scan, journals, rollback, cleanup, mailto parsing | `mail-drop-controller.ts` (≈ 3,400 lines, the engine) |
+| `mail/` | Mail drop, copy, label copy, batched jobs, duplicate scan, journals, rollback, cleanup. Subfolders: `drag/` (the in-page strip, label drags, the pull lock), `pull/` (fetching mail to disk, the drop folder, cleanup), `copy/` (copying into mailboxes, journals, markers, the "already there" index), `job/` (batched label jobs), `purge/` (emptying a label), `shared/` (MIME reader, JSONL store, chunking) | `mail/pull/pull-controller.ts` (the drag-in entry point), `mail/job/job-driver.ts` (the copy/job engine and the hook wiring) |
 | `push/` | **API polling, not push** (the name is historical): `history.list` sweeps | `mail-sync-controller.ts` |
 | `notify/` | Notification policy (per account, quiet hours, sound), log file | `notification-policy.ts`, `notify-log.ts` |
 | `toast/` | The app's own notification window and click handling | `toast-presenter.ts`, `toast-activation.ts` |
@@ -79,17 +80,17 @@ hides it to the tray.
 | Delegated mailboxes in the tab bar | `delegation/delegated-controller.ts`, `windows/switcher-reader.ts` |
 | Notifications, own accounts | shim in `preload.ts` (`createNotificationShim`), then `notify/`, then `toast/` |
 | Notifications, delegated mailboxes | `push/mail-sync-controller.ts` (15-second sweep) |
-| Click a notification → the right mail | `toast/toast-activation.ts`, `notify/notify-match.ts`, `gmail/message-anchor.ts` |
+| Click a notification → the right mail | `toast/toast-activation.ts`, `notify/notify-match.ts`, `windows/mail-thread-navigator.ts`, `gmail/list-row-open.ts` (clicks the row, so the reading pane is kept), `gmail/message-anchor.ts` |
 | Unread badge | `unread/` plus `preload.ts` `computeAndReport` |
-| Drag mail onto the strip → `.eml` on disk | `mail/dropzone.ts` (in-page), `mail/mail-drop-controller.ts` `handleMailDrop`, `mail/mail-archive.ts` |
-| Copy dragged mail into other mailboxes ("Kopieer") | `mail-drop-controller.ts` `copyToMailboxes` → `copyToMailbox` → `copyOneFile`; UI `renderer/app/maildrop/page.tsx` |
-| "Staat er al": duplicate warning | `mail-drop-controller.ts` `startExistingScan`, `findDuplicates`; `mail/message-index.ts`; `gmail-api.ts` `labelsHoldingMany` |
-| Drag a whole label, with or without its structure | `mail/label-drop.ts`, `mail/label-tree.ts` |
-| Big label (> 2,000 conversations) in batches | `mail/label-job.ts`, `mail-drop-controller.ts` `planJob` / `advanceJob` / `walkJob`, `mail/job-guard.ts` |
-| Pause / stop / undo a copy | `mail/copy-control.ts`, `mail/copy-journal.ts`, `mail/copy-marker-sweep.ts`, `resumeOrphanedCopyRuns` |
-| Empty a label ("Labels opruimen") | `mail/label-purge.ts`, `mail/label-purge-controller.ts`, settings section in `renderer/app/settings/` |
+| Drag mail onto the strip → `.eml` on disk | `mail/drag/dropzone.ts` (in-page), `mail/pull/pull-controller.ts` `handleMailDrop`, `mail/pull/mail-archive.ts` |
+| Copy dragged mail into other mailboxes ("Kopieer") | `mail/job/job-driver.ts` `copyToMailboxes` → `mail/copy/copy-run.ts` `runCopyToMailboxes` → `mail/copy/upload.ts` `copyToMailbox` → `copyOneFile`; UI `renderer/app/maildrop/page.tsx` (state) and `report-parts.tsx` (reports and dialogs) |
+| "Staat er al": duplicate warning | `mail/copy/duplicate-scan.ts` `startExistingScan`, `findDuplicates`; `mail/copy/message-index.ts`; `gmail-api.ts` `labelsHoldingMany` |
+| Drag a whole label, with or without its structure | `mail/drag/label-drop.ts`, `mail/copy/label-tree.ts` |
+| Big label (> 2,000 conversations) in batches | `mail/job/label-job.ts`, `mail/pull/pull-controller.ts` `planJob`, `mail/job/job-driver.ts` `advanceJob` / `walkJob`, `mail/job/job-guard.ts` |
+| Pause / stop / undo a copy | `mail/copy/copy-control.ts`, `mail/copy/copy-journal.ts`, `mail/copy/copy-marker-sweep.ts`, `mail/copy/orphan-runs.ts` `resumeOrphanedCopyRuns` |
+| Empty a label ("Labels opruimen") | `mail/purge/label-purge.ts`, `mail/purge/label-purge-controller.ts`, settings section in `renderer/app/settings/` |
 | Verification code copied automatically | `gmail/verification-code.ts`, `push/mail-sync-controller.ts` |
-| `mailto:` / default mail client | `compose/`, `mail/mailto.ts`, `system/mail-client-registration.ts` |
+| `mailto:` / default mail client | `compose/`, `compose/mailto.ts`, `system/mail-client-registration.ts` |
 | Google apps (Calendar, Drive, Docs, …) in the app | `renderer/lib/surfaces.ts` (the nine surfaces), `windows/surface-opener.ts` |
 | Low-memory mode | `windows/view-budget.ts`, `windows/view-surfaces.ts` |
 | Phishing check on external links | `system/link-guard.ts` |

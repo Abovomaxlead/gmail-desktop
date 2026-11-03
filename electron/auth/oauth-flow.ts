@@ -4,6 +4,11 @@
 // Consent loads in a view on the Gmail views' session partition, so the user only grants
 // permission rather than signing in again, and the loopback redirect is intercepted before
 // it loads. Every refresh re-checks the account is still linked before saving.
+//
+// A failed refresh is not an expired link. Only Google answering `invalid_grant` means the
+// refresh token is dead and a new consent is needed; no network after a laptop wakes, a
+// timeout or a 5xx just means "not now", and the next call tries again. grantRejected() is
+// what the reconnect banner reads, so a morning without Wi-Fi does not ask for a reconnect.
 
 import type { BrowserWindow } from 'electron';
 import {
@@ -20,7 +25,24 @@ import {
 } from './google-oauth';
 import { ALLOWED_EMAIL_DOMAINS, isAllowedAccount } from './account-domain';
 import { memoise } from '../core/concurrency';
+import { notifyLog } from '../notify/notify-log';
 import type { OAuthStore } from './oauth-store';
+
+
+//===========================
+// Types
+//===========================
+
+/** A token endpoint that answered with an error, carrying Google's own error code */
+class TokenEndpointError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code: string | undefined,
+  ) {
+    super(message);
+  }
+}
 
 
 //===========================
@@ -36,6 +58,10 @@ const CONSENT_TIMEOUT_MS = 2 * 60 * 1000;
 //===========================
 
 const inFlightRefresh = new Map<string, Promise<string | null>>();
+
+// Accounts whose refresh token Google refused. Cleared by any later successful refresh and by a
+// new consent.
+const rejectedGrants = new Set<string>();
 
 
 //===========================
@@ -78,6 +104,7 @@ export async function connectAccount(
   const token = applyTokenResponse(store.get(email) ?? null, json, now);
   if ('error' in token) return { ok: false, error: token.error };
   store.set(email, token);
+  rejectedGrants.delete(email);
   return { ok: true };
 }
 
@@ -121,6 +148,19 @@ export async function accessTokenFor(
 }
 
 /**
+ * Whether Google refused this account's refresh token on the last try
+ *
+ * The one failure a reconnect fixes. Anything else that made a refresh fail is left for the
+ * next call to retry.
+ *
+ * @param email
+ * @returns true once the grant is known to be dead, until a refresh or consent succeeds
+ */
+export function grantRejected(email: string): boolean {
+  return rejectedGrants.has(email);
+}
+
+/**
  * Posts a urlencoded body and reads the JSON back. Exported so other flows in this
  * folder (e.g. revoking a grant) reuse it instead of a second HTTP helper.
  *
@@ -147,11 +187,18 @@ export async function postForm(url: string, body: string): Promise<Record<string
         try {
           json = JSON.parse(text) as Record<string, unknown>;
         } catch {
-          reject(new Error(`onleesbaar antwoord (HTTP ${res.statusCode})`));
+          reject(new TokenEndpointError(`onleesbaar antwoord (HTTP ${res.statusCode})`, res.statusCode, undefined));
           return;
         }
         if (res.statusCode >= 400) {
-          reject(new Error(String(json.error_description ?? json.error ?? `HTTP ${res.statusCode}`)));
+          const code = typeof json.error === 'string' ? json.error : undefined;
+          reject(
+            new TokenEndpointError(
+              String(json.error_description ?? json.error ?? `HTTP ${res.statusCode}`),
+              res.statusCode,
+              code,
+            ),
+          );
           return;
         }
         resolve(json);
@@ -221,10 +268,21 @@ function refreshAndStore(
     try {
       const json = await postForm(TOKEN_ENDPOINT, refreshBody(cfg, token.refreshToken));
       const next = applyTokenResponse(token, json, now);
-      if ('error' in next) return null;
+      if ('error' in next) {
+        notifyLog(`[oauth] refresh ${email}: ${next.error} (will retry)`);
+        return null;
+      }
       if (!storeIfStillLinked(store, email, next)) return null;
+      rejectedGrants.delete(email);
       return next.accessToken;
-    } catch {
+    } catch (e) {
+      const rejected = e instanceof TokenEndpointError && e.code === 'invalid_grant';
+      if (rejected) rejectedGrants.add(email);
+      const status = e instanceof TokenEndpointError ? `HTTP ${e.status}` : 'no answer';
+      notifyLog(
+        `[oauth] refresh ${email} failed (${status}): ${(e as Error).message}` +
+          (rejected ? ' — grant rejected, reconnect needed' : ' (will retry)'),
+      );
       return null;
     }
   }).finally(() => inFlightRefresh.delete(email));

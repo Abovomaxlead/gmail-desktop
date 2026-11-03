@@ -38,6 +38,9 @@ export interface NativeLabels {
   readonly collapsedNotifications: (count: number) => string;
   readonly jobRetryToastTitle: (done: number, total: number, failed: number) => string;
   readonly jobRetryToastBody: string;
+  readonly restartNow: string;
+  readonly gpuFallbackMessage: string;
+  readonly gpuFallbackDetail: string;
 }
 
 
@@ -76,6 +79,10 @@ const EN: NativeLabels = Object.freeze({
   jobRetryToastTitle: (done: number, total: number, failed: number) =>
     `Job finished — ${done} of ${total} copied, ${failed} failed`,
   jobRetryToastBody: 'Click to try them again',
+  restartNow: 'Restart now',
+  gpuFallbackMessage: 'Graphics keep failing on this computer',
+  gpuFallbackDetail:
+    'Hardware acceleration has been turned off so windows no longer come up blank. It takes effect after a restart. You can turn it back on in Settings > Advanced.',
 });
 
 const NL: NativeLabels = Object.freeze({
@@ -109,6 +116,10 @@ const NL: NativeLabels = Object.freeze({
   jobRetryToastTitle: (done: number, total: number, failed: number) =>
     `Klus klaar — ${done} van ${total} gekopieerd, ${failed} mislukt`,
   jobRetryToastBody: 'Klik om het opnieuw te proberen',
+  restartNow: 'Nu herstarten',
+  gpuFallbackMessage: 'De grafische weergave valt steeds uit op deze computer',
+  gpuFallbackDetail:
+    'Hardwareversnelling is uitgezet, zodat vensters niet meer leeg blijven. Dit werkt na een herstart. Je kunt het weer aanzetten via Instellingen > Geavanceerd.',
 });
 
 const RENE: NativeLabels = Object.freeze({
@@ -142,6 +153,10 @@ const RENE: NativeLabels = Object.freeze({
   jobRetryToastTitle: (done: number, total: number, failed: number) =>
     `Klaar — ${done} van ${total} overgezet, ${failed} lukte niet`,
   jobRetryToastBody: 'Klik hier om die nog een keer te proberen',
+  restartNow: 'Nu opnieuw opstarten',
+  gpuFallbackMessage: 'Het scherm van de app hapert steeds',
+  gpuFallbackDetail:
+    'Snel tekenen staat nu uit, dan blijft een venster niet meer wit. Dat werkt als de app opnieuw opstart. Wil je het terug? Dat kan bij Knopjes > Voor knutselaars.',
 });
 
 

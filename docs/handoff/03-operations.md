@@ -103,6 +103,9 @@ The release workflow builds and publishes **Windows only**. It runs when a `v*` 
    git push origin dev
    git push origin v1.0.0-beta.<n>
    ```
+   After a **stable** release, also merge it into `master`, the default branch, so `master`
+   is always the newest stable version: `git checkout master && git merge --no-ff v<version>
+   && git push origin master`.
 5. **Watch the run:** `gh run list -R Abovomaxlead/gmail-desktop`. It takes about 2 minutes. The
    workflow:
    1. writes the OAuth config from `GOOGLE_OAUTH_JSON`;
@@ -200,8 +203,10 @@ in the internal file.
 | Why did a drag do nothing? | `second drag refused`, `drag refused: a job is already copying`, `could not be listed over the API` |
 | Did a copy finish or get stuck? | `copy done: X copied, Y skipped`, `sweep of run … not complete yet, will be resumed`, `journal could not be started` |
 | Did a notification click open the right mail? | `message … on screen:` followed by `shown`, `opened`, `stuck`, `hidden` or `missing` |
+| Did a notification click keep the reading pane? | `row in the list:` followed by `clicked` (opened from its row) or `missing` / `ignored` (navigated, so full width) |
 | Are custom notifications failing? | `[toast] page reported no size`, `giving up on the stack` |
 | Did the token file survive? | `sealed elsewhere`, `unopenable` |
 
 Every one of these is a literal `notifyLog(...)` string, so `git grep` on the text finds the
-code that wrote it. Most mail-drop lines come from `electron/mail/mail-drop-controller.ts`.
+code that wrote it. Most mail-drop lines come from `electron/mail/job/job-driver.ts`,
+`electron/mail/copy/copy-run.ts` and `electron/mail/pull/pull-collect.ts`.

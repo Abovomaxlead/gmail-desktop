@@ -1,7 +1,7 @@
 // Which labels the picker offers again without being searched for.
 
 import { describe, expect, it } from 'vitest';
-import { recentFor, RECENT_SHOWN } from '../renderer/app/recent-labels';
+import { recentFor, RECENT_SHOWN } from '../renderer/lib/recent-labels';
 
 const entry = (email: string, labelId: string, at: number) => ({ email, labelId, at });
 const label = (id: string) => ({ id, name: `Label ${id}` });

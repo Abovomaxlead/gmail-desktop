@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
   safeName,
   displayName,
+  senderAddress,
   threadFolderName,
   messageFileName,
   writeThread,
@@ -15,8 +16,8 @@ import {
   newestMessage,
   draggedMessage,
   type SavedMessage,
-} from '../electron/mail/mail-archive';
-import type { EmlHeaders } from '../electron/mail/eml';
+} from '../electron/mail/pull/mail-archive';
+import type { EmlHeaders } from '../electron/mail/shared/eml';
 
 const root = () => mkdtempSync(join(tmpdir(), 'maildrop-'));
 
@@ -49,6 +50,22 @@ describe('safeName', () => {
   });
   it('keeps non-ascii characters', () => {
     expect(safeName('Café — offerte 🎉')).toBe('Café — offerte 🎉');
+  });
+});
+
+describe('senderAddress', () => {
+  it('takes the address out of the angle brackets', () => {
+    expect(senderAddress('René Kok <Rene@Recystel.nl>')).toBe('rene@recystel.nl');
+  });
+  it('takes a bare address as it is', () => {
+    expect(senderAddress('rene@recystel.nl')).toBe('rene@recystel.nl');
+  });
+  it('does not mistake an address in the name for the real one', () => {
+    expect(senderAddress('"rene@oud.nl" <rene@recystel.nl>')).toBe('rene@recystel.nl');
+  });
+  it('gives nothing when the header holds no address, so the caller can fall back', () => {
+    expect(senderAddress('René Kok')).toBe('');
+    expect(senderAddress('')).toBe('');
   });
 });
 

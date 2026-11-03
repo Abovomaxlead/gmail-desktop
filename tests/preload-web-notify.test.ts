@@ -7,48 +7,40 @@ import { webNotifyPageId, webNotifyPayload } from '../electron/preload';
 import { webNotifySourceKey } from '../renderer/lib/toast';
 
 describe('webNotifyPayload', () => {
-  it('carries the title, the body and the id', () => {
-    expect(webNotifyPayload('w1', 'Ada Lovelace', { body: 'Re: the engine' })).toEqual({
+  it('carries the title, the body, the sender picture and the id', () => {
+    expect(
+      webNotifyPayload('w1', 'Ada Lovelace', {
+        body: 'Re: the engine',
+        icon: 'https://lh3.googleusercontent.com/a/ada',
+      }),
+    ).toEqual({
       id: 'w1',
       title: 'Ada Lovelace',
       body: 'Re: the engine',
-      requireInteraction: false,
+      icon: 'https://lh3.googleusercontent.com/a/ada',
     });
   });
 
-  // Google Agenda sets this on every event reminder. Dropped here, the card faded after six
-  // seconds and the reminder was gone for good: no badge, no list, nothing to find it in.
-  it('passes on the page asking for a card that stays up', () => {
-    expect(
-      webNotifyPayload('w9', 'Standup', { body: '09:30 - 09:45', requireInteraction: true })
-        .requireInteraction,
-    ).toBe(true);
-  });
-
-  it('treats anything but a true requireInteraction as not asked for', () => {
-    expect(webNotifyPayload('w10', 'Ada', { body: 'x' }).requireInteraction).toBe(false);
-    expect(
-      webNotifyPayload('w11', 'Ada', { requireInteraction: 'yes' as unknown as boolean })
-        .requireInteraction,
-    ).toBe(false);
-  });
-
-  it('sends an empty body when the page passed no options', () => {
+  it('sends an empty body and picture when the page passed no options', () => {
     expect(webNotifyPayload('w2', 'Ada', undefined)).toEqual({
       id: 'w2',
       title: 'Ada',
       body: '',
-      requireInteraction: false,
+      icon: '',
     });
   });
 
-  it('sends an empty body when the page passed options without one', () => {
+  it('sends an empty body and picture when the page passed options without them', () => {
     expect(webNotifyPayload('w3', 'Ada', { tag: 'x' })).toEqual({
       id: 'w3',
       title: 'Ada',
       body: '',
-      requireInteraction: false,
+      icon: '',
     });
+  });
+
+  it('drops a picture that is not a string', () => {
+    expect(webNotifyPayload('w9', 'Ada', { icon: { a: 1 } as unknown as string }).icon).toBe('');
   });
 
   it('stringifies a body that is not a string', () => {

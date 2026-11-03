@@ -1,6 +1,8 @@
 'use client';
 
-import type { AccountPref, Prefs, Profile } from '../page';
+import { useState } from 'react';
+import type { AccountPref, Prefs, Profile } from '../../lib/desktop-bridge';
+import { MAX_PERSIST_SECONDS } from '../../lib/toast';
 import { isCompleteTime } from '../settings-utils';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
@@ -22,6 +24,8 @@ interface ToggleColumn {
   cell: (p: Profile, a: AccountPref | undefined) => { checked: boolean; set: (v: boolean) => void } | null;
 }
 
+type StayUnit = 'seconds' | 'minutes' | 'hours';
+
 
 //===========================
 // Constants
@@ -32,6 +36,11 @@ const TIME = `${FIELD} tabular-nums disabled:cursor-not-allowed disabled:opacity
 const MATRIX_TITLE_ID = 'per-account-notifications-title';
 
 const QUIET_END_LABEL_ID = 'setting-quiet-end-label';
+
+const UNIT_SECONDS: Record<StayUnit, number> = { seconds: 1, minutes: 60, hours: 3600 };
+
+// what "for a set time" starts at when it is picked over "until dismissed"
+const DEFAULT_STAY_SECONDS = 60;
 
 
 //===========================
@@ -311,7 +320,7 @@ export function NotificationsSection({
                       title={c.name}
                       className="w-16 px-1 py-2 align-bottom text-center text-xs font-medium leading-tight text-neutral-500 dark:text-neutral-400"
                     >
-                      <span className="block whitespace-normal break-words">{c.header}</span>
+                      <span className="block whitespace-normal wrap-break-word">{c.header}</span>
                     </th>
                   ))}
                 </tr>
@@ -364,8 +373,90 @@ export function NotificationsSection({
             </table>
           </div>
         )}
+        <div className="mt-3">
+          <PersistDurationRow
+            key={prefs ? 'ready' : 'loading'}
+            S={S}
+            seconds={prefs?.notifications.persistSeconds ?? 0}
+          />
+        </div>
       </SettingsGroup>
     </Section>
+  );
+}
+
+/**
+ * How long a persisting card stays: until dismissed, or an amount in a unit of the user's choice
+ *
+ * Only seconds are stored. The unit lives here, so typing 120 in seconds does not flip the row
+ * to 2 minutes under the cursor; it is read back from the stored time when the page opens.
+ */
+function PersistDurationRow({ S, seconds }: { S: UiStrings; seconds: number }) {
+  const [unit, setUnit] = useState<StayUnit>(() => unitFor(seconds));
+  // what is being typed, kept while it is not a usable number so the field can be emptied
+  const [draft, setDraft] = useState<string | null>(null);
+  const timed = seconds > 0;
+  const factor = UNIT_SECONDS[unit];
+  const shown = draft ?? (timed ? String(seconds / factor) : '');
+  const save = (s: number) => window.desktop?.setNotificationExtras({ persistSeconds: s });
+
+  return (
+    <>
+      <SettingRow
+        label={S.persistDuration}
+        description={S.persistDurationDescription}
+        htmlFor="setting-persist-mode"
+      >
+        <select
+          id="setting-persist-mode"
+          value={timed ? 'timed' : 'dismiss'}
+          onChange={(e) => {
+            setDraft(null);
+            if (e.target.value === 'dismiss') return save(0);
+            setUnit(unitFor(DEFAULT_STAY_SECONDS));
+            save(DEFAULT_STAY_SECONDS);
+          }}
+          className={FIELD}
+        >
+          <option value="dismiss">{S.persistUntilDismissed}</option>
+          <option value="timed">{S.persistForTime}</option>
+        </select>
+      </SettingRow>
+      <SettingRow label={S.persistAmount} htmlFor="setting-persist-amount">
+        <input
+          id="setting-persist-amount"
+          type="number"
+          min={1}
+          max={Math.floor(MAX_PERSIST_SECONDS / factor)}
+          step={1}
+          disabled={!timed}
+          value={shown}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            const n = Number(e.target.value);
+            if (Number.isInteger(n) && n >= 1) save(Math.min(n * factor, MAX_PERSIST_SECONDS));
+          }}
+          onBlur={() => setDraft(null)}
+          className={`${TIME} w-20`}
+        />
+        <select
+          aria-label={S.persistUnit}
+          value={unit}
+          disabled={!timed}
+          onChange={(e) => {
+            const next = e.target.value as StayUnit;
+            setDraft(null);
+            setUnit(next);
+            save(Math.min((seconds / factor) * UNIT_SECONDS[next], MAX_PERSIST_SECONDS));
+          }}
+          className={`${FIELD} disabled:cursor-not-allowed disabled:opacity-50`}
+        >
+          <option value="seconds">{S.unitSeconds}</option>
+          <option value="minutes">{S.unitMinutes}</option>
+          <option value="hours">{S.unitHours}</option>
+        </select>
+      </SettingRow>
+    </>
   );
 }
 
@@ -443,6 +534,19 @@ function toggleColumns(S: UiStrings): ToggleColumn[] {
       }),
     },
   ];
+}
+
+/**
+ * The largest unit a stored time is a whole number of, so an hour reads as 1 hours rather
+ * than 3600 seconds
+ *
+ * @param seconds
+ * @returns the unit to show it in
+ */
+function unitFor(seconds: number): StayUnit {
+  if (seconds > 0 && seconds % UNIT_SECONDS.hours === 0) return 'hours';
+  if (seconds > 0 && seconds % UNIT_SECONDS.minutes === 0) return 'minutes';
+  return 'seconds';
 }
 
 function displayName(p: Profile): string {

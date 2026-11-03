@@ -131,7 +131,7 @@ user agent, which names Electron.
 **Repair.**
 1. Restore the full comma-separated scope list on that client id:
    `https://www.googleapis.com/auth/gmail.readonly`, `…/gmail.insert`, `…/gmail.modify`,
-   `…/userinfo.email`, `…/admin.directory.user.readonly`.
+   `…/gmail.send`, `…/userinfo.email`, `…/admin.directory.user.readonly`.
 2. Run `node scripts/check-dwd.mjs` against the key to confirm. Propagation can take minutes.
 3. If the admin subject changed, set `DELEGATED_ADMIN_SUBJECT` to a current admin and run
    `docker compose up -d`.
@@ -239,7 +239,7 @@ adapts its ceiling by itself, so this is a slowdown, not an outage.
 **Repair.**
 1. In `electron/gmail/quota.ts`, set `UNITS_PER_SECOND` to `100` and update the prices in
    `QUOTA_COST` from Google's current quota page.
-2. Re-measure `COPY_IN_FLIGHT` in `mail-drop-controller.ts`.
+2. Re-measure `COPY_IN_FLIGHT` in `electron/mail/copy/copy-run.ts`.
 3. Release.
 
 ### R7. Gmail changes its page
@@ -253,8 +253,9 @@ change plus a test.
 | The title format `(n) … - Gmail` | wrong or zero unread badge; tabs warm up slowly (25-second cap) | `electron/unread/unread-parser.ts` |
 | The avatar (`a[aria-label]` with an e-mail address and an `img`) | **no accounts detected**; the first mailbox shows but no tab appears | `electron/preload.ts` `extractIdentity` |
 | `data-legacy-thread-id` / `data-legacy-message-id` | notification clicks open the inbox, not the mail | `preload.ts`, `gmail/message-anchor.ts` |
+| List rows (`role="row"` around `data-legacy-thread-id`, `data-legacy-last-message-id` inside), or Gmail ignoring a synthetic click on one | a notification click opens the mail full width despite the reading pane; `notify.log` says `row in the list: missing` or `ignored` | `electron/gmail/list-row-open.ts` |
 | Gmail no longer calls `window.Notification` | no notifications for own accounts; `shim installed` but never `Gmail raised a notification` | `preload.ts` shim |
-| The list rows, label links or the drag gesture | the drop strip does nothing, or picks the wrong row | `electron/mail/dropzone.ts`, `label-drop.ts` |
+| The list rows, label links or the drag gesture | the drop strip does nothing, or picks the wrong row | `electron/mail/drag/dropzone.ts`, `label-drop.ts` |
 | The account switcher widget | delegated mailboxes never get a URL: `still unresolved after` | `electron/delegation/delegation.ts` `SWITCHER_SCRAPE_JS`, `windows/switcher-reader.ts` |
 | The `AddSession` URL | "+" does nothing | `electron/gmail/google-urls.ts` |
 | The batch reply format | silent; logs `batch … falling back one by one` and keeps working, slower | `electron/gmail/batch.ts` |
@@ -389,8 +390,9 @@ on an LTS version.
 **Known gap.** A 401 while copying **into a delegated mailbox** cannot recover. `copyToMailbox`
 calls `forceRefresh`, which only knows own accounts. The mail fails with "Verbinding verlopen"
 and the delegated mailbox lands in the reconnect list. Fix: use `freshTokenAfter401` from
-`electron/auth/mailbox-token.ts` there (`mail-drop-controller.ts`, both `forceRefresh` call
-sites). It bites on long copies into `support@`.
+`electron/auth/mailbox-token.ts` there (`electron/mail/copy/upload.ts`'s `copyToMailbox` and
+`electron/mail/copy/duplicate-scan.ts`'s label lookup, both `forceRefresh` call sites). It
+bites on long copies into `support@`.
 
 **Repair after the fact.**
 1. Every run's journal (`<runId>.rollback.jsonl` in the drop folder) lists what it inserted.
@@ -408,7 +410,7 @@ sites). It bites on long copies into `support@`.
 continue or undo. Hidden `_gmd-copy-…` labels stay on the copied mail.
 
 **Cause.** *Found in this review, not yet reproduced.* `expiredEntries` in
-`electron/mail/mail-drop-cleanup.ts` keeps only `log.jsonl`. Journals (`*.rollback.jsonl`) and
+`electron/mail/pull/mail-drop-cleanup.ts` keeps only `log.jsonl`. Journals (`*.rollback.jsonl`) and
 job plans (`*.job.jsonl`) older than three days are deleted like any saved mail. This only
 matters for a run left undecided for more than three days.
 
@@ -486,5 +488,5 @@ broken Pub/Sub key can block the relay from starting.
 |---|---|---|
 | 10 own accounts | `accounts/detection-planner.ts` `maxAccounts` | the 11th signed-in account is never detected |
 | one domain, `abovomaxlead.nl` | `auth/account-domain.ts`, also `hd=` in `google-oauth.ts` and the relay's `ALLOWED_DOMAINS` | a rename or a second domain cannot link, and its tokens are **deleted** at start |
-| labels up to 50,000 conversations by API (2,000 by page scrape) | `mail/label-drop.ts` | the rest is not copied; the app says so |
+| labels up to 50,000 conversations by API (2,000 by page scrape) | `mail/drag/label-drop.ts` | the rest is not copied; the app says so |
 | updater installs on quit without checking for a running copy | `updates/update-controller.ts` `installUpdate` | the copy is interrupted; the journal offers it back at the next start |

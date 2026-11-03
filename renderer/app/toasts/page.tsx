@@ -32,7 +32,14 @@ const ROUNDING_SLACK = 2;
 const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
 
 const ACTION =
-  'rounded-md px-2 py-0.5 text-xs font-medium text-neutral-700 transition hover:bg-black/[0.06] motion-reduce:transition-none dark:text-neutral-200 dark:hover:bg-white/10';
+  'flex h-5 w-6 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/6 hover:text-neutral-900 motion-reduce:transition-none dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white';
+
+const ACTION_ICON: Record<ToastAction, string> = {
+  reply: 'M6.5 4L2.5 8l4 4M2.5 8h7a4 4 0 0 1 4 4v1',
+  archive: 'M2 3.5h12v3H2zM3 6.5v6h10v-6M6.5 9h3',
+  trash: 'M2.5 4.5h11M6 4.5V3h4v1.5M3.8 4.5l.7 9h7l.7-9M6.7 7v4.5M9.3 7v4.5',
+  read: 'M3 8.5l3 3 7-7',
+};
 
 const SUMMARY_ID = 'summary';
 
@@ -168,7 +175,7 @@ export default function ToastsPage() {
                   type="button"
                   data-toast-card
                   onClick={() => window.desktop?.dismissAllToasts()}
-                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur hover:bg-white dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-900`}
+                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur-sm hover:bg-white dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-900`}
                 >
                   {S.toastDismissAll}
                 </button>
@@ -189,6 +196,9 @@ export default function ToastsPage() {
                   toast={t}
                   archiveLabel={S.toastArchive}
                   readLabel={S.toastMarkRead}
+                  trashLabel={S.toastTrash}
+                  replyLabel={S.toastReply}
+                  inboxLabel={S.toastInbox}
                   dismissLabel={S.toastDismiss}
                   hovered={hoveredId === t.id}
                 />
@@ -210,17 +220,25 @@ function ToastCard({
   toast,
   archiveLabel,
   readLabel,
+  trashLabel,
+  replyLabel,
+  inboxLabel,
   dismissLabel,
   hovered,
 }: {
   toast: Toast;
   archiveLabel: string;
   readLabel: string;
+  trashLabel: string;
+  replyLabel: string;
+  inboxLabel: string;
   dismissLabel: string;
   hovered: boolean;
 }) {
   const color = toast.account?.color ?? '#5f6368';
-  const hasActions = Boolean(toast.messageId);
+  // A card relayed from Gmail's page may not have its message yet; main looks it up on use.
+  // `inbox` is only set when that page was Gmail, which keeps Calendar and Chat cards bare.
+  const hasActions = Boolean(toast.messageId || (toast.webNotifyId && toast.inbox));
   const run = useCallback(
     (action: ToastAction) => window.desktop?.runToastAction({ id: toast.id, action }),
     [toast.id],
@@ -244,12 +262,18 @@ function ToastCard({
       <button
         type="button"
         onClick={() => window.desktop?.activateToast(toast.id)}
-        className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left outline-none"
+        className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left outline-hidden"
       >
+        {/* A mail card shows who sent it; the account is already the colour edge and the address
+            line, and its own face here reads as mail from yourself. */}
         <Avatar
-          url={toast.account?.avatarUrl}
+          url={toast.kind === 'mail' ? toast.senderAvatarUrl : toast.account?.avatarUrl}
           color={color}
-          name={toast.account?.label || toast.account?.email || toast.title}
+          name={
+            toast.kind === 'mail'
+              ? toast.title
+              : toast.account?.label || toast.account?.email || toast.title
+          }
           fallback={statusFallback(toast)}
         />
         <span className="flex min-w-0 flex-1 flex-col">
@@ -259,38 +283,43 @@ function ToastCard({
           <span className="truncate text-[13px] text-neutral-600 dark:text-neutral-400">
             {toast.body}
           </span>
+          {toast.preview ? (
+            <span className="mt-0.5 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">
+              {toast.preview}
+            </span>
+          ) : null}
           <span className="mt-1 flex h-5 items-center gap-1">
             <span
               className={`truncate text-xs text-neutral-400 dark:text-neutral-500 ${showActions ? 'hidden' : ''}`}
             >
-              {toast.account?.email ?? ''}
+              {toast.inbox ? `${inboxLabel}: ${toast.inbox}` : toast.account?.email ?? ''}
             </span>
             {showActions ? (
-              <span className="flex gap-1">
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className={ACTION}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    run('archive');
-                  }}
-                  onKeyDown={keyRun('archive')}
-                >
-                  {archiveLabel}
-                </span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  className={ACTION}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    run('read');
-                  }}
-                  onKeyDown={keyRun('read')}
-                >
-                  {readLabel}
-                </span>
+              <span className="flex gap-0.5">
+                {(
+                  [
+                    ['reply', replyLabel],
+                    ['archive', archiveLabel],
+                    ['trash', trashLabel],
+                    ['read', readLabel],
+                  ] as const
+                ).map(([action, label]) => (
+                  <span
+                    key={action}
+                    role="button"
+                    tabIndex={0}
+                    title={label}
+                    aria-label={label}
+                    className={ACTION}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      run(action);
+                    }}
+                    onKeyDown={keyRun(action)}
+                  >
+                    <ActionIcon action={action} />
+                  </span>
+                ))}
               </span>
             ) : null}
           </span>
@@ -323,7 +352,7 @@ function SummaryCard({
       <button
         type="button"
         onClick={() => window.desktop?.activateToast('summary')}
-        className="flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left outline-hidden"
       >
         <span
           aria-hidden
@@ -359,7 +388,7 @@ function CloseBox({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/[0.06] hover:text-neutral-700 motion-reduce:transition-none dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-200 ${hovered ? 'opacity-100' : 'opacity-0'}`}
+      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/6 hover:text-neutral-700 motion-reduce:transition-none dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-200 ${hovered ? 'opacity-100' : 'opacity-0'}`}
     >
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
         <path
@@ -387,6 +416,27 @@ function statusFallback(toast: Toast): ReactNode | undefined {
     <svg viewBox="0 0 16 16" className="h-4 w-4">
       <path
         d={status}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
+/**
+ * The glyph on a quick-action button, drawn in the same 16-unit stroke style as the rest
+ *
+ * @param action
+ * @returns the icon
+ */
+function ActionIcon({ action }: { action: ToastAction }) {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden>
+      <path
+        d={ACTION_ICON[action]}
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"

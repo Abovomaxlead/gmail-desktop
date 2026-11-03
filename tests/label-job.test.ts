@@ -21,12 +21,12 @@ import {
   jobProgress,
   jobFailed,
   type LabelJob,
-} from '../electron/mail/label-job';
-import { chunk } from '../electron/mail/chunk';
+} from '../electron/mail/job/label-job';
+import { chunk } from '../electron/mail/shared/chunk';
 // A batch's own run says which mailboxes it opened, and the plan points at that run by id --
 // the link the note at the top of label-job.ts describes. Written here the way the copy writes
 // it, so the reading side is proved against the real record and not against a fixture.
-import { startCopyJournal } from '../electron/mail/copy-journal';
+import { startCopyJournal } from '../electron/mail/copy/copy-journal';
 
 const thread = (id: string, labels = ['Klanten']) => ({ threadId: id, subject: `re ${id}`, labels });
 

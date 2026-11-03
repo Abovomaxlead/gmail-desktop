@@ -97,6 +97,7 @@ vi.mock('../electron/gmail/gmail-api', async (importOriginal) => {
       messageId: '<' + id + '@example.nl>',
       from: 'Klant <klant@example.nl>',
       subject: 'Vraag over de factuur',
+      snippet: 'Goedemiddag, op de factuur van mei staat een bedrag dat ik niet herken.',
       internalDate: state.internalDate,
     }),
     fetchInboxUnread: async () => {
@@ -162,10 +163,12 @@ describe('the delegated sweep', () => {
     expect(state.toasts).toHaveLength(1);
     expect(state.toasts[0]).toMatchObject({
       kind: 'mail',
-      title: 'Klant',
+      title: 'klant@example.nl',
       body: 'Vraag over de factuur',
       threadId: 't-m1',
       messageId: 'm1',
+      preview: 'Goedemiddag, op de factuur van mei staat een bedrag dat ik niet herken.',
+      inbox: 'support@example.nl',
     });
   });
 

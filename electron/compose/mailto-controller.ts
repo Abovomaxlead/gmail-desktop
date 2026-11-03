@@ -7,6 +7,7 @@
 
 import { IPC } from '../core/ipc';
 import { DEV_URL, SIDEBAR_PRELOAD_PATH } from '../core/paths';
+import { bringToFront } from '../windows/window-focus';
 import { RENE_ZOOM_FACTOR } from '../core/rene';
 import {
   authIdx,
@@ -19,7 +20,7 @@ import {
   profiles,
 } from '../core/runtime';
 import { nativeLabels } from '../menus/native-labels';
-import { parseMailto, type MailtoFields } from '../mail/mailto';
+import { parseMailto, type MailtoFields } from './mailto';
 import { ComposePicker } from './compose-picker';
 import { openCompose } from './compose-window';
 import {
@@ -70,9 +71,7 @@ export async function dispatchMailto(mailtoUrl: string): Promise<void> {
   const fields = parseMailto(mailtoUrl);
   if (!fields) return;
   if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
+    bringToFront(mainWindow);
   }
   const ready = manager?.activeKey() != null && profiles.some((p) => p.ref.kind === 'authuser');
   if (!ready) {

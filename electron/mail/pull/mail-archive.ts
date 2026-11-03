@@ -12,9 +12,9 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { mapLimit } from '../core/concurrency';
-import type { EmlHeaders } from './eml';
-import type { MessageRef } from './dropzone';
+import { mapLimit } from '../../core/concurrency';
+import type { EmlHeaders } from '../shared/eml';
+import type { MessageRef } from '../drag/dropzone';
 
 
 
@@ -104,6 +104,19 @@ export function displayName(address: string): string {
     .slice(lt + 1)
     .replace(/>.*$/, '')
     .trim();
+}
+
+/**
+ * The address part of an address header
+ *
+ * @param address a From header, `Name <a@b.nl>` or a bare `a@b.nl`
+ * @returns the bare address, lowercased; empty when the header holds none
+ */
+export function senderAddress(address: string): string {
+  const a = (address || '').trim();
+  const bracketed = /<([^<>\s]+@[^<>\s]+)>/.exec(a);
+  if (bracketed) return bracketed[1].toLowerCase();
+  return /^[^\s<>@]+@[^\s<>@]+$/.test(a) ? a.toLowerCase() : '';
 }
 
 /**

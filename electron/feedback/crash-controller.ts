@@ -24,7 +24,7 @@
 //   while reporting a crash takes the app down with it, and every hook here runs at a moment
 //   where that would be the last thing the user sees.
 
-import { app } from 'electron';
+import { app, crashReporter } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { release } from 'node:os';
 import { join } from 'node:path';
@@ -34,7 +34,7 @@ import { readJsonFile, writeJsonFile } from '../core/json-store';
 import { oauthTokens, profiles } from '../core/runtime';
 import { sendRawMessage } from '../gmail/gmail-api';
 import { notifyLog } from '../notify/notify-log';
-import { mailDropFolder } from '../mail/mail-drop-controller';
+import { mailDropFolder } from '../mail/pull/pull-controller';
 import { dropLogTail } from './drop-log';
 import { redactedLogs } from './app-logs';
 import { buildRawMail } from './crash-mail';
@@ -118,10 +118,21 @@ let gpuGone: number[] = [];
  * Called before the app is ready, so a crash during startup -- the ones that leave a user with
  * a window that never appears -- is caught too. The queue is not flushed here: there is no
  * token store yet at that point. main.ts flushes once the window exists.
+ *
+ * @param hooks what main does about a failure beyond reporting it; this module shows nothing
  */
-export function installCrashReporting(): void {
+export function installCrashReporting(hooks: { onGpuStreak?: () => void } = {}): void {
   if (installed) return;
   installed = true;
+
+  // A minidump per crashed process, kept in userData/Crashpad and never uploaded. The mailed
+  // report only knows the exit code; when every process dies at once with mixed codes, the
+  // dump is what names the module the crash happened in (an injected DLL, a driver). Must run
+  // before 'ready' so the GPU and page processes are started with the handler attached.
+  try {
+    crashReporter.start({ uploadToServer: false });
+  } catch {
+  }
 
   // Kept alive on purpose. Without a handler Node takes the process down, which for a mail
   // client means the window vanishing over a stray rejection in some background sweep -- see
@@ -147,6 +158,12 @@ export function installCrashReporting(): void {
   app.on('render-process-gone', (_e, contents, details) => {
     // A page the user closed is not a crash: Electron reports that as 'clean-exit'.
     if (details.reason === 'clean-exit') return;
+    // Nor is one stopped from outside -- Windows shutting down, an installer replacing the
+    // app, Task Manager. Every process goes at once then, and each mailed its own report.
+    if (details.reason === 'killed') {
+      notifyLog(`[crash] a page's process was killed from outside (exit ${details.exitCode}); not a crash`);
+      return;
+    }
     reportCrash({
       kind: 'renderer-gone',
       message: `a page's process is gone: ${details.reason} (exit ${details.exitCode})`,
@@ -156,6 +173,10 @@ export function installCrashReporting(): void {
   });
   app.on('child-process-gone', (_e, details) => {
     if (details.reason === 'clean-exit') return;
+    if (details.reason === 'killed') {
+      notifyLog(`[crash] a ${details.type} process was killed from outside (exit ${details.exitCode}); not a crash`);
+      return;
+    }
     const at = Date.now();
     const decision = childGoneDecision({ type: details.type, recent: gpuGone, at });
     if (details.type === 'GPU') gpuGone = decision.recent;
@@ -166,6 +187,12 @@ export function installCrashReporting(): void {
       // go out readable, since it says how long this had been going on.
       notifyLog(`[crash] ${what}; Chromium will start another (${decision.streak} in a row)`);
       return;
+    }
+    if (details.type === 'GPU') {
+      try {
+        hooks.onGpuStreak?.();
+      } catch {
+      }
     }
     reportCrash({
       kind: 'child-gone',

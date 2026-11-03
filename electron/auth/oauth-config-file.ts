@@ -1,7 +1,8 @@
 // Whether a file someone picked in the panel's import button is the OAuth config this app
 // needs. Only clientId and clientSecret are checked; the rest of the file passes through
-// untouched, because relayUrl and pushTopic live in it and dropping them would leave a
-// machine that links accounts and then never notifies about them.
+// untouched, because the relay addresses for delegated mailboxes (delegatedTokenUrl,
+// delegatedMailboxesUrl) live in it too and dropping them would leave a machine whose
+// delegated mailboxes never get a token.
 
 export interface OAuthConfigFileOk {
   ok: true;

@@ -3,12 +3,220 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
-## [1.0.0] — 2026-10-06
+## [1.0.1] — 2026-11-03
+
+### Toegevoegd
+- **Snelle acties op een mailmelding: beantwoorden, archiveren, verwijderen en gelezen.** Ga
+  met je muis over een melding en je ziet vier knoppen. Beantwoorden opent de mail met het
+  antwoordvak al open. De andere drie gebeuren op de achtergrond en je ziet het resultaat meteen
+  in Gmail. Ze werken ook op meldingen die Gmail zelf stuurt en op meldingen van een gedeeld
+  postvak.
+- **Kies zelf hoe lang een melding blijft staan.** Bij accounts waar Blijft staan aan staat, kies
+  je in Instellingen → Meldingen of de melding blijft tot je hem wegklikt, of na een aantal
+  seconden, minuten of uren verdwijnt.
+- **Een melding verdwijnt zodra je die mail in de app opent,** in de lijst, in het leesvenster
+  of via zoeken. De andere meldingen blijven staan.
+
+### Gewijzigd
+- **Een mailmelding zegt precies van wie hij komt en waar hij binnenkwam.** Bovenaan staat het
+  adres en de foto van de afzender, daaronder het onderwerp en de eerste regels van de mail, en
+  onderaan het postvak, als "Inbox: jouw@adres.nl".
+- **Een agendaherinnering volgt dezelfde "blijf staan"-knop als je mail.**
+- **Nieuwere Chrome eronder.**
+
+### Opgelost
+- **Klik je op een mailmelding, dan opent de mail waar hij over ging,** niet de eerste mail van
+  het gesprek. Hij opent in je leesvenster als je dat gebruikt, en begint bovenaan.
+- **"Verbinding met Gmail verlopen" verschijnt niet meer als alleen het internet even weg was,**
+  bijvoorbeeld net na de slaapstand. De app vraagt dat alleen nog als Google de koppeling echt
+  weigert.
+- **Na opnieuw inloggen komt elk gedeeld postvak terug in zijn eigen tabblad en venster.**
+- **Een venster dat Gmail opent, blijft niet meer wit op een computer waar het beeld steeds
+  uitvalt.** De app zet dan hardwareversnelling uit en vraagt of hij opnieuw mag opstarten.
+  Aanzetten kan weer via Instellingen → Geavanceerd.
+- **Een account houdt zijn kleur,** ook als het adres met hoofdletters binnenkomt.
+- **Een venster dat de app over Gmail heen opent, krijgt zijn inhoud altijd mee.**
+
+## [1.0.1-beta.1793366777] — 2026-10-30
+
+### Nieuw
+- **Kies zelf hoe lang een melding blijft staan.** Bij accounts waar Blijft staan aan staat,
+  bleef een melding tot je hem wegklikte. Nu kies je in Instellingen → Meldingen of dat zo
+  blijft, of dat de melding na een tijd verdwijnt: een aantal seconden, minuten of uren.
+- **Een melding verdwijnt zodra je die mail in de app opent.** Open je de mail in de lijst,
+  in het leesvenster of via zoeken, dan gaat de melding over die mail weg. De andere meldingen
+  blijven staan.
 
 ### Let op
-- **Dit is 1.0.0, de eerste definitieve versie.** Hij is gelijk aan de laatste testversie
-  (1.0.0-beta.1791189638) en bevat alles wat in de testversies hieronder staat. Iedereen krijgt
-  hem aangeboden, ook wie de testversies uit heeft staan.
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1793363502] — 2026-10-30
+
+### Opgelost
+- **Verwijderen, archiveren en gelezen op een melding zie je meteen in Gmail.** De mail
+  verdween pas na een paar seconden uit je lijst, waardoor het leek alsof de knop niets deed.
+  Nu ververst de lijst direct na de knop. Staat de knop Vernieuwen niet in beeld, dan
+  haalt de app de mail zelf uit je inbox-lijst tot Gmail bijgewerkt is.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1793188749] — 2026-10-28
+
+### Nieuw
+- **Snelle acties op een mailmelding: beantwoorden, archiveren, verwijderen en gelezen.** Ga
+  met je muis over een melding en je ziet vier knoppen. Beantwoorden opent de mail in het
+  hoofdvenster met het antwoordvak al open, zodat je meteen kunt typen. Archiveren,
+  verwijderen en gelezen gebeuren op de achtergrond, zonder dat er iets opengaat; verwijderen
+  zet de mail in de prullenbak. Ga je met de muis over een knop, dan zie je wat hij doet.
+
+### Opgelost
+- **De knoppen staan nu ook op meldingen die Gmail zelf stuurt.** Bij de meeste meldingen
+  verschenen archiveren en gelezen niet als je met de muis over de melding ging. Nu wel.
+- **De knoppen op meldingen van een gedeeld postvak doen het.** Archiveren of gelezen op een
+  melding van een postvak waar je gemachtigde van bent, deed niets. Nu wel.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1792585101] — 2026-10-21
+
+### Opgelost
+- **Een mailmelding opent de mail in je leesvenster.** Heb je het leesvenster naast of onder
+  de lijst staan, dan opende een klik op een melding de mail toch over de hele breedte van
+  het venster, en was je lijst weg. Nu opent de mail zoals wanneer je er zelf op klikt: in
+  het leesvenster, met de lijst ernaast. Zonder leesvenster opent hij zoals altijd.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1792480638] — 2026-10-20
+
+### Opgelost
+- **Klik je op een mailmelding, dan opent de nieuwe mail, niet een oude.** Komen er meer
+  mails met hetzelfde onderwerp binnen, zoals antwoorden in een gesprek, dan opende een klik
+  vaak de allereerste mail van dat gesprek, soms van lang geleden. Dat gebeurde vooral als
+  Gmail elke mail als eigen regel toont in plaats van als gesprek. Nu opent de mail waar de
+  melding over ging, en ook de afzender en de eerste regels op de melding horen bij die mail.
+- **De geopende mail begint bovenaan.** Na een klik op een melding sprong het scherm naar
+  het midden van de mail, bij een lange mail ver de tekst in. Nu staat de kop van de mail
+  bovenaan in beeld.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1792152552] — 2026-10-16
+
+### Gewijzigd
+- **Een mailmelding zegt nu precies van wie hij komt en waar hij binnenkwam.** Bovenaan staat
+  het e-mailadres van de afzender, daaronder het onderwerp en de eerste regels van de mail.
+  Onderaan staat in welk postvak de mail binnenkwam, als "Inbox: jouw@adres.nl". Kan de app
+  de mail niet zo snel opzoeken, dan verschijnt de melding zoals voorheen, met de naam van de
+  afzender. Staat "onderwerp tonen" uit, dan blijven ook de eerste regels weg.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1792143613] — 2026-10-16
+
+### Opgelost
+- **Een mailmelding toont wie je mailt, niet jezelf.** Op de kaart stond de foto van je eigen
+  account, waardoor het leek alsof je jezelf had gemaild. Nu staat er de foto van de afzender
+  als Gmail die meegeeft, en anders de eerste letter van zijn naam. Welk account de mail kreeg,
+  zie je aan de gekleurde rand en het adres onderaan. Staat "afzender tonen" uit, dan blijft
+  ook de foto weg.
+- **"Verbinding met Gmail verlopen" verschijnt niet meer als alleen het internet even weg
+  was.** De app vroeg je opnieuw te verbinden zodra het verlengen van de koppeling één keer
+  mislukte, ook als dat kwam doordat de laptop net uit de slaapstand kwam en nog geen internet
+  had. Nu vraagt hij dat alleen als Google de koppeling echt weigert. Lukt verlengen niet om een
+  andere reden, dan probeert hij het na 30 seconden opnieuw. De app verlengt de toegang nu ook
+  tien minuten vóórdat die afloopt, en meteen na het ontwaken uit de slaapstand. Elke mislukte
+  verlenging staat met de reden in het meldingenlog.
+- **Na opnieuw inloggen komt ook het gedeelde postvak terug, in zijn eigen tabblad en
+  venster.** Was je uitgelogd, dan kwam na het inloggen alleen je eigen mail terug. Het
+  tabblad van een gedeeld postvak bleef op de inlogpagina staan, of toonde je eigen inbox.
+  Nu gaat elk tabblad na het inloggen terug naar het postvak waar het voor is, ongeacht in
+  welk tabblad je inlogde.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversies, plus deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt
+  hem aangeboden.
+
+## [1.0.1-beta.1791296022] — 2026-10-06
+
+### Opgelost
+- **Een venster dat Gmail opent, blijft niet meer wit op een computer waar het beeld steeds
+  uitvalt.** Valt de grafische weergave kort na elkaar steeds uit, dan zet de app
+  hardwareversnelling uit en vraagt of hij opnieuw mag opstarten. Aanzetten kan weer via
+  Instellingen > Geavanceerd.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0 en de
+  vorige testversie, plus deze wijziging. Alleen wie de testversies aan heeft staan, krijgt hem
+  aangeboden.
+
+## [1.0.1-beta.1791288374] — 2026-10-06
+
+### Gewijzigd
+- **Een agendaherinnering volgt nu dezelfde "blijf staan"-knop als je mail.** Staat die knop
+  voor het account aan, dan blijft de herinnering staan tot je hem wegklikt. Staat hij uit, dan
+  verdwijnt hij na een paar seconden, net als een mailmelding.
+
+### Opgelost
+- **Een account houdt zijn kleur.** Kwam het adres van een account met hoofdletters binnen, dan
+  werd de kleur die je had gekozen niet gevonden.
+- **Een venster dat de app over Gmail heen opent, krijgt zijn inhoud altijd mee.** Soms ging die
+  inhoud verloren als het venster nog niet klaar was, en bleef het leeg.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.0.** Hij bevat alles uit 1.0.0, plus
+  deze wijzigingen. Alleen wie de testversies aan heeft staan, krijgt hem aangeboden.
+
+## [1.0.0] — 2026-10-06
+
+### Toegevoegd
+- **Een postvak in zijn eigen venster.** Sleep een tabblad van de balk af en dat postvak krijgt
+  een eigen venster, bijvoorbeeld op je tweede scherm. Terugslepen naar de balk zet het weer
+  terug. Via het rechtermuismenu op een tabblad kan het ook.
+- **Gedeelde postvakken: zelf kiezen, meldingen, en ze blijven weg als je ze weghaalt.** Je vinkt
+  aan welke gedeelde postbussen erbij komen. Ze geven nu ook meldingen bij nieuwe mail. Een
+  postvak dat je weghaalt, komt na een herstart of update niet meer terug. Wordt je toegang
+  ingetrokken, dan verdwijnt het binnen het uur uit de balk.
+- **Mail kopiëren naar andere postvakken is sneller en veiliger.** Meerdere postvakken worden
+  naast elkaar gevuld. Ongelezen mail komt ongelezen aan. Bovenaan de labellijst staan de labels
+  waar je vandaag al naartoe kopieerde. Mislukt er een mail, dan zie je welke en waarom, met één
+  knop om precies die opnieuw te versturen. Een kopie wordt nooit twee keer gedaan.
+- **Een rondleiding bij de eerste start.** Laat zien wat de app aan Gmail toevoegt, zoals mail
+  naar het venster slepen. Opnieuw te starten bij Instellingen → Algemeen.
+- **Een update laat eerst zien wat erin zit,** voordat je hem installeert.
+- **De app meldt zelf wat er misgaat.** Een crash gaat met de logboeken automatisch naar de
+  ontwikkelaar, zonder dat je iets hoeft te doen.
+- **Testversies zijn een keuze.** Alleen wie bij Instellingen → Updates de testversies aanzet,
+  krijgt ze.
+
+### Gewijzigd
+- **Nieuwere Chrome eronder,** dus Google zegt niet meer dat je browser te oud is.
+- **Klik je op een melding, dan opent precies die mail,** niet een oudere mail uit hetzelfde
+  gesprek.
+- **Een gedeeld postvak toont nooit stilletjes je eigen inbox.** Lukt openen niet, dan staat dat
+  er gewoon.
+- **De balk blijft leesbaar met veel postvakken,** de sneltoetsen Ctrl+1 tot 9 volgen de
+  volgorde van je tabbladen, en alle vensters van de app volgen de donkere modus.
+- **De instelling "Google-apps" geldt overal,** hoe je zo'n app ook opent.
+- **Afdrukken werkt:** de afdrukpagina opent in je browser met het gewone voorbeeld.
 
 ## [1.0.0-beta.1791189638] — 2026-10-05
 

@@ -2,8 +2,9 @@
 // callbacks main already has.
 //
 // It owns the only clock in the feature. A toast that stays until dismissed is the default,
-// so the interval runs only for accounts whose persist switch is off — and a hovered stack
-// does not count down at all, the paused time being added back when the pointer leaves.
+// so the interval runs only while a card can expire -- one whose account has the persist
+// switch off, or on with a chosen time -- and a hovered stack does not count down at all,
+// the paused time being added back when the pointer leaves.
 //
 // The height guard is the second reason a stack collapses: a size that does not fit the
 // screen folds the stack into its summary, which is why applySize can push a new state.
@@ -22,7 +23,9 @@ import {
   collapse,
   delayExpiries,
   dismissToast,
+  dismissToasts,
   expireToasts,
+  mailCardsOf,
 } from './toast-model';
 import type { ToastWindow } from './toast-window';
 import type { Toast, ToastAction, ToastStack, ToastState } from '../../renderer/lib/toast';
@@ -32,7 +35,11 @@ import type { Toast, ToastAction, ToastStack, ToastState } from '../../renderer/
 // Types
 //===========================
 
-export type ToastInput = Omit<Toast, 'id' | 'expiresAt'> & { persist: boolean };
+/**
+ * `persist` false fades the card after TOAST_LIFETIME_MS, true keeps it until dismissed, and a
+ * number keeps it that many milliseconds -- the time the user chose for a persisting account.
+ */
+export type ToastInput = Omit<Toast, 'id' | 'expiresAt'> & { persist: boolean | number };
 
 export interface ToastControllerHooks {
   window: ToastWindow;
@@ -108,7 +115,7 @@ export class ToastController {
     const toast: Toast = {
       ...rest,
       id: `t${this.seq}`,
-      ...(persist ? {} : { expiresAt: this.hooks.now() + TOAST_LIFETIME_MS }),
+      ...(persist === true ? {} : { expiresAt: this.hooks.now() + lifetimeOf(persist) }),
     };
     // a sixth arrival collapses the five below it, which leave with no dismiss called; the
     // new toast is handed to the diff too, since a collapse can swallow it outright
@@ -131,6 +138,29 @@ export class ToastController {
 
   dismissAll(): void {
     this.setStack(EMPTY_STACK);
+    this.push();
+    this.retime();
+  }
+
+  /**
+   * An account's mail cards, for what the page has open to be matched against
+   *
+   * @param accountKey
+   * @returns the cards
+   */
+  mailCards(accountKey: string): Toast[] {
+    return mailCardsOf(this.stack, accountKey);
+  }
+
+  /**
+   * Takes several cards off the stack at once, leaving every other card where it is
+   *
+   * @param ids
+   */
+  dismissMany(ids: readonly string[]): void {
+    const next = dismissToasts(this.stack, ids);
+    if (next === this.stack) return;
+    this.setStack(next);
     this.push();
     this.retime();
   }
@@ -405,4 +435,13 @@ export class ToastController {
     this.push();
     this.retime();
   }
+}
+
+
+//===========================
+// Helper functions
+//===========================
+
+function lifetimeOf(persist: false | number): number {
+  return persist === false ? TOAST_LIFETIME_MS : persist;
 }

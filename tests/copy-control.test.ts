@@ -3,7 +3,7 @@
 // one-way -- nothing started after a stop, and no pause can walk it back.
 
 import { describe, it, expect } from 'vitest';
-import { createCopyRunControl } from '../electron/mail/copy-control';
+import { createCopyRunControl } from '../electron/mail/copy/copy-control';
 
 describe('createCopyRunControl', () => {
   it('starts running, so a fresh wait resolves at once', async () => {

@@ -15,7 +15,7 @@ import { expect, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { accountKey } from '../../electron/accounts/account-ref';
+import { accountKey } from '../../renderer/lib/account-ref';
 import { IPC } from '../../electron/core/ipc';
 import type {
   MailDropCopyResult,
@@ -26,8 +26,14 @@ import type {
   MailDropPreviewItem,
 } from '../../electron/core/ipc';
 import type * as GmailApi from '../../electron/gmail/gmail-api';
-import type * as RunSweep from '../../electron/mail/copy-marker-run-sweep';
-import type { CopyMode } from '../../electron/mail/mail-copy';
+import type * as JobDriver from '../../electron/mail/job/job-driver';
+import type * as CopyRun from '../../electron/mail/copy/copy-run';
+import type * as CopyRetry from '../../electron/mail/copy/copy-retry';
+import type * as OrphanRuns from '../../electron/mail/copy/orphan-runs';
+import type * as PullController from '../../electron/mail/pull/pull-controller';
+import type * as PullRetry from '../../electron/mail/pull/pull-retry';
+import type * as RunSweep from '../../electron/mail/copy/copy-marker-run-sweep';
+import type { CopyMode } from '../../electron/mail/copy/mail-copy';
 import type { Profile } from '../../electron/windows/profile-view-manager';
 import { FakeGmail, bare } from './fake-gmail';
 
@@ -36,7 +42,12 @@ import { FakeGmail, bare } from './fake-gmail';
 // Types
 //===========================
 
-export type Controller = typeof import('../../electron/mail/mail-drop-controller');
+export type Controller = typeof JobDriver &
+  typeof CopyRun &
+  typeof CopyRetry &
+  typeof OrphanRuns &
+  typeof PullController &
+  typeof PullRetry;
 
 export type CopyAnswer = MailDropCopyResult | MailDropCopyWarnedResult | MailDropCopyStoppedResult;
 
@@ -221,8 +232,7 @@ vi.mock('../../electron/auth/oauth-flow', () => ({
 }));
 
 vi.mock('../../electron/auth/oauth-health-check', () => ({
-  markRefreshFailed: () => {},
-  clearRefreshFailure: () => {},
+  scheduleOAuthHealthCheck: () => {},
 }));
 
 vi.mock('../../electron/windows/overlay-view', () => ({
@@ -281,7 +291,7 @@ vi.mock('../../electron/gmail/gmail-api', async (importOriginal) => {
   return { ...real, ...live };
 });
 
-vi.mock('../../electron/mail/copy-marker-run-sweep', async (importOriginal) => {
+vi.mock('../../electron/mail/copy/copy-marker-run-sweep', async (importOriginal) => {
   const real = await importOriginal<typeof RunSweep>();
   const noWait = async (): Promise<void> => {};
   return {
@@ -355,7 +365,15 @@ async function fresh(): Promise<Controller> {
   vi.resetModules();
   const s = state();
   s.dropOverlay = null;
-  s.controller = await import('../../electron/mail/mail-drop-controller');
+  const [jobDriver, copyRun, copyRetry, orphanRuns, pull, pullRetry] = await Promise.all([
+    import('../../electron/mail/job/job-driver'),
+    import('../../electron/mail/copy/copy-run'),
+    import('../../electron/mail/copy/copy-retry'),
+    import('../../electron/mail/copy/orphan-runs'),
+    import('../../electron/mail/pull/pull-controller'),
+    import('../../electron/mail/pull/pull-retry'),
+  ]);
+  s.controller = { ...jobDriver, ...copyRun, ...copyRetry, ...orphanRuns, ...pull, ...pullRetry };
   return s.controller;
 }
 

@@ -11,6 +11,7 @@ import { mapLimit } from '../core/concurrency';
 import { isRateLimit, withRetry, type RetryMethod } from './retry';
 import { notifyLog } from '../notify/notify-log';
 import { callForUrl, createQuotaBudget, type QuotaBudget } from './quota';
+import { htmlToText } from '../mail/shared/eml';
 import {
   BATCH_LIMIT,
   BATCH_URL,
@@ -73,6 +74,8 @@ export interface MessageMeta {
   internalDate: number;
   /** The RFC822 Message-ID, empty when Gmail did not hand the header over */
   messageId: string;
+  /** Gmail's own plain-text preview of the body, entities decoded; empty when none came */
+  snippet: string;
 }
 
 /**
@@ -791,6 +794,7 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
     id?: unknown;
     threadId?: unknown;
     internalDate?: unknown;
+    snippet?: unknown;
     payload?: { headers?: unknown };
   };
   const id = stringFrom(raw?.id);
@@ -812,6 +816,7 @@ export function parseMessageMeta(json: unknown): MessageMeta | null {
     subject: header('subject'),
     internalDate,
     messageId: header('message-id'),
+    snippet: htmlToText(stringFrom(raw?.snippet) ?? ''),
   };
 }
 
@@ -888,6 +893,43 @@ export async function fetchMessageMeta(
   messageId: string,
 ): Promise<MessageMeta | null> {
   return parseMessageMeta(await requestJson(messageMetaUrl(messageId), accessToken));
+}
+
+export function threadMetaUrl(threadId: string): string {
+  const q = new URLSearchParams({ format: 'metadata' });
+  for (const h of MESSAGE_META_HEADERS) q.append('metadataHeaders', h);
+  return `${THREADS_URL}/${encodeURIComponent(threadId)}?${q.toString()}`;
+}
+
+/**
+ * The inbox mail of one conversation, headers only
+ *
+ * Read straight from the thread rather than from a listing: `messages.list` answers from
+ * Gmail's search index, which trails a newly arrived mail by a second or more, while the
+ * thread itself already holds it. Mail without the INBOX label is left out — that is the
+ * user's own replies, which no notification is ever about.
+ *
+ * @param json a threads.get response in metadata format
+ * @returns the conversation's inbox messages, in the thread's own order
+ */
+export function parseThreadInboxMeta(json: unknown): MessageMeta[] {
+  if (!json || typeof json !== 'object' || !('messages' in json)) return [];
+  const raw = json.messages;
+  if (!Array.isArray(raw)) return [];
+  const out: MessageMeta[] = [];
+  for (const m of raw) {
+    if (!parseMessageLabelIds(m).includes('INBOX')) continue;
+    const meta = parseMessageMeta(m);
+    if (meta) out.push(meta);
+  }
+  return out;
+}
+
+export async function fetchThreadInboxMeta(
+  accessToken: string,
+  threadId: string,
+): Promise<MessageMeta[]> {
+  return parseThreadInboxMeta(await requestJson(threadMetaUrl(threadId), accessToken));
 }
 
 /**
@@ -1516,6 +1558,55 @@ export function insertMayHaveLanded(e: unknown): boolean {
 }
 
 /**
+ * Spends from the token's quota budget, makes one attempt, and retries the way retry.ts
+ * decides when it fails
+ *
+ * The wrapper requestJson and requestBatch both need around their very different attempts: a
+ * single JSON call against one url versus a multipart batch against many. `take` is spent
+ * again on every retry, not only the first try, because a refusal after a 429 is another
+ * request as far as Gmail is concerned -- which is exactly what earned the 429. Only a
+ * refusal the budget did not see coming calls `refused()`: one it already priced in is not
+ * news.
+ *
+ * @param accessToken whose budget the attempt draws from
+ * @param take spends whatever the attempt is about to cost
+ * @param attempt the request itself
+ * @param mapFailure what retry.ts needs to know about a failure, beyond status/timeout/rate
+ *   limit, which this already fills in
+ * @returns whatever attempt resolves to
+ * @private
+ */
+async function budgetedRetry<T>(
+  accessToken: string,
+  take: (budget: QuotaBudget) => Promise<void>,
+  attempt: () => Promise<T>,
+  mapFailure: (e: unknown) => { method: RetryMethod; cancelled?: boolean },
+): Promise<T> {
+  return await withRetry(
+    async () => {
+      const budget = budgetFor(accessToken);
+      await take(budget);
+      try {
+        return await attempt();
+      } catch (e) {
+        // A refusal while the budget still believed there was room means the budget is reading
+        // the wrong price list -- which is exactly what happens when Google moves this project
+        // to the table it published in May 2026, and nobody is told when that is.
+        if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
+        throw e;
+      }
+    },
+    (e) => ({
+      status: e instanceof GmailHttpError ? e.status : null,
+      timedOut: e instanceof GmailTimeoutError,
+      rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
+      retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
+      ...mapFailure(e),
+    }),
+  );
+}
+
+/**
  * The one request every call in this file goes through
  *
  * Refused requests are sent again on the statuses that mean "not now" — see retry.ts for
@@ -1542,32 +1633,16 @@ async function requestJson(
   signal?: AbortSignal,
 ): Promise<unknown> {
   const call = callForUrl(url, init?.method ?? 'GET');
-  return await withRetry(
-    async () => {
-      const budget = budgetFor(accessToken);
-      // Per attempt rather than per request: a retry after a 429 is another request as far as
-      // Gmail is concerned, and going straight back out is what earned the 429.
-      await budget.take(call);
-      try {
-        return await attemptJson(url, accessToken, init, signal);
-      } catch (e) {
-        // A refusal while the budget still believed there was room means the budget is reading
-        // the wrong price list -- which is exactly what happens when Google moves this project
-        // to the table it published in May 2026, and nobody is told when that is.
-        if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
-        throw e;
-      }
-    },
+  return await budgetedRetry(
+    accessToken,
+    (budget) => budget.take(call),
+    () => attemptJson(url, accessToken, init, signal),
     (e) => ({
       method: retryMethod ?? (init ? 'POST' : 'GET'),
-      status: e instanceof GmailHttpError ? e.status : null,
-      timedOut: e instanceof GmailTimeoutError,
-      rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
       // A cut request is not a timeout: retry.ts refuses both, but only this one is a
       // deliberate choice worth telling apart from an ambiguous one when something later
       // reads the log back.
       cancelled: e instanceof GmailCancelledError,
-      retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
     }),
   );
 }
@@ -1598,24 +1673,13 @@ export async function requestBatch(
   await mapLimit(groups, BATCH_IN_FLIGHT, async (group) => {
     const boundary = `gmd_batch_${randomBytes(12).toString('hex')}`;
     const body = Buffer.from(batchBody(group.urls.map(batchPath), boundary), 'utf8');
-    const answer = await withRetry(
-      async () => {
-        const budget = budgetFor(accessToken);
+    const answer = await budgetedRetry(
+      accessToken,
+      async (budget) => {
         for (const url of group.urls) await budget.take(callForUrl(url));
-        try {
-          return await attemptMultipart(BATCH_URL, accessToken, boundary, body);
-        } catch (e) {
-          if (e instanceof GmailHttpError && isRateLimit(e.status, e.reason)) budget.refused();
-          throw e;
-        }
       },
-      (e) => ({
-        method: 'GET',
-        status: e instanceof GmailHttpError ? e.status : null,
-        timedOut: e instanceof GmailTimeoutError,
-        rateLimited: e instanceof GmailHttpError && isRateLimit(e.status, e.reason),
-        retryAfter: e instanceof GmailHttpError ? e.retryAfter : null,
-      }),
+      () => attemptMultipart(BATCH_URL, accessToken, boundary, body),
+      () => ({ method: 'GET' }),
     );
 
     for (const part of parseBatchBody(answer.body, boundaryFrom(answer.contentType))) {

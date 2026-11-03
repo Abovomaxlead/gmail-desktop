@@ -8,6 +8,7 @@
 // answers with AADSTS900561.
 
 import { SURFACES, SURFACE_CONFIG } from '../../renderer/lib/surfaces';
+import { hostOf } from '../system/link-guard';
 
 
 
@@ -187,30 +188,20 @@ export function isFederatedLoginUrl(url: string): boolean {
 }
 
 /**
+ * Whether a URL is a sign-in page, Google's own or the Microsoft login it federates to
+ *
+ * @param url
+ * @returns true for accounts.google.com and the federated login hosts
+ */
+export function isSignInUrl(url: string): boolean {
+  return hostOf(url) === 'accounts.google.com' || isFederatedLoginUrl(url);
+}
+
+/**
  * Where the "+" flow sends the user to sign in
  *
  * @returns Google's add-session URL, continuing into Gmail
  */
 export function addAccountUrl(): string {
   return 'https://accounts.google.com/AddSession?continue=https://mail.google.com/mail/';
-}
-
-
-//===========================
-// Helper functions
-//===========================
-
-/**
- * The hostname of a URL
- *
- * @param url
- * @returns the lowercased host, or null when the URL is unparseable
- * @private
- */
-function hostOf(url: string): string | null {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return null;
-  }
 }

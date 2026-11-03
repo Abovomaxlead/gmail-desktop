@@ -209,6 +209,21 @@ export function isExpired(token: StoredToken, now: number): boolean {
   return now >= token.expiresAt;
 }
 
+// Longer than the five minutes between health checks, so a token is always renewed by the
+// check before it runs out rather than by whichever API call finds it dead.
+const RENEW_AHEAD_MS = 10 * 60 * 1000;
+
+/**
+ * Tells whether a token is close enough to its expiry to renew it now
+ *
+ * @param token
+ * @param now epoch ms
+ * @returns true within RENEW_AHEAD_MS of the stored expiry, and after it
+ */
+export function renewalDue(token: StoredToken, now: number): boolean {
+  return now >= token.expiresAt - RENEW_AHEAD_MS;
+}
+
 /**
  * Tells whether a token still covers everything the app asks for
  *

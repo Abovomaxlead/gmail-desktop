@@ -23,7 +23,7 @@ import {
   existingSoFar,
   tallyOutcomes,
 
-} from '../electron/mail/mail-copy';
+} from '../electron/mail/copy/mail-copy';
 
 describe('normalizeTargets', () => {
   it('keeps what was picked', () => {

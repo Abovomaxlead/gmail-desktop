@@ -38,9 +38,9 @@ import {
 import { notifyLog } from '../notify/notify-log';
 import { showToast, toastAccountFor } from '../toast/toast-presenter';
 import { nativeLabels } from '../menus/native-labels';
-import { displayName } from '../mail/mail-archive';
-import { remember } from '../mail/message-index';
-import { extractPlainText } from '../mail/eml';
+import { displayName, senderAddress } from '../mail/pull/mail-archive';
+import { remember } from '../mail/copy/message-index';
+import { extractPlainText } from '../mail/shared/eml';
 import { findVerificationCode, subjectSuggestsCode } from '../gmail/verification-code';
 import {
   fetchHistoryPage,
@@ -83,11 +83,13 @@ function notifyNewMail(email: string, meta: MessageMeta): void {
   notifyLog(`[notify] raise delegated ${email} thread=${meta.threadId}`);
   showToast({
     kind: 'mail',
-    title: hidden.hiddenSender ?? (displayName(meta.from) || email),
+    title: hidden.hiddenSender ?? (senderAddress(meta.from) || displayName(meta.from) || email),
     body: hidden.hiddenSubject ?? (meta.subject || L.noSubject),
     account,
     threadId: meta.threadId,
     messageId: meta.id,
+    ...(hidden.hiddenSubject === undefined && meta.snippet ? { preview: meta.snippet } : {}),
+    inbox: email,
     persist: notificationPersist(p, email),
   });
   if (!notificationSilent(p, email, 'mail')) playNotificationSound(p);

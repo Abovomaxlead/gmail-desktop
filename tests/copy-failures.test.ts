@@ -8,7 +8,7 @@ import {
   failureLines,
   retryRefusal,
   wholeTargetFailed,
-} from '../electron/mail/copy-failures';
+} from '../electron/mail/copy/copy-failures';
 import {
   GmailHttpError,
   GmailTimeoutError,

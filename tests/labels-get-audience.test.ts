@@ -30,21 +30,17 @@ const labelsForEveryMailbox = vi.fn(async () => ({
   accounts: [{ email: 'luca@x.nl' }, { email: 'support@x.nl' }],
 }));
 
-vi.mock('../electron/mail/mail-drop-controller', () => ({
-  cancelMailDropPull: () => {},
-  closeDropPreview: () => {},
-  controlCopyRun: () => {},
+vi.mock('../electron/mail/job/job-driver', () => ({
   copyToMailboxes: () => {},
   decideJobRun: () => {},
-  decideOrphanRun: () => {},
-  dropPreviewItems: () => ({}),
+  pendingJobDecision: () => null,
+  retryFailedJob: () => {},
+}));
+
+vi.mock('../electron/mail/copy/duplicate-scan', () => ({
   existingForCopyTargets: () => ({}),
   labelsForCopyTargets,
   labelsForEveryMailbox,
-  mailDropFolder: () => '/drop',
-  mailDropStatus: () => ({}),
-  pendingJobDecision: () => null,
-  pendingOrphanDecision: () => null,
 }));
 
 const { registerIpc } = await import('../electron/core/ipc-handlers');

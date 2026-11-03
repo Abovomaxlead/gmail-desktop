@@ -4,7 +4,7 @@
 // and that is decided here.
 
 import { describe, it, expect } from 'vitest';
-import { PURGE_LIST_MAX, createPurgeStore, type CountedLabel } from '../electron/mail/label-purge';
+import { PURGE_LIST_MAX, createPurgeStore, type CountedLabel } from '../electron/mail/purge/label-purge';
 
 const ids = (n: number, from = 0) => Array.from({ length: n }, (_, i) => `m${i + from}`);
 

@@ -27,6 +27,7 @@ import {
 class FakeEl {
   clicks = 0;
   scrolls = 0;
+  scrolledTo: unknown = null;
   parentElement: FakeEl | null = null;
   constructor(
     readonly attrs: Record<string, string | undefined>,
@@ -45,8 +46,9 @@ class FakeEl {
   click(): void {
     this.clicks++;
   }
-  scrollIntoView(): void {
+  scrollIntoView(opts?: { block?: string }): void {
     this.scrolls++;
+    this.scrolledTo = opts?.block;
   }
 }
 
@@ -121,6 +123,15 @@ describe('messageAnchorScript finds the message', () => {
     expect(target.scrolls).toBe(1);
   });
 
+  // An open mail is taller than the window; centring it put the reader halfway down the
+  // body, measured at 1000px into a 2540px mail in Gmail itself.
+  it('scrolls to the top of the message, where its header is', () => {
+    const target = block(REPLY, { open: true, height: 2540 });
+
+    run(look(REPLY), doc(target));
+    expect(target.scrolledTo).toBe('start');
+  });
+
   it('says missing while the conversation is not on screen yet', () => {
     expect(run(look(REPLY), doc())).toBe('missing');
   });
@@ -129,7 +140,7 @@ describe('messageAnchorScript finds the message', () => {
 // Gmail hangs the id of the mail an attachment belongs to on the chip drawn in the inbox
 // row, so the list holds a match for the very message being looked for. Clicking it opens
 // the attachment and, worse, counts as done — the conversation then never gets anchored at
-// all and the reader is back on the older mail. mail/dropzone.ts narrowed the same way.
+// all and the reader is back on the older mail. mail/drag/dropzone.ts narrowed the same way.
 describe('messageAnchorScript refuses a list row', () => {
   it('passes over the attachment chip and takes the message', () => {
     const chip = chipInRow(REPLY);

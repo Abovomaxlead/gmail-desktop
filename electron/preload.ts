@@ -18,7 +18,8 @@ import {
   type MailDropSaveProgress,
   type MailDropLock,
 } from './core/ipc';
-import { labelFromDragTarget } from './mail/label-drop';
+import { labelFromDragTarget } from './mail/drag/label-drop';
+import { OPEN_CHECK_DELAY_MS, newlyOpened, openConversations } from './gmail/open-conversation';
 import {
   DROPZONE_ID,
   DROPZONE_CSS,
@@ -46,7 +47,7 @@ import {
   savingText,
   type DragNode,
   type MessageRef,
-} from './mail/dropzone';
+} from './mail/drag/dropzone';
 
 
 //===========================
@@ -276,31 +277,28 @@ export function webNotifyPageId(loadNonce: string, seq: number): string {
 /**
  * What travels to main when the page raises a notification
  *
- * Both text fields are coerced: `title: string` is the DOM signature, not what arrives, and a
+ * Every field is coerced: `title: string` is the DOM signature, not what arrives, and a
  * non-primitive handed to React as a child unmounts the toasts page — taking every later
- * notification with it.
- *
- * `requireInteraction` comes along because it is the page saying the card must stay up until
- * somebody dismisses it. Google Agenda sets it on every event reminder, and a reminder that
- * fades after six seconds is a reminder nobody gets: unlike mail, nothing is left behind to
- * find it back with.
+ * notification with it. `icon` is the sender's picture Gmail puts on the notification; main
+ * decides whether it is usable.
  *
  * @param id
  * @param title
  * @param options
- * @returns the payload, with both text fields strings whatever the page passed
+ * @returns the payload, with every text field a string whatever the page passed
  */
 export function webNotifyPayload(
   id: string,
   title: string,
   options?: NotificationOptions,
-): { id: string; title: string; body: string; requireInteraction: boolean } {
+): { id: string; title: string; body: string; icon: string } {
   const raw = options?.body;
+  const icon = options?.icon;
   return {
     id,
     title: title === undefined || title === null ? '' : String(title),
     body: raw === undefined || raw === null ? '' : String(raw),
-    requireInteraction: options?.requireInteraction === true,
+    icon: typeof icon === 'string' ? icon : '',
   };
 }
 
@@ -793,6 +791,28 @@ if (typeof document !== 'undefined') {
         new MutationObserver(report).observe(titleEl, { childList: true });
       }
       setInterval(report, 5000);
+
+      // Which conversation is open, for a card about it to leave. The observer only arms a
+      // timer, so the stream of changes Gmail makes costs one look per burst.
+      let openNow = new Set(openConversations(document).map((c) => c.threadId));
+      let checkPending = false;
+      const checkOpen = (): void => {
+        checkPending = false;
+        const now = openConversations(document);
+        const opened = newlyOpened(openNow, now);
+        openNow = new Set(now.map((c) => c.threadId));
+        if (opened.length > 0) ipcRenderer.send(IPC.MAIL_CONVERSATION_OPENED, opened);
+      };
+      new MutationObserver(() => {
+        if (checkPending) return;
+        checkPending = true;
+        setTimeout(checkOpen, OPEN_CHECK_DELAY_MS);
+      }).observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden', 'data-legacy-thread-id'],
+      });
 
       let answered = false;
       ipcRenderer.on(IPC.MAIL_DROP_ALLOWED, (_e: unknown, allowed: boolean) => {

@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { Prefs, UpdateStatus } from '../page';
+import type { Prefs, UpdateStatus } from '../../lib/desktop-bridge';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';

@@ -18,12 +18,12 @@
 // ten-thousand-thread plan off a single megabyte-long line.
 
 import { join } from 'node:path';
-import { readCopyJournal } from './copy-journal';
-import type { CopyRunId } from './copy-run-types';
-import type { JobLine } from '../../renderer/lib/maildrop-copy';
-import { appendJsonLine, jsonLines, parsedFilesWithSuffix, readParsed } from './jsonl-store';
-import type { TreeThread } from './label-drop';
-import type { CopyTarget } from './mail-copy';
+import { readCopyJournal } from '../copy/copy-journal';
+import type { CopyRunId } from '../copy/copy-run-types';
+import type { JobLine } from '../../../renderer/lib/maildrop-copy';
+import { appendJsonLine, jsonLines, parsedFilesWithSuffix, readParsed } from '../shared/jsonl-store';
+import type { TreeThread } from '../drag/label-drop';
+import type { CopyTarget } from '../copy/mail-copy';
 
 
 //===========================

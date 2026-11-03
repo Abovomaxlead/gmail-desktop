@@ -1,13 +1,15 @@
 // Who may act while a label job is walking.
 //
 // Three questions with one thing in common: they are all answered minutes apart from the moment
-// the work started, and mail-drop-controller.ts used to answer each of them by reading a
+// the work started, and the mail-drop controller used to answer each of them by reading a
 // module-level variable again at the far end. A plan swapped in between, a gate that had already
 // decided, a drag that arrived mid-copy -- each read the state of a different moment than the one
-// it belonged to. Pulled out here so the answers can be pinned by a test; the controller has none.
+// it belonged to. Pulled out here so the answers can be pinned by a test; the driver has none.
 //
 // Nothing here decides which mail lands where. These answer when a stop takes hold, what the panel
 // is told, and which plan a finished batch is written into.
+
+import type { JobOutcome } from './label-job';
 
 
 //===========================
@@ -18,6 +20,26 @@
  * only has to recognise the plan it started out with. */
 export interface JobPlanRef {
   jobId: string;
+}
+
+/** What became of a job, sent once when its walk is over. The plan's own outcome vocabulary plus
+ * 'stuck', which is not an outcome the plan file ever gets: a job stopped on a failed batch is
+ * left open on purpose, so the next start can offer to continue it.
+ *
+ * Deliberately not renderer/lib/maildrop-copy.ts's own JobEnd: that one requires a `jobId` this
+ * side has never sent, and a job end is addressed to the one panel that is watching. */
+export interface JobEndInfo {
+  outcome: JobOutcome | 'stuck';
+  label: string;
+  done: number;
+  total: number;
+  batches: number;
+  copiedBatches: number;
+  targets: string[];
+  error?: string;
+  failed?: number;
+  /** Set only on a completed job whose losses are held for one retry */
+  retryId?: string;
 }
 
 /** Enough of a copy run's gate to know whether a stop can still change its outcome. `decided`

@@ -112,6 +112,22 @@ export function startNotifyTimer(): void {
 }
 
 /**
+ * Prunes accounts no longer in the live profile list out of the "may notify" memory
+ *
+ * Without this an account that is removed and later re-added would be read as unchanged by
+ * refreshNotifyAllowed — the map still holds its old answer — and its transition would not
+ * be logged the second time around.
+ *
+ * @param emails the live profile emails
+ */
+export function retainNotifyGating(emails: Iterable<string>): void {
+  const live = new Set(emails);
+  for (const email of notifyAllowedLast.keys()) {
+    if (!live.has(email)) notifyAllowedLast.delete(email);
+  }
+}
+
+/**
  * Reports the inbox count as the API counts it, for an account the page has not spoken for
  *
  * A backstop, not the authority: the sweep runs every five minutes, so writing its number

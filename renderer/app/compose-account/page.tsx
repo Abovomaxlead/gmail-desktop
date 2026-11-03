@@ -154,7 +154,7 @@ export default function ComposeAccountPage() {
               onClick={() => pick(i)}
               onFocus={() => setFocusIndex(i)}
               style={i === focusIndex ? { backgroundColor: `${a.color}14` } : undefined}
-              className="flex w-full items-center gap-3 py-2.5 pr-4 text-left outline-none transition hover:bg-black/[0.04] dark:hover:bg-white/5 motion-reduce:transition-none"
+              className="flex w-full items-center gap-3 py-2.5 pr-4 text-left outline-hidden transition hover:bg-black/4 dark:hover:bg-white/5 motion-reduce:transition-none"
             >
               <span aria-hidden className="flex h-9 w-[5px] shrink-0 items-center">
                 <span

@@ -8,7 +8,7 @@
 // One ordering matters: the toast controller is built after the window it belongs to and
 // torn down with it.
 
-import { BrowserWindow, nativeTheme, screen } from 'electron';
+import { BrowserWindow, nativeTheme, powerMonitor, screen } from 'electron';
 import { app } from 'electron';
 import { join } from 'node:path';
 import { watch } from 'node:fs';
@@ -66,26 +66,28 @@ import {
   saveWindowBounds,
   scheduleSaveBounds,
 } from './window-chrome';
+import { bringToFront } from './window-focus';
 import { ToastWindow } from '../toast/toast-window';
 import { ToastController } from '../toast/toast-controller';
 import { drainToSystem, repairToastStack } from '../toast/toast-presenter';
 import { activateNotification, activateToast, forgetToastResources, runToastAction } from '../toast/toast-activation';
+import { dismissCardsForOpenedMail } from '../toast/toast-opened-mail';
 import { cancelComposeAsk } from '../compose/mailto-controller';
 import { onIdentity, startDetection } from '../accounts/detection-controller';
 import { loadDelegatedProfiles, startDelegatedUrlRefreshOnce } from '../delegation/delegated-controller';
-import { handleMailDrop } from '../mail/mail-drop-controller';
-import { checkOAuthHealth } from '../auth/oauth-health-check';
+import { handleMailDrop } from '../mail/pull/pull-controller';
+import { checkOAuthHealth, scheduleOAuthHealthCheck } from '../auth/oauth-health-check';
 import { notificationSilent } from '../notify/notification-policy';
 import { notifyLog, openNotifyLog } from '../notify/notify-log';
 import { ColorStore } from '../accounts/color-store';
 import { AccountCacheStore, rememberedOrder } from '../accounts/account-cache';
 import { DelegatedStore } from '../delegation/delegated-store';
 import { HiddenStore } from '../accounts/hidden-store';
-import { RecentLabelStore } from '../mail/recent-labels-store';
+import { RecentLabelStore } from '../mail/copy/recent-labels-store';
 import { OAuthStore, type ProtectResult } from '../auth/oauth-store';
 import { dropDisallowedTokens, isAllowedAccount } from '../auth/account-domain';
 import { HistoryStore } from '../gmail/history-store';
-import { MessageIndexStore } from '../mail/message-index';
+import { MessageIndexStore } from '../mail/copy/message-index';
 import { DownloadHistoryStore } from '../system/download-history';
 import { shouldHideOnClose } from '../menus/tray-controller';
 import { windowForAccount } from './tab-window-registry';
@@ -218,6 +220,8 @@ export function createWindow(): void {
     // out. Asked of the registry rather than remembered by the manager: an account with no
     // view yet still has a window, and that is where its first view has to be built.
     (acctKey) => windowForAccount(acctKey),
+    // A conversation opened inside Gmail's page: its cards have been seen.
+    (acctKey, open) => dismissCardsForOpenedMail(acctKey, open),
   );
   setManager(views);
 
@@ -241,9 +245,7 @@ export function createWindow(): void {
     onActivateSummary: (accountKey) => {
       if (accountKey) activateNotification(accountKey, 'mail');
       else if (mainWindow && !mainWindow.isDestroyed()) {
-        if (mainWindow.isMinimized()) mainWindow.restore();
-        mainWindow.show();
-        mainWindow.focus();
+        bringToFront(mainWindow);
       }
     },
     onAction: (toast, action) => void runToastAction(toast, action),
@@ -262,6 +264,8 @@ export function createWindow(): void {
   if (DEV_URL) watchPreloadForReload();
 
   setInterval(() => void checkOAuthHealth(), 5 * 60 * 1000);
+  // Every token ran out while the laptop slept; renew them now rather than at the next round.
+  powerMonitor.on('resume', () => scheduleOAuthHealthCheck());
 
   win.webContents.on('did-finish-load', () => {
     loadDelegatedProfiles();
@@ -314,9 +318,7 @@ export function createWindow(): void {
  */
 export function openSettingsPanel(section?: string): void {
   if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
+  bringToFront(mainWindow);
   setSettingsPanelOpen(true);
   manager?.hideAll();
   mainWindow.webContents.send(IPC.SETTINGS_FORCE_OPEN, { section });

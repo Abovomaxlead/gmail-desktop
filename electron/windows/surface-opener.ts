@@ -7,7 +7,7 @@
 
 import { BrowserWindow, dialog, shell } from 'electron';
 import { pushPrefs } from '../core/broadcast';
-import { accountKey, type AccountRef } from '../accounts/account-ref';
+import { accountKey, type AccountRef } from '../../renderer/lib/account-ref';
 import { SESSION_PARTITION } from '../core/session-partition';
 import { activeView, currentLocale, mainWindow, manager, prefs, profiles } from '../core/runtime';
 import { showAccount } from './view-surfaces';

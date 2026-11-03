@@ -7,7 +7,13 @@
 // order and every addChildView appends, so anything attached later buries the overlay while
 // it still believes it is open. So it re-asserts its place on open and update, and raise()
 // lets the owner do the same. Re-adding an existing child reorders rather than duplicates.
+//
+// The payload waits for the page to say it is listening, not for it to finish loading. A page
+// hydrates after its load event, so on a busy machine -- a start with every Gmail view loading
+// -- a payload sent on did-finish-load was dropped, leaving an empty transparent view over
+// Gmail that took every click.
 import { BrowserWindow, WebContentsView } from 'electron';
+import { IPC } from '../core/ipc';
 import { contentBounds } from './layout';
 
 
@@ -119,12 +125,18 @@ export class OverlayView {
     });
     view.setBackgroundColor('#00000000');
     view.webContents.on('did-finish-load', () => {
-      this.ready = true;
       // Again here, because the first open is the one that builds this view: focusing a page
       // that has not loaded yet is asking a window that does not exist to take the keyboard,
       // and the first drop after a start would be the one drop that still typed into Gmail.
       if (this.takesFocus && this.visible) view.webContents.focus();
+    });
+    view.webContents.ipc.on(IPC.OVERLAY_READY, () => {
+      this.ready = true;
       this.flush();
+    });
+    // A reloaded page has lost its listener along with everything else
+    view.webContents.on('did-start-navigation', (details) => {
+      if (details.isMainFrame && !details.isSameDocument) this.ready = false;
     });
     void view.webContents.loadURL(this.url);
     this.win.contentView.addChildView(view);
@@ -132,7 +144,7 @@ export class OverlayView {
   }
 
   /**
-   * Sends the pending payload once the page is loaded
+   * Sends the pending payload once the page is listening
    *
    * @private
    */

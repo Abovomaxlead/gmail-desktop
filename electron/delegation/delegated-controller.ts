@@ -51,7 +51,7 @@ import { accessTokenFor } from '../auth/oauth-flow';
 import { syncCalendarViews, warmAccount } from '../windows/view-surfaces';
 import { delegatedLostText, viewCrashUrl } from '../windows/view-crash-page';
 import { SURFACES, surfacesForRef } from '../../renderer/lib/surfaces';
-import type { AccountRef } from '../accounts/account-ref';
+import type { AccountRef } from '../../renderer/lib/account-ref';
 import type { StoredDelegate } from './delegated-store';
 import type { Profile } from '../windows/profile-view-manager';
 import type { OAuthConfig } from '../auth/google-oauth';

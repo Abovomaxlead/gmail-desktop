@@ -301,4 +301,13 @@ describe('notificationPersist', () => {
   it('is unknown-account safe', () => {
     expect(notificationPersist(prefs({}), 'nobody@x.com')).toBe(false);
   });
+  it('stays the chosen time when one is set', () => {
+    const p = prefs({
+      accounts: { 'a@x.com': { notifyPersist: true }, 'b@x.com': {} },
+      notifications: { persistSeconds: 90 },
+    });
+    expect(notificationPersist(p, 'a@x.com')).toBe(90_000);
+    // the chosen time is for persisting accounts only; the others still fade
+    expect(notificationPersist(p, 'b@x.com')).toBe(false);
+  });
 });

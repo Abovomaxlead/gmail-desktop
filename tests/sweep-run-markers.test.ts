@@ -7,8 +7,8 @@ import {
   sweepRunMarkers,
   deleteCreatedLabels,
   type SweepRunDeps,
-} from '../electron/mail/copy-marker-run-sweep';
-import type { MarkerLabel } from '../electron/mail/copy-run-types';
+} from '../electron/mail/copy/copy-marker-run-sweep';
+import type { MarkerLabel } from '../electron/mail/copy/copy-run-types';
 
 const noopDeleteLabel = async (): Promise<void> => {};
 

@@ -62,6 +62,60 @@ export function dismissToast(stack: ToastStack, id: string): ToastStack {
 }
 
 /**
+ * An account's mail cards
+ *
+ * @param stack
+ * @param accountKey
+ * @returns the cards; none while collapsed, since a summary names no mail
+ */
+export function mailCardsOf(stack: ToastStack, accountKey: string): Toast[] {
+  if (stack.summary) return [];
+  return stack.toasts.filter((t) => t.kind === 'mail' && t.account?.key === accountKey);
+}
+
+/**
+ * Removes the named cards, leaving every other card
+ *
+ * @param stack
+ * @param ids
+ * @returns the stack itself when nothing matched or it is collapsed
+ */
+export function dismissToasts(stack: ToastStack, ids: readonly string[]): ToastStack {
+  if (stack.summary || ids.length === 0) return stack;
+  const toasts = stack.toasts.filter((t) => !ids.includes(t.id));
+  if (toasts.length === stack.toasts.length) return stack;
+  return { toasts, summary: null };
+}
+
+/**
+ * Which of an account's mail cards are about a conversation now open in the app
+ *
+ * By thread id when the card knows it. A card relayed from Gmail's page for a mailbox the API
+ * could not be asked about knows only the subject the page notified with, so that is matched
+ * against the subject line on screen -- the same text, since both are Gmail's own.
+ *
+ * @param cards the account's mail cards
+ * @param open what the page has open
+ * @param subjectOf the subject a card was raised with, when there is one
+ * @returns the ids of the cards that may leave
+ */
+export function openedCards(
+  cards: readonly Toast[],
+  open: readonly { threadId: string; subject: string }[],
+  subjectOf: (card: Toast) => string | undefined,
+): string[] {
+  const threads = new Set(open.map((o) => o.threadId));
+  const subjects = new Set(open.map((o) => normaliseSubject(o.subject)).filter(Boolean));
+  return cards
+    .filter((card) => {
+      if (card.threadId) return threads.has(card.threadId);
+      const subject = normaliseSubject(subjectOf(card) ?? '');
+      return subject !== '' && subjects.has(subject);
+    })
+    .map((card) => card.id);
+}
+
+/**
  * Drops the cards that have reached their expiry
  *
  * @param stack
@@ -130,4 +184,15 @@ function sharedAccountKey(toasts: Toast[]): string | null {
  */
 function summarise(toasts: Toast[]): ToastSummary {
   return { count: toasts.length, accountKey: sharedAccountKey(toasts) };
+}
+
+/**
+ * A subject as compared: Gmail's heading and its notification may differ in spacing and case
+ *
+ * @param subject
+ * @returns the subject, whitespace collapsed and lowercased
+ * @private
+ */
+function normaliseSubject(subject: string): string {
+  return subject.replace(/\s+/g, ' ').trim().toLowerCase();
 }

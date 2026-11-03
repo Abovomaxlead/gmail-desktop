@@ -5,7 +5,9 @@
 // absent on toasts belonging to the app rather than a mailbox, and those carry no actions.
 // `messageId` is present only on push-sourced mail; a notification relayed from the Gmail
 // page carries `webNotifyId` instead, since only that page still holds the subject the
-// thread lookup matches against.
+// thread lookup matches against. `senderAvatarUrl` is the sender's picture when Gmail's page
+// supplied one; a mail card never shows the account's own picture, which would read as mail
+// from yourself.
 
 
 //===========================
@@ -31,6 +33,11 @@ export interface Toast {
   threadId?: string;
   messageId?: string;
   webNotifyId?: string;
+  senderAvatarUrl?: string;
+  /** The first lines of the mail, when the message could be looked up */
+  preview?: string;
+  /** The address the mail arrived in, on mail cards only -- an agenda reminder has none */
+  inbox?: string;
   expiresAt?: number;
 }
 
@@ -50,7 +57,7 @@ export interface ToastState extends ToastStack {
   dark: boolean;
 }
 
-export type ToastAction = 'archive' | 'read';
+export type ToastAction = 'archive' | 'read' | 'trash' | 'reply';
 
 
 //===========================
@@ -58,6 +65,9 @@ export type ToastAction = 'archive' | 'read';
 //===========================
 
 export const TOAST_WIDTH = 380;
+
+/** The longest the settings let a persisting card stay on a timer; longer is "until dismissed". */
+export const MAX_PERSIST_SECONDS = 24 * 60 * 60;
 
 
 //===========================

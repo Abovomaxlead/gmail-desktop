@@ -16,8 +16,8 @@
 // reported as `converged: false`, never as success -- the caller must leave that mailbox for
 // the next resumed sweep rather than claim it clean.
 
-import { BATCH_MODIFY_LIMIT } from '../gmail/gmail-api';
-import { chunk } from './chunk';
+import { BATCH_MODIFY_LIMIT } from '../../gmail/gmail-api';
+import { chunk } from '../shared/chunk';
 
 
 //===========================

@@ -6,7 +6,7 @@ import {
   DROPZONE_CSS,
   DROPZONE_ID,
   DROPZONE_LABEL,
-} from '../../electron/mail/dropzone';
+} from '../../electron/mail/drag/dropzone';
 import { TOPBAR_HEIGHT } from '../lib/topbar';
 import { LabelPane, MailboxRail, type AccountLabels } from './maildrop/panel-parts';
 import { mailboxRows } from './mailbox-rail';

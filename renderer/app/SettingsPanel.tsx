@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { Prefs, Profile, UpdateStatus } from './page';
+import type { Prefs, Profile, UpdateStatus } from '../lib/desktop-bridge';
 import { advanceReneSequence, RENE_SEQUENCE } from './settings-utils';
 import { getStrings, type UiStrings } from './strings';
 import { AboutSection } from './settings/AboutSection';

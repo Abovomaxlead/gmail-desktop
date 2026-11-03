@@ -33,8 +33,8 @@ and launches Electron against the dev renderer. What happens on a change:
 Close a running instance first — the app takes a single-instance lock, so a
 second one exits immediately.
 
-`./run-dev.sh` does the same thing on Linux/macOS and additionally starts a
-notification daemon under WSL.
+`./run-dev.sh` is an older Linux/macOS launcher: it builds the Electron bundles
+once (no watching) and additionally starts a notification daemon under WSL.
 
 ## Tests
 
@@ -52,14 +52,22 @@ Outputs are written to `dist/`.
 
 ## Architecture
 
-- **Electron main** owns the window, tray, accounts store, and one
-  `WebContentsView` per account (isolated `persist:` session partitions).
-- **Next.js (static export)** renders the sidebar chrome only.
-- A **preload** injected into each Gmail view reports the unread count
-  (parsed from the document title) and routes notification clicks over IPC.
+- **Electron main** (`electron/`, one folder per domain) owns the windows,
+  tray, stores, and one `WebContentsView` per mailbox and Google app. Every
+  Google view shares one session partition (`persist:google`), the way one
+  browser holds several signed-in accounts.
+- **Next.js (static export)** (`renderer/`) renders the app's own pages:
+  tab bar, settings, the mail-drop picker, notifications and dialogs.
+- A **preload** injected into each Gmail view reports the unread count,
+  routes notifications and runs the drag-to-save strip.
+
+`docs/handoff/02-architecture.md` maps every feature to its code.
 
 ## Scope
 
-This is a wrapper around Gmail's web UI, not a standalone mail client. Not
-yet included: auto-updates, `mailto:` handling, global shortcuts, offline
-storage.
+This is a wrapper around Gmail's web UI, not a standalone mail client. It
+includes auto-updates (with a beta channel), `mailto:` handling and the
+default-mail-app registration, delegated mailboxes, dragging mail out as
+`.eml` and copying it into other mailboxes, its own notification window, and
+feedback and crash reports. Keyboard shortcuts work inside the app window
+only. Not included: system-wide shortcuts, offline storage.

@@ -17,7 +17,7 @@ const RENDERER_URL = process.env.RENDERER_URL ?? 'http://localhost:3000';
 const shared = {
   bundle: true,
   platform: 'node',
-  target: 'node22',
+  target: 'node24',
   external: ['electron'],
   outdir: 'dist-electron',
   format: 'cjs',

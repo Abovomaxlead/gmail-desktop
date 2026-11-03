@@ -19,7 +19,7 @@
 // hand-made a label with the same name, no run's journal names its id, so nothing this app
 // does can ever act on it.
 
-import type { RollbackMailboxOutcome } from '../../renderer/lib/maildrop-copy';
+import type { RollbackMailboxOutcome } from '../../../renderer/lib/maildrop-copy';
 
 
 //===========================

@@ -11,9 +11,11 @@
 // consent from everyone. In CI the release workflow writes the same file from a repository
 // secret instead of running this script.
 //
-// Copies the file whole rather than picking out the two credential fields: relayUrl and
-// pushTopic live in it too and are what make push notifications work, so a "helpful" subset
-// would ship a build that links accounts and then never notifies about them.
+// Copies the file whole rather than picking out the two credential fields: the relay
+// addresses for delegated mailboxes (delegatedTokenUrl, delegatedMailboxesUrl) live in it
+// too, so a "helpful" subset would ship a build whose delegated mailboxes never get a token.
+// relayUrl and pushTopic may still be in older copies; they are left over from the removed
+// push design and nothing reads them.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -100,7 +102,7 @@ const extras = Object.keys(parsed).filter((k) => k !== 'clientId' && k !== 'clie
 console.log(`Bundled ${source}`);
 console.log(`     -> ${OUT}`);
 console.log(`   keys: clientId, clientSecret${extras.length ? ', ' + extras.join(', ') : ''}`);
-if (!extras.includes('relayUrl') || !extras.includes('pushTopic')) {
-  console.log('\n   Note: no relayUrl/pushTopic in this config, so the build ships without');
-  console.log('   push settings and notifications will stay quiet.');
+if (!extras.includes('delegatedTokenUrl') || !extras.includes('delegatedMailboxesUrl')) {
+  console.log('\n   Note: no delegatedTokenUrl/delegatedMailboxesUrl in this config, so the build');
+  console.log('   ships without the relay addresses and delegated mailboxes will not work.');
 }

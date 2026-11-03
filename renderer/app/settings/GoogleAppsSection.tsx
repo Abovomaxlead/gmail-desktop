@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { SURFACES, SURFACE_CONFIG, type Surface } from '../../lib/surfaces';
-import type { Prefs } from '../page';
+import type { Prefs } from '../../lib/desktop-bridge';
 import type { UiStrings } from '../strings';
 import { Section, SettingsGroup } from './Section';
 import { SettingRow } from './SettingRow';
@@ -95,7 +95,7 @@ export function GoogleAppsSection({ S, prefs }: { S: UiStrings; prefs: Prefs | n
                 className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition motion-reduce:transition-none ${
                   settled
                     ? 'cursor-not-allowed'
-                    : 'cursor-pointer hover:bg-black/[0.04] dark:hover:bg-white/5'
+                    : 'cursor-pointer hover:bg-black/4 dark:hover:bg-white/5'
                 }`}
               >
                 <input
@@ -211,7 +211,7 @@ function Chip({
       onClick={onClick}
       aria-label={action}
       title={action}
-      className={`inline-flex items-center gap-1.5 rounded-full border ${HAIRLINE} px-2.5 py-1 text-[13px] text-neutral-900 transition hover:bg-black/[0.04] dark:text-neutral-100 dark:hover:bg-white/5 motion-reduce:transition-none ${FOCUS_RING}`}
+      className={`inline-flex items-center gap-1.5 rounded-full border ${HAIRLINE} px-2.5 py-1 text-[13px] text-neutral-900 transition hover:bg-black/4 dark:text-neutral-100 dark:hover:bg-white/5 motion-reduce:transition-none ${FOCUS_RING}`}
     >
       <span>{label}</span>
       <span aria-hidden className="text-neutral-500 dark:text-neutral-400">

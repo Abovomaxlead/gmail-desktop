@@ -3,9 +3,10 @@
 // unfolds is not the mail the card was about — and where Gmail instead unfolds the oldest
 // unread reply, a thread holding several of them lands just as far back.
 //
-// So the view is told both: the conversation to go to, and the message to show once it is
-// there. This file runs the second step against a fake conversation, the way the browser
-// would: the script the app hands to Gmail's page is executed, not read.
+// So the view is navigated by the message itself — the thread id would open only the first
+// mail where Gmail draws every mail as its own row — and the message is then pointed at once
+// the conversation is there. This file runs that second step against a fake conversation,
+// the way the browser would: the script the app hands to Gmail's page is executed, not read.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { AccountRef } from '../renderer/lib/account-ref';
@@ -49,6 +50,11 @@ const { FakeWebContentsView, views, FakeMessage } = vi.hoisted(() => {
     scripts: string[] = [];
     /** The conversation Gmail draws once it has navigated. */
     conversation: FakeMessage[] = [];
+    /** The mails the list on screen has a row for. */
+    listed: string[] = [];
+    /** Whether Gmail acts on a click on a row. */
+    rowOpens = true;
+    rowClicks = 0;
     /** How many asks Gmail takes to arrive. Until then the page is still the inbox. */
     rendersAfter = 0;
     anchorAsks = 0;
@@ -69,6 +75,19 @@ const { FakeWebContentsView, views, FakeMessage } = vi.hoisted(() => {
         this.hash = JSON.parse(set[1]) as string;
         return Promise.resolve(undefined);
       }
+      // The row click and the check after it are run for real in list-row-open.test.ts;
+      // here the page only answers them the way Gmail would.
+      if (code.includes('dispatchEvent')) {
+        const wanted = JSON.parse(/const message = (.*);/.exec(code)![1]) as string | null;
+        const row = this.listed.find((id) => wanted === null || id === wanted);
+        if (!row) return Promise.resolve(null);
+        this.rowClicks++;
+        const before = this.hash;
+        if (this.rowOpens) this.hash = `#inbox/FMfcg${row}`;
+        return Promise.resolve(before);
+      }
+      const opened = /location\.hash !== ("(?:[^"\\]|\\.)*")\)/.exec(code);
+      if (opened) return Promise.resolve(this.hash !== JSON.parse(opened[1]));
       if (code.includes('data-legacy-message-id')) {
         this.anchorAsks++;
         const arrived = this.hash.startsWith('#inbox/') && this.anchorAsks > this.rendersAfter;
@@ -172,24 +191,30 @@ afterEach(() => {
 
 describe('openMailThread points at the mail, not just the conversation', () => {
   it('unfolds the message the notification was about', async () => {
+    vi.useFakeTimers();
     const { m, wc } = openMailView();
     wc.conversation = [makeMessage(THREAD, true), makeMessage(REPLY, false)];
 
     m.openMailThread(accountKey({ kind: 'authuser', index: 0 }), THREAD, REPLY);
-    await vi.waitFor(() => expect(wc.conversation[1].clicks).toBe(1));
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(wc.conversation[1].clicks).toBe(1);
 
-    expect(wc.hash).toBe(`#inbox/${THREAD}`);
-    expect(wc.conversation[1].scrolls).toBe(1);
+    // Navigated by the reply, not the thread: with conversation view off every mail is its
+    // own row under the same thread id, and `#inbox/<thread>` opens only the first of them.
+    expect(wc.hash).toBe(`#inbox/${REPLY}`);
+    expect(wc.conversation[1].scrolls).toBeGreaterThan(0);
     // The oldest message is left exactly as Gmail drew it.
     expect(wc.conversation[0].clicks).toBe(0);
+    expect(wc.conversation[0].scrolls).toBe(0);
   });
 
   it('leaves the page alone when no message is known', async () => {
+    vi.useFakeTimers();
     const { m, wc } = openMailView();
     wc.conversation = [makeMessage(THREAD, true)];
 
     m.openMailThread(accountKey({ kind: 'authuser', index: 0 }), THREAD);
-    await new Promise((r) => setTimeout(r, 10));
+    await vi.advanceTimersByTimeAsync(3000);
 
     expect(wc.hash).toBe(`#inbox/${THREAD}`);
     expect(wc.anchorAsks).toBe(0);
@@ -232,6 +257,75 @@ describe('openMailThread points at the mail, not just the conversation', () => {
 
     expect(wc.anchorAsks).toBe(0);
     expect(wc.scripts.some((s) => s.includes('msg-f'))).toBe(false);
+  });
+});
+
+// With the reading pane beside or below the list, a navigation to the conversation opens it
+// across the whole window and the list is gone. A click on its row opens it in the pane, the
+// way it opens when the reader clicks it.
+describe('a mail the list shows is opened from its row', () => {
+  const key = accountKey({ kind: 'authuser', index: 0 });
+  const navigatedTo = (wc: { scripts: string[] }, id: string) =>
+    wc.scripts.includes(`location.hash = ${JSON.stringify(`#inbox/${id}`)}`);
+
+  it('clicks the row instead of navigating, and still unfolds the message', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.listed = [THREAD, REPLY];
+    wc.conversation = [makeMessage(THREAD, true), makeMessage(REPLY, false)];
+
+    m.openMailThread(key, THREAD, REPLY);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(wc.rowClicks).toBe(1);
+    expect(wc.hash).toBe(`#inbox/FMfcg${REPLY}`);
+    expect(navigatedTo(wc, REPLY)).toBe(false);
+    expect(wc.conversation[1].clicks).toBe(1);
+  });
+
+  it('goes to the inbox for the row when the list on screen does not have it', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.hash = '#label/Klanten';
+
+    m.openMailThread(key, THREAD, REPLY);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(wc.hash).toBe('#inbox');
+    // The inbox draws the new mail a moment later.
+    wc.listed = [REPLY];
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(wc.rowClicks).toBe(1);
+    expect(navigatedTo(wc, REPLY)).toBe(false);
+  });
+
+  it('navigates when Gmail does not act on the click', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.listed = [REPLY];
+    wc.rowOpens = false;
+
+    m.openMailThread(key, THREAD, REPLY);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(wc.rowClicks).toBe(1);
+    expect(wc.hash).toBe(`#inbox/${REPLY}`);
+  });
+
+  it('does not navigate over a row a later click has taken over', async () => {
+    vi.useFakeTimers();
+    const { m, wc } = openMailView();
+    wc.rowOpens = false;
+    wc.listed = [THREAD, REPLY];
+
+    m.openMailThread(key, THREAD, THREAD);
+    await vi.advanceTimersByTimeAsync(200);
+    wc.rowOpens = true;
+    m.openMailThread(key, THREAD, REPLY);
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(navigatedTo(wc, THREAD)).toBe(false);
+    expect(wc.hash).toBe(`#inbox/FMfcg${REPLY}`);
   });
 });
 
