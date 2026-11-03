@@ -182,7 +182,7 @@ export function AccountsSection({
                         if (v !== (p.label ?? p.name ?? ''))
                           window.desktop?.setAccountPref({ email: p.email, label: v });
                       }}
-                      className={`-ml-1.5 w-full truncate rounded-md bg-transparent px-1.5 py-0.5 text-[13.5px] leading-tight transition hover:bg-black/[0.04] focus:bg-white dark:hover:bg-white/[0.06] dark:focus:bg-neutral-900 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
+                      className={`-ml-1.5 w-full truncate rounded-md bg-transparent px-1.5 py-0.5 text-[13.5px] leading-tight transition hover:bg-black/4 focus:bg-white dark:hover:bg-white/6 dark:focus:bg-neutral-900 motion-reduce:transition-none ${CARD_FOCUS_RING}`}
                     />
                     <span className="flex min-w-0 items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                       <span className="truncate">{p.email}</span>

@@ -268,7 +268,7 @@ export function Topbar({
         <div
           ref={stripRef}
           data-tour="tabs"
-          className="flex min-w-0 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex min-w-0 items-center gap-1 overflow-x-auto scrollbar-none [&::-webkit-scrollbar]:hidden"
           onScroll={(e) => setScrolledOff(e.currentTarget.scrollLeft > 1)}
           style={{
             maxWidth: `calc(100% - ${

@@ -46,7 +46,7 @@ export function PhishingSection({ S, prefs }: { S: UiStrings; prefs: Prefs | nul
                   }
                   aria-label={S.trustedHostRemove(host)}
                   title={S.trustedHostRemove(host)}
-                  className={`shrink-0 rounded text-[13px] font-medium text-neutral-500 dark:text-neutral-400 transition hover:text-neutral-900 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`}
+                  className={`shrink-0 rounded-sm text-[13px] font-medium text-neutral-500 dark:text-neutral-400 transition hover:text-neutral-900 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`}
                 >
                   {S.remove}
                 </button>

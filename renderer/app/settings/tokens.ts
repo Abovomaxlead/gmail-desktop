@@ -2,22 +2,22 @@
 //
 // The panel is grey with one white surface, and colour only appears where it means
 // something: an account's own colour, ACCENT_BUTTON on the update button, DANGER_* for
-// deletion and failure. Opacity must be bracketed — Tailwind 3's default scale steps by 5,
-// so `border-black/8` emits nothing while `border-black/[0.08]` works.
+// deletion and failure. Any whole-number opacity works (`border-black/8`); Tailwind 3 needed
+// the bracketed `/[0.08]` form, because its default scale stepped by 5.
 //
 // Muted text always carries its dark variant: `text-neutral-500` is 4.18:1 on the dark
 // card, under the 4.5:1 this size needs, where `dark:text-neutral-400` is 7.85:1. A
 // `text-neutral-500` written without it is the bug, not the exception.
 
 export const FOCUS_RING =
-  'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
+  'outline-hidden focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-900';
 
 export const SURFACE_FOCUS_RING =
-  'outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 dark:focus-visible:ring-offset-neutral-950';
+  'outline-hidden focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 dark:focus-visible:ring-offset-neutral-950';
 
-export const HAIRLINE = 'border-black/[0.08] dark:border-white/[0.08]';
+export const HAIRLINE = 'border-black/8 dark:border-white/8';
 
-export const DIVIDER = 'divide-black/[0.08] dark:divide-white/[0.08]';
+export const DIVIDER = 'divide-black/8 dark:divide-white/8';
 
 export const SURFACE = `rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
 

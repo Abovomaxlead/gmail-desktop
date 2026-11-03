@@ -79,7 +79,7 @@ export default function DelegatedPickerPage() {
               {ask.candidates.map((email) => (
                 <label
                   key={email}
-                  className="flex cursor-pointer items-center gap-3 px-5 py-2.5 transition hover:bg-black/[0.04] dark:hover:bg-white/5 motion-reduce:transition-none"
+                  className="flex cursor-pointer items-center gap-3 px-5 py-2.5 transition hover:bg-black/4 dark:hover:bg-white/5 motion-reduce:transition-none"
                 >
                   <input
                     type="checkbox"

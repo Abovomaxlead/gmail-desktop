@@ -875,7 +875,7 @@ export default function MailDropModalPage() {
                 type="button"
                 onClick={() => setControlError(null)}
                 aria-label={S.mdDismissNotice}
-                className="shrink-0 rounded px-1 text-xs text-red-700 hover:bg-red-500/10 dark:text-red-400"
+                className="shrink-0 rounded-sm px-1 text-xs text-red-700 hover:bg-red-500/10 dark:text-red-400"
               >
                 ✕
               </button>

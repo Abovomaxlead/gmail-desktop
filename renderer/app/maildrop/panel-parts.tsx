@@ -84,7 +84,7 @@ export function MailboxRail({
                     empty
                       ? 'text-neutral-400 dark:text-neutral-600'
                       : 'text-neutral-700 dark:text-neutral-300'
-                  } hover:bg-black/[0.04] dark:hover:bg-white/5`
+                  } hover:bg-black/4 dark:hover:bg-white/5`
             }`}
           >
             <span className="truncate">{row.email}</span>
@@ -107,7 +107,7 @@ export function MailboxRail({
                 <span className="text-[11px] tabular-nums text-neutral-400">{row.matchCount}</span>
               )}
               {row.pickedCount > 0 && (
-                <span className="rounded bg-blue-600 px-1.5 text-[11px] font-medium tabular-nums text-white">
+                <span className="rounded-sm bg-blue-600 px-1.5 text-[11px] font-medium tabular-nums text-white">
                   {row.pickedCount}
                 </span>
               )}
@@ -305,7 +305,7 @@ export function PlaceRow({
       className={`flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm transition ${
         on
           ? 'bg-blue-50 text-neutral-900 dark:bg-blue-500/15 dark:text-neutral-100'
-          : 'text-neutral-700 hover:bg-black/[0.04] dark:text-neutral-300 dark:hover:bg-white/5'
+          : 'text-neutral-700 hover:bg-black/4 dark:text-neutral-300 dark:hover:bg-white/5'
       }`}
     >
       <input
@@ -327,7 +327,7 @@ export function PlaceRow({
         )}
       </span>
       {already > 0 && (
-        <span className="ml-auto shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
+        <span className="ml-auto shrink-0 whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-medium text-amber-700 ring-1 ring-inset ring-amber-500/40 dark:text-amber-500">
           {S.mdAlreadyInLabel(already)}
         </span>
       )}
@@ -351,7 +351,7 @@ export function TreeOutline({ tree, S }: { tree: MailDropTree; S: UiStrings }) {
   const above = tree.dragged.split('/').slice(0, -1);
   const ancestors = above.map((_, i) => above.slice(0, i + 1).join('/'));
   return (
-    <div className="max-h-32 shrink-0 overflow-y-auto border-b border-black/5 bg-black/[0.02] px-4 py-2 dark:border-white/10 dark:bg-white/[0.03]">
+    <div className="max-h-32 shrink-0 overflow-y-auto border-b border-black/5 bg-black/2 px-4 py-2 dark:border-white/10 dark:bg-white/3">
       <p className="pb-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
         {S.mdTreeLabelCount(tree.members.length)}
       </p>

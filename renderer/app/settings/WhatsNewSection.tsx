@@ -53,7 +53,7 @@ export function WhatsNewSection({ S, uiLang }: { S: UiStrings; uiLang: 'en' | 'n
                   type="button"
                   onClick={() => setShowOlder((s) => !s)}
                   aria-expanded={showOlder}
-                  className={`mt-3 self-start rounded text-[13px] font-medium text-neutral-500 dark:text-neutral-400 transition hover:text-neutral-900 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`}
+                  className={`mt-3 self-start rounded-sm text-[13px] font-medium text-neutral-500 dark:text-neutral-400 transition hover:text-neutral-900 dark:hover:text-neutral-100 motion-reduce:transition-none ${FOCUS_RING}`}
                 >
                   {showOlder ? S.hideOlder : S.showOlder}
                 </button>

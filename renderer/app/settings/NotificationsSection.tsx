@@ -320,7 +320,7 @@ export function NotificationsSection({
                       title={c.name}
                       className="w-16 px-1 py-2 align-bottom text-center text-xs font-medium leading-tight text-neutral-500 dark:text-neutral-400"
                     >
-                      <span className="block whitespace-normal break-words">{c.header}</span>
+                      <span className="block whitespace-normal wrap-break-word">{c.header}</span>
                     </th>
                   ))}
                 </tr>

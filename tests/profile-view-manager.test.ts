@@ -123,10 +123,10 @@ interface FakeWin {
   isFocused: () => boolean;
   on: () => void;
   once: () => void;
-  webContents: { focus: Mock<[], void>; isDestroyed: () => boolean };
+  webContents: { focus: Mock<() => void>; isDestroyed: () => boolean };
   contentView: {
-    addChildView: Mock<[FakeView], void>;
-    removeChildView: Mock<[FakeView], void>;
+    addChildView: Mock<(view: FakeView) => void>;
+    removeChildView: Mock<(view: FakeView) => void>;
   };
   getContentSize: () => number[];
 }

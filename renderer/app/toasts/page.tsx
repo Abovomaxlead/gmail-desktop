@@ -32,7 +32,7 @@ const ROUNDING_SLACK = 2;
 const CARD = `relative flex overflow-hidden rounded-2xl border ${HAIRLINE} bg-white dark:bg-neutral-900`;
 
 const ACTION =
-  'flex h-5 w-6 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/[0.06] hover:text-neutral-900 motion-reduce:transition-none dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white';
+  'flex h-5 w-6 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/6 hover:text-neutral-900 motion-reduce:transition-none dark:text-neutral-300 dark:hover:bg-white/10 dark:hover:text-white';
 
 const ACTION_ICON: Record<ToastAction, string> = {
   reply: 'M6.5 4L2.5 8l4 4M2.5 8h7a4 4 0 0 1 4 4v1',
@@ -175,7 +175,7 @@ export default function ToastsPage() {
                   type="button"
                   data-toast-card
                   onClick={() => window.desktop?.dismissAllToasts()}
-                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur hover:bg-white dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-900`}
+                  className={`rounded-full border ${HAIRLINE} bg-white/95 px-3 py-1 text-xs text-neutral-600 backdrop-blur-sm hover:bg-white dark:bg-neutral-900/95 dark:text-neutral-300 dark:hover:bg-neutral-900`}
                 >
                   {S.toastDismissAll}
                 </button>
@@ -262,7 +262,7 @@ function ToastCard({
       <button
         type="button"
         onClick={() => window.desktop?.activateToast(toast.id)}
-        className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left outline-none"
+        className="flex min-w-0 flex-1 items-start gap-3 px-3.5 py-3 text-left outline-hidden"
       >
         {/* A mail card shows who sent it; the account is already the colour edge and the address
             line, and its own face here reads as mail from yourself. */}
@@ -352,7 +352,7 @@ function SummaryCard({
       <button
         type="button"
         onClick={() => window.desktop?.activateToast('summary')}
-        className="flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left outline-none"
+        className="flex min-w-0 flex-1 items-center gap-3 px-3.5 py-3 text-left outline-hidden"
       >
         <span
           aria-hidden
@@ -388,7 +388,7 @@ function CloseBox({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/[0.06] hover:text-neutral-700 motion-reduce:transition-none dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-200 ${hovered ? 'opacity-100' : 'opacity-0'}`}
+      className={`absolute right-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full text-neutral-400 transition hover:bg-black/6 hover:text-neutral-700 motion-reduce:transition-none dark:text-neutral-500 dark:hover:bg-white/10 dark:hover:text-neutral-200 ${hovered ? 'opacity-100' : 'opacity-0'}`}
     >
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden>
         <path

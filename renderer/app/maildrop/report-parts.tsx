@@ -62,7 +62,7 @@ export function RailPlaceholder() {
   return (
     <div className="flex w-60 shrink-0 flex-col gap-0.5 border-r border-black/10 p-2 dark:border-white/10">
       {[0, 1, 2].map((i) => (
-        <div key={i} className="mx-2 my-2 h-3 animate-pulse rounded bg-black/[0.06] dark:bg-white/10" />
+        <div key={i} className="mx-2 my-2 h-3 animate-pulse rounded-sm bg-black/6 dark:bg-white/10" />
       ))}
     </div>
   );
@@ -115,7 +115,7 @@ export function LabelSearch({
             onChange('');
           }
         }}
-        className="w-full rounded-lg border border-black/10 bg-black/[0.03] py-1.5 pl-8 pr-8 text-sm text-neutral-900 outline-none transition placeholder:text-neutral-400 focus:border-blue-500 focus:bg-transparent dark:border-white/10 dark:bg-white/5 dark:text-neutral-100 dark:focus:border-blue-400"
+        className="w-full rounded-lg border border-black/10 bg-black/3 py-1.5 pl-8 pr-8 text-sm text-neutral-900 outline-hidden transition placeholder:text-neutral-400 focus:border-blue-500 focus:bg-transparent dark:border-white/10 dark:bg-white/5 dark:text-neutral-100 dark:focus:border-blue-400"
       />
       {value && (
         <button
@@ -272,7 +272,7 @@ export function Status({
         <span
           key={chip.email}
           title={chip.email}
-          className="shrink-0 whitespace-nowrap rounded bg-black/[0.05] px-1.5 py-0.5 text-[11px] text-neutral-700 dark:bg-white/10 dark:text-neutral-300"
+          className="shrink-0 whitespace-nowrap rounded-sm bg-black/5 px-1.5 py-0.5 text-[11px] text-neutral-700 dark:bg-white/10 dark:text-neutral-300"
         >
           <span className="font-medium">{localPart(chip.email)}</span>: {chip.label}
           {chip.extra > 0 && ` +${chip.extra}`}
