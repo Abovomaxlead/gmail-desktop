@@ -3,6 +3,40 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-11-03
+
+### Toegevoegd
+- **Snelle acties op een mailmelding: beantwoorden, archiveren, verwijderen en gelezen.** Ga
+  met je muis over een melding en je ziet vier knoppen. Beantwoorden opent de mail met het
+  antwoordvak al open. De andere drie gebeuren op de achtergrond en je ziet het resultaat meteen
+  in Gmail. Ze werken ook op meldingen die Gmail zelf stuurt en op meldingen van een gedeeld
+  postvak.
+- **Kies zelf hoe lang een melding blijft staan.** Bij accounts waar Blijft staan aan staat, kies
+  je in Instellingen → Meldingen of de melding blijft tot je hem wegklikt, of na een aantal
+  seconden, minuten of uren verdwijnt.
+- **Een melding verdwijnt zodra je die mail in de app opent,** in de lijst, in het leesvenster
+  of via zoeken. De andere meldingen blijven staan.
+
+### Gewijzigd
+- **Een mailmelding zegt precies van wie hij komt en waar hij binnenkwam.** Bovenaan staat het
+  adres en de foto van de afzender, daaronder het onderwerp en de eerste regels van de mail, en
+  onderaan het postvak, als "Inbox: jouw@adres.nl".
+- **Een agendaherinnering volgt dezelfde "blijf staan"-knop als je mail.**
+- **Nieuwere Chrome eronder.**
+
+### Opgelost
+- **Klik je op een mailmelding, dan opent de mail waar hij over ging,** niet de eerste mail van
+  het gesprek. Hij opent in je leesvenster als je dat gebruikt, en begint bovenaan.
+- **"Verbinding met Gmail verlopen" verschijnt niet meer als alleen het internet even weg was,**
+  bijvoorbeeld net na de slaapstand. De app vraagt dat alleen nog als Google de koppeling echt
+  weigert.
+- **Na opnieuw inloggen komt elk gedeeld postvak terug in zijn eigen tabblad en venster.**
+- **Een venster dat Gmail opent, blijft niet meer wit op een computer waar het beeld steeds
+  uitvalt.** De app zet dan hardwareversnelling uit en vraagt of hij opnieuw mag opstarten.
+  Aanzetten kan weer via Instellingen → Geavanceerd.
+- **Een account houdt zijn kleur,** ook als het adres met hoofdletters binnenkomt.
+- **Een venster dat de app over Gmail heen opent, krijgt zijn inhoud altijd mee.**
+
 ## [1.0.1-beta.1793366777] — 2026-10-30
 
 ### Nieuw
