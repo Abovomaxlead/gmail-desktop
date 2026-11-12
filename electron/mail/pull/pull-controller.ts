@@ -35,7 +35,7 @@ import { attemptWrite } from '../copy/copy-journal';
 import { type TreeThread } from '../drag/label-drop';
 import { JOB_BATCH_THREADS, needsJob, readLabelJob, startLabelJob, type LabelJob } from '../job/label-job';
 import { pullRefusal, type JobEndInfo } from '../job/job-guard';
-import { BUSY_TEXT, SLOW_TEXT, cancelledText, dropOutcome } from '../drag/dropzone';
+import { BUSY_TEXT, NO_SUBJECT, SLOW_TEXT, cancelledText, dropOutcome } from '../drag/dropzone';
 import { createPullControl } from './pull-control';
 import { DROP_LOCK_MS, createDropLock } from '../drag/drop-lock';
 import { chunk } from '../shared/chunk';
@@ -60,6 +60,7 @@ import {
 } from '../drop-state';
 import {
   listLabelTree,
+  listWholeView,
   saveLabel,
   saveOneThread,
   withLogTrouble,
@@ -570,7 +571,7 @@ async function pullMailDrop(
   const ts = new Date().toISOString();
   const account = profile?.email ?? '';
   const root = mailDropFolder();
-  const items = payload.items ?? [];
+  let items = payload.items ?? [];
   // Counted in conversations, and sent to every Gmail view: they are all locked by this pull,
   // so they all say how far it has got.
   const report = pullReporter();
@@ -649,6 +650,30 @@ async function pullMailDrop(
     return;
   }
 
+  // Gmail had the whole list selected, while the page could only send the rows it drew. The rest
+  // is listed here; refusing beats saving the rows on screen and calling that the selection.
+  let capped = false;
+  if (payload.wholeView) {
+    report(0, 0);
+    const listed = await listWholeView(account, payload.wholeView, JOB_BATCH_THREADS, listReporter());
+    if (listed.status === 'stopped') {
+      setLastDropSaved([]);
+      notifyLog('[maildrop] fetch cancelled while the selection was being listed');
+      return;
+    }
+    if (listed.status === 'refused' || listed.items.length === 0) {
+      const shown = listed.status === 'refused' ? listed.error : 'Geen mail gevonden in deze selectie';
+      notifyLog(`[maildrop] whole-list drag refused: ${shown}`);
+      manager?.sendDropResult(acctKey, { ok: false, count: 0, total: 0, error: shown });
+      openDropPreview([{ threadId: '', subject: 'Hele selectie', saved: 0, error: shown }]);
+      return;
+    }
+    // The rows the page drew keep the subject it showed; the save fills in the others.
+    const subjects = new Map(items.map((i) => [i.threadId, i.subject]));
+    items = listed.items.map((i) => ({ ...i, subject: subjects.get(i.threadId) ?? '' }));
+    capped = listed.capped;
+  }
+
   // Side by side rather than one after the other: ten dragged mails were ten conversations
   // waiting on each other, which is minutes on a normal mailbox. mapLimit answers in the
   // order the rows were dragged, so the preview strip, the numbering and log.jsonl read the
@@ -697,7 +722,12 @@ async function pullMailDrop(
     saved.push(r.count);
     if (r.error) lastError = r.error;
     lastDropSaved.push(...r.saved);
-    done.push({ ...item, saved: r.count, error: r.error });
+    done.push({ ...item, subject: item.subject || r.saved[0]?.subject || NO_SUBJECT, saved: r.count, error: r.error });
+  }
+  if (capped) {
+    const notice = 'De selectie bevat meer mail dan in één sleep wordt opgehaald';
+    lastError ??= notice;
+    done.push({ threadId: '', subject: `Afgekapt op ${JOB_BATCH_THREADS} berichten`, saved: 0, error: notice });
   }
   rememberPullFailures(done, {
     acctKey,

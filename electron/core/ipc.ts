@@ -5,6 +5,7 @@
 // whether it may notify at all, and whether it may make noise. The text is main's.
 
 import type { MessageRef } from '../mail/drag/dropzone';
+import type { WholeView } from '../mail/drag/whole-view';
 import type { CopyResult } from '../mail/copy/mail-copy';
 import type { CopyStopMode, RollbackOutcome } from '../mail/copy/copy-run-types';
 import type { ByMailbox, CopyProgress, JobEnd, JobLine, JobPanel, MailDropTree } from '../../renderer/lib/maildrop-copy';
@@ -162,6 +163,9 @@ export interface MailDropPayload {
   authuser: string;
   ik: string;
   label?: string;
+  /** Set when Gmail had the whole list selected rather than the rows on screen. `items` are then
+   * only the rows the page drew, and main lists the rest. */
+  wholeView?: WholeView;
 }
 
 export interface MailDropPreviewItem {

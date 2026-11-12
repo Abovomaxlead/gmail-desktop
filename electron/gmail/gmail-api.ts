@@ -706,6 +706,93 @@ export async function listLabelThreadIds(
   );
 }
 
+/** A list as threads.list and messages.list both take it: labels that must all be on the mail,
+ * a search, and whether spam and trash count. */
+export interface ListQuery {
+  labelIds: string[];
+  q: string;
+  includeSpamTrash: boolean;
+}
+
+/**
+ * One page of a list of threads or of messages
+ *
+ * @param base THREADS_URL or MESSAGES_URL
+ * @param query
+ * @param pageToken
+ * @returns the URL
+ */
+export function listQueryUrl(base: string, query: ListQuery, pageToken?: string): string {
+  const q = new URLSearchParams({ maxResults: String(THREADS_PAGE_SIZE) });
+  for (const id of query.labelIds) q.append('labelIds', id);
+  if (query.q) q.set('q', query.q);
+  if (query.includeSpamTrash) q.set('includeSpamTrash', 'true');
+  if (pageToken) q.set('pageToken', pageToken);
+  return `${base}?${q.toString()}`;
+}
+
+/**
+ * Reads one page of messages.list with the thread each message belongs to
+ *
+ * @param json
+ * @returns the messages in the page's order, and the token of the next page
+ */
+export function parseMessageRefList(json: unknown): {
+  messages: Array<{ id: string; threadId: string }>;
+  nextPageToken?: string;
+} {
+  const page = json && typeof json === 'object' ? json : {};
+  const raw = 'messages' in page ? page.messages : undefined;
+  const messages: Array<{ id: string; threadId: string }> = [];
+  if (Array.isArray(raw)) {
+    for (const m of raw) {
+      if (typeof m?.id === 'string' && m.id && typeof m.threadId === 'string' && m.threadId) {
+        messages.push({ id: m.id, threadId: m.threadId });
+      }
+    }
+  }
+  const next = stringFrom('nextPageToken' in page ? page.nextPageToken : undefined);
+  return next ? { messages, nextPageToken: next } : { messages };
+}
+
+/**
+ * Every thread or every message of a list, one page at a time
+ *
+ * @param accessToken
+ * @param unit 'thread' lists conversations, 'message' lists every mail on its own
+ * @param query
+ * @param max
+ * @param onPage the running total after each page; answer false to stop paging
+ * @returns {Promise<{refs: Array<{id: string, threadId: string}>, capped: boolean, stopped: boolean}>}
+ *   in the list's own order; for a thread, id and threadId are the same
+ */
+export async function listQueryRefs(
+  accessToken: string,
+  unit: 'thread' | 'message',
+  query: ListQuery,
+  max: number,
+  onPage?: (soFar: number) => boolean,
+): Promise<{ refs: Array<{ id: string; threadId: string }>; capped: boolean; stopped: boolean }> {
+  const threadOf = new Map<string, string>();
+  const walked = await walkThreadPages(
+    max,
+    async (pageToken) => {
+      if (unit === 'thread') {
+        return parseThreadList(await requestJson(listQueryUrl(THREADS_URL, query, pageToken), accessToken));
+      }
+      const page = parseMessageRefList(await requestJson(listQueryUrl(MESSAGES_URL, query, pageToken), accessToken));
+      for (const m of page.messages) threadOf.set(m.id, m.threadId);
+      return { threadIds: page.messages.map((m) => m.id), nextPageToken: page.nextPageToken };
+    },
+    onPage,
+  );
+  return {
+    refs: walked.threadIds.map((id) => ({ id, threadId: threadOf.get(id) ?? id })),
+    capped: walked.capped,
+    stopped: walked.stopped,
+  };
+}
+
 /**
  * Reads the source of every message in a thread
  *
