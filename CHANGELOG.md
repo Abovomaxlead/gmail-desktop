@@ -3,6 +3,16 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.2] — 2026-11-12
+
+### Opgelost
+- **"Alle berichten in deze map selecteren" en dan slepen bewaart echt alles.** Stond je lijst
+  op 100 per pagina en koos je in Gmail "Alle 153 berichten in … selecteren", dan bewaarde de
+  sleep alleen de 100 die op het scherm stonden. De app vraagt nu aan Gmail welke mail er in de
+  hele map, zoekopdracht of weergave zit en bewaart die allemaal. Lukt dat niet, dan zegt de
+  strook dat in plaats van stilletjes een deel op te slaan. Eén sleep haalt hooguit 2000
+  berichten op; zit er meer in, dan staat dat in het overzicht.
+
 ## [1.0.1] — 2026-11-03
 
 ### Toegevoegd
