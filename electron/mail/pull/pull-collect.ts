@@ -11,7 +11,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { session } from 'electron';
-import type { MailDropPreviewItem } from '../../core/ipc';
+import type { MailDropItem, MailDropPreviewItem } from '../../core/ipc';
 import { SESSION_PARTITION } from '../../core/session-partition';
 import { manager } from '../../core/runtime';
 import { mapLimit, memoise } from '../../core/concurrency';
@@ -22,6 +22,8 @@ import {
   fetchThreadRaw,
   fetchUserLabelMap,
   listLabelThreadIds,
+  listQueryRefs,
+  type ListQuery,
   type ThreadMessage,
 } from '../../gmail/gmail-api';
 import { htmlToText, parseHeaders } from '../shared/eml';
@@ -52,6 +54,7 @@ import {
 } from '../drag/label-drop';
 import { labelTreeMembers } from '../copy/label-tree';
 import { NO_SUBJECT, type MessageRef } from '../drag/dropzone';
+import type { WholeView } from '../drag/whole-view';
 import { activePull, lastDropTree, setLastDropTree, type SavedRef } from '../drop-state';
 
 
@@ -72,6 +75,12 @@ export interface LabelTreeListing {
   capped: boolean;
   cap: number;
 }
+
+/** What listing a whole-list selection came to: every mail of it as a drag row, or why not. */
+export type WholeViewListing =
+  | { status: 'listed'; items: MailDropItem[]; capped: boolean }
+  | { status: 'refused'; error: string }
+  | { status: 'stopped' };
 
 type ApiThreadResult =
   | { kind: 'messages'; messages: ThreadMessage[] }
@@ -440,6 +449,64 @@ export async function listLabelTree(
     // with nothing in it for the two minutes before a kill is what made this bug guesswork.
     notifyLog(`[maildrop] label "${label}" could not be listed over the API: ${(e as Error).message}`);
     return null;
+  }
+}
+
+/**
+ * Lists every mail of a list Gmail had selected whole
+ *
+ * Each mail becomes the row the page would have sent for it had it been on screen: a message of
+ * its conversation with conversation view off, the conversation with it on. Subjects are left
+ * empty for the save to fill in, since the page only ever drew the rows it showed.
+ *
+ * @param account the mailbox the drag came from
+ * @param whole what the page read off the selection
+ * @param max how many rows one drag may carry
+ * @param found called with the running count as the pages land, for the strip
+ * @returns the rows, a refusal that says why, or that a cancel called the walk off
+ */
+export async function listWholeView(
+  account: string,
+  whole: WholeView,
+  max: number,
+  found: (count: number) => void = () => {},
+): Promise<WholeViewListing> {
+  if (!whole.view) {
+    return { status: 'refused', error: 'Deze weergave kan niet in zijn geheel worden opgehaald; sleep per pagina' };
+  }
+  const withToken = account ? await withMailboxToken(account) : null;
+  if (!withToken) return { status: 'refused', error: 'Geen toegang tot de Gmail-API voor dit postvak' };
+  const view = whole.view;
+  try {
+    let query: ListQuery;
+    if (view.kind === 'label') {
+      const labels = await withToken((token) => fetchUserLabelMap(token));
+      const wanted = view.name.toLowerCase();
+      const id =
+        labels.get(view.name) ?? [...labels].find(([name]) => name.toLowerCase() === wanted)?.[1];
+      if (!id) return { status: 'refused', error: `Label "${view.name}" niet gevonden` };
+      query = { labelIds: [id], q: '', includeSpamTrash: false };
+    } else {
+      query = { labelIds: view.labelIds, q: view.q, includeSpamTrash: view.includeSpamTrash };
+    }
+    const listed = await withToken((token) =>
+      listQueryRefs(token, whole.unit, query, max, (soFar) => {
+        found(soFar);
+        return !activePull?.stopped();
+      }),
+    );
+    if (listed.stopped) return { status: 'stopped' };
+    notifyLog(
+      `[maildrop] whole list ${JSON.stringify(view)}: ${listed.refs.length} ${whole.unit}(s) listed, ` +
+        `Gmail said ${whole.count ?? '?'}${listed.capped ? ' (truncated)' : ''}`,
+    );
+    const items: MailDropItem[] = listed.refs.map(({ id, threadId }) =>
+      whole.unit === 'message' ? { threadId, subject: '', message: { legacyId: id } } : { threadId, subject: '' },
+    );
+    return { status: 'listed', items, capped: listed.capped };
+  } catch (e) {
+    notifyLog(`[maildrop] whole list could not be listed over the API: ${(e as Error).message}`);
+    return { status: 'refused', error: `Lijst ophalen mislukt (${(e as Error).message})` };
   }
 }
 

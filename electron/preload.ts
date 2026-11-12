@@ -47,7 +47,15 @@ import {
   savingText,
   type DragNode,
   type MessageRef,
+  type DragRow,
 } from './mail/drag/dropzone';
+import {
+  bannerCount,
+  isWholeSelectionMark,
+  wholeViewOf,
+  WHOLE_SELECTION_MARK,
+  type WholeView,
+} from './mail/drag/whole-view';
 
 
 //===========================
@@ -616,10 +624,11 @@ function installDropzone(
         if (!saving) reset();
         return;
       }
-      const rows = rowsForDrag(
-        { threadId, ...(message ? { message } : {}) },
-        selectedRows(document),
-      );
+      const selected = selectedRows(document);
+      const rows = rowsForDrag({ threadId, ...(message ? { message } : {}) }, selected);
+      // Only when the drag carries the selection: a press outside it drags that one row, whatever
+      // Gmail has selected around it.
+      const wholeView = rows === selected ? wholeViewSelected(rows) : null;
       const items = itemsForDrag(rows, threadSubjects(document));
       // The items rather than the rows, so a row whose message could not be read says so
       // here as well: without the mark the log showed a bare thread id and read like a row
@@ -631,11 +640,13 @@ function installDropzone(
               (i) =>
                 `${i.threadId}${i.message?.permId ? `|${i.message.permId}` : ''}${i.messageUnknown ? '|?' : ''}`,
             )
-            .join(' '),
+            .join(' ') +
+          (wholeView ? ` | hele lijst geselecteerd: ${JSON.stringify(wholeView)}` : ''),
       );
       saving = true;
       mine = true;
-      showLine(items.length > 1 ? `${items.length} berichten opslaan…` : 'Bezig met opslaan…', true);
+      const count = wholeView ? (wholeView.count ?? items.length) : items.length;
+      showLine(count > 1 ? `${count} berichten opslaan…` : 'Bezig met opslaan…', true);
       setState('armed');
       send({
         items,
@@ -643,6 +654,7 @@ function installDropzone(
         ik:
           ikFromPage(window as unknown as { GLOBALS?: unknown }, document.documentElement.innerHTML) ??
           '',
+        ...(wholeView ? { wholeView } : {}),
       });
     },
     true,
@@ -705,6 +717,30 @@ function installDropzone(
       if (!mine) reset();
     },
   };
+}
+
+/**
+ * Whether Gmail has the whole list selected, and which list that is
+ *
+ * Only a banner on screen counts. Gmail keeps the lists it showed before hidden in the page, and
+ * a stale banner in one of those must not turn a drag of three rows into a drag of a label.
+ *
+ * @param rows the ticked rows the drag carries
+ * @returns the selection, or null when only the ticked rows are selected
+ * @private
+ */
+function wholeViewSelected(rows: DragRow[]): WholeView | null {
+  if (rows.length === 0) return null;
+  const marks = document.querySelectorAll(`[jslog^="${WHOLE_SELECTION_MARK}"]`);
+  const mark = [...marks].find(
+    (el) => isWholeSelectionMark(el.getAttribute('jslog')) && el.getClientRects().length > 0,
+  );
+  if (!mark) return null;
+  const tabbedInbox = [...document.querySelectorAll('[role="main"] [role="tab"]')].some(
+    (el) => el.getClientRects().length > 0,
+  );
+  const count = bannerCount(mark.parentElement?.querySelector('b')?.textContent);
+  return wholeViewOf(location.hash, tabbedInbox, count, rows);
 }
 
 
