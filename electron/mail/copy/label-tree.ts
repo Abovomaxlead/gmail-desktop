@@ -91,8 +91,10 @@ export function destinationName(member: string, parent: string | null): string {
  *
  * A destination name the mailbox already has is reused and never recreated -- that is what
  * copying a tree into an existing label means, and it is what keeps a rollback from deleting
- * a label the user made themselves. The labels above the dragged one are in `create` like any
- * other missing step, and hold no mail: only a member gets messages.
+ * a label the user made themselves. "Already has" ignores capitalisation, because Gmail does:
+ * with `Klanten/Team Acme` there, creating `Klanten/TEAM Acme` is refused with a 409, so the
+ * only label that name can ever be is the one already there. The labels above the dragged one
+ * are in `create` like any other missing step, and hold no mail: only a member gets messages.
  *
  * @param members from labelTreeMembers
  * @param parent the label the tree is put under, or null
@@ -114,9 +116,14 @@ export function planLabelTree(
     for (const step of ancestryOf(name, parent)) wanted.add(step);
   }
 
+  const folded = new Map<string, string>();
+  for (const [name, id] of existing) {
+    const key = name.toLowerCase();
+    if (!folded.has(key)) folded.set(key, id);
+  }
   const create: string[] = [];
   for (const name of sortParentsFirst([...wanted])) {
-    const already = existing.get(name);
+    const already = existing.get(name) ?? folded.get(name.toLowerCase());
     if (already) reuse.set(name, already);
     else create.push(name);
   }

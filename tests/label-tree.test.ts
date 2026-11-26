@@ -134,6 +134,17 @@ describe('planLabelTree', () => {
     expect(plan.reuse.get('Klanten')).toBe('Label_1');
   });
 
+  it('reuses a label that differs only in capitalisation, since Gmail refuses to make it', () => {
+    const existing = new Map([
+      ['klanten', 'Label_1'],
+      ['Klanten/Team Medemblik', 'Label_2'],
+    ]);
+    const plan = planLabelTree(['Klanten/TEAM Medemblik'], null, existing);
+    expect(plan.create).toEqual([]);
+    expect(plan.reuse.get('Klanten/TEAM Medemblik')).toBe('Label_2');
+    expect(plan.reuse.get('Klanten')).toBe('Label_1');
+  });
+
   it('never creates the chosen parent itself', () => {
     const plan = planLabelTree(members, 'Archief', new Map([['Archief', 'Label_1']]));
     expect(plan.create).not.toContain('Archief');

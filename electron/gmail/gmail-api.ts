@@ -529,7 +529,9 @@ export async function createHiddenLabel(
  *
  * Unlike a marker, a real label with the wanted name is precisely what was wanted, so a 409 is
  * resolved by using it -- there is nothing here to distrust and resolveConflictedMarker does
- * not apply.
+ * not apply. The name is looked up through findLabelId, not exactly: Gmail's 409 ignores
+ * capitalisation, so `Klanten/Team Acme` already being there is what refuses
+ * `Klanten/TEAM Acme`, and an exact lookup would find nothing.
  *
  * @param accessToken
  * @param name the full nested name, `Archief/Klanten/Acme`
@@ -552,7 +554,9 @@ export async function createVisibleLabel(
     return created;
   } catch (e) {
     if (!(e instanceof GmailHttpError) || e.status !== 409) throw e;
-    const existing = await fetchLabel(accessToken, name);
+    const labels = parseAllLabels(await requestJson(LABELS_URL, accessToken));
+    const id = findLabelId(labels, name);
+    const existing = id ? labels.find((l) => l.id === id) : undefined;
     if (!existing) throw new Error(`label '${name}' bestaat al, maar kon niet worden opgezocht`);
     return { id: existing.id, name: existing.name };
   }
