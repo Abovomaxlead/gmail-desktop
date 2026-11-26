@@ -3,6 +3,19 @@
 All notable changes to Gmail Desktop are documented here. This project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [1.0.3-beta.1795680874] — 2026-11-26
+
+### Opgelost
+- **Een labelstructuur kopiëren lukt ook als het label er al staat met andere hoofdletters.**
+  Had het andere postvak bijvoorbeeld al `Klanten/Team Medemblik` en sleepte je
+  `Klanten/TEAM Medemblik`, dan werd er niets gekopieerd en kreeg je "label bestaat al, maar
+  kon niet worden opgezocht". Gmail ziet dat als hetzelfde label, en de app nu ook: het
+  bestaande label wordt gebruikt en je krijgt de gewone vraag welke berichten er al staan.
+
+### Let op
+- **Dit is een testversie voor de volgende versie na 1.0.2.** Hij bevat alles uit 1.0.2 plus
+  deze oplossing.
+
 ## [1.0.2] — 2026-11-12
 
 ### Opgelost
